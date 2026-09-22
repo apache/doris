@@ -80,7 +80,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     // Callers hold either the read or write lock. BE dispatches a canonical built-in analyzer, then an
-    // exact policy, then a built-in by normalized name; return that built-in, or null for a policy.
+    // exact policy, then a built-in by normalized name; return a spelling that reaches that built-in,
+    // or null for a policy.
     private String resolveTopLevelBuiltinLocked(String name, Set<String> builtins) {
         String exactName = exactKey(name);
         if (IndexPolicy.BUILTIN_ANALYZERS.contains(exactName) && builtins.contains(exactName)) {
@@ -90,27 +91,27 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             return null;
         }
         String normalizedName = normalizeKey(name);
-        return builtins.contains(normalizedName) ? normalizedName : null;
+        if (!builtins.contains(normalizedName)) {
+            return null;
+        }
+        // BE checks an exact policy before the built-in normalizer, so the canonical spelling binds
+        // that policy instead; only the spelling given here still reaches the built-in.
+        if (!IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)
+                && exactNameToIndexPolicy.containsKey(normalizedName)) {
+            return exactName;
+        }
+        return normalizedName;
     }
 
     /**
-     * The built-in from {@code builtins} that an index's analyzer or normalizer name binds, or null
-     * when {@link #getPolicyByName} gives its binding. Validation uses the same order.
+     * The spelling that makes an index's analyzer or normalizer name bind a built-in from
+     * {@code builtins}, or null when {@link #getPolicyByName} gives its binding. Validation uses the
+     * same order.
      */
     public String getTopLevelBuiltin(String name, Set<String> builtins) {
         readLock();
         try {
             return resolveTopLevelBuiltinLocked(name, builtins);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    /** The policy with exactly this name, without the case-insensitive fallback. */
-    public IndexPolicy getPolicyByExactName(String name) {
-        readLock();
-        try {
-            return exactNameToIndexPolicy.get(exactKey(name));
         } finally {
             readUnlock();
         }

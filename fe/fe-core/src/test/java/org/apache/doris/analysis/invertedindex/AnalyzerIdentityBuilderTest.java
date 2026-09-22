@@ -84,7 +84,8 @@ public class AnalyzerIdentityBuilderTest {
                 null);
         // BE builds the built-in as a keyword tokenizer with the built-in filter of the same name.
         Assertions.assertEquals(
-                IndexPolicyTypeEnum.NORMALIZER.name() + ":token_filter=" + normalizer + ";", identity);
+                IndexPolicyTypeEnum.ANALYZER.name() + ":token_filter=" + normalizer
+                        + ";tokenizer=keyword;", identity);
     }
 
     @Test
@@ -1779,5 +1780,166 @@ public class AnalyzerIdentityBuilderTest {
                     () -> Assertions.assertNotEquals(namedAnalyzerIdentity("lower_az_fold"),
                             namedAnalyzerIdentity("upper_lower_az_fold")));
         }
+    }
+
+    @Test
+    public void testNormalizerIdentityMatchesEquivalentKeywordAnalyzer() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayComponent(policyMgr, 2, "norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        replayComponent(policyMgr, 3, "keyword_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 4, "standard_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 5, "norm_char_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("char_filter", "lower_a", "token_filter", "asciifolding"));
+        replayComponent(policyMgr, 6, "keyword_char_ascii", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "lower_a", "token_filter", "asciifolding"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("keyword_lower"),
+                            namedNormalizerIdentity("norm_lower")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("keyword_lower"),
+                            namedNormalizerIdentity("lowercase")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("keyword_char_ascii"),
+                            namedNormalizerIdentity("norm_char_ascii")),
+                    // A normalizer is a keyword pipeline, so any other tokenizer stays distinct.
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("standard_lower"),
+                            namedNormalizerIdentity("norm_lower")));
+        }
+    }
+
+    @Test
+    public void testExplicitCharReplaceDefaultsMatchBuiltinReference() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "default_replace", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", ",._"));
+        replayComponent(policyMgr, 2, "default_replace_explicit", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "._,", "replacement", " "));
+        replayComponent(policyMgr, 3, "other_replacement", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", ",._", "replacement", "-"));
+        replayComponent(policyMgr, 4, "other_pattern", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", ",."));
+        String[] filters = {"char_replace", "default_replace", "default_replace_explicit",
+                "other_replacement", "other_pattern"};
+        long id = 10;
+        for (String filter : filters) {
+            replayComponent(policyMgr, id++, filter + "_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", filter));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String builtin = namedAnalyzerIdentity("char_replace_analyzer");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(builtin, namedAnalyzerIdentity("default_replace_analyzer")),
+                    () -> Assertions.assertEquals(builtin,
+                            namedAnalyzerIdentity("default_replace_explicit_analyzer")),
+                    () -> Assertions.assertNotEquals(builtin,
+                            namedAnalyzerIdentity("other_replacement_analyzer")),
+                    () -> Assertions.assertNotEquals(builtin, namedAnalyzerIdentity("other_pattern_analyzer")));
+        }
+    }
+
+    @Test
+    public void testAdjacentDuplicateLowercaseFiltersCollapse() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "named_lower", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "lowercase"));
+        String[][] analyzers = {
+                {"lower_once", "lowercase"},
+                {"lower_twice", "lowercase,lowercase"},
+                {"lower_thrice", "lowercase,lowercase,lowercase"},
+                {"lower_named_lower", "lowercase,named_lower"},
+                {"lower_ascii", "lowercase,asciifolding"},
+                {"lower_ascii_lower", "lowercase,asciifolding,lowercase"},
+                {"pinyin_once", "pinyin"},
+                {"pinyin_twice", "pinyin,pinyin"}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "token_filter", analyzer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String once = namedAnalyzerIdentity("lower_once");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("lower_twice")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("lower_thrice")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("lower_named_lower")),
+                    // Only adjacent duplicates collapse, and only for a filter proven idempotent.
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("lower_ascii"),
+                            namedAnalyzerIdentity("lower_ascii_lower")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("pinyin_once"),
+                            namedAnalyzerIdentity("pinyin_twice")));
+        }
+    }
+
+    @Test
+    public void testPinyinLowercaseIgnoredWhenOnlyFullPinyinIsEmitted() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Map<String, String> pinyinOnly = Map.of("keep_first_letter", "false",
+                "keep_none_chinese", "false", "keep_original", "false");
+        replayPinyinPair(policyMgr, 1, "pinyin_only", pinyinOnly);
+        replayPinyinPair(policyMgr, 2, "pinyin_only_cased", casedPinyin(pinyinOnly));
+        Map<String, String> withOriginal = Map.of("keep_first_letter", "false",
+                "keep_none_chinese", "false", "keep_original", "true");
+        replayPinyinPair(policyMgr, 3, "pinyin_original", withOriginal);
+        replayPinyinPair(policyMgr, 4, "pinyin_original_cased", casedPinyin(withOriginal));
+        Map<String, String> withAscii = Map.of("keep_first_letter", "false", "keep_original", "false");
+        replayPinyinPair(policyMgr, 5, "pinyin_ascii", withAscii);
+        replayPinyinPair(policyMgr, 6, "pinyin_ascii_cased", casedPinyin(withAscii));
+        Map<String, String> withFirstLetter = Map.of("keep_none_chinese", "false", "keep_original", "false");
+        replayPinyinPair(policyMgr, 7, "pinyin_first_letter", withFirstLetter);
+        replayPinyinPair(policyMgr, 8, "pinyin_first_letter_cased", casedPinyin(withFirstLetter));
+        Map<String, String> withJoined = Map.of("keep_first_letter", "false",
+                "keep_none_chinese", "false", "keep_original", "false", "keep_joined_full_pinyin", "true");
+        replayPinyinPair(policyMgr, 9, "pinyin_joined", withJoined);
+        replayPinyinPair(policyMgr, 10, "pinyin_joined_cased", casedPinyin(withJoined));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+        Method resolve = resolveComponentIdentityMethod();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(
+                            pinyinIdentity(resolve, "pinyin_only", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_only_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    // Any output that can carry the source case keeps lower_case significant.
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_original", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_original_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_ascii", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_ascii_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_first_letter", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_first_letter_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_joined", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_joined_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    // The token filter has its own candidate sources, so it keeps the setting.
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_only", IndexPolicyTypeEnum.TOKEN_FILTER),
+                            pinyinIdentity(resolve, "pinyin_only_cased", IndexPolicyTypeEnum.TOKEN_FILTER)));
+        }
+    }
+
+    private static Map<String, String> casedPinyin(Map<String, String> properties) {
+        Map<String, String> cased = new HashMap<>(properties);
+        cased.put("lowercase", "false");
+        return cased;
     }
 }

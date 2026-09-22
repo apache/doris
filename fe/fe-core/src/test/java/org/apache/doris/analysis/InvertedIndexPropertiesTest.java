@@ -698,6 +698,52 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
+    public void testExactLowercasePolicyKeepsMixedCaseBuiltinNormalizerBinding() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                90, "lowercase", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                91, "standard", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                92, "norm_lower", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+        Map<String, String> mixedNormalizer = new HashMap<>(Map.of("normalizer", "LowerCase"));
+        Map<String, String> mixedAnalyzer = new HashMap<>(Map.of("analyzer", "Standard"));
+
+        withIndexPolicyManager(policyMgr, () -> {
+            for (Map<String, String> properties : List.of(mixedNormalizer, mixedAnalyzer)) {
+                Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
+                        PrimitiveType.VARCHAR, properties, TInvertedIndexFileStorageFormat.V3));
+            }
+            Assertions.assertAll(
+                    // The exact policy shadows the canonical name, so only the mixed spelling still
+                    // reaches the built-in normalizer on BE.
+                    () -> Assertions.assertEquals("LowerCase", mixedNormalizer.get("normalizer")),
+                    () -> Assertions.assertEquals("LowerCase",
+                            InvertedIndexUtil.resolveAnalyzerName("LowerCase")),
+                    () -> Assertions.assertEquals("lowercase",
+                            InvertedIndexUtil.resolveAnalyzerName("lowercase")),
+                    // BE dispatches a built-in analyzer before any policy, so it stays canonical.
+                    () -> Assertions.assertEquals("standard", mixedAnalyzer.get("analyzer")),
+                    () -> Assertions.assertEquals("standard",
+                            InvertedIndexUtil.resolveAnalyzerName("Standard")),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.isAnalyzerMatched(
+                            Map.of("normalizer", "LowerCase"), "LowerCase")),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(
+                            Map.of("normalizer", "LowerCase"), "lowercase")),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.isAnalyzerMatched(
+                            Map.of("normalizer", "lowercase"), "lowercase")),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    normalizerIndexDefinition("idx_builtin", "LowerCase"),
+                                    normalizerIndexDefinition("idx_legacy", "lowercase")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    normalizerIndexDefinition("idx_builtin", "LowerCase"),
+                                    normalizerIndexDefinition("idx_equivalent", "norm_lower")))));
+        });
+    }
+
+    @Test
     public void testCreateTableRejectsRedundantTokenCharAndReverseCaseAliases() {
         IndexPolicyMgr policyMgr = new IndexPolicyMgr();
         policyMgr.replayCreateIndexPolicy(new IndexPolicy(70, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,

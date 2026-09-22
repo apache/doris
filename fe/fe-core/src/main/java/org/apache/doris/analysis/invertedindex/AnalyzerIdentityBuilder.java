@@ -42,6 +42,15 @@ import java.util.regex.Pattern;
 
 public final class AnalyzerIdentityBuilder {
     private static final String PROP_MAX_NGRAM_DIFF = "max_ngram_diff";
+    private static final String KEYWORD_TOKENIZER = "keyword";
+    private static final String CHAR_REPLACE_FILTER = "char_replace";
+    private static final String PROP_PATTERN = "pattern";
+    private static final String PROP_REPLACEMENT = "replacement";
+    // Defaults CharReplaceCharFilterFactory applies to a bare built-in reference.
+    private static final String CHAR_REPLACE_DEFAULT_PATTERN = ",._";
+    private static final String CHAR_REPLACE_DEFAULT_REPLACEMENT = " ";
+    // Token filters that emit the same terms, offsets and provenance when applied twice in a row.
+    private static final Set<String> IDEMPOTENT_TOKEN_FILTERS = ImmutableSet.of("lowercase");
     // Same separator BE uses between bracketed list entries.
     private static final Pattern ENTRY_SEPARATOR = Pattern.compile("(?<=\\])\\s*,\\s*(?=\\[)");
     private static final Set<String> WORD_DELIMITER_TYPES = ImmutableSet.of(
@@ -222,24 +231,26 @@ public final class AnalyzerIdentityBuilder {
 
     /** Whether BE builds the built-in normalizer for this name; an exact legacy policy shadows it. */
     private static boolean isBuiltinNormalizerBinding(String name) {
-        if (!IndexPolicy.BUILTIN_NORMALIZERS.contains(name)) {
-            return false;
-        }
         try {
             Env env = Env.getCurrentEnv();
-            return env == null || env.getIndexPolicyMgr() == null
-                    || env.getIndexPolicyMgr().getPolicyByExactName(name) == null;
+            if (env != null && env.getIndexPolicyMgr() != null) {
+                return env.getIndexPolicyMgr().getTopLevelBuiltin(
+                        name, IndexPolicy.BUILTIN_NORMALIZERS) != null;
+            }
         } catch (RuntimeException e) {
-            return true;
+            // Fall through to the name-only answer.
         }
+        return IndexPolicy.BUILTIN_NORMALIZERS.contains(
+                Strings.nullToEmpty(name).trim().toLowerCase(Locale.ROOT));
     }
 
     /**
      * BE builds a built-in normalizer as the keyword tokenizer plus the built-in token filter of
-     * the same name, so it shares the identity of that custom pipeline.
+     * the canonical name, so it shares the identity of that custom pipeline.
      */
     private static String builtinNormalizerIdentity(String name) {
-        return IndexPolicyTypeEnum.NORMALIZER.name() + ":" + IndexPolicy.PROP_TOKEN_FILTER + "=" + name + ";";
+        return buildIdentityFromPolicyProperties(IndexPolicyTypeEnum.NORMALIZER,
+                Map.of(IndexPolicy.PROP_TOKEN_FILTER, name.trim().toLowerCase(Locale.ROOT)));
     }
 
     /**
@@ -254,8 +265,17 @@ public final class AnalyzerIdentityBuilder {
                 properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
         FoldContext downstreamFold = foldsAsciiCaseAfterCharFilters(type, properties, tokenizerIdentity);
 
+        IndexPolicyTypeEnum identityType = type;
+        if (type == IndexPolicyTypeEnum.NORMALIZER) {
+            // BE's CustomNormalizer is the keyword tokenizer plus the configured char and token
+            // filters, so it emits what the equivalent analyzer emits and shares its identity.
+            identityType = IndexPolicyTypeEnum.ANALYZER;
+            tokenizerIdentity = KEYWORD_TOKENIZER;
+            sortedProps.put(IndexPolicy.PROP_TOKENIZER, KEYWORD_TOKENIZER);
+        }
+
         StringBuilder sb = new StringBuilder();
-        sb.append(type.name()).append(":");
+        sb.append(identityType.name()).append(":");
 
         for (Map.Entry<String, String> entry : sortedProps.entrySet()) {
             String key = entry.getKey();
@@ -323,15 +343,23 @@ public final class AnalyzerIdentityBuilder {
                             sortedProps.remove(PROP_MAX_NGRAM_DIFF);
                         }
                         if (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
-                                && "char_replace".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
-                            String replacement = sortedProps.getOrDefault("replacement", " ");
+                                && CHAR_REPLACE_FILTER.equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
+                            String replacement = sortedProps.getOrDefault(
+                                    PROP_REPLACEMENT, CHAR_REPLACE_DEFAULT_REPLACEMENT);
                             String pattern = canonicalizeCharReplacePattern(
-                                    sortedProps.get("pattern"), replacement, fold);
+                                    sortedProps.getOrDefault(PROP_PATTERN, CHAR_REPLACE_DEFAULT_PATTERN),
+                                    replacement, fold);
                             if (pattern.isEmpty()) {
                                 return "";
                             }
-                            sortedProps.put("pattern", pattern);
-                            sortedProps.put("replacement", replacement);
+                            if (isCharReplaceDefault(pattern, replacement, fold)) {
+                                // Restating the factory defaults is the bare built-in reference.
+                                sortedProps.remove(PROP_PATTERN);
+                                sortedProps.remove(PROP_REPLACEMENT);
+                            } else {
+                                sortedProps.put(PROP_PATTERN, pattern);
+                                sortedProps.put(PROP_REPLACEMENT, replacement);
+                            }
                         }
                         if (normalizedType != null && sortedProps.size() == 1) {
                             return normalizedType;
@@ -346,6 +374,13 @@ public final class AnalyzerIdentityBuilder {
 
         String normalizedName = normalizeBuiltinComponentName(name, expectedType);
         return "empty".equals(normalizedName) ? "" : normalizedName == null ? name : normalizedName;
+    }
+
+    /** Whether this canonical char_replace configuration is what a bare built-in reference gets. */
+    private static boolean isCharReplaceDefault(String pattern, String replacement, FoldContext fold) {
+        return CHAR_REPLACE_DEFAULT_REPLACEMENT.equals(replacement)
+                && canonicalizeCharReplacePattern(
+                        CHAR_REPLACE_DEFAULT_PATTERN, replacement, fold).equals(pattern);
     }
 
     private static void canonicalizeEffectiveComponentProperties(
@@ -800,6 +835,18 @@ public final class AnalyzerIdentityBuilder {
         if (Boolean.FALSE.equals(keepJoinedFullPinyin) && !tokenizerReadsJoinedSetting) {
             properties.remove("keep_none_chinese_in_joined_full_pinyin");
         }
+
+        // With the original, ASCII, first-letter and joined outputs all disabled, every candidate
+        // the tokenizer emits comes from the pinyin dictionary, which is already lower case. The
+        // token filter keeps the setting: it falls back to the original token when nothing else
+        // would be emitted.
+        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
+                && Boolean.FALSE.equals(keepFirstLetter)
+                && Boolean.FALSE.equals(keepNoneChinese)
+                && Boolean.FALSE.equals(keepOriginal)
+                && Boolean.FALSE.equals(keepJoinedFullPinyin)) {
+            properties.remove("lowercase");
+        }
     }
 
     private static Boolean effectiveBoolean(
@@ -853,15 +900,21 @@ public final class AnalyzerIdentityBuilder {
         String[] filters = filterList.split(",\\s*");
         // DO NOT sort - filter order is semantically significant
 
+        String previous = null;
         for (String filterName : filters) {
             String filter = resolveComponentIdentity(filterName.trim(), IndexPolicyTypeEnum.TOKEN_FILTER);
             if (Strings.isNullOrEmpty(filter)) {
+                continue;
+            }
+            // Repeating an idempotent filter leaves the terms, offsets and provenance unchanged.
+            if (filter.equals(previous) && IDEMPOTENT_TOKEN_FILTERS.contains(filter)) {
                 continue;
             }
             if (sb.length() > 0) {
                 sb.append(",");
             }
             sb.append(filter);
+            previous = filter;
         }
         return sb.toString();
     }
@@ -926,21 +979,31 @@ public final class AnalyzerIdentityBuilder {
         return fold;
     }
 
-    /** Bytes a named char_replace filter rewrites, or null for any other filter. */
+    /**
+     * Bytes a char_replace filter rewrites, or null for any other filter. A bare built-in reference
+     * is instantiated with the factory defaults.
+     */
     private static boolean[] charReplaceSourceBytes(String filterName) {
+        String pattern = CHAR_REPLACE_DEFAULT_PATTERN;
+        String replacement = CHAR_REPLACE_DEFAULT_REPLACEMENT;
         IndexPolicy policy = findPolicy(filterName, IndexPolicyTypeEnum.CHAR_FILTER);
-        if (policy == null || policy.isInvalid() || policy.getProperties() == null) {
-            return null;
-        }
-        Map<String, String> properties = policy.getProperties();
-        String type = normalizeBuiltinComponentName(
-                properties.get(IndexPolicy.PROP_TYPE), IndexPolicyTypeEnum.CHAR_FILTER);
-        String pattern = properties.get("pattern");
-        if (!"char_replace".equals(type) || pattern == null) {
+        if (policy != null) {
+            if (policy.isInvalid() || policy.getProperties() == null) {
+                return null;
+            }
+            Map<String, String> properties = policy.getProperties();
+            String type = normalizeBuiltinComponentName(
+                    properties.get(IndexPolicy.PROP_TYPE), IndexPolicyTypeEnum.CHAR_FILTER);
+            if (!CHAR_REPLACE_FILTER.equals(type)) {
+                return null;
+            }
+            pattern = properties.getOrDefault(PROP_PATTERN, CHAR_REPLACE_DEFAULT_PATTERN);
+            replacement = properties.getOrDefault(PROP_REPLACEMENT, CHAR_REPLACE_DEFAULT_REPLACEMENT);
+        } else if (!CHAR_REPLACE_FILTER.equals(
+                normalizeBuiltinComponentName(filterName, IndexPolicyTypeEnum.CHAR_FILTER))) {
             return null;
         }
         // Replacing the single replacement byte with itself leaves the stream unchanged.
-        String replacement = properties.getOrDefault("replacement", " ");
         int replacementByte = replacement.length() == 1 && replacement.charAt(0) < 128 ? replacement.charAt(0) : -1;
         boolean[] sourceBytes = new boolean[256];
         for (int i = 0; i < pattern.length(); ++i) {

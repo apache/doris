@@ -1543,6 +1543,42 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testMixedCaseNormalizerKeepsBuiltinBindingWhenExactPolicyShadowsIt() throws Exception {
+        createAnalyzerAliasTable("sc_shadowed_lowercase");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = List.of(
+                replayAliasPolicy(policyMgr, "lowercase", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")),
+                replayAliasPolicy(policyMgr, "alter_shadow_norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "lowercase")));
+        try {
+            alterTable("alter table test.sc_shadowed_lowercase add index idx_mixed(c1) using inverted "
+                    + "properties(\"normalizer\"=\"LowerCase\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            // Canonicalizing to "lowercase" would make BE pick the shadowing policy instead.
+            Assertions.assertEquals("LowerCase",
+                    storedIndexProperty("sc_shadowed_lowercase", "idx_mixed", "normalizer"));
+            expectException("alter table test.sc_shadowed_lowercase add index idx_equivalent(c1) "
+                    + "using inverted properties(\"normalizer\"=\"alter_shadow_norm_lower\")", "already exists");
+
+            executeNereidsSql("CREATE TABLE test.sc_shadowed_lowercase_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_mixed(c1) USING INVERTED PROPERTIES('normalizer' = 'LowerCase'),\n"
+                    + "INDEX idx_legacy(c1) USING INVERTED PROPERTIES('normalizer' = 'lowercase'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("LowerCase",
+                    storedIndexProperty("sc_shadowed_lowercase_create", "idx_mixed", "normalizer"));
+            Assertions.assertEquals("lowercase",
+                    storedIndexProperty("sc_shadowed_lowercase_create", "idx_legacy", "normalizer"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
     public void testAddInvertedIndexRejectsRedundantTokenCharAndReverseCaseAliases() throws Exception {
         createAnalyzerAliasTable("sc_fold4_alias");
         IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
