@@ -33,6 +33,7 @@
 #include "io/fs/read_io_trace.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
+#include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -276,7 +277,7 @@ private:
         auto remote_read_token =
                 _manager._remote_read_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
         while (!stop_requested()) {
-            auto task = _manager._take_task(*this);
+            auto task = _manager._take_ready_task(*this);
             if (task == nullptr) {
                 return;
             }
@@ -356,7 +357,9 @@ Status PartialBlockWritebackManager::_start() {
         DORIS_CHECK(!_accepting);
         _accepting = true;
     }
-    return _resize_workers_locked(worker_count);
+    RETURN_IF_ERROR(_resize_workers_locked(worker_count));
+    return Thread::create(
+            "hole fill", "HoleFillDispatch", [this] { _dispatch_loop(); }, &_dispatch_thread);
 }
 
 PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
@@ -565,8 +568,8 @@ PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enque
         } else {
             read_ahead_bvars().hole_fill_pending_bytes << static_cast<int64_t>(_options.block_size);
         }
+        _notify_dispatcher_locked(candidate->enqueued_at + _merge_delay);
     }
-    _queue_cv.notify_one();
     return EnqueueResult::QUEUED;
 }
 
@@ -577,10 +580,12 @@ void PartialBlockWritebackManager::shutdown() {
     }
 
     Queue queued;
+    Queue dispatched;
     {
         std::lock_guard lock(_mutex);
         _accepting = false;
         queued.splice(queued.end(), _queue);
+        dispatched.splice(dispatched.end(), _ready_queue);
         for (const auto& task : queued) {
             DORIS_CHECK(!task->is_active());
             const size_t erased = _tasks.erase(task->key);
@@ -592,6 +597,17 @@ void PartialBlockWritebackManager::shutdown() {
     }
     queued.clear();
     _queue_cv.notify_all();
+    _dispatch_cv.notify_one();
+    // Startup may fail before creating the dispatcher.
+    if (_dispatch_thread != nullptr) {
+        _dispatch_thread->join();
+        _dispatch_thread.reset();
+    }
+    for (const auto& task : dispatched) {
+        _complete_task(task);
+        read_ahead_bvars().hole_fill_dropped_blocks << 1;
+    }
+    dispatched.clear();
     _stop_workers_locked(0);
     // Workers finish their GETs and release their tokens before signalling completion.
     // The remote-read pool may be absent if startup failed.
@@ -604,8 +620,10 @@ void PartialBlockWritebackManager::shutdown() {
     {
         std::lock_guard lock(_mutex);
         DORIS_CHECK(_queue.empty());
+        DORIS_CHECK(_ready_queue.empty());
         DORIS_CHECK(_tasks.empty());
         DORIS_CHECK(_active_hole_fill_slots_by_writer.empty());
+        DORIS_CHECK(!_next_wakeup.has_value());
     }
 }
 
@@ -621,9 +639,12 @@ Status PartialBlockWritebackManager::resize_workers(size_t worker_count) {
         if (!_accepting) {
             return Status::InternalError("partial block writeback manager is shutting down");
         }
+        // Dispatch waits on this limit under the same mutex.
+        _configured_worker_count.store(worker_count, std::memory_order_release);
     }
-    _configured_worker_count.store(worker_count, std::memory_order_release);
-    return _resize_workers_locked(worker_count);
+    auto status = _resize_workers_locked(worker_count);
+    _dispatch_cv.notify_one();
+    return status;
 }
 
 Status PartialBlockWritebackManager::_resize_workers_locked(size_t worker_count) {
@@ -664,7 +685,7 @@ void PartialBlockWritebackManager::set_merge_delay_ms(int32_t merge_delay_ms) {
         std::lock_guard lock(_mutex);
         _merge_delay = std::chrono::milliseconds(merge_delay_ms);
     }
-    _queue_cv.notify_all();
+    _dispatch_cv.notify_one();
 }
 
 void PartialBlockWritebackManager::_stop_workers_locked(size_t keep_worker_count) {
@@ -712,39 +733,64 @@ size_t PartialBlockWritebackManager::active_count() const {
     return _tasks.size() - _queue.size();
 }
 
-PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_task(
-        const Worker& worker) {
+void PartialBlockWritebackManager::_dispatch_loop() {
     while (true) {
         // Spliced tasks release their tracked buffers after the manager mutex leaves scope.
         Queue discarded_tasks;
-        TaskPtr task;
+        bool dispatched = false;
         QueueScanTrace scan;
         {
             std::unique_lock lock(_mutex);
-            _queue_cv.wait(lock, [this, &worker]() {
-                return !_accepting || worker.stop_requested() || !_queue.empty();
+            _dispatch_cv.wait(lock, [this]() {
+                return !_accepting ||
+                       (!_queue.empty() && _tasks.size() - _queue.size() < worker_count());
             });
-            if (!_accepting || worker.stop_requested()) {
-                return nullptr;
+            if (!_accepting) {
+                return;
             }
 
             auto next_wakeup = std::chrono::steady_clock::time_point::max();
-            task = _take_runnable_task_locked(&discarded_tasks, &next_wakeup,
-                                              ReadIOTrace::enabled() ? &scan : nullptr);
-            if (task == nullptr && discarded_tasks.empty()) {
+            dispatched = _dispatch_task_locked(&discarded_tasks, &next_wakeup,
+                                               ReadIOTrace::enabled() ? &scan : nullptr);
+            if (!dispatched && discarded_tasks.empty()) {
                 // A queued task must have supplied an aggregation deadline or a capacity retry time.
                 DCHECK(next_wakeup != std::chrono::steady_clock::time_point::max());
-                _queue_cv.wait_until(lock, next_wakeup);
+                _next_wakeup = next_wakeup;
+                _dispatch_cv.wait_until(lock, next_wakeup);
+                _next_wakeup.reset();
             }
         }
-        scan.record(task != nullptr);
-        if (task != nullptr) {
-            return task;
+        if (dispatched) {
+            _queue_cv.notify_one();
         }
+        scan.record(dispatched);
     }
 }
 
-PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnable_task_locked(
+PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_ready_task(
+        const Worker& worker) {
+    TEST_SYNC_POINT("PartialBlockWritebackManager::_take_ready_task:before_lock");
+    std::unique_lock lock(_mutex);
+    _queue_cv.wait(lock, [this, &worker]() {
+        return !_accepting || worker.stop_requested() || !_ready_queue.empty();
+    });
+    if (!_accepting || worker.stop_requested()) {
+        return nullptr;
+    }
+    auto task = std::move(_ready_queue.front());
+    _ready_queue.pop_front();
+    return task;
+}
+
+void PartialBlockWritebackManager::_notify_dispatcher_locked(
+        std::chrono::steady_clock::time_point ready_at) {
+    if (_tasks.size() - _queue.size() < worker_count() &&
+        (!_next_wakeup.has_value() || ready_at < *_next_wakeup)) {
+        _dispatch_cv.notify_one();
+    }
+}
+
+bool PartialBlockWritebackManager::_dispatch_task_locked(
         Queue* discarded_tasks, std::chrono::steady_clock::time_point* next_wakeup,
         QueueScanTrace* trace) {
     DORIS_CHECK(discarded_tasks != nullptr);
@@ -802,10 +848,10 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
         if (active_hole_fill_slots < available_slots) {
             auto task = candidate;
             task->activate();
-            _queue.erase(iterator);
+            _ready_queue.splice(_ready_queue.end(), _queue, iterator);
             ++_active_hole_fill_slots_by_writer[task->key.write_manager];
             read_ahead_bvars().hole_fill_active_blocks << 1;
-            return task;
+            return true;
         }
         if (trace != nullptr) {
             ++trace->capacity_waits;
@@ -814,7 +860,7 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
         *next_wakeup = std::min(*next_wakeup, now + kCapacityRetryInterval);
         ++iterator;
     }
-    return nullptr;
+    return false;
 }
 
 void PartialBlockWritebackManager::_discard_queued_task_locked(Queue::iterator iterator,
@@ -979,8 +1025,11 @@ void PartialBlockWritebackManager::_complete_task(const TaskPtr& task) {
         }
         read_ahead_bvars().hole_fill_pending_bytes << -static_cast<int64_t>(_options.block_size);
         read_ahead_bvars().hole_fill_active_blocks << -1;
+        if (!_queue.empty()) {
+            // Capacity release matters for due tasks; preserve a future head's existing timer.
+            _notify_dispatcher_locked(_queue.front()->enqueued_at + _merge_delay);
+        }
     }
-    _queue_cv.notify_one();
 }
 
 } // namespace doris::io
