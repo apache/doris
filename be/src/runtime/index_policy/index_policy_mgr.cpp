@@ -257,6 +257,14 @@ IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_poli
     std::string normalized_tokenizer_name = normalize_name(tokenizer_name);
     if (const auto* tokenizer_policy = find_policy_by_name_locked(tokenizer_name);
         tokenizer_policy != nullptr) {
+        // Replayed exact names may collide across families; never build a tokenizer from a
+        // filter policy whose factory type happens to be a tokenizer type as well.
+        if (tokenizer_policy->type != TIndexPolicyType::TOKENIZER) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Referenced policy '" + tokenizer_name + "' has type " +
+                                    to_string(tokenizer_policy->type) + " but expected " +
+                                    to_string(TIndexPolicyType::TOKENIZER));
+        }
         auto type_it = tokenizer_policy->properties.find(PROP_TYPE);
         if (type_it == tokenizer_policy->properties.end()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,

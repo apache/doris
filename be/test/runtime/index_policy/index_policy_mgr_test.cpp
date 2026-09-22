@@ -341,6 +341,39 @@ TEST_F(IndexPolicyMgrTest, ReplayedPoliciesRejectWrongExactNestedFilterTypes) {
     expect_type_mismatch("wrong_normalizer_char_filter", "CHAR_FILTER");
 }
 
+TEST_F(IndexPolicyMgrTest, ReplayedPoliciesRejectWrongExactTokenizerType) {
+    IndexPolicyMgr manager;
+
+    // The exact name resolves to a char filter whose factory type is also a tokenizer type.
+    TIndexPolicy exact_char_filter;
+    exact_char_filter.id = 160;
+    exact_char_filter.name = "AnalyzerTokenizer";
+    exact_char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    exact_char_filter.properties["type"] = "empty";
+
+    TIndexPolicy normalized_tokenizer;
+    normalized_tokenizer.id = 161;
+    normalized_tokenizer.name = "analyzertokenizer";
+    normalized_tokenizer.type = TIndexPolicyType::TOKENIZER;
+    normalized_tokenizer.properties["type"] = "standard";
+
+    TIndexPolicy analyzer;
+    analyzer.id = 162;
+    analyzer.name = "wrong_analyzer_tokenizer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "AnalyzerTokenizer";
+
+    manager.apply_policy_changes({exact_char_filter, normalized_tokenizer, analyzer}, {});
+
+    try {
+        manager.get_policy_by_name("wrong_analyzer_tokenizer");
+        FAIL() << "Expected a tokenizer type mismatch";
+    } catch (const Exception& exception) {
+        EXPECT_NE(std::string(exception.what()).find("expected TOKENIZER"), std::string::npos)
+                << exception.what();
+    }
+}
+
 TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
     TIndexPolicy analyzer;
     analyzer.id = 20;
