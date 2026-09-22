@@ -48,9 +48,10 @@ services:
   doris--fluss-minio:
     # The release the other object-store environments in this directory use, and
     # the one whose server image still carries mc -- which is what creates the
-    # bucket below without a second container to do it. From quay.io like the
-    # others (#67897): the minio/minio repository on Docker Hub is gone.
-    image: quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
+    # bucket below without a second container to do it. From the Doris-owned
+    # mirror like the others (#67908): the minio/minio repository on Docker Hub
+    # is gone, and quay.io is not a registry the CI agents are known to reach.
+    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--fluss-minio
     hostname: doris--fluss-minio
     restart: always

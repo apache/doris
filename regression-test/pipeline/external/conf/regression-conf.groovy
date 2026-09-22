@@ -139,6 +139,16 @@ hive3PgPort=5732
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableKafkaTest=true
 kafka_port=19193
+
+// fluss catalog test config
+// to enable fluss test, you need firstly to start fluss containers
+// See `docker/thirdparties/run-thirdparties-docker.sh -c fluss`
+enableFlussTest=true
+fluss_coordinator_port=19123
+// The object store the tiered half of a fluss table lives in; the suites give
+// its endpoint and the minio default credentials to their own catalog, because
+// fluss strips every credential-bearing option before answering a client.
+fluss_minio_port=19125
 // refactor params
 enableRefactorParamsTest=true
 

@@ -27,6 +27,10 @@
 # Optional:
 #   MAVEN_REPO         local maven repository (default ~/.m2/repository), looked
 #                      in before anything is downloaded
+#   MAVEN_REPOSITORY_URL  the remote repository to download from (default
+#                      Maven Central); custom_settings.env exports it, and the
+#                      CI pipeline points it at a mirror, so every jar download
+#                      under docker/thirdparties honors the same override
 #   FLUSS_ARTIFACT_CACHE  where the jar is kept between runs (default cache/
 #                      beside this script, which git ignores)
 ################################################################
@@ -44,7 +48,7 @@ FLUSS_PAIMON_VERSION="${FLUSS_PAIMON_VERSION:?fluss.env.tpl must set FLUSS_PAIMO
 
 MAVEN_REPO="${MAVEN_REPO:-${HOME}/.m2/repository}"
 FLUSS_ARTIFACT_CACHE="${FLUSS_ARTIFACT_CACHE:-${SCRIPT_DIR}/cache}"
-MAVEN_CENTRAL_URL="https://repo1.maven.org/maven2"
+MAVEN_REPOSITORY_URL="${MAVEN_REPOSITORY_URL:-https://repo1.maven.org/maven2}"
 
 # Prints a file's sha1 with whichever tool the host has (coreutils or BSD).
 sha1_of() {
@@ -57,15 +61,15 @@ sha1_of() {
 
 # Resolves one released maven artifact into the cache. The local repository is
 # looked in first, so a machine that has built Doris needs no network for what
-# that build already fetched; then the cache itself; and only then central,
-# checked against the .sha1 it publishes so that a truncated download cannot
-# poison the cache.
+# that build already fetched; then the cache itself; and only then the remote
+# repository, checked against the .sha1 it publishes so that a truncated
+# download cannot poison the cache.
 resolve_maven_artifact() {
     local group_path="$1" artifact="$2" version="$3" extension="$4"
     local file="${artifact}-${version}.${extension}"
     local local_path="${MAVEN_REPO}/${group_path}/${artifact}/${version}/${file}"
     local cached="${FLUSS_ARTIFACT_CACHE}/${file}"
-    local url="${MAVEN_CENTRAL_URL}/${group_path}/${artifact}/${version}/${file}"
+    local url="${MAVEN_REPOSITORY_URL}/${group_path}/${artifact}/${version}/${file}"
     local expected actual
 
     mkdir -p "${FLUSS_ARTIFACT_CACHE}"
