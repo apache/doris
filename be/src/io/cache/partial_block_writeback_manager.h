@@ -25,6 +25,7 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -37,6 +38,7 @@
 
 namespace doris {
 
+class Thread;
 class ThreadPool;
 class ThreadPoolToken;
 
@@ -101,8 +103,9 @@ struct PartialBlockWritebackRequest {
     void sanity_check(size_t block_size) const;
 };
 
-/// BE-level bounded queue, block workers, and a shared remote-read pool for completing partial
-/// File Cache blocks. Query threads probe existing blocks, admit memory, and copy one fragment.
+/// BE-level bounded fragment queue, deadline dispatcher, block workers, and shared remote-read
+/// pool. Query threads probe existing blocks, admit memory, and copy one fragment. Dispatch is
+/// limited to the worker count, so waiting fragments remain mergeable until execution has room.
 class PartialBlockWritebackManager {
 public:
     ~PartialBlockWritebackManager();
@@ -134,7 +137,7 @@ public:
         return _running_worker_count.load(std::memory_order_relaxed);
     }
 
-    /// Stop admission, discard queued tasks, and wait for active remote reads. Idempotent.
+    /// Stop admission, discard waiting/undelivered tasks, and wait for executing reads. Idempotent.
     void shutdown();
     /// Return whether a new submission may currently enter admission.
     bool accepting() const;
@@ -144,7 +147,7 @@ public:
     size_t pending_bytes() const;
     /// Return tasks still waiting for source-read and cache-writer capacity.
     size_t queued_count() const;
-    /// Return tasks currently owned by source-read workers.
+    /// Return dispatched tasks, including the bounded handoff queue and executing workers.
     size_t active_count() const;
 
 private:
@@ -189,15 +192,18 @@ private:
     /// task. Destruction of a displaced task occurs after the manager lock is released.
     EnqueueResult _enqueue_or_get_existing(const TaskPtr& candidate, TaskPtr* existing,
                                            SubmitTrace& trace);
-    /// Keep tasks queued and mergeable until their delay expires and their writer has capacity.
-    /// Wait until the earliest pending deadline or the next cache-writer capacity retry.
-    TaskPtr _take_task(const Worker& worker);
-    /// Under `_mutex`, scan due entries, discard stale/deduplicated ones, and activate one eligible
-    /// task. Stop at the first future deadline; a capacity-blocked writer may be bypassed by another
-    /// due task. If none is runnable, return the next deadline or capacity retry in `next_wakeup`.
-    TaskPtr _take_runnable_task_locked(Queue* discarded_tasks,
-                                       std::chrono::steady_clock::time_point* next_wakeup,
-                                       QueueScanTrace* trace = nullptr);
+    /// Sole owner of deadline/capacity waits; dispatch at most one task per worker execution slot.
+    void _dispatch_loop();
+    /// Workers only take dispatched tasks; they never scan or wait on merge deadlines.
+    TaskPtr _take_ready_task(const Worker& worker);
+    /// Under `_mutex`, notify dispatch only if a worker slot is free and its next check can advance.
+    void _notify_dispatcher_locked(std::chrono::steady_clock::time_point ready_at);
+    /// Under `_mutex`, scan due entries, discard stale/deduplicated ones, and move one eligible task
+    /// to `_ready_queue`. Stop at the first future deadline; bypass capacity-blocked writers. If
+    /// nothing is dispatched, return the next deadline or capacity retry in `next_wakeup`.
+    bool _dispatch_task_locked(Queue* discarded_tasks,
+                               std::chrono::steady_clock::time_point* next_wakeup,
+                               QueueScanTrace* trace = nullptr);
     /// Remove one queued task under `_mutex` and defer its destruction to `discarded_tasks`.
     void _discard_queued_task_locked(Queue::iterator iterator, Queue* discarded_tasks);
     /// Plan holes, wait for parallel source reads, and hand the completed buffer to the cache
@@ -211,6 +217,9 @@ private:
     // `_tasks` owns every queued or active block. `_queue` is ordered by enqueued_at, including
     // replacement of stale tasks; the shared `_merge_delay` preserves deadline order on updates.
     Queue _queue;
+    // Dispatched + executing tasks together are bounded by the configured worker count. During
+    // shrink, previously dispatched tasks drain before dispatch can use the smaller limit.
+    Queue _ready_queue;
     std::unordered_map<BlockKey, TaskPtr, BlockKeyHash> _tasks;
     // Count active hole-fill tasks against each writer's point-in-time spare capacity. This does
     // not reserve capacity inside AsyncCacheWriteManager.
@@ -223,7 +232,12 @@ private:
     // fragment mutex is always acquired alone, and removed tasks are destroyed after `_mutex` is
     // released.
     mutable std::mutex _mutex;
+    // Workers wait only for handoff; the dispatcher owns all deadline/capacity waits.
     std::condition_variable _queue_cv;
+    std::condition_variable _dispatch_cv;
+    // Present only during a timed dispatcher wait; later admissions leave that timer undisturbed.
+    std::optional<std::chrono::steady_clock::time_point> _next_wakeup;
+    std::shared_ptr<Thread> _dispatch_thread;
     // Worker loops wait on remote-read tokens, so they must run in a separate pool.
     std::unique_ptr<ThreadPool> _worker_pool;
     std::unique_ptr<ThreadPool> _remote_read_pool;
