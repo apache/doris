@@ -29,12 +29,14 @@ import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
+import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -269,6 +271,20 @@ public class PaimonColumnValueTest {
         Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+    }
+
+    @Test
+    public void testGetStringAsBytesReadsBinaryValues() {
+        byte[] binary = new byte[] {0, 1, -1};
+        ColumnType stringType = ColumnType.parseType("binary", "string");
+
+        PaimonColumnValue binaryValue = new PaimonColumnValue(
+                GenericRow.of(binary), 0, stringType, new BinaryType(), "UTC");
+        PaimonColumnValue varBinaryValue = new PaimonColumnValue(
+                GenericRow.of(binary), 0, stringType, new VarBinaryType(), "UTC");
+
+        Assertions.assertArrayEquals(binary, binaryValue.getStringAsBytes());
+        Assertions.assertArrayEquals(binary, varBinaryValue.getStringAsBytes());
     }
 
     private InternalRow nestedArrayRow(int outerSize, int innerSize, int populatedIndex, int nullIndex) {
