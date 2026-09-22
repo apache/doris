@@ -45,6 +45,12 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPropertyUtil {
+    /** The properties a partition_sync_limit window is built from; see MTMV#alterMvProperties. */
+    private static final List<String> PARTITION_SYNC_WINDOW_KEYS = Lists.newArrayList(
+            PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
+            PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
+            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT);
+
     public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
@@ -229,6 +235,29 @@ public class MTMVPropertyUtil {
         }
         String value = mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT);
         return !StringUtils.isEmpty(value) && Integer.parseInt(value) > 0;
+    }
+
+    /** Whether the given (altered) properties touch the partition_sync_limit window. */
+    public static boolean containsPartitionSyncWindow(Map<String, String> properties) {
+        for (String property : PARTITION_SYNC_WINDOW_KEYS) {
+            if (properties.containsKey(property)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The window the given properties describe, for comparing it across an ALTER. Only the properties the
+     * window is built from are read, and the values are compared as they are stored: setting the same
+     * window again changes nothing about which rows the MV owes and must not force a rebuild.
+     */
+    public static Map<String, String> partitionSyncWindowOf(Map<String, String> properties) {
+        Map<String, String> res = Maps.newHashMap();
+        for (String property : PARTITION_SYNC_WINDOW_KEYS) {
+            res.put(property, properties.get(property));
+        }
+        return res;
     }
 
     /**

@@ -216,6 +216,10 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         // that MV partition too -- the rows it still holds are exactly what the rebuild has to remove.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
                 + " 'partition_sync_time_unit' = 'YEAR')");
+        // Setting the window is itself a change of which rows the MV owes, so it records a complete
+        // baseline rebuild (see testChangingTheSyncWindowRequiresCompleteBaselineRebuild). Release it:
+        // this test is about a change that happens while the window is in effect.
+        clearBaselineRebuild(mtmv);
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
 
         Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
@@ -263,10 +267,43 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
                 + " 'partition_sync_time_unit' = 'YEAR')");
+        // Setting the window is itself a change of which rows the MV owes, so it records a complete
+        // baseline rebuild (see testChangingTheSyncWindowRequiresCompleteBaselineRebuild). Release it:
+        // this test is about a change that happens while the window is in effect.
+        clearBaselineRebuild(mtmv);
         // One statement, so the marker sees both partitions together: pThisYear is inside the window while
         // p202001 is not, which is exactly the mix a non-empty selection must not be allowed to hide.
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001, pThisYear)");
 
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * A window property decides which base partitions the MV maintains, so changing it changes which
+     * rows the MV owes: the partitions that leave the window keep their MV partition, the deltas of the
+     * range they skipped were never applied, and widening the window again makes partition sync keep
+     * them. That is the trade excluded_trigger_tables and ivm_partition_window_limit already make, and it
+     * gets the same answer -- a complete baseline rebuild -- rather than leaving the mapping's reader to
+     * decide afterwards whether the window it just applied is still there.
+     */
+    @Test
+    public void testChangingTheSyncWindowRequiresCompleteBaselineRebuild() throws Exception {
+        String db = "ivm_sync_window_property_change";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        clearBaselineRebuild(mtmv);
+
+        // The same window, restated: it decides the same rows, so it forces nothing.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1')");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // A wider window brings back partitions whose deltas were skipped.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
         Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
@@ -290,6 +327,10 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         OlapTable baseTable = getBaseTable(db);
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
                 + " 'partition_sync_time_unit' = 'YEAR')");
+        // Setting the window is itself a change of which rows the MV owes, so it records a complete
+        // baseline rebuild (see testChangingTheSyncWindowRequiresCompleteBaselineRebuild). Release it:
+        // this test is about a change that happens while the window is in effect.
+        clearBaselineRebuild(mtmv);
 
         try (MockedStatic<MTMVPartitionUtil> partitionUtil = Mockito.mockStatic(MTMVPartitionUtil.class,
                 Mockito.CALLS_REAL_METHODS)) {

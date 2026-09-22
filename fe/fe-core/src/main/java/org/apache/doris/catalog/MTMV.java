@@ -384,6 +384,15 @@ public class MTMV extends OlapTable {
             Map<TableNameInfo, Integer> oldWindowLimits = containsPartitionWindowLimit
                     ? MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties)
                     : Maps.newHashMap();
+            // A partition_sync_limit window decides which base partitions the MV maintains, so changing
+            // it changes which rows the MV owes: a partition that leaves the window keeps its MV
+            // partition, the deltas of the range it skipped were never applied, and a later widening
+            // makes partition sync keep it. That is the same trade as the two properties around it and
+            // gets the same answer, rather than leaving a reader of the window to decide afterwards
+            // whether the mapping it just built was filtered by a window that is no longer there.
+            boolean containsSyncWindow = MTMVPropertyUtil.containsPartitionSyncWindow(mvProperties);
+            Map<String, String> oldSyncWindow = containsSyncWindow
+                    ? MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties) : null;
             this.mvProperties.putAll(mvProperties);
             // Both excluded_trigger_tables changes and window limit enlargement/removal
             // change the refresh baseline semantics: partitions previously skipped become
@@ -427,6 +436,10 @@ public class MTMV extends OlapTable {
                         break;
                     }
                 }
+            }
+            if (containsSyncWindow && ivmInfo != null && ivmInfo.isEnableIvm()
+                    && !MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties).equals(oldSyncWindow)) {
+                requireCompleteBaselineRebuild = true;
             }
             if (invalidateRefreshSnapshot || requireCompleteBaselineRebuild) {
                 this.schemaChangeVersion++;
