@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
 #include "format/generic_reader.h"
 #include "format/table/table_schema_change_helper.h"
@@ -59,6 +60,10 @@ static bool is_repeated_node(const tparquet::SchemaElement& schema) {
 static bool is_required_node(const tparquet::SchemaElement& schema) {
     return schema.__isset.repetition_type &&
            schema.repetition_type == tparquet::FieldRepetitionType::REQUIRED;
+}
+
+static bool is_variant_node(const tparquet::SchemaElement& schema) {
+    return schema.__isset.logicalType && schema.logicalType.__isset.VARIANT;
 }
 
 static bool is_optional_node(const tparquet::SchemaElement& schema) {
@@ -399,6 +404,15 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
 Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                                           size_t curr_pos, FieldSchema* group_field) {
     auto& group_schema = t_schemas[curr_pos];
+    if (is_variant_node(group_schema) && !is_repeated_node(group_schema)) {
+        // the variant definition (parquet-format VariantEncoding.md):
+        // optional group <name> (VARIANT) {
+        //   required binary metadata;
+        //   required binary value;
+        //   optional <type> typed_value; // only in shredded files
+        // }
+        return parse_variant_field(t_schemas, curr_pos, group_field);
+    }
     if (is_map_node(group_schema)) {
         // the map definition:
         // optional group <name> (MAP) {
@@ -443,6 +457,49 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
     }
 
+    return Status::OK();
+}
+
+Status FieldDescriptor::parse_variant_field(const std::vector<tparquet::SchemaElement>& t_schemas,
+                                            size_t curr_pos, FieldSchema* variant_field) {
+    // The carrier group is parsed like a struct so its leaves get their physical column indexes
+    // and levels; only the exposed Doris type and the leaf types differ.
+    RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, variant_field));
+    FieldSchema* metadata = nullptr;
+    FieldSchema* value = nullptr;
+    for (auto& child : variant_field->children) {
+        if (child.name == "metadata") {
+            metadata = &child;
+        } else if (child.name == "value") {
+            value = &child;
+        } else if (child.name != "typed_value") {
+            return Status::InvalidArgument("Parquet Variant {} has unexpected child {}",
+                                           variant_field->name, child.name);
+        }
+    }
+    if (metadata == nullptr || value == nullptr) {
+        return Status::InvalidArgument("Parquet Variant {} requires metadata and value children",
+                                       variant_field->name);
+    }
+    if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
+        !is_required_node(metadata->parquet_schema)) {
+        return Status::InvalidArgument("Parquet Variant {} metadata must be a required BYTE_ARRAY",
+                                       variant_field->name);
+    }
+    if (!value->children.empty() || value->physical_type != tparquet::Type::BYTE_ARRAY) {
+        return Status::InvalidArgument("Parquet Variant {} value must be a BYTE_ARRAY",
+                                       variant_field->name);
+    }
+    // The encoded leaves are read as STRING whatever the varbinary mapping says, so column
+    // readers always materialize them as ColumnString.
+    for (FieldSchema* leaf : {metadata, value}) {
+        leaf->data_type = DataTypeFactory::instance().create_data_type(
+                TYPE_STRING, is_optional_node(leaf->parquet_schema));
+    }
+    DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+    variant_field->data_type = is_optional_node(t_schemas[curr_pos])
+                                       ? make_nullable(std::move(variant_type))
+                                       : std::move(variant_type);
     return Status::OK();
 }
 

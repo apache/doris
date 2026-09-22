@@ -377,6 +377,12 @@ public class NereidsLoadScanProvider {
                                 + " for " + fileFormatType + " load");
                     }
                     slotColumn = new Column(realColName, tblColumn.getType(), true);
+                } else if (fileFormatType == TFileFormatType.FORMAT_PARQUET
+                        && tblColumn != null && tblColumn.getType().isVariantType()) {
+                    // Parquet is the only load format that carries a native VARIANT column (the Parquet
+                    // VARIANT logical type). A Variant slot lets the scanner hand the encoded values over
+                    // as they are; a JSON string column is still parsed on the BE side.
+                    slotColumn = new Column(realColName, tblColumn.getType(), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                             && hasSkipBitmapColumn) {
