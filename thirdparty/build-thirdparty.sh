@@ -1887,6 +1887,26 @@ build_simdjson() {
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
 }
 
+# simdutf
+build_simdutf() {
+    check_if_source_exist "${SIMDUTF_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${SIMDUTF_SOURCE}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DSIMDUTF_CXX_STANDARD="${TP_CXX_STANDARD}" \
+        -DSIMDUTF_TESTS=OFF \
+        -DSIMDUTF_TOOLS=OFF \
+        -DSIMDUTF_BENCHMARKS=OFF
+
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" --target simdutf -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
+}
+
 # nlohmann_json
 build_nlohmann_json() {
     check_if_source_exist "${NLOHMANN_JSON_SOURCE}"
@@ -2467,6 +2487,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         hdfs3
         benchmark
         simdjson
+        simdutf
         nlohmann_json
         libbacktrace
         sse2neon
@@ -2561,6 +2582,7 @@ cleanup_package_source() {
         libunwind)       src_var="LIBUNWIND_SOURCE" ;;
         benchmark)       src_var="BENCHMARK_SOURCE" ;;
         simdjson)        src_var="SIMDJSON_SOURCE" ;;
+        simdutf)         src_var="SIMDUTF_SOURCE" ;;
         nlohmann_json)   src_var="NLOHMANN_JSON_SOURCE" ;;
         libbacktrace)    src_var="LIBBACKTRACE_SOURCE" ;;
         sse2neon)        src_var="SSE2NEON_SOURCE" ;;
