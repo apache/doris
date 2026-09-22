@@ -34,6 +34,7 @@
 #include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/path.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace_test_util.h"
 
 namespace doris::io {
 namespace {
@@ -210,6 +211,7 @@ private:
 };
 
 TEST_F(RangeCacheWritebackTest, RoutesCompleteAndPartialBlocks) {
+    ReadIOTraceCapture trace;
     const std::string content = patterned_file(3 * kBlockSize);
     auto source_reader = std::make_shared<RecordingFileReader>(content);
     auto cache = create_cache("range_writeback_mixed");
@@ -235,6 +237,20 @@ TEST_F(RangeCacheWritebackTest, RoutesCompleteAndPartialBlocks) {
     EXPECT_EQ(statistics.partial_fragment_bytes.value(), kBlockSize);
     EXPECT_EQ(statistics.writeback_rejected_blocks.value(), 0);
     EXPECT_GT(statistics.writeback_time.value(), 0);
+    EXPECT_GT(statistics.complete_block_submit_time.value(), 0);
+    EXPECT_GT(statistics.partial_block_submit_time.value(), 0);
+    EXPECT_GE(statistics.writeback_time.value(),
+              statistics.complete_block_submit_time.value() +
+                      statistics.partial_block_submit_time.value());
+    const auto events = trace.events("range_writeback_done");
+    ASSERT_EQ(events.size(), 1);
+    const auto& timing = events[0]["details"];
+    EXPECT_GT(timing["complete_submit_ns"].GetInt64(), 0);
+    EXPECT_GT(timing["partial_submit_ns"].GetInt64(), 0);
+    EXPECT_GE(events[0]["time_ns"].GetInt64() - events[0]["start_ns"].GetInt64(),
+              timing["complete_submit_ns"].GetInt64() + timing["partial_submit_ns"].GetInt64() +
+                      timing["lifecycle_trace_ns"].GetInt64());
+    EXPECT_EQ(trace.events("hole_submit").size(), 2);
     ASSERT_TRUE(wait_until([&]() { return partial_manager->pending_count() == 0; }));
     ASSERT_TRUE(wait_until([&]() { return cache->async_write_manager()->pending_count() == 0; }));
     for (size_t block_offset = 0; block_offset < content.size(); block_offset += kBlockSize) {

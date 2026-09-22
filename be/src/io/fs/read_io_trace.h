@@ -34,6 +34,35 @@ namespace doris::io {
 
 struct IOContext;
 
+struct RangeWritebackTiming {
+    int64_t complete_submit_ns {0};
+    int64_t partial_submit_ns {0};
+    int64_t lifecycle_trace_ns {0};
+};
+
+struct HoleSubmitTiming {
+    int64_t cache_probe_ns {0};
+    int64_t queue_lock_wait_ns {0};
+    int64_t queue_lock_hold_ns {0};
+    int64_t allocation_ns {0};
+    int64_t fragment_lock_wait_ns {0};
+    int64_t fragment_lock_hold_ns {0};
+    int64_t copy_ns {0};
+    int64_t copied_bytes {0};
+    int64_t lifecycle_trace_ns {0};
+    int64_t queue_size {0};
+};
+
+struct HoleQueueScanStats {
+    int64_t queue_size {0};
+    int64_t scanned {0};
+    int64_t delayed {0};
+    int64_t capacity_waits {0};
+    int64_t discarded {0};
+    int64_t discard_check_ns {0};
+    int64_t capacity_check_ns {0};
+};
+
 /// Optional diagnostic event, emitted as one JSONL record. Offsets and sizes are
 /// bytes; timestamps are monotonic nanoseconds. IDs are unique within one BE process, not pointers.
 /// A GET's parent_id names its read-ahead range or hole-fill task. A fragment's parent_id names
@@ -56,6 +85,10 @@ struct ReadIOTraceEvent {
     size_t disk_bytes {0};
     size_t inflight_bytes {0};
     size_t available_bytes {0}; // union of disk/inflight coverage, not their sum
+    // Event-specific diagnostics, serialized synchronously before record() returns.
+    const RangeWritebackTiming* writeback_timing {nullptr};
+    const HoleSubmitTiming* hole_submit_timing {nullptr};
+    const HoleQueueScanStats* queue_scan {nullptr};
 };
 
 /// Producers append serialized records to memory; a background thread swaps out the batch and

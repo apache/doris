@@ -21,7 +21,7 @@ import random
 import tempfile
 import unittest
 
-from analyze import analyze, load_events, summarize_query
+from analyze import analyze, distribution, load_events, summarize_query
 
 
 def get(seq, source, offset, size, start=10, end=20, query="q", file="s3://b/f",
@@ -36,6 +36,56 @@ def get(seq, source, offset, size, start=10, end=20, query="q", file="s3://b/f",
 
 
 class ReadIOTraceAnalysisTest(unittest.TestCase):
+    def test_timing_distribution_and_nested_stage_boundaries(self):
+        self.assertEqual(distribution([]), {"count": 0})
+        self.assertEqual(distribution(range(1, 101)),
+                         {"count": 100, "sum": 5050, "min": 1, "p50": 50,
+                          "p95": 95, "p99": 99, "max": 100})
+        events = []
+        for seq, outcome, end in [(1, "queued", 70), (2, "merged", 90)]:
+            events.append({**get(seq, "read_ahead", 0, 10, start=10, end=end),
+                           "event": "hole_submit", "outcome": outcome,
+                           "details": {"queue_lock_wait_ns": 20,
+                                       "fragment_lock_hold_ns": 30, "copy_ns": 10,
+                                       "copied_bytes": 10, "queue_size": 100}})
+        result = summarize_query(events)
+        timing = result["timings"]["hole_submit"]
+        self.assertEqual(timing["duration_ns"]["sum"], 140)
+        self.assertEqual(timing["details"]["copy_ns"]["sum"], 20)
+        self.assertEqual(timing["details"]["fragment_lock_hold_ns"]["sum"], 60)
+        self.assertEqual(timing["slowest"][0]["id"], 2)
+        self.assertEqual(result["timings"]["hole_submit_by_outcome"]["merged"]
+                         ["duration_ns"]["count"], 1)
+        self.assertEqual(result["timings"]["range_writeback"]["duration_ns"], {"count": 0})
+        self.assertEqual(result["successful_get_bytes"], 0)
+
+    def test_queue_scans_keep_process_scope_with_query_filter(self):
+        events = [get(1, "read_ahead", 0, 10, start=10, end=100)]
+        for seq, process, start, end, size in [
+            (2, "be1", 20, 30, 1000), (3, "be1", 200, 210, 5),
+            (1, "be2", 20, 30, 1024), (4, "be1", 5, 15, 32),
+        ]:
+            events.append({**get(seq, "other", 0, 0, start, end, query="unknown", process=process),
+                           "event": "hole_queue_scan", "outcome": "no_runnable_task",
+                           "details": {"queue_size": size, "scanned": size, "delayed": size,
+                                       "capacity_waits": 0, "discarded": 0}})
+        result = analyze(events, query_id="q")
+        self.assertEqual(len(result["queries"]), 1)
+        self.assertEqual(result["captured_successful_s3_bytes"], 10)
+        self.assertEqual(len(result["process_diagnostics"]), 1)
+        scans = result["process_diagnostics"][0]["hole_queue_scan"]
+        self.assertEqual(scans["duration_ns"]["count"], 2)
+        self.assertEqual(scans["details"]["scanned"]["sum"], 1032)
+        self.assertEqual(scans["by_queue_size"]["256-1023"]["duration_ns"]["count"], 1)
+        self.assertEqual(scans["by_queue_size"]["0-63"]["duration_ns"]["count"], 1)
+
+    def test_old_capture_has_no_submit_or_scan_timing_samples(self):
+        result = analyze([get(1, "read_ahead", 0, 10)])
+        self.assertEqual(result["queries"][0]["timings"]["hole_submit"]["duration_ns"], {"count": 0})
+        self.assertEqual(result["process_diagnostics"][0]["hole_queue_scan"]["duration_ns"], {"count": 0})
+        self.assertEqual(result["queries"][0]["timings"]["successful_get_by_source"]
+                         ["read_ahead"]["duration_ns"]["sum"], 10)
+
     def test_three_reads_are_not_pairwise_double_counted(self):
         events = [get(1, "read_ahead", 0, 1024),
                   get(2, "hole_fill", 128, 896),

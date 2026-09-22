@@ -79,6 +79,9 @@ void ReadAheadStatistics::update_profile(RuntimeProfile* profile) {
     update("ReadAheadConsumedRangeBytes", "ReadAheadConsume", consumed_range_bytes);
     update("ReadAheadReleasedPages", "ReadAheadConsume", released_pages);
     update("ReadAheadWritebackTime", "ReadAheadWriteback", writeback_time);
+    update("ReadAheadCompleteBlockSubmitTime", "ReadAheadWritebackTime",
+           complete_block_submit_time);
+    update("ReadAheadPartialBlockSubmitTime", "ReadAheadWritebackTime", partial_block_submit_time);
     update("ReadAheadCompleteBlocksSubmitted", "ReadAheadWriteback", complete_blocks_submitted);
     update("ReadAheadCompleteBlockBytes", "ReadAheadWriteback", complete_block_bytes);
     update("ReadAheadPartialBlocksQueued", "ReadAheadWriteback", partial_blocks_queued);

@@ -46,6 +46,7 @@ std::atomic<uint64_t> read_trace_event_count {0};
 bvar::Adder<uint64_t> read_trace_logged_events {"doris_read_io_trace_events"};
 bvar::Adder<uint64_t> read_trace_dropped_events {"doris_read_io_trace_dropped_events"};
 bvar::Adder<int64_t> read_trace_pending_bytes {"doris_read_io_trace_pending_bytes"};
+bvar::Adder<int64_t> read_trace_record_time_ns {"doris_read_io_trace_record_time_ns"};
 
 const std::string& read_trace_process() {
     // Distinguish BE restarts even when the operating system reuses a PID.
@@ -225,6 +226,8 @@ void ReadIOTrace::record(const ReadIOTraceEvent& event) {
     if (!enabled()) {
         return;
     }
+    const auto record_start = MonotonicNanos();
+    Defer record_time {[&] { read_trace_record_time_ns << MonotonicNanos() - record_start; }};
     const int64_t time_ns = event.time_ns != 0 ? event.time_ns : MonotonicNanos();
     const uint64_t sequence = read_trace_event_count.fetch_add(1, std::memory_order_relaxed) + 1;
     rapidjson::StringBuffer buffer;
@@ -267,6 +270,44 @@ void ReadIOTrace::record(const ReadIOTraceEvent& event) {
     number_field("disk_bytes", event.disk_bytes);
     number_field("inflight_bytes", event.inflight_bytes);
     number_field("available_bytes", event.available_bytes);
+    if (event.writeback_timing != nullptr) {
+        writer.Key("details");
+        writer.StartObject();
+        const auto& timing = *event.writeback_timing;
+        number_field("complete_submit_ns", timing.complete_submit_ns);
+        number_field("partial_submit_ns", timing.partial_submit_ns);
+        number_field("lifecycle_trace_ns", timing.lifecycle_trace_ns);
+        writer.EndObject();
+    }
+    if (event.hole_submit_timing != nullptr) {
+        writer.Key("details");
+        writer.StartObject();
+        const auto& timing = *event.hole_submit_timing;
+        number_field("cache_probe_ns", timing.cache_probe_ns);
+        number_field("queue_lock_wait_ns", timing.queue_lock_wait_ns);
+        number_field("queue_lock_hold_ns", timing.queue_lock_hold_ns);
+        number_field("allocation_ns", timing.allocation_ns);
+        number_field("fragment_lock_wait_ns", timing.fragment_lock_wait_ns);
+        number_field("fragment_lock_hold_ns", timing.fragment_lock_hold_ns);
+        number_field("copy_ns", timing.copy_ns);
+        number_field("copied_bytes", timing.copied_bytes);
+        number_field("lifecycle_trace_ns", timing.lifecycle_trace_ns);
+        number_field("queue_size", timing.queue_size);
+        writer.EndObject();
+    }
+    if (event.queue_scan != nullptr) {
+        writer.Key("details");
+        writer.StartObject();
+        const auto& scan = *event.queue_scan;
+        number_field("queue_size", scan.queue_size);
+        number_field("scanned", scan.scanned);
+        number_field("delayed", scan.delayed);
+        number_field("capacity_waits", scan.capacity_waits);
+        number_field("discarded", scan.discarded);
+        number_field("discard_check_ns", scan.discard_check_ns);
+        number_field("capacity_check_ns", scan.capacity_check_ns);
+        writer.EndObject();
+    }
     writer.EndObject();
     std::string line(buffer.GetString(), buffer.GetSize());
     TEST_SYNC_POINT_CALLBACK("ReadIOTrace::record", &line);

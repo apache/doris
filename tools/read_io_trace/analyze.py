@@ -23,10 +23,54 @@ import collections
 import gzip
 import itertools
 import json
+import math
 import sys
 
 
 SOURCES = ("foreground", "hole_fill", "other")
+
+
+def distribution(values):
+    """Exact nearest-rank percentiles; an empty sample is missing evidence, not zero latency."""
+    values = sorted(values)
+    if not values:
+        return {"count": 0}
+    return {"count": len(values), "sum": sum(values), "min": values[0],
+            "p50": values[math.ceil(len(values) * 0.50) - 1],
+            "p95": values[math.ceil(len(values) * 0.95) - 1],
+            "p99": values[math.ceil(len(values) * 0.99) - 1], "max": values[-1]}
+
+
+def summarize_timings(events, max_examples=5):
+    """Durations are accumulated thread wall time, not query elapsed time or CPU time."""
+    for event in events:
+        if event["start_ns"] <= 0 or event["time_ns"] < event["start_ns"]:
+            raise ValueError(f"invalid timing interval: {event['event']}")
+    details = collections.defaultdict(list)
+    for event in events:
+        for name, value in event.get("details", {}).items():
+            details[name].append(value)
+    slowest = sorted(events, key=lambda item: item["time_ns"] - item["start_ns"], reverse=True)
+    fields = ("file", "id", "parent_id", "offset", "size", "start_ns", "time_ns", "outcome")
+    return {
+        "duration_ns": distribution(event["time_ns"] - event["start_ns"] for event in events),
+        "details": {name: distribution(values) for name, values in sorted(details.items())},
+        "outcomes": dict(collections.Counter(event["outcome"] for event in events)),
+        "slowest": [{**{name: event[name] for name in fields},
+                     "details": event.get("details", {})} for event in slowest[:max_examples]],
+    }
+
+
+def summarize_queue_scans(events, max_examples):
+    summary = summarize_timings(events, max_examples)
+    buckets = collections.defaultdict(list)
+    for event in events:
+        size = event["details"]["queue_size"]
+        bucket = "0-63" if size < 64 else "64-255" if size < 256 else "256-1023" if size < 1024 else "1024+"
+        buckets[bucket].append(event)
+    summary["by_queue_size"] = {name: summarize_timings(items, 0)
+                                for name, items in sorted(buckets.items())}
+    return summary
 
 
 def source_group(event):
@@ -204,18 +248,54 @@ def summarize_query(events, max_examples=5):
     assert result["duplicate_bytes"] == (
         sum(result["within_source_duplicate_bytes"].values())
         + result["cross_source_duplicate_bytes"])
+    submits = [event for event in events if event["event"] == "hole_submit"]
+    submit_outcomes = collections.defaultdict(list)
+    get_sources = collections.defaultdict(list)
+    for event in submits:
+        submit_outcomes[event["outcome"]].append(event)
+    for event in successful:
+        get_sources[event["source"]].append(event)
+    result["timings"] = {
+        "range_writeback": summarize_timings(
+            [event for event in events if event["event"] == "range_writeback_done"], max_examples),
+        "hole_submit": summarize_timings(submits, max_examples),
+        "hole_submit_by_outcome": {name: summarize_timings(items, 0)
+                                    for name, items in sorted(submit_outcomes.items())},
+        "successful_get_by_source": {name: summarize_timings(items, 0)
+                                      for name, items in sorted(get_sources.items())},
+    }
     return result
 
 
 def analyze(events, query_id=None, max_examples=5, expected_s3_bytes=None, warnings=()):
     groups = collections.defaultdict(list)
+    scans_by_process = collections.defaultdict(list)
     for event in events:
+        if event["event"] == "hole_queue_scan":
+            scans_by_process[event["process"]].append(event)
+            continue
         if query_id is None or event["query"] == query_id:
             groups[event["process"], event["query"]].append(event)
     queries = []
     for (process, query), items in sorted(groups.items()):
         queries.append({"process": process, "query": query,
                         **summarize_query(items, max_examples)})
+    # A queue scan can visit many queries. Keep it process-scoped even when --query-id selects
+    # one query; select scans overlapping that query's observed event envelope, without claiming
+    # they belong to it. Never hide them merely because their query field is unknown.
+    windows = {}
+    for (process, _), items in groups.items():
+        start = min(event["start_ns"] or event["time_ns"] for event in items)
+        end = max(event["time_ns"] for event in items)
+        old_start, old_end = windows.get(process, (start, end))
+        windows[process] = (min(start, old_start), max(end, old_end))
+    process_diagnostics = []
+    for process, (start, end) in sorted(windows.items()):
+        scans = [event for event in scans_by_process[process]
+                 if event["time_ns"] >= start and event["start_ns"] <= end]
+        process_diagnostics.append({"process": process, "window_start_ns": start,
+                                    "window_end_ns": end,
+                                    "hole_queue_scan": summarize_queue_scans(scans, max_examples)})
     captured = sum(item["successful_get_bytes"] for item in queries)
     warnings = list(warnings)
     if not groups:
@@ -233,6 +313,7 @@ def analyze(events, query_id=None, max_examples=5, expected_s3_bytes=None, warni
         "s3_bytes_reconciled": reconciled,
         "captured_successful_s3_bytes": captured,
         "queries": queries,
+        "process_diagnostics": process_diagnostics,
     }
 
 

@@ -163,6 +163,8 @@ private:
     };
 
     struct Task;
+    struct SubmitTrace;
+    struct QueueScanTrace;
 
     using TaskPtr = std::shared_ptr<Task>;
     using Queue = std::list<TaskPtr>;
@@ -185,14 +187,16 @@ private:
     void _stop_workers_locked(size_t keep_worker_count);
     /// Atomically install `candidate`, replace a stale queued task, or return a current same-key
     /// task. Destruction of a displaced task occurs after the manager lock is released.
-    EnqueueResult _enqueue_or_get_existing(const TaskPtr& candidate, TaskPtr* existing);
+    EnqueueResult _enqueue_or_get_existing(const TaskPtr& candidate, TaskPtr* existing,
+                                           SubmitTrace& trace);
     /// Keep tasks queued and mergeable until their delay expires and their writer has capacity.
     /// Wait until the earliest pending deadline or the next cache-writer capacity retry.
     TaskPtr _take_task(const Worker& worker);
     /// Under `_mutex`, discard stale/deduplicated entries and activate one eligible task. If none
     /// is runnable, return the next deadline or capacity retry time in `next_wakeup`.
     TaskPtr _take_runnable_task_locked(Queue* discarded_tasks,
-                                       std::chrono::steady_clock::time_point* next_wakeup);
+                                       std::chrono::steady_clock::time_point* next_wakeup,
+                                       QueueScanTrace* trace = nullptr);
     /// Remove one queued task under `_mutex` and defer its destruction to `discarded_tasks`.
     void _discard_queued_task_locked(Queue::iterator iterator, Queue* discarded_tasks);
     /// Plan holes, wait for parallel source reads, and hand the completed buffer to the cache
