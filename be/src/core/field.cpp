@@ -125,7 +125,7 @@ struct OwnedBinaryField {
     ~OwnedBinaryField() { release_bytes(); }
 
 private:
-    void release_bytes() {
+    void release_bytes() const {
         if (bytes != nullptr) {
             // Field::get() exposes a mutable view; release the original allocation size.
             Allocator<false> {}.free(bytes, byte_size);

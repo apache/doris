@@ -54,8 +54,8 @@ TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
         const char* offset;
     };
     const TestCase cases[] = {
-            {shanghai, 1890, "1890-01-01 08:05:43", "+08:05:43"},
-            {new_york, 1880, "1879-12-31 19:03:58", "-04:56:02"},
+            {.zone = shanghai, .year = 1890, .civil = "1890-01-01 08:05:43", .offset = "+08:05:43"},
+            {.zone = new_york, .year = 1880, .civil = "1879-12-31 19:03:58", .offset = "-04:56:02"},
             // Pre-standard offsets vary across tzdata versions. Fixed zones keep coverage
             // of offsets beyond 14 hours independent of the host's historical records.
             {.zone = cctz::fixed_time_zone(std::chrono::seconds(-57368)),
@@ -66,10 +66,10 @@ TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
              .year = 1800,
              .civil = "1799-12-31 09:39:00",
              .offset = "-14:21"},
-            {shanghai, 2024, "2024-01-01 08:00:00", "+08:00"},
-            {new_york, 2024, "2023-12-31 19:00:00", "-05:00"},
-            {kathmandu, 2024, "2024-01-01 05:45:00", "+05:45"},
-            {utc, 2024, "2024-01-01 00:00:00", "+00:00"},
+            {.zone = shanghai, .year = 2024, .civil = "2024-01-01 08:00:00", .offset = "+08:00"},
+            {.zone = new_york, .year = 2024, .civil = "2023-12-31 19:00:00", .offset = "-05:00"},
+            {.zone = kathmandu, .year = 2024, .civil = "2024-01-01 05:45:00", .offset = "+05:45"},
+            {.zone = utc, .year = 2024, .civil = "2024-01-01 00:00:00", .offset = "+00:00"},
     };
     for (const auto& test_case : cases) {
         const auto& zone = test_case.zone;
