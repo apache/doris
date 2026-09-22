@@ -144,10 +144,9 @@ void ThreadPoolToken::shutdown() {
     std::vector<ThreadPool::ScheduledLoadTask> removed_load_tasks;
     std::unique_lock<std::mutex> l(_pool->_lock);
     // Flush cleanup can release the last rowset-writer reference on a worker.
-    // Its WRITE_BITMAP jobs are leaves: after removing queued jobs below, only
+    // Its write-time bitmap jobs are leaves: after removing queued jobs below, only
     // already-running independent leaves remain to join. Never join our own token.
-    const bool join_bitmap_leaves = _is_load_token &&
-                                    _load_priority == LoadTaskPriority::WRITE_BITMAP &&
+    const bool join_bitmap_leaves = _is_load_token && _load_priority == LoadTaskPriority::MID &&
                                     executing_load_token != nullptr && executing_load_token != this;
     if (!_is_load_token || (_active_threads != 0 && !join_bitmap_leaves)) {
         _pool->check_not_pool_thread_unlocked();
@@ -301,7 +300,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
           _total_queued_tasks(0),
           _cgroup_cpu_ctl(builder._cgroup_cpu_ctl),
           _tokenless(new_token(ExecutionMode::CONCURRENT)),
-          _load_tokenless(new_load_token(0, LoadTaskPriority::MEMTABLE_FLUSH)),
+          _load_tokenless(new_load_token(0, LoadTaskPriority::LOW)),
           _id(UniqueId::gen_uid()) {}
 
 ThreadPool::~ThreadPool() {

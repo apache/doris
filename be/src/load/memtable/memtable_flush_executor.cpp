@@ -145,9 +145,8 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                 return _flush_status;
             }
         }
-        Status submit_st =
-                pool->submit_load(std::move(sub_tasks[i]), _rowset_writer->context().txn_id,
-                                  LoadTaskPriority::MEMTABLE_FLUSH);
+        Status submit_st = pool->submit_load(
+                std::move(sub_tasks[i]), _rowset_writer->context().txn_id, LoadTaskPriority::LOW);
         if (UNLIKELY(!submit_st.ok())) {
             {
                 std::lock_guard wrlk(_flush_status_lock);

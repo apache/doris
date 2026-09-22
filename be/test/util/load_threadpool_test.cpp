@@ -32,9 +32,9 @@ using namespace std::chrono_literals;
 TEST(LoadThreadPoolTest, MultipleTokensShareOneLoadTurn) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_fifo_test").set_max_threads(1).build(&pool).ok());
-    auto flush = pool->new_load_token(1, LoadTaskPriority::MEMTABLE_FLUSH);
-    auto bitmap = pool->new_load_token(1, LoadTaskPriority::COMMIT_BITMAP);
-    auto dup = pool->new_load_token(2, LoadTaskPriority::MEMTABLE_FLUSH);
+    auto flush = pool->new_load_token(1, LoadTaskPriority::LOW);
+    auto bitmap = pool->new_load_token(1, LoadTaskPriority::HIGHEST);
+    auto dup = pool->new_load_token(2, LoadTaskPriority::LOW);
     CountDownLatch entered(1), release(1);
     std::vector<int> order;
     Defer unblock = [&] { release.count_down(); };
@@ -54,7 +54,7 @@ TEST(LoadThreadPoolTest, MultipleTokensShareOneLoadTurn) {
 TEST(LoadThreadPoolTest, OneLoadCanUseAllWorkers) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_parallel_test").set_max_threads(2).build(&pool).ok());
-    auto token = pool->new_load_token(1, LoadTaskPriority::MEMTABLE_FLUSH);
+    auto token = pool->new_load_token(1, LoadTaskPriority::LOW);
     CountDownLatch entered(2), release(1);
     Defer unblock = [&] { release.count_down(); };
     for (int i = 0; i < 2; ++i) {
@@ -71,8 +71,8 @@ TEST(LoadThreadPoolTest, OneLoadCanUseAllWorkers) {
 TEST(LoadThreadPoolTest, CancelOnlyRemovesItsOwnTasks) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_cancel_test").set_max_threads(1).build(&pool).ok());
-    auto cancelled = pool->new_load_token(1, LoadTaskPriority::WRITE_BITMAP);
-    auto kept = pool->new_load_token(1, LoadTaskPriority::MEMTABLE_FLUSH);
+    auto cancelled = pool->new_load_token(1, LoadTaskPriority::MID);
+    auto kept = pool->new_load_token(1, LoadTaskPriority::LOW);
     CountDownLatch entered(1), release(1);
     int completed = 0;
     Defer unblock = [&] { release.count_down(); };
@@ -95,11 +95,11 @@ TEST(LoadThreadPoolTest, NestedBitmapRunsInlineWithOneWorker) {
     ASSERT_TRUE(ThreadPoolBuilder("load_nested_test").set_max_threads(1).build(&pool).ok());
     CalcDeleteBitmapExecutor executor;
     executor.init("background_bitmap_test", 1, pool.get());
-    auto parent = pool->new_load_token(1, LoadTaskPriority::COMMIT_BITMAP);
+    auto parent = pool->new_load_token(1, LoadTaskPriority::HIGHEST);
     std::atomic<bool> completed = false;
     EXPECT_TRUE(parent->submit_func([&] {
-                          auto child = executor.create_load_token(
-                                  1, LoadTaskPriority::COMMIT_BITMAP, nullptr);
+                          auto child =
+                                  executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
                           EXPECT_TRUE(child->submit_func([&] {
                                                completed = true;
                                                return Status::InternalError("test bitmap failure");
@@ -115,7 +115,7 @@ TEST(LoadThreadPoolTest, CancelledBitmapIsNotReportedAsComplete) {
     ASSERT_TRUE(ThreadPoolBuilder("load_shutdown_test").set_max_threads(1).build(&pool).ok());
     CalcDeleteBitmapExecutor executor;
     executor.init("background_shutdown_test", 1, pool.get());
-    auto token = executor.create_load_token(1, LoadTaskPriority::WRITE_BITMAP, nullptr);
+    auto token = executor.create_load_token(1, LoadTaskPriority::MID, nullptr);
     CountDownLatch entered(1), release(1);
     Defer unblock = [&] { release.count_down(); };
     EXPECT_TRUE(pool->submit_func([&] {
@@ -134,8 +134,8 @@ TEST(LoadThreadPoolTest, CancelledBitmapIsNotReportedAsComplete) {
 TEST(LoadThreadPoolTest, FlushCleanupCanJoinRunningBitmapLeaves) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_cleanup_test").set_max_threads(2).build(&pool).ok());
-    auto leaf = pool->new_load_token(1, LoadTaskPriority::WRITE_BITMAP);
-    auto parent = pool->new_load_token(1, LoadTaskPriority::MEMTABLE_FLUSH);
+    auto leaf = pool->new_load_token(1, LoadTaskPriority::MID);
+    auto parent = pool->new_load_token(1, LoadTaskPriority::LOW);
     CountDownLatch leaf_entered(1), parent_entered(1), release(1);
     Defer unblock = [&] { release.count_down(); };
     EXPECT_TRUE(leaf->submit_func([&] {

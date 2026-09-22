@@ -50,12 +50,12 @@ class Thread;
 class ThreadPool;
 class ThreadPoolToken;
 
-// Business phase, not the name of the submitting executor. Lower values run first.
+// Priority within a load. Callers map task stages to levels; lower values run first.
 enum class LoadTaskPriority : uint8_t {
-    COMMIT_BITMAP = 0,
-    WRITE_FINISH_BITMAP = 1,
-    WRITE_BITMAP = 2,
-    MEMTABLE_FLUSH = 3,
+    HIGHEST = 0,
+    HIGH = 1,
+    MID = 2,
+    LOW = 3,
 };
 
 class Runnable {
@@ -327,7 +327,7 @@ private:
 
     // Submits a task to be run via token.
     Status do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token, int64_t load_id = 0,
-                     LoadTaskPriority priority = LoadTaskPriority::MEMTABLE_FLUSH);
+                     LoadTaskPriority priority = LoadTaskPriority::LOW);
     bool queues_empty() const;
     struct ScheduledLoadTask;
     class LoadQueue;
@@ -561,7 +561,7 @@ private:
     // share an outer FIFO entry while retaining independent wait/shutdown.
     bool _is_load_token = false;
     int64_t _load_id = 0;
-    LoadTaskPriority _load_priority = LoadTaskPriority::MEMTABLE_FLUSH;
+    LoadTaskPriority _load_priority = LoadTaskPriority::LOW;
     size_t _queued_load_tasks = 0;
     bool tasks_empty() const { return _entries.empty() && _queued_load_tasks == 0; }
 
