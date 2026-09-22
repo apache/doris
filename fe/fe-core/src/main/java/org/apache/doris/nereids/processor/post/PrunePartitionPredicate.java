@@ -63,7 +63,7 @@ public class PrunePartitionPredicate extends PlanPostProcessor {
             return filter;
         }
         boolean skipPrunePredicate = context.getConnectContext().getSessionVariable().skipPrunePredicate
-                || context.getStatementContext().isSkipPrunePredicate();
+                || context.getStatementContext().isDelete();
         if (skipPrunePredicate) {
             return filter;
         }

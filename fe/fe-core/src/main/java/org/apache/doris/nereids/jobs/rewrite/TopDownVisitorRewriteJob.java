@@ -53,9 +53,9 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
             return;
         }
 
-        Plan root = rewrite(
-                null, -1, originPlan, jobContext, rules, false, new ProcessState(originPlan)
-        );
+        ProcessState processState = jobContext.getCascadesContext().showPlanProcess()
+                ? new ProcessState(originPlan) : null;
+        Plan root = rewrite(null, -1, originPlan, jobContext, rules, false, processState);
         jobContext.getCascadesContext().setRewritePlan(root);
     }
 
@@ -88,7 +88,9 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
 
         if (changed) {
             plan = plan.withChildren(newChildren.build());
-            processState.updateChild(parent, childIndex, plan);
+            if (processState != null) {
+                processState.updateChild(parent, childIndex, plan);
+            }
         }
 
         return plan;
@@ -113,7 +115,7 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                 if (!transform.isEmpty() && !transform.get(0).deepEquals(originPlan)) {
                     Plan newPlan = transform.get(0);
                     currentRule.acceptPlan(originPlan);
-                    if (cascadesContext.showPlanProcess()) {
+                    if (processState != null) {
                         String beforeShape = processState.getNewestPlan().treeString(true, originPlan);
                         String afterShape = processState.updateChildAndGetNewest(originParent, childIndex, newPlan)
                                 .treeString(true, newPlan);

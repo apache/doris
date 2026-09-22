@@ -15,39 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.properties;
+package org.apache.doris.datasource.hive;
+
+import org.apache.hadoop.hive.metastore.api.Partition;
 
 import java.util.List;
 
-/**
- * select hint CostBasedRule.
- */
-public class SelectHintUseCboRule extends SelectHint {
-    private final List<String> parameters;
-
-    private final boolean isNotUseCboRule;
-
-    public SelectHintUseCboRule(String hintName, List<String> parameters, boolean isNotUseCboRule) {
-        super(hintName);
-        this.parameters = parameters;
-        this.isNotUseCboRule = isNotUseCboRule;
-    }
-
-    public List<String> getParameters() {
-        return parameters;
-    }
-
-    public boolean isNotUseCboRule() {
-        return isNotUseCboRule;
-    }
-
-    @Override
-    public String getHintName() {
-        return super.getHintName();
-    }
-
-    @Override
-    public String toString() {
-        return super.getHintName();
-    }
+/** Leaf transport contract: one invocation enters the configured getPartitionsByNames transport once. */
+@FunctionalInterface
+interface HmsPartitionTransport {
+    List<Partition> getPartitionsByNames(
+            String dbName, String tableName, List<String> partitionNames) throws Exception;
 }

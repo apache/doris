@@ -15,33 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.hint;
+package org.apache.doris.datasource.hive;
 
-/**
- * rule hint.
- */
-public class UseCboRuleHint extends Hint {
+import org.apache.hadoop.hive.metastore.api.Partition;
 
-    private final boolean isNotUseCboRule;
+import java.util.List;
+import java.util.Objects;
 
-    public UseCboRuleHint(String hintName, boolean isNotUseCboRule) {
-        super(hintName);
-        this.isNotUseCboRule = isNotUseCboRule;
+/** Partition objects and the physical HMS batching statistics that produced them. */
+public final class HmsPartitionBatchResult {
+    private final List<Partition> partitions;
+    private final HmsPartitionBatchStats stats;
+
+    public HmsPartitionBatchResult(List<Partition> partitions, HmsPartitionBatchStats stats) {
+        this.partitions = Objects.requireNonNull(partitions, "partitions");
+        this.stats = Objects.requireNonNull(stats, "stats");
     }
 
-    public boolean isNotUseCboRule() {
-        return isNotUseCboRule;
+    public List<Partition> getPartitions() {
+        return partitions;
     }
 
-    @Override
-    public String getExplainString() {
-        StringBuilder out = new StringBuilder();
-        if (isNotUseCboRule) {
-            out.append("no_use_");
-        } else {
-            out.append("use_");
-        }
-        out.append(getHintName());
-        return out.toString();
+    public HmsPartitionBatchStats getStats() {
+        return stats;
     }
 }

@@ -217,6 +217,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         SlotReference groupingId = (SlotReference) ExpressionDeepCopier.INSTANCE
                 .deepCopy(repeat.getGroupingId().get(), context);
+        if (repeat.getGroupingIdValues().isPresent()) {
+            return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId,
+                    repeat.getGroupingIdValues().get(), repeat.getRepeatType(), child);
+        }
         return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, repeat.getRepeatType(), child);
     }
 
@@ -235,7 +239,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> newProjects = project.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(newProjects, project.isDistinct(), child);
+        List<NamedExpression> newAsteriskOutputs = project.getAsteriskOutputs().stream()
+                .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalProject<>(newProjects, project.isDistinct(), newAsteriskOutputs, child);
     }
 
     @Override

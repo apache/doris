@@ -278,6 +278,20 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public void unregisterDatabase(String dbName) {
+        // Dropping a namespace is a semantic change, unlike routine local DB-object eviction.
+        invalidateTableAccessCache();
+        super.unregisterDatabase(dbName);
+    }
+
+    public synchronized void invalidateTableAccessCache() {
+        // Invalidation must not initialize JNI resources or wait for an in-flight namespace call.
+        if (client != null) {
+            client.invalidateTableAccessCache();
+        }
+    }
+
+    @Override
     public void onRefreshCache(boolean invalidCache) {
         if (invalidCache) {
             refreshSessionCache();
@@ -287,7 +301,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
 
     /**
      * REFRESH CATALOG invalidates the entire Session, including same-URI dataset replacements.
-     * REFRESH TABLE only invalidates Doris metadata and does not rotate this native cache.
+     * REFRESH TABLE invalidates Doris metadata and table access, but does not rotate the native Session.
      * New reads use a cold cache; in-flight reads retain their previous generation.
      */
     @VisibleForTesting

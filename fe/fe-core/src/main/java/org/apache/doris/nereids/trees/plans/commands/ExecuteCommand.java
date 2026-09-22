@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.nereids.StatementContext;
@@ -40,6 +39,8 @@ import org.apache.doris.qe.PointQueryExecutor;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -170,11 +171,14 @@ public class ExecuteCommand extends Command {
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
         statementContext.setShortCircuitQueryContext(null);
         executor.execute();
-        if (executor.getContext().getStatementContext().isShortCircuitQuery()) {
-            // cache short-circuit plan
-            preparedStmtCtx.shortCircuitQueryContext = Optional.of(
-                    new ShortCircuitQueryContext(executor.planner(), (Queriable) executor.getParsedStmt()));
-            statementContext.setShortCircuitQueryContext(preparedStmtCtx.shortCircuitQueryContext.get());
+        StatementContext executedStatementContext = executor.getContext().getStatementContext();
+        ShortCircuitQueryContext shortCircuitQueryContext =
+                executedStatementContext.getShortCircuitQueryContext();
+        if (shortCircuitQueryContext != null) {
+            Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
+            // Publish the exact context used by this execution so its topology generation stays
+            // bound to the cached partition pruner in the same planner scan node.
+            preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
         }
     }
 

@@ -30,6 +30,7 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -90,6 +91,8 @@ public class RefreshManager {
             throw new DdlException("Only support refresh database in external catalog");
         }
         DatabaseIf db = catalog.getDbOrDdlException(dbName);
+        // Local DB-object eviction also resets metadata; only an explicit refresh retires access.
+        invalidateLanceTableAccess(catalog);
         refreshDbInternal((ExternalDatabase) db);
 
         ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName());
@@ -100,7 +103,9 @@ public class RefreshManager {
         ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
         if (catalog == null) {
             LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
+            return;
         }
+        invalidateLanceTableAccess(catalog);
         Optional<ExternalDatabase<? extends ExternalTable>> db;
         if (!Strings.isNullOrEmpty(log.getDbName())) {
             db = catalog.getDbForReplay(log.getDbName());
@@ -112,6 +117,14 @@ public class RefreshManager {
             LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
         } else {
             refreshDbInternal(db.get());
+        }
+    }
+
+    private void invalidateLanceTableAccess(CatalogIf catalog) {
+        // Access entries outlive the bounded DB/table object caches. Replay must invalidate by
+        // catalog identity before its cache-only object lookup can return early, including ID logs.
+        if (catalog instanceof LanceExternalCatalog) {
+            ((LanceExternalCatalog) catalog).invalidateTableAccessCache();
         }
     }
 
@@ -160,6 +173,7 @@ public class RefreshManager {
             LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
+        invalidateLanceTableAccess(catalog);
         Optional<ExternalDatabase<? extends ExternalTable>> db;
         if (!Strings.isNullOrEmpty(log.getDbName())) {
             db = catalog.getDbForReplay(log.getDbName());

@@ -444,7 +444,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * withSelectedPartitionIds
      */
     public LogicalOlapScan withSelectedPartitionIds(List<Long> selectedPartitionIds) {
-        return withSelectedPartitionIds(selectedPartitionIds, false);
+        return withSelectedPartitionIds(selectedPartitionIds, hasPartitionPredicate);
     }
 
     /**

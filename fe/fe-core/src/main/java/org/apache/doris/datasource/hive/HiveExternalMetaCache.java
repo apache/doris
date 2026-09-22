@@ -482,7 +482,10 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             return sb.toString();
         }).collect(Collectors.toList());
 
-        List<Partition> partitions = catalog.getClient().getPartitions(
+        // Lenient existence semantics: a partition dropped remotely since the name list was captured is
+        // simply absent from the result (the historical getPartitionsByNames behavior); the client batches
+        // and validates the physical RPCs internally.
+        List<Partition> partitions = catalog.getClient().getExistingPartitions(
                 nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames);
         for (Partition partition : partitions) {
             StorageDescriptor sd = partition.getSd();
@@ -657,7 +660,30 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         List<HivePartition> partitions;
         if (withCache) {
             MetaCacheEntry<PartitionCacheKey, HivePartition> partitionEntry = this.partitionEntry.get(catalogId);
-            partitions = keys.stream().map(partitionEntry::get).collect(Collectors.toList());
+            // Serve hits from the cache and aggregate every miss into ONE bulk load (batched inside the
+            // client) instead of one single-partition RPC per missed key.
+            Map<PartitionCacheKey, HivePartition> resolved = new HashMap<>();
+            List<PartitionCacheKey> misses = new ArrayList<>();
+            for (PartitionCacheKey key : keys) {
+                HivePartition hit = partitionEntry.getIfPresent(key);
+                if (hit != null) {
+                    resolved.put(key, hit);
+                } else {
+                    misses.add(key);
+                }
+            }
+            if (!misses.isEmpty()) {
+                Map<PartitionCacheKey, HivePartition> loaded = loadPartitions(misses);
+                loaded.forEach(partitionEntry::put);
+                resolved.putAll(loaded);
+            }
+            partitions = new ArrayList<>(keys.size());
+            for (PartitionCacheKey key : keys) {
+                HivePartition partition = resolved.get(key);
+                // A key the bulk load did not return (partition dropped remotely) falls back to the
+                // per-key loader, preserving the original single-load not-found error for that partition.
+                partitions.add(partition != null ? partition : partitionEntry.get(key));
+            }
         } else {
             partitions = new ArrayList<>(loadPartitions(keys).values());
         }

@@ -53,12 +53,12 @@ public class InferTest extends SqlTestBase {
                 .matches(
                     innerLogicalJoin(
                         logicalFilter().when(
-                                f -> f.getPredicate().toString().equals("(id#2 >= 4)")),
-                        logicalFilter().when(
                                 f -> ExpressionUtils.and(f.getConjuncts().stream()
                                         .sorted((a, b) -> a.toString().compareTo(b.toString()))
                                         .collect(Collectors.toList()))
-                                        .toString().equals("(id#0 >= 4)"))
+                                        .toString().equals("(id#0 >= 4)")),
+                        logicalFilter().when(
+                                f -> f.getPredicate().toString().equals("(id#2 >= 4)"))
                     )
 
                 );
@@ -97,8 +97,8 @@ public class InferTest extends SqlTestBase {
                 .rewrite()
                 .matches(
                         innerLogicalJoin(
-                                logicalProject(),
-                                logicalProject(leftSemiLogicalJoin())
+                                logicalProject(leftSemiLogicalJoin()),
+                                logicalProject()
                         )
                 );
     }

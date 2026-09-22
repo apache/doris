@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -66,12 +67,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.FullTextSearch;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -873,7 +877,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         return new LogicalJoin<>(join.getJoinType(),
                 hashConjuncts, otherConjuncts,
-                join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
+                join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
     }
 
@@ -928,6 +932,7 @@ public class BindExpression implements AnalysisRuleFactory {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(using, cascadesContext);
 
         Builder<Expression> hashEqExprs = ImmutableList.builderWithExpectedSize(unboundHashJoinConjunct.size());
+        List<Slot> leftConjunctsSlots = Lists.newArrayList();
         List<Slot> rightConjunctsSlots = Lists.newArrayList();
         for (Expression usingColumn : unboundHashJoinConjunct) {
             ExpressionAnalyzer leftExprAnalyzer = new ExpressionAnalyzer(
@@ -937,15 +942,61 @@ public class BindExpression implements AnalysisRuleFactory {
             ExpressionAnalyzer rightExprAnalyzer = new ExpressionAnalyzer(
                     using, rightScope, cascadesContext, true, false);
             Expression usingRightSlot = rightExprAnalyzer.analyze(usingColumn, rewriteContext);
+            leftConjunctsSlots.add((Slot) usingLeftSlot);
             rightConjunctsSlots.add((Slot) usingRightSlot);
             hashEqExprs.add(new EqualTo(usingLeftSlot, usingRightSlot));
         }
 
-        return new LogicalJoin<>(
-                    using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
-                    hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
-                    using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
-                    using.children(), null);
+        JoinType joinType = using.getJoinType() == JoinType.CROSS_JOIN
+                ? JoinType.INNER_JOIN : using.getJoinType();
+        LogicalJoin<Plan, Plan> join = new LogicalJoin<>(joinType,
+                hashEqExprs.build(), using.getMatchCondition().map(ImmutableList::of).orElse(ImmutableList.of()),
+                using.getDistributeHint(), Optional.empty(),
+                using.children(), null);
+
+        // Build Project on top of join with correct merge key semantics
+        List<Slot> joinOutput = join.getOutput();
+        Set<Slot> leftUsingSlotSet = ImmutableSet.copyOf(leftConjunctsSlots);
+        Set<Slot> rightUsingSlotSet = ImmutableSet.copyOf(rightConjunctsSlots);
+
+        // Build project expressions: merged key(s) + all join output columns
+        ImmutableList.Builder<NamedExpression> projectExprs = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> asteriskOutputs = ImmutableList.builder();
+
+        // 1. Add merged key columns (without qualifier)
+        for (int i = 0; i < leftConjunctsSlots.size(); i++) {
+            Slot leftSlot = leftConjunctsSlots.get(i);
+            Slot rightSlot = rightConjunctsSlots.get(i);
+            String colName = leftSlot.getName();
+            NamedExpression mergeExpr;
+            if (joinType.isFullOuterJoin()) {
+                // FULL OUTER JOIN: COALESCE(left, right)
+                mergeExpr = new Alias(new Coalesce(leftSlot, rightSlot), colName);
+            } else if (joinType.isRightJoin() || joinType.isRightSemiOrAntiJoin()) {
+                // RIGHT OUTER / RIGHT SEMI / RIGHT ANTI: use right side (preserved side)
+                mergeExpr = new Alias(rightSlot, colName);
+            } else {
+                // LEFT OUTER / INNER / LEFT SEMI / LEFT ANTI / CROSS: use left side
+                mergeExpr = new Alias(leftSlot, colName);
+            }
+            projectExprs.add(mergeExpr);
+            asteriskOutputs.add(mergeExpr);
+        }
+
+        // 2. Pass through all join output columns (with original qualifiers)
+        for (Slot slot : joinOutput) {
+            projectExprs.add(slot);
+        }
+
+        // 3. Build asterisk output: merged USING keys + child asterisk output without current USING keys.
+        for (Slot slot : join.getAsteriskOutput()) {
+            if (!leftUsingSlotSet.contains(slot) && !rightUsingSlotSet.contains(slot)) {
+                asteriskOutputs.add(slot);
+            }
+        }
+
+        return new LogicalProject<>(projectExprs.build(), false,
+                asteriskOutputs.build(), ImmutableList.of(join));
     }
 
     private Plan bindProject(MatchingContext<LogicalProject<Plan>> ctx) {
@@ -1771,6 +1822,39 @@ public class BindExpression implements AnalysisRuleFactory {
 
         String functionName = unboundTVFRelation.getFunctionName();
         Properties arguments = unboundTVFRelation.getProperties();
+        if (!unboundTVFRelation.getPropertyParameters().isEmpty()) {
+            // The unbound plan is retained across EXECUTEs. Never overwrite its parameter slots
+            // or cache a bound TVF, which would retain a previous vector and Lance snapshot.
+            Map<String, String> boundProperties = new HashMap<>(arguments.getMap());
+            for (Map.Entry<String, Placeholder> parameter : unboundTVFRelation.getPropertyParameters().entrySet()) {
+                String key = parameter.getKey();
+                if (statementContext.isPrepareStage()) {
+                    // These values only determine the result schema; PREPARE does not execute a search.
+                    switch (key) {
+                        case "top_k":
+                            boundProperties.put(key, "1");
+                            break;
+                        case "offset":
+                            boundProperties.put(key, "0");
+                            break;
+                        case "filter":
+                            boundProperties.put(key, "true");
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    Expression value = statementContext.getIdToPlaceholderRealExpr()
+                            .get(parameter.getValue().getPlaceholderId());
+                    if (!(value instanceof Literal) || value instanceof NullLiteral) {
+                        throw new AnalysisException("vector_search parameter '" + key
+                                + "' must be a non-null literal");
+                    }
+                    boundProperties.put(key, ((Literal) value).getStringValue());
+                }
+            }
+            arguments = new Properties(boundProperties);
+        }
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
         Pair<? extends Expression, ? extends BoundFunction> bindResult
                 = functionBuilder.build(functionName, arguments);
@@ -1782,6 +1866,10 @@ public class BindExpression implements AnalysisRuleFactory {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
         TableValuedFunction tableValuedFunction = (TableValuedFunction) bindResult.first;
+        if (tableValuedFunction instanceof VectorSearch && statementContext.isPrepareStage()
+                && unboundTVFRelation.getPropertyParameters().containsKey("query_vector")) {
+            tableValuedFunction = new VectorSearch(arguments, true);
+        }
         LogicalTVFRelation relation = new LogicalTVFRelation(
                 unboundTVFRelation.getRelationId(), tableValuedFunction, ImmutableList.of());
         if (!(tableValuedFunction instanceof VectorSearch)

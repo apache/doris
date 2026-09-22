@@ -421,7 +421,10 @@ suite("negative_partition_mv_rewrite") {
         """
     mv_rewrite_fail(query_sql, mv_name)
 
-    // filter include and or
+    // filter include and or. Query predicate is stricter than MV predicate and can be
+    // compensated by DNF implication:
+    //   query: o_orderkey > 2 AND (o_orderdate >= ... OR l_partkey > 1)
+    //   mv   : (o_orderkey > 2 AND o_orderdate >= ...) OR l_partkey > 1
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
         from lineitem_1 
@@ -437,7 +440,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey 
         where  orders_1.o_orderkey > 2 and (orders_1.o_orderdate >= "2023-10-17" or l_partkey > 1)
         """
-    mv_rewrite_fail(query_sql, mv_name)
+    mv_rewrite_success(query_sql, mv_name)
 
     // group by under group by
     mtmv_sql = """
