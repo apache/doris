@@ -15,10 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
+#include <arrow/api.h>
+#include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/arrow/reader.h>
 #include <parquet/schema.h>
 
 #include <string_view>
@@ -28,19 +31,24 @@
 #include "core/column/column_nullable.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-class VParquetTransformerTest : public testing::Test {
+class VParquetWriterTest : public testing::Test {
 protected:
+    static void SetUpTestSuite() { TimezoneUtils::load_timezones_to_cache(); }
+
     void SetUp() override {
         _file_path = "./vparquet_transformer_" + UniqueId::gen_uid().to_string() + ".parquet";
         _fs = io::global_local_filesystem();
@@ -52,7 +60,7 @@ protected:
     std::shared_ptr<io::FileSystem> _fs;
 };
 
-TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
+TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     auto variant_type = std::make_shared<DataTypeVariantV2>();
     auto nullable_variant_type = make_nullable(variant_type);
     VExprContextSPtrs output_exprs =
@@ -74,8 +82,8 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
-    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"payload"}, false,
-                                    options, &schema_json, schema.get());
+    VIcebergParquetWriter transformer(&state, file_writer.get(), output_exprs, {"payload"}, false,
+                                      options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
@@ -128,7 +136,7 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     EXPECT_EQ(-1, payload_group.field(1)->field_id());
 }
 
-TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
+TEST_F(VParquetWriterTest, WritesNestedIcebergVariant) {
     auto variant_type = std::make_shared<DataTypeVariantV2>();
     auto array_type = std::make_shared<DataTypeArray>(variant_type);
     auto nullable_array_type = make_nullable(array_type);
@@ -161,8 +169,8 @@ TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
-    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"events"}, false,
-                                    options, &schema_json, schema.get());
+    VIcebergParquetWriter transformer(&state, file_writer.get(), output_exprs, {"events"}, false,
+                                      options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
@@ -208,6 +216,90 @@ TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
     ASSERT_NE(nullptr, element->logical_type());
     EXPECT_TRUE(element->logical_type()->is_variant());
     EXPECT_EQ(3, element->field_id());
+}
+
+TEST_F(VParquetWriterTest, PreservesInt64TimestampSchema) {
+    DataTypes types {DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6),
+                     DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6)};
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(types);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("Asia/Shanghai");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = false};
+    VParquetWriter transformer(&state, file_writer.get(), output_exprs,
+                               std::vector<std::string> {"local_time", "instant"}, false, options);
+    ASSERT_TRUE(transformer.open().ok());
+    ASSERT_TRUE(transformer.close().ok());
+
+    auto reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = reader->metadata()->schema()->group_node();
+    ASSERT_EQ(2, root->field_count());
+    ASSERT_NE(nullptr, root->field(0)->logical_type());
+    ASSERT_NE(nullptr, root->field(1)->logical_type());
+    // Moving schema construction must preserve the current Parquet timestamp representation.
+    EXPECT_NE(std::string::npos,
+              root->field(0)->logical_type()->ToString().find("isAdjustedToUTC=true"));
+    EXPECT_NE(std::string::npos,
+              root->field(1)->logical_type()->ToString().find("isAdjustedToUTC=true"));
+}
+
+TEST_F(VParquetWriterTest, WritesInt96DatetimeUsingWriterTimezone) {
+    auto datetime_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {datetime_type});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("Asia/Shanghai");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0,
+                                .parquet_disable_dictionary = false,
+                                .enable_int96_timestamps = true};
+    VParquetWriter transformer(&state, file_writer.get(), output_exprs, {"local_time"}, false,
+                               options);
+    ASSERT_TRUE(transformer.open().ok());
+
+    DateV2Value<DateTimeV2ValueType> datetime;
+    const std::string format = "%Y-%m-%d %H:%i:%s.%f";
+    const std::string value = "2023-04-20 00:00:00.123456";
+    ASSERT_TRUE(datetime.from_date_format_str(format.data(), format.size(), value.data(),
+                                              value.size()));
+    auto column = ColumnDateTimeV2::create();
+    column->insert_value(datetime);
+    Block block;
+    block.insert(ColumnWithTypeAndName(std::move(column), datetime_type, "local_time"));
+    const auto write_status = transformer.write(block);
+    ASSERT_TRUE(write_status.ok()) << write_status.to_string();
+    ASSERT_TRUE(transformer.close().ok());
+
+    auto physical_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = physical_reader->metadata()->schema()->group_node();
+    ASSERT_EQ(1, root->field_count());
+    const auto& primitive = assert_cast<const ::parquet::schema::PrimitiveNode&>(*root->field(0));
+    EXPECT_EQ(::parquet::Type::INT96, primitive.physical_type());
+
+    auto input_result = arrow::io::ReadableFile::Open(_file_path);
+    ASSERT_TRUE(input_result.ok()) << input_result.status();
+    auto arrow_reader_result =
+            ::parquet::arrow::OpenFile(*input_result, arrow::default_memory_pool());
+    ASSERT_TRUE(arrow_reader_result.ok()) << arrow_reader_result.status();
+    std::unique_ptr<::parquet::arrow::FileReader> arrow_reader = std::move(*arrow_reader_result);
+    std::shared_ptr<arrow::Table> table;
+    ASSERT_TRUE(arrow_reader->ReadTable(&table).ok());
+    ASSERT_EQ(1, table->num_rows());
+    const auto& timestamp = assert_cast<const arrow::TimestampArray&>(*table->column(0)->chunk(0));
+    const auto& timestamp_type = assert_cast<const arrow::TimestampType&>(*timestamp.type());
+    int64_t epoch_micros = timestamp.Value(0);
+    if (timestamp_type.unit() == arrow::TimeUnit::NANO) {
+        epoch_micros /= 1000;
+    }
+    // Hive-compatible INT96 encodes the UTC instant for the writer's local DATETIMEV2 value.
+    EXPECT_EQ(1681920000123456LL, epoch_micros);
 }
 
 } // namespace doris

@@ -27,6 +27,7 @@
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 #include "format/parquet/arrow_memory_pool.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "runtime/runtime_profile.h"
 
 namespace arrow {
@@ -82,7 +83,8 @@ private:
     jmethodID _close_id = nullptr;
 
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
-    std::shared_ptr<arrow::Schema> _arrow_schema;
+    std::string _serialized_arrow_schema;
+    cctz::time_zone _timezone;
     std::unique_ptr<ExternalSpillSession> _spill_session;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
@@ -97,7 +99,10 @@ private:
 class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
-                    jmethodID abort_id, std::shared_ptr<arrow::Schema> arrow_schema);
+                    jmethodID abort_id, std::string serialized_arrow_schema,
+                    const cctz::time_zone& timezone);
+
+    Status init() { return _arrow_block_convertor.init(); }
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
@@ -112,7 +117,7 @@ private:
 
     // Arrow resources owned by this writer adapter.
     ArrowMemoryPool<> _arrow_pool;
-    std::shared_ptr<arrow::Schema> _arrow_schema;
+    paimon::PaimonArrowBlockConvertor _arrow_block_convertor;
 };
 
 } // namespace doris
