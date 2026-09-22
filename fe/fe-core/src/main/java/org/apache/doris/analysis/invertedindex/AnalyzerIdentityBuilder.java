@@ -24,6 +24,7 @@ import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
+import com.ibm.icu.lang.UCharacter;
 import com.ibm.icu.text.UnicodeSet;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +50,45 @@ public final class AnalyzerIdentityBuilder {
             "letter", "digit", "whitespace", "punctuation", "symbol", "cjk");
 
     private AnalyzerIdentityBuilder() {
+    }
+
+    /**
+     * Case-folding context of a char filter: the bytes that filters between it and the downstream
+     * fold rewrite, plus the unicode_set_filter the fold is restricted to (null for every code point).
+     */
+    private static final class FoldContext {
+        private static final UnicodeSet NON_STARTERS = new UnicodeSet("[:^ccc=0:]").freeze();
+
+        private final boolean[] blockedBytes = new boolean[256];
+        private final UnicodeSet foldSet;
+
+        private FoldContext(UnicodeSet foldSet) {
+            this.foldSet = foldSet;
+        }
+
+        private static FoldContext unfiltered() {
+            return new FoldContext(null);
+        }
+
+        private void block(boolean[] sourceBytes) {
+            for (int i = 0; i < blockedBytes.length; ++i) {
+                blockedBytes[i] |= sourceBytes[i];
+            }
+        }
+
+        /** Whether the fold turns the upper-case ASCII byte into the lower-case one wherever it appears. */
+        private boolean foldsByte(int upperByte, int lowerByte) {
+            if (blockedBytes[upperByte] || blockedBytes[lowerByte]) {
+                return false;
+            }
+            if (foldSet == null) {
+                return true;
+            }
+            // A filtered normalizer handles each in-set span on its own, so the folded byte must
+            // stay in its span, or the set must hold no combining mark that could compose with it.
+            return foldSet.contains(upperByte)
+                    && (foldSet.contains(lowerByte) || !foldSet.containsSome(NON_STARTERS));
+        }
     }
 
     public static String buildAnalyzerIdentity(
@@ -137,7 +177,7 @@ public final class AnalyzerIdentityBuilder {
 
         // Check if it's a built-in normalizer
         if (IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
-            return "normalizer:" + analyzerName;
+            return builtinNormalizerIdentity(analyzerName);
         }
 
         // For custom analyzer/normalizer, get underlying config from IndexPolicyMgr
@@ -182,6 +222,14 @@ public final class AnalyzerIdentityBuilder {
     }
 
     /**
+     * BE builds a built-in normalizer as the keyword tokenizer plus the built-in token filter of
+     * the same name, so it shares the identity of that custom pipeline.
+     */
+    private static String builtinNormalizerIdentity(String name) {
+        return IndexPolicyTypeEnum.NORMALIZER.name() + ":" + IndexPolicy.PROP_TOKEN_FILTER + "=" + name + ";";
+    }
+
+    /**
      * Build identity string from policy properties.
      * Uses TreeMap to ensure consistent key ordering.
      */
@@ -191,7 +239,7 @@ public final class AnalyzerIdentityBuilder {
         TreeMap<String, String> sortedProps = new TreeMap<>(properties);
         String tokenizerIdentity = resolveComponentIdentity(
                 properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
-        boolean lowercaseDownstream = foldsAsciiCaseAfterCharFilters(type, properties, tokenizerIdentity);
+        FoldContext downstreamFold = foldsAsciiCaseAfterCharFilters(type, properties, tokenizerIdentity);
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.name()).append(":");
@@ -207,7 +255,7 @@ public final class AnalyzerIdentityBuilder {
             } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
                 resolved = resolveTokenFilterIdentity(value);
             } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
-                resolved = resolveCharFilterIdentity(value, lowercaseDownstream);
+                resolved = resolveCharFilterIdentity(value, downstreamFold);
             }
             if (!Strings.isNullOrEmpty(resolved)) {
                 sb.append(key).append("=").append(resolved).append(";");
@@ -224,12 +272,9 @@ public final class AnalyzerIdentityBuilder {
         return resolveComponentIdentity(name, expectedType, null);
     }
 
-    /**
-     * {@code foldBlockedBytes} is the case-folding context of a char filter: null without a
-     * downstream fold, otherwise the bytes that filters between this one and the fold rewrite.
-     */
+    /** {@code fold} is the case-folding context of a char filter, or null without a downstream fold. */
     private static String resolveComponentIdentity(
-            String name, IndexPolicyTypeEnum expectedType, boolean[] foldBlockedBytes) {
+            String name, IndexPolicyTypeEnum expectedType, FoldContext fold) {
         if (Strings.isNullOrEmpty(name)) {
             return "";
         }
@@ -268,7 +313,7 @@ public final class AnalyzerIdentityBuilder {
                                 && "char_replace".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
                             String replacement = sortedProps.getOrDefault("replacement", " ");
                             String pattern = canonicalizeCharReplacePattern(
-                                    sortedProps.get("pattern"), replacement, foldBlockedBytes);
+                                    sortedProps.get("pattern"), replacement, fold);
                             if (pattern.isEmpty()) {
                                 return "";
                             }
@@ -462,24 +507,87 @@ public final class AnalyzerIdentityBuilder {
         }
     }
 
-    // BE matches custom token characters as a code point set.
+    // BE matches custom token characters as a code point set ORed with the named classes.
     private static void canonicalizeCustomTokenChars(TreeMap<String, String> properties) {
         String value = properties.get("custom_token_chars");
         if (value == null) {
             return;
         }
+        String tokenChars = properties.getOrDefault("token_chars", "");
+        Set<String> classes = new TreeSet<>(List.of(tokenChars.split(",")));
         StringBuilder canonical = new StringBuilder();
-        value.codePoints().distinct().sorted().forEach(canonical::appendCodePoint);
+        value.codePoints().distinct().sorted()
+                .filter(codePoint -> !isCoveredByAsciiClass(codePoint, classes))
+                .forEach(canonical::appendCodePoint);
+        if (canonical.length() == 0 && !value.isEmpty() && classes.remove("custom")) {
+            properties.remove("custom_token_chars");
+            properties.put("token_chars", String.join(",", classes));
+            return;
+        }
         properties.put("custom_token_chars", canonical.toString());
     }
 
-    // BE collects tokenize_on_chars entries into sets, so order and repeats do not matter.
+    // BE collects tokenize_on_chars entries into sets and checks the categories before the literals.
     private static void canonicalizeTokenizeOnChars(TreeMap<String, String> properties) {
         List<String> entries = parseEntryList(properties.get("tokenize_on_chars"));
         if (entries == null) {
             return;
         }
-        putEntryList(properties, "tokenize_on_chars", new TreeSet<>(entries));
+        TreeSet<String> canonical = new TreeSet<>(entries);
+        Set<String> classes = new TreeSet<>(canonical);
+        classes.retainAll(CHAR_GROUP_TYPES);
+        canonical.removeIf(entry -> entry.indexOf('\\') < 0
+                && entry.codePointCount(0, entry.length()) == 1
+                && isCoveredByAsciiClass(entry.codePointAt(0), classes));
+        putEntryList(properties, "tokenize_on_chars", canonical);
+    }
+
+    /**
+     * Whether a named character class of the ngram or char_group tokenizer already matches this
+     * code point. Only ASCII is judged: its categories never change between the ICU versions FE
+     * and BE link against, and the class predicates agree there.
+     */
+    private static boolean isCoveredByAsciiClass(int codePoint, Set<String> classes) {
+        if (codePoint >= 128) {
+            return false;
+        }
+        int type = UCharacter.getType(codePoint);
+        for (String name : classes) {
+            switch (name) {
+                case "letter":
+                    if (UCharacter.isLetter(codePoint)) {
+                        return true;
+                    }
+                    break;
+                case "digit":
+                    if (UCharacter.isDigit(codePoint)) {
+                        return true;
+                    }
+                    break;
+                case "whitespace":
+                    if (UCharacter.isWhitespace(codePoint)) {
+                        return true;
+                    }
+                    break;
+                case "punctuation":
+                    if (type == UCharacter.START_PUNCTUATION || type == UCharacter.END_PUNCTUATION
+                            || type == UCharacter.OTHER_PUNCTUATION || type == UCharacter.CONNECTOR_PUNCTUATION
+                            || type == UCharacter.DASH_PUNCTUATION || type == UCharacter.INITIAL_PUNCTUATION
+                            || type == UCharacter.FINAL_PUNCTUATION) {
+                        return true;
+                    }
+                    break;
+                case "symbol":
+                    if (type == UCharacter.CURRENCY_SYMBOL || type == UCharacter.MATH_SYMBOL
+                            || type == UCharacter.OTHER_SYMBOL || type == UCharacter.MODIFIER_SYMBOL) {
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        return false;
     }
 
     // BE builds a per-character type map where a later rule for the same character wins.
@@ -503,11 +611,36 @@ public final class AnalyzerIdentityBuilder {
             }
             types.put(character.codePointAt(0), type);
         }
+        // A rule that restates BE's own classification changes nothing, but a table made only of
+        // such rules still replaces BE's default table, which classifies Latin-1 differently.
+        TreeMap<Integer, String> effectiveTypes = new TreeMap<>(types);
+        effectiveTypes.entrySet().removeIf(
+                entry -> entry.getValue().equals(defaultWordDelimiterType(entry.getKey())));
+        if (effectiveTypes.isEmpty()) {
+            effectiveTypes = types;
+        }
         List<String> canonicalRules = new ArrayList<>();
-        for (Map.Entry<Integer, String> entry : types.entrySet()) {
+        for (Map.Entry<Integer, String> entry : effectiveTypes.entrySet()) {
             canonicalRules.add(new String(Character.toChars(entry.getKey())) + "=>" + entry.getValue());
         }
         putEntryList(properties, "type_table", canonicalRules);
+    }
+
+    /** BE's u_charType classification of an ASCII code point, or null for anything else. */
+    private static String defaultWordDelimiterType(int codePoint) {
+        if (codePoint >= 128) {
+            return null;
+        }
+        switch (UCharacter.getType(codePoint)) {
+            case UCharacter.UPPERCASE_LETTER:
+                return "UPPER";
+            case UCharacter.LOWERCASE_LETTER:
+                return "LOWER";
+            case UCharacter.DECIMAL_DIGIT_NUMBER:
+                return "DIGIT";
+            default:
+                return "SUBWORD_DELIM";
+        }
     }
 
     /** Parse a bracketed entry list as BE does, or return null for a malformed list. */
@@ -565,6 +698,7 @@ public final class AnalyzerIdentityBuilder {
         return value == ' ' || (value >= '\t' && value <= '\r');
     }
 
+    // BE consumes an ASCII alphanumeric run before it consults extra_chars.
     private static void canonicalizeBasicExtraChars(TreeMap<String, String> properties) {
         String extraChars = properties.get("extra_chars");
         if (extraChars == null) {
@@ -576,7 +710,9 @@ public final class AnalyzerIdentityBuilder {
             if (value >= present.length) {
                 return;
             }
-            present[value] = true;
+            boolean alphanumeric = (value >= '0' && value <= '9') || (value >= 'A' && value <= 'Z')
+                    || (value >= 'a' && value <= 'z');
+            present[value] = !alphanumeric;
         }
         StringBuilder canonical = new StringBuilder();
         for (int i = 0; i < present.length; ++i) {
@@ -594,6 +730,9 @@ public final class AnalyzerIdentityBuilder {
     private static void canonicalizePinyinDependencies(
             TreeMap<String, String> properties, IndexPolicyTypeEnum expectedType) {
         Boolean keepFirstLetter = effectiveBoolean(properties, "keep_first_letter", true);
+        Boolean keepFullPinyin = effectiveBoolean(properties, "keep_full_pinyin", true);
+        Boolean keepSeparateFirstLetter = effectiveBoolean(properties, "keep_separate_first_letter", false);
+        Boolean keepOriginal = effectiveBoolean(properties, "keep_original", false);
         Boolean keepNoneChinese = effectiveBoolean(properties, "keep_none_chinese", true);
         Boolean keepNoneChineseTogether = effectiveBoolean(properties, "keep_none_chinese_together", true);
         Boolean noneChinesePinyinTokenize = effectiveBoolean(properties, "none_chinese_pinyin_tokenize", true);
@@ -606,8 +745,23 @@ public final class AnalyzerIdentityBuilder {
                 && !Boolean.FALSE.equals(keepNoneChineseTogether)
                 && !Boolean.TRUE.equals(noneChinesePinyinTokenize)
                 && !Boolean.TRUE.equals(keepFirstLetter)
-                && !Boolean.TRUE.equals(effectiveBoolean(properties, "keep_separate_first_letter", false))
-                && !Boolean.TRUE.equals(effectiveBoolean(properties, "keep_full_pinyin", true));
+                && !Boolean.TRUE.equals(keepSeparateFirstLetter)
+                && !Boolean.TRUE.equals(keepFullPinyin);
+
+        // The tokenizer only trims its candidates, and without the original every candidate is
+        // pinyin or ASCII alphanumerics; the token filter also trims the incoming token.
+        if (expectedType == IndexPolicyTypeEnum.TOKENIZER && Boolean.FALSE.equals(keepOriginal)) {
+            properties.remove("trim_whitespace");
+        }
+
+        // With every per-character candidate disabled at most one term is emitted per input, the
+        // joined pinyin or the token filter's fallback original, so nothing can be a duplicate.
+        if (Boolean.FALSE.equals(keepFirstLetter) && Boolean.FALSE.equals(keepFullPinyin)
+                && Boolean.FALSE.equals(keepSeparateFirstLetter) && Boolean.FALSE.equals(keepOriginal)
+                && Boolean.FALSE.equals(keepNoneChinese)
+                && Boolean.FALSE.equals(effectiveBoolean(properties, "keep_separate_chinese", false))) {
+            properties.remove("remove_duplicated_term");
+        }
 
         if (Boolean.FALSE.equals(keepFirstLetter)) {
             properties.remove("limit_first_letter_length");
@@ -704,12 +858,12 @@ public final class AnalyzerIdentityBuilder {
      * IMPORTANT: Order is preserved because filter order is semantically significant.
      */
     private static String resolveCharFilterIdentity(String filterList) {
-        return resolveCharFilterIdentity(filterList, false);
+        return resolveCharFilterIdentity(filterList, null);
     }
 
-    private static String resolveCharFilterIdentity(String filterList, boolean lowercaseDownstream) {
+    private static String resolveCharFilterIdentity(String filterList, FoldContext downstreamFold) {
         ArrayDeque<String> identities = new ArrayDeque<>();
-        walkCharFilters(filterList, lowercaseDownstream, identities);
+        walkCharFilters(filterList, downstreamFold, identities);
         return String.join(",", identities);
     }
 
@@ -717,11 +871,11 @@ public final class AnalyzerIdentityBuilder {
      * Resolve the chain from its last filter to its first, collecting identities, and return the
      * case-folding context that a filter placed in front of the chain would run in.
      */
-    private static boolean[] walkCharFilters(
-            String filterList, boolean lowercaseDownstream, Deque<String> identities) {
-        boolean[] foldBlockedBytes = lowercaseDownstream ? new boolean[256] : null;
+    private static FoldContext walkCharFilters(
+            String filterList, FoldContext downstreamFold, Deque<String> identities) {
+        FoldContext fold = downstreamFold;
         if (Strings.isNullOrEmpty(filterList)) {
-            return foldBlockedBytes;
+            return fold;
         }
 
         String[] filters = filterList.split(",\\s*");
@@ -729,36 +883,34 @@ public final class AnalyzerIdentityBuilder {
 
         for (int i = filters.length - 1; i >= 0; --i) {
             String filterName = filters[i].trim();
-            String filter = resolveComponentIdentity(
-                    filterName, IndexPolicyTypeEnum.CHAR_FILTER, foldBlockedBytes);
+            String filter = resolveComponentIdentity(filterName, IndexPolicyTypeEnum.CHAR_FILTER, fold);
             if (Strings.isNullOrEmpty(filter)) {
                 continue;
             }
             identities.addFirst(filter);
-            foldBlockedBytes = foldBlockedBytesBefore(filterName, foldBlockedBytes);
+            fold = foldContextBefore(filterName, fold);
         }
-        return foldBlockedBytes;
+        return fold;
     }
 
     /**
      * Context for the filter that runs before this one: a case fold starts a fresh context, a
      * char_replace filter adds the bytes it rewrites, and any other filter ends the context.
      */
-    private static boolean[] foldBlockedBytesBefore(String filterName, boolean[] foldBlockedBytes) {
-        if (isCaseFoldingCharFilter(filterName)) {
-            return new boolean[256];
+    private static FoldContext foldContextBefore(String filterName, FoldContext fold) {
+        FoldContext caseFold = caseFoldingCharFilterContext(filterName);
+        if (caseFold != null) {
+            return caseFold;
         }
-        if (foldBlockedBytes == null) {
+        if (fold == null) {
             return null;
         }
         boolean[] sourceBytes = charReplaceSourceBytes(filterName);
         if (sourceBytes == null) {
             return null;
         }
-        for (int i = 0; i < foldBlockedBytes.length; ++i) {
-            foldBlockedBytes[i] |= sourceBytes[i];
-        }
-        return foldBlockedBytes;
+        fold.block(sourceBytes);
+        return fold;
     }
 
     /** Bytes a named char_replace filter rewrites, or null for any other filter. */
@@ -774,10 +926,13 @@ public final class AnalyzerIdentityBuilder {
         if (!"char_replace".equals(type) || pattern == null) {
             return null;
         }
+        // Replacing the single replacement byte with itself leaves the stream unchanged.
+        String replacement = properties.getOrDefault("replacement", " ");
+        int replacementByte = replacement.length() == 1 && replacement.charAt(0) < 128 ? replacement.charAt(0) : -1;
         boolean[] sourceBytes = new boolean[256];
         for (int i = 0; i < pattern.length(); ++i) {
             char patternByte = pattern.charAt(i);
-            if (patternByte < sourceBytes.length) {
+            if (patternByte < sourceBytes.length && patternByte != replacementByte) {
                 sourceBytes[patternByte] = true;
             }
         }
@@ -803,9 +958,10 @@ public final class AnalyzerIdentityBuilder {
         return null;
     }
 
-    private static boolean isCaseFoldingCharFilter(String name) {
+    /** Fold context started by a named or built-in case-folding char filter, or null for any other filter. */
+    private static FoldContext caseFoldingCharFilterContext(String name) {
         if (Strings.isNullOrEmpty(name)) {
-            return false;
+            return null;
         }
 
         try {
@@ -814,13 +970,13 @@ public final class AnalyzerIdentityBuilder {
                 IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
                 if (policy != null && policy.getType() == IndexPolicyTypeEnum.CHAR_FILTER) {
                     if (policy.isInvalid()) {
-                        return false;
+                        return null;
                     }
                     Map<String, String> properties = policy.getProperties();
                     if (properties != null && !properties.isEmpty()) {
                         String type = normalizeBuiltinComponentName(
                                 properties.get(IndexPolicy.PROP_TYPE), IndexPolicyTypeEnum.CHAR_FILTER);
-                        return "icu_normalizer".equals(type) && isCaseFoldingIcuNormalizer(properties);
+                        return "icu_normalizer".equals(type) ? icuNormalizerFoldContext(properties) : null;
                     }
                 }
             }
@@ -828,13 +984,28 @@ public final class AnalyzerIdentityBuilder {
             // Fall through to built-in resolution.
         }
 
-        return "icu_normalizer".equals(
-                normalizeBuiltinComponentName(name, IndexPolicyTypeEnum.CHAR_FILTER));
+        return "icu_normalizer".equals(normalizeBuiltinComponentName(name, IndexPolicyTypeEnum.CHAR_FILTER))
+                ? FoldContext.unfiltered() : null;
     }
 
-    /** Whether an icu_normalizer component folds case: the default nfkc_cf form over every code point. */
-    private static boolean isCaseFoldingIcuNormalizer(Map<String, String> properties) {
-        return "nfkc_cf".equals(icuNormalizerName(properties)) && isUnfilteredIcuNormalizer(properties);
+    /**
+     * Fold context of an icu_normalizer component: the default nfkc_cf form folds case over every
+     * code point, or only inside a parsable non-empty unicode_set_filter. Null for other forms.
+     */
+    private static FoldContext icuNormalizerFoldContext(Map<String, String> properties) {
+        if (!"nfkc_cf".equals(icuNormalizerName(properties))) {
+            return null;
+        }
+        String filter = properties.get("unicode_set_filter");
+        if (filter == null || filter.isEmpty()) {
+            return FoldContext.unfiltered();
+        }
+        try {
+            UnicodeSet unicodeSet = new UnicodeSet(filter);
+            return unicodeSet.isEmpty() ? FoldContext.unfiltered() : new FoldContext(unicodeSet.freeze());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /** Whether an icu_normalizer component leaves ASCII letters as they are. */
@@ -847,22 +1018,9 @@ public final class AnalyzerIdentityBuilder {
         return properties.getOrDefault("name", "nfkc_cf").trim().toLowerCase(Locale.ROOT);
     }
 
-    /** BE runs the unfiltered normalizer without a unicode_set_filter or with one that parses to an empty set. */
-    private static boolean isUnfilteredIcuNormalizer(Map<String, String> properties) {
-        String filter = properties.get("unicode_set_filter");
-        if (filter == null || filter.isEmpty()) {
-            return true;
-        }
-        try {
-            return new UnicodeSet(filter).isEmpty();
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
-    }
-
     /** The outer char filter runs before everything else, so it takes the analyzer's fold context. */
     private static String appendOuterCharFilterIdentity(
-            String analyzerIdentity, Map<String, String> properties, boolean[] foldBlockedBytes) {
+            String analyzerIdentity, Map<String, String> properties, FoldContext fold) {
         String type = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
         String pattern = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
         if (!"char_replace".equals(type) || Strings.isNullOrEmpty(pattern)) {
@@ -870,7 +1028,7 @@ public final class AnalyzerIdentityBuilder {
         }
         String replacement = properties.getOrDefault(
                 InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
-        String canonicalPattern = canonicalizeCharReplacePattern(pattern, replacement, foldBlockedBytes);
+        String canonicalPattern = canonicalizeCharReplacePattern(pattern, replacement, fold);
         if (canonicalPattern.isEmpty()) {
             return analyzerIdentity;
         }
@@ -884,7 +1042,7 @@ public final class AnalyzerIdentityBuilder {
      * Order, duplicate bytes, and replacements of a byte with itself do not change the stream.
      */
     private static String canonicalizeCharReplacePattern(
-            String pattern, String replacement, boolean[] foldBlockedBytes) {
+            String pattern, String replacement, FoldContext fold) {
         if (replacement.length() != 1) {
             return pattern;
         }
@@ -896,11 +1054,10 @@ public final class AnalyzerIdentityBuilder {
                 replacedBytes[patternByte] = true;
             }
         }
-        if (foldBlockedBytes != null && replacementByte >= 'a' && replacementByte <= 'z') {
-            // The downstream fold maps the upper-case byte to the replacement anyway, unless a
-            // filter in between rewrites either byte.
+        if (fold != null && replacementByte >= 'a' && replacementByte <= 'z') {
+            // The downstream fold maps the upper-case byte to the replacement anyway.
             int upperByte = replacementByte - ('a' - 'A');
-            if (!foldBlockedBytes[upperByte] && !foldBlockedBytes[replacementByte]) {
+            if (fold.foldsByte(upperByte, replacementByte)) {
                 replacedBytes[upperByte] = false;
             }
         }
@@ -914,8 +1071,8 @@ public final class AnalyzerIdentityBuilder {
         return canonical.toString();
     }
 
-    private static boolean[] builtinIkFoldContext(String analyzerIdentity) {
-        return isDefaultLowercaseBuiltinIkIdentity(analyzerIdentity) ? new boolean[256] : null;
+    private static FoldContext builtinIkFoldContext(String analyzerIdentity) {
+        return isDefaultLowercaseBuiltinIkIdentity(analyzerIdentity) ? FoldContext.unfiltered() : null;
     }
 
     private static boolean isDefaultLowercaseBuiltinIkIdentity(String analyzerIdentity) {
@@ -927,10 +1084,13 @@ public final class AnalyzerIdentityBuilder {
      * Fold context for the outer char filter of a custom analyzer or normalizer, which BE applies
      * before the policy's own char filters. Unknown or unresolvable policies get no context.
      */
-    private static boolean[] customAnalyzerFoldContext(String analyzerName) {
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)
-                || IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
+    private static FoldContext customAnalyzerFoldContext(String analyzerName) {
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)) {
             return null;
+        }
+        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
+            // The built-in normalizer lowercases keyword tokens without char filters of its own.
+            return FoldContext.unfiltered();
         }
         IndexPolicy policy = findPolicy(analyzerName, IndexPolicyTypeEnum.ANALYZER);
         if (policy == null) {
@@ -953,20 +1113,20 @@ public final class AnalyzerIdentityBuilder {
     }
 
     /**
-     * Whether the tokenizer and token filters emit the same tokens for an ASCII letter of either
-     * case, so a char filter that only lowercases such a letter cannot change the output.
+     * The fold the tokenizer and token filters apply to ASCII letters, so a char filter that only
+     * lowercases such a letter cannot change the output, or null when they keep case.
      */
-    private static boolean foldsAsciiCaseAfterCharFilters(
+    private static FoldContext foldsAsciiCaseAfterCharFilters(
             IndexPolicyTypeEnum type, Map<String, String> properties, String tokenizerIdentity) {
         if (type == IndexPolicyTypeEnum.NORMALIZER) {
             // A normalizer always tokenizes with keyword, which is case transparent.
             return tokenFiltersFoldAsciiCase(properties.get(IndexPolicy.PROP_TOKEN_FILTER));
         }
         if ("ik_smart".equals(tokenizerIdentity) || "ik_max_word".equals(tokenizerIdentity)) {
-            return true;
+            return FoldContext.unfiltered();
         }
         return isCaseTransparentTokenizer(properties.get(IndexPolicy.PROP_TOKENIZER))
-                && tokenFiltersFoldAsciiCase(properties.get(IndexPolicy.PROP_TOKEN_FILTER));
+                ? tokenFiltersFoldAsciiCase(properties.get(IndexPolicy.PROP_TOKEN_FILTER)) : null;
     }
 
     /** Whether the tokenizer splits and emits ASCII letters the same way regardless of their case. */
@@ -1040,38 +1200,39 @@ public final class AnalyzerIdentityBuilder {
     }
 
     /**
-     * Whether the token filters lowercase ASCII letters before any filter that could tell an
-     * upper-case letter from its lower-case form.
+     * The first token filter that folds ASCII case, reached before any filter that could tell an
+     * upper-case letter from its lower-case form, or null when there is none.
      */
-    private static boolean tokenFiltersFoldAsciiCase(String filterList) {
+    private static FoldContext tokenFiltersFoldAsciiCase(String filterList) {
         if (Strings.isNullOrEmpty(filterList)) {
-            return false;
+            return null;
         }
         for (String filterName : filterList.split(",\\s*")) {
             TreeMap<String, String> settings = resolveComponentSettings(
                     filterName.trim(), IndexPolicyTypeEnum.TOKEN_FILTER);
             if (settings == null) {
-                return false;
+                return null;
             }
             switch (settings.get(IndexPolicy.PROP_TYPE)) {
                 case "lowercase":
-                    return true;
+                    return FoldContext.unfiltered();
                 case "empty":
                 case "asciifolding":
                     // ASCII bytes pass through ASCII folding unchanged.
                     continue;
                 case "icu_normalizer":
-                    if (isCaseFoldingIcuNormalizer(settings)) {
-                        return true;
+                    FoldContext fold = icuNormalizerFoldContext(settings);
+                    if (fold != null) {
+                        return fold;
                     }
                     if (isAsciiCaseTransparentIcuNormalizer(settings)) {
                         continue;
                     }
-                    return false;
+                    return null;
                 default:
-                    return false;
+                    return null;
             }
         }
-        return false;
+        return null;
     }
 }

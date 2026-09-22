@@ -82,7 +82,9 @@ public class AnalyzerIdentityBuilderTest {
                 "__default__",
                 "none",
                 null);
-        Assertions.assertEquals("normalizer:" + normalizer, identity);
+        // BE builds the built-in as a keyword tokenizer with the built-in filter of the same name.
+        Assertions.assertEquals(
+                IndexPolicyTypeEnum.NORMALIZER.name() + ":token_filter=" + normalizer + ";", identity);
     }
 
     @Test
@@ -1276,5 +1278,350 @@ public class AnalyzerIdentityBuilderTest {
         Assertions.assertEquals(legacyMaxWord, analyzerMaxWord);
         Assertions.assertNotEquals(lowercaseMaxWord, analyzerMaxWord);
         Assertions.assertNotEquals(lowercaseSmart, legacySmart);
+    }
+
+    private static Method resolveComponentIdentityMethod() throws Exception {
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        return resolve;
+    }
+
+    @Test
+    public void testPinyinTokenizerTrimWhitespaceOnlyAffectsOriginalCandidate() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayPinyinPair(policyMgr, 1, "pinyin_plain", Map.of());
+        replayPinyinPair(policyMgr, 2, "pinyin_untrimmed", Map.of("trim_whitespace", "false"));
+        replayPinyinPair(policyMgr, 3, "pinyin_original", Map.of("keep_original", "true"));
+        replayPinyinPair(policyMgr, 4, "pinyin_original_untrimmed",
+                Map.of("keep_original", "true", "trim_whitespace", "false"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = resolveComponentIdentityMethod();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum tokenizer = IndexPolicyTypeEnum.TOKENIZER;
+            IndexPolicyTypeEnum filter = IndexPolicyTypeEnum.TOKEN_FILTER;
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(pinyinIdentity(resolve, "pinyin_plain", tokenizer),
+                            pinyinIdentity(resolve, "pinyin_untrimmed", tokenizer)),
+                    () -> Assertions.assertNotEquals(pinyinIdentity(resolve, "pinyin_original", tokenizer),
+                            pinyinIdentity(resolve, "pinyin_original_untrimmed", tokenizer)),
+                    () -> Assertions.assertNotEquals(pinyinIdentity(resolve, "pinyin_plain", filter),
+                            pinyinIdentity(resolve, "pinyin_untrimmed", filter)));
+        }
+    }
+
+    @Test
+    public void testPinyinDedupFlagIgnoredWhenAtMostOneCandidateIsEmitted() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Map<String, String> joinedOnly = Map.of("keep_first_letter", "false", "keep_full_pinyin", "false",
+                "keep_none_chinese", "false", "keep_joined_full_pinyin", "true");
+        replayPinyinPair(policyMgr, 1, "pinyin_joined_only", joinedOnly);
+        Map<String, String> joinedOnlyDedup = new HashMap<>(joinedOnly);
+        joinedOnlyDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 2, "pinyin_joined_only_dedup", joinedOnlyDedup);
+        Map<String, String> nothing = Map.of("keep_first_letter", "false", "keep_full_pinyin", "false",
+                "keep_none_chinese", "false");
+        replayPinyinPair(policyMgr, 3, "pinyin_nothing", nothing);
+        Map<String, String> nothingDedup = new HashMap<>(nothing);
+        nothingDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 4, "pinyin_nothing_dedup", nothingDedup);
+        Map<String, String> fullPinyin = new HashMap<>(joinedOnly);
+        fullPinyin.put("keep_full_pinyin", "true");
+        replayPinyinPair(policyMgr, 5, "pinyin_full", fullPinyin);
+        Map<String, String> fullPinyinDedup = new HashMap<>(fullPinyin);
+        fullPinyinDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 6, "pinyin_full_dedup", fullPinyinDedup);
+        Map<String, String> separateChinese = new HashMap<>(joinedOnly);
+        separateChinese.put("keep_separate_chinese", "true");
+        replayPinyinPair(policyMgr, 7, "pinyin_chinese", separateChinese);
+        Map<String, String> separateChineseDedup = new HashMap<>(separateChinese);
+        separateChineseDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 8, "pinyin_chinese_dedup", separateChineseDedup);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = resolveComponentIdentityMethod();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (IndexPolicyTypeEnum type : new IndexPolicyTypeEnum[] {
+                    IndexPolicyTypeEnum.TOKENIZER, IndexPolicyTypeEnum.TOKEN_FILTER}) {
+                Assertions.assertAll(type.name(),
+                        () -> Assertions.assertEquals(pinyinIdentity(resolve, "pinyin_joined_only", type),
+                                pinyinIdentity(resolve, "pinyin_joined_only_dedup", type)),
+                        () -> Assertions.assertEquals(pinyinIdentity(resolve, "pinyin_nothing", type),
+                                pinyinIdentity(resolve, "pinyin_nothing_dedup", type)),
+                        () -> Assertions.assertNotEquals(pinyinIdentity(resolve, "pinyin_full", type),
+                                pinyinIdentity(resolve, "pinyin_full_dedup", type)),
+                        () -> Assertions.assertNotEquals(pinyinIdentity(resolve, "pinyin_chinese", type),
+                                pinyinIdentity(resolve, "pinyin_chinese_dedup", type)));
+            }
+        }
+    }
+
+    @Test
+    public void testCharReplaceReplacementByteDoesNotBlockCaseFold() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayComponent(policyMgr, 2, "x_to_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "Ax", "replacement", "A"));
+        replayComponent(policyMgr, 3, "upper_a_to_b", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "Ab", "replacement", "b"));
+        replayComponent(policyMgr, 4, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        String[][] analyzers = {
+                {"x_upper_fold", "x_to_upper_a,fold"},
+                {"lower_x_upper_fold", "lower_a,x_to_upper_a,fold"},
+                {"upper_b_fold", "upper_a_to_b,fold"},
+                {"lower_upper_b_fold", "lower_a,upper_a_to_b,fold"}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", analyzer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("x_upper_fold"),
+                            namedAnalyzerIdentity("lower_x_upper_fold")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("upper_b_fold"),
+                            namedAnalyzerIdentity("lower_upper_b_fold")));
+        }
+    }
+
+    @Test
+    public void testFilteredCaseFoldAbsorbsReplacementOfCodePointInsideSet() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        String[][] folds = {
+                {"fold_upper_a", "[A]"},
+                {"fold_upper_b", "[B]"},
+                {"fold_lower_a", "[a]"},
+                {"fold_both_a", "[Aa]"},
+                {"fold_upper_a_mark", "[A\\u0301]"}};
+        long id = 10;
+        for (String[] fold : folds) {
+            replayComponent(policyMgr, id++, fold[0], IndexPolicyTypeEnum.CHAR_FILTER,
+                    Map.of("type", "icu_normalizer", "unicode_set_filter", fold[1]));
+            replayComponent(policyMgr, id++, fold[0] + "_tf", IndexPolicyTypeEnum.TOKEN_FILTER,
+                    Map.of("type", "icu_normalizer", "unicode_set_filter", fold[1]));
+            replayComponent(policyMgr, id++, fold[0] + "_only", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", fold[0]));
+            replayComponent(policyMgr, id++, "lower_" + fold[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", "lower_a," + fold[0]));
+            replayComponent(policyMgr, id++, fold[0] + "_tf_only", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "token_filter", fold[0] + "_tf"));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (String fold : new String[] {"fold_upper_a", "fold_both_a"}) {
+                Assertions.assertAll(fold,
+                        () -> Assertions.assertEquals(namedAnalyzerIdentity(fold + "_only"),
+                                namedAnalyzerIdentity("lower_" + fold)),
+                        () -> Assertions.assertEquals(namedAnalyzerIdentity(fold + "_only"),
+                                namedAnalyzerIdentityWithOuterLowerA(fold + "_only")),
+                        () -> Assertions.assertEquals(namedAnalyzerIdentity(fold + "_tf_only"),
+                                namedAnalyzerIdentityWithOuterLowerA(fold + "_tf_only")));
+            }
+            // Outside the set nothing folds, and a set holding a combining mark but not the
+            // lower-case letter changes which span the mark is normalized with.
+            for (String fold : new String[] {"fold_upper_b", "fold_lower_a", "fold_upper_a_mark"}) {
+                Assertions.assertAll(fold,
+                        () -> Assertions.assertNotEquals(namedAnalyzerIdentity(fold + "_only"),
+                                namedAnalyzerIdentity("lower_" + fold)),
+                        () -> Assertions.assertNotEquals(namedAnalyzerIdentity(fold + "_only"),
+                                namedAnalyzerIdentityWithOuterLowerA(fold + "_only")),
+                        () -> Assertions.assertNotEquals(namedAnalyzerIdentity(fold + "_tf_only"),
+                                namedAnalyzerIdentityWithOuterLowerA(fold + "_tf_only")));
+            }
+        }
+    }
+
+    @Test
+    public void testWordDelimiterTypeTableDropsRulesRestatingBeClassification() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        String[][] tables = {
+                {"wd_absent", null},
+                {"wd_b_digit", "[b => DIGIT]"},
+                {"wd_a_lower_b_digit", "[a => LOWER],[b => DIGIT]"},
+                {"wd_ascii_defaults_b_digit", "[A => UPPER],[1 => DIGIT],[_ => SUBWORD_DELIM],[b => DIGIT]"},
+                {"wd_a_lower", "[a => LOWER]"},
+                {"wd_a_alpha", "[a => ALPHA]"},
+                {"wd_a_digit", "[a => DIGIT]"},
+                {"wd_a_b_lower", "[a => LOWER],[b => LOWER]"},
+                {"wd_latin_lower_b_digit", "[é => LOWER],[b => DIGIT]"}};
+        long id = 1;
+        for (String[] table : tables) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("type", "word_delimiter");
+            if (table[1] != null) {
+                properties.put("type_table", table[1]);
+            }
+            replayComponent(policyMgr, id++, table[0], IndexPolicyTypeEnum.TOKEN_FILTER, properties);
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = resolveComponentIdentityMethod();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum filter = IndexPolicyTypeEnum.TOKEN_FILTER;
+            Object absent = resolve.invoke(null, "wd_absent", filter);
+            Object digitB = resolve.invoke(null, "wd_b_digit", filter);
+            Object lowerA = resolve.invoke(null, "wd_a_lower", filter);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(digitB, resolve.invoke(null, "wd_a_lower_b_digit", filter)),
+                    () -> Assertions.assertEquals(digitB,
+                            resolve.invoke(null, "wd_ascii_defaults_b_digit", filter)),
+                    () -> Assertions.assertNotEquals(digitB,
+                            resolve.invoke(null, "wd_latin_lower_b_digit", filter)),
+                    // BE seeds an explicit table from u_charType but its default table from
+                    // u_isULowercase/u_isUUppercase/u_isdigit, which differ for Latin-1 code points.
+                    () -> Assertions.assertNotEquals(absent, lowerA),
+                    () -> Assertions.assertNotEquals(absent, resolve.invoke(null, "wd_a_b_lower", filter)),
+                    () -> Assertions.assertNotEquals(lowerA, resolve.invoke(null, "wd_a_alpha", filter)),
+                    () -> Assertions.assertNotEquals(lowerA, resolve.invoke(null, "wd_a_digit", filter)),
+                    () -> Assertions.assertNotEquals(absent, resolve.invoke(null, "wd_a_digit", filter)));
+        }
+    }
+
+    @Test
+    public void testBasicExtraCharsIgnoreAlphanumerics() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "basic_plain", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "basic"));
+        replayComponent(policyMgr, 2, "basic_alnum", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "A0z"));
+        replayComponent(policyMgr, 3, "basic_dash", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "-"));
+        replayComponent(policyMgr, 4, "basic_dash_alnum", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "A-0"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = resolveComponentIdentityMethod();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum tokenizer = IndexPolicyTypeEnum.TOKENIZER;
+            Object plain = resolve.invoke(null, "basic_plain", tokenizer);
+            Object dash = resolve.invoke(null, "basic_dash", tokenizer);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(plain, resolve.invoke(null, "basic_alnum", tokenizer)),
+                    () -> Assertions.assertEquals(dash, resolve.invoke(null, "basic_dash_alnum", tokenizer)),
+                    () -> Assertions.assertNotEquals(plain, dash));
+        }
+    }
+
+    @Test
+    public void testNgramCustomTokenCharsCoveredByNamedClassesAreDropped() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        String[][] tokenizers = {
+                {"ngram_letter", "letter", null},
+                {"ngram_letter_custom_a", "letter,custom", "A"},
+                {"ngram_letter_custom_dash", "letter,custom", "-"},
+                {"ngram_letter_custom_a_dash", "custom,letter", "A-"},
+                {"ngram_letter_custom_latin", "letter,custom", "é"},
+                {"ngram_digit", "digit", null},
+                {"ngram_digit_custom_a", "digit,custom", "A"},
+                {"ngram_classes", "digit,punctuation,symbol", null},
+                {"ngram_classes_custom", "digit,punctuation,symbol,custom", "7-$"}};
+        long id = 1;
+        for (String[] tokenizer : tokenizers) {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("type", "ngram");
+            properties.put("token_chars", tokenizer[1]);
+            if (tokenizer[2] != null) {
+                properties.put("custom_token_chars", tokenizer[2]);
+            }
+            replayComponent(policyMgr, id++, tokenizer[0], IndexPolicyTypeEnum.TOKENIZER, properties);
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = resolveComponentIdentityMethod();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum tokenizer = IndexPolicyTypeEnum.TOKENIZER;
+            Object letter = resolve.invoke(null, "ngram_letter", tokenizer);
+            Object letterDash = resolve.invoke(null, "ngram_letter_custom_dash", tokenizer);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(letter, resolve.invoke(null, "ngram_letter_custom_a", tokenizer)),
+                    () -> Assertions.assertEquals(letterDash,
+                            resolve.invoke(null, "ngram_letter_custom_a_dash", tokenizer)),
+                    () -> Assertions.assertEquals(resolve.invoke(null, "ngram_classes", tokenizer),
+                            resolve.invoke(null, "ngram_classes_custom", tokenizer)),
+                    () -> Assertions.assertNotEquals(letter, letterDash),
+                    () -> Assertions.assertNotEquals(letter,
+                            resolve.invoke(null, "ngram_letter_custom_latin", tokenizer)),
+                    () -> Assertions.assertNotEquals(resolve.invoke(null, "ngram_digit", tokenizer),
+                            resolve.invoke(null, "ngram_digit_custom_a", tokenizer)));
+        }
+    }
+
+    @Test
+    public void testCharGroupLiteralsCoveredByCategoriesAreDropped() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        String[][] tokenizers = {
+                {"group_letter", "[letter]"},
+                {"group_letter_a", "[letter],[A]"},
+                {"group_letter_dash", "[letter],[-]"},
+                {"group_letter_latin", "[letter],[é]"},
+                {"group_digit", "[digit]"},
+                {"group_digit_a", "[digit],[A]"},
+                {"group_classes", "[digit],[punctuation],[symbol]"},
+                {"group_classes_literals", "[7],[digit],[-],[punctuation],[$],[symbol]"}};
+        long id = 1;
+        for (String[] tokenizer : tokenizers) {
+            replayComponent(policyMgr, id++, tokenizer[0], IndexPolicyTypeEnum.TOKENIZER,
+                    Map.of("type", "char_group", "tokenize_on_chars", tokenizer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = resolveComponentIdentityMethod();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum tokenizer = IndexPolicyTypeEnum.TOKENIZER;
+            Object letter = resolve.invoke(null, "group_letter", tokenizer);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(letter, resolve.invoke(null, "group_letter_a", tokenizer)),
+                    () -> Assertions.assertEquals(resolve.invoke(null, "group_classes", tokenizer),
+                            resolve.invoke(null, "group_classes_literals", tokenizer)),
+                    () -> Assertions.assertNotEquals(letter, resolve.invoke(null, "group_letter_dash", tokenizer)),
+                    () -> Assertions.assertNotEquals(letter,
+                            resolve.invoke(null, "group_letter_latin", tokenizer)),
+                    () -> Assertions.assertNotEquals(resolve.invoke(null, "group_digit", tokenizer),
+                            resolve.invoke(null, "group_digit_a", tokenizer)));
+        }
+    }
+
+    @Test
+    public void testBuiltinNormalizerIdentityMatchesEquivalentCustomNormalizer() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        replayComponent(policyMgr, 2, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String custom = namedNormalizerIdentity("norm_lower");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(custom, namedNormalizerIdentity("lowercase")),
+                    () -> Assertions.assertEquals(custom, namedNormalizerIdentityWithOuterLowerA("lowercase")),
+                    () -> Assertions.assertNotEquals(namedNormalizerIdentity("norm_ascii"),
+                            namedNormalizerIdentity("lowercase")));
+        }
     }
 }

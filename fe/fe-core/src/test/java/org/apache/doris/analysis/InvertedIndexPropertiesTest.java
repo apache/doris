@@ -176,9 +176,73 @@ public class InvertedIndexPropertiesTest {
         }
     }
 
+    @Test
+    public void testCreateTableRejectsDefaultRestatingAndCoveredComponentAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        long id = 200;
+        String[][] aliases = {
+                {"py_tk_plain", "TOKENIZER", "type=pinyin"},
+                {"py_tk_untrimmed", "TOKENIZER", "type=pinyin;trim_whitespace=false"},
+                {"py_tf_joined", "TOKEN_FILTER", "type=pinyin;keep_first_letter=false;keep_full_pinyin=false;"
+                        + "keep_none_chinese=false;keep_joined_full_pinyin=true"},
+                {"py_tf_joined_dedup", "TOKEN_FILTER", "type=pinyin;keep_first_letter=false;keep_full_pinyin=false;"
+                        + "keep_none_chinese=false;keep_joined_full_pinyin=true;remove_duplicated_term=true"},
+                {"basic_plain", "TOKENIZER", "type=basic"},
+                {"basic_alnum", "TOKENIZER", "type=basic;extra_chars=A0"},
+                {"ngram_letter", "TOKENIZER", "type=ngram;token_chars=letter"},
+                {"ngram_letter_custom_a", "TOKENIZER", "type=ngram;token_chars=letter,custom;custom_token_chars=A"},
+                {"group_letter", "TOKENIZER", "type=char_group;tokenize_on_chars=[letter]"},
+                {"group_letter_a", "TOKENIZER", "type=char_group;tokenize_on_chars=[letter],[A]"},
+                {"wd_b_digit", "TOKEN_FILTER", "type=word_delimiter;type_table=[b => DIGIT]"},
+                {"wd_a_lower_b_digit", "TOKEN_FILTER", "type=word_delimiter;type_table=[a => LOWER],[b => DIGIT]"}};
+        for (String[] alias : aliases) {
+            Map<String, String> properties = new HashMap<>();
+            for (String entry : alias[2].split(";")) {
+                String[] keyValue = entry.split("=", 2);
+                properties.put(keyValue[0], keyValue[1]);
+            }
+            IndexPolicyTypeEnum type = IndexPolicyTypeEnum.valueOf(alias[1]);
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(id++, alias[0], type, properties));
+            Map<String, String> analyzer = new HashMap<>();
+            analyzer.put("tokenizer", type == IndexPolicyTypeEnum.TOKENIZER ? alias[0] : "keyword");
+            if (type == IndexPolicyTypeEnum.TOKEN_FILTER) {
+                analyzer.put("token_filter", alias[0]);
+            }
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                    id++, alias[0] + "_analyzer", IndexPolicyTypeEnum.ANALYZER, analyzer));
+        }
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(id++, "custom_lowercase", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (int i = 0; i < aliases.length; i += 2) {
+                String left = aliases[i][0];
+                String right = aliases[i + 1][0];
+                Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                        StringType.INSTANCE, List.of(
+                                invertedIndexDefinition("idx_" + left, left + "_analyzer"),
+                                invertedIndexDefinition("idx_" + right, right + "_analyzer"))),
+                        left + " and " + right + " must share one analyzer identity");
+            }
+            Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                    StringType.INSTANCE, List.of(
+                            invertedNormalizerIndexDefinition("idx_builtin_lowercase", "lowercase"),
+                            invertedNormalizerIndexDefinition("idx_custom_lowercase", "custom_lowercase"))),
+                    "the built-in lowercase normalizer must share the identity of its custom equivalent");
+        }
+    }
+
     private static IndexDefinition invertedIndexDefinition(String name, String analyzer) {
         return new IndexDefinition(name, false, List.of("content"), "INVERTED",
                 Map.of("analyzer", analyzer), "");
+    }
+
+    private static IndexDefinition invertedNormalizerIndexDefinition(String name, String normalizer) {
+        return new IndexDefinition(name, false, List.of("content"), "INVERTED",
+                Map.of("normalizer", normalizer), "");
     }
 
     private static IndexDefinition invertedIndexDefinitionWithOuterLowerA(String name, String analyzer) {

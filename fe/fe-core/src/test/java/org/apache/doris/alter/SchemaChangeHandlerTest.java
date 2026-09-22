@@ -1424,6 +1424,54 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "properties(\"analyzer\"=\"alter_fold2_ascii_lower_2\")", "already exists");
     }
 
+    @Test
+    public void testAddInvertedIndexRejectsReplacementByteFilteredFoldAndBuiltinNormalizerAliases()
+            throws Exception {
+        createAnalyzerAliasTable("sc_fold3_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_fold3_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayAliasPolicy(policyMgr, "alter_fold3_x_to_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "Ax", "replacement", "A"));
+        replayAliasPolicy(policyMgr, "alter_fold3_fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        replayAliasPolicy(policyMgr, "alter_fold3_fold_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[A]"));
+        replayAliasPolicy(policyMgr, "alter_fold3_x_upper_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold3_x_to_upper_a,alter_fold3_fold"));
+        replayAliasPolicy(policyMgr, "alter_fold3_lower_x_upper_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword",
+                        "char_filter", "alter_fold3_lower_a,alter_fold3_x_to_upper_a,alter_fold3_fold"));
+        replayAliasPolicy(policyMgr, "alter_fold3_fold_upper_a_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold3_fold_upper_a"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_b_digit", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[b => DIGIT]"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_a_lower_b_digit", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[a => LOWER],[b => DIGIT]"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_b_digit_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold3_wd_b_digit"));
+        replayAliasPolicy(policyMgr, "alter_fold3_wd_a_lower_b_digit_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold3_wd_a_lower_b_digit"));
+        replayAliasPolicy(policyMgr, "alter_fold3_norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+
+        expectException("alter table test.sc_fold3_alias add index idx_x_upper_fold(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_x_upper_fold\"), add index idx_lower_x_upper_fold(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_fold3_lower_x_upper_fold\")", "already exists");
+        expectException("alter table test.sc_fold3_alias add index idx_outer_fold_upper_a(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_fold_upper_a_only\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_fold_upper_a(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_fold_upper_a_only\")", "already exists");
+        expectException("alter table test.sc_fold3_alias add index idx_wd_b_digit(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold3_wd_b_digit_analyzer\"), add index idx_wd_a_lower_b_digit(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_fold3_wd_a_lower_b_digit_analyzer\")",
+                "already exists");
+        expectException("alter table test.sc_fold3_alias add index idx_builtin_lowercase(c2) using inverted "
+                + "properties(\"normalizer\"=\"lowercase\"), add index idx_custom_lowercase(c2) using inverted "
+                + "properties(\"normalizer\"=\"alter_fold3_norm_lower\")", "already exists");
+    }
+
     private void createAnalyzerAliasTable(String tableName) throws Exception {
         createTable("CREATE TABLE IF NOT EXISTS test." + tableName
                 + " (k INT, c1 VARCHAR(100), c2 VARCHAR(100))\n"
