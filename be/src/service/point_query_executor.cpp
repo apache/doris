@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/common/variant_util.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -598,8 +599,11 @@ Status PointQueryExecutor::_lookup_row_data() {
                 if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                     std::string missing_columns;
                     for (int cid : _reusable->missing_col_uids()) {
-                        missing_columns +=
-                                _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
+                        // Named from the query, not the tablet schema: a column a light schema
+                        // change just added is not in the tablet schema yet, and column_by_uid
+                        // throws on a uid it does not hold.
+                        const int pos = _reusable->get_col_uid_to_idx().at(cid);
+                        missing_columns += _reusable->tuple_desc()->slots()[pos]->col_name() + ",";
                     }
                     return Status::InternalError(
                             "Not support column store, set store_row_column=true or "
@@ -625,6 +629,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                                            return seg->id() == row_loc.segment_id;
                                        });
                 const auto& segment = *it;
+                const auto tablet_schema = _tablet->tablet_schema();
                 for (int cid : _reusable->missing_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
                     std::vector<segment_v2::rowid_t> row_ids {
@@ -632,12 +637,30 @@ Status PointQueryExecutor::_lookup_row_data() {
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                    int32_t index = slot->col_unique_id() >= 0
+                                            ? tablet_schema->field_index(slot->col_unique_id())
+                                            : tablet_schema->field_index(slot->col_name());
+                    // A light schema change adds a column without writing anything, and
+                    // BaseTablet::_max_version_schema only moves forward on write, so until the
+                    // next load the tablet schema here does not have it. No segment holds it
+                    // either, so describe it from the slot and let the segment answer with its
+                    // default -- the same answer it gives once a load does bring the column in.
+                    TabletColumn column_awaiting_a_load;
+                    if (index < 0) {
+                        column_awaiting_a_load = variant_util::get_column_by_type(
+                                slot->type(), slot->col_name(),
+                                variant_util::ExtraInfo {.unique_id = slot->col_unique_id()});
+                        if (!slot->col_default_value().empty()) {
+                            column_awaiting_a_load.set_default_value(slot->col_default_value());
+                        }
+                    }
+                    const TabletColumn& read_column =
+                            index >= 0 ? tablet_schema->column(index) : column_awaiting_a_load;
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
-                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                    row_ids, column,
-                                                                    storage_read_options, iter));
+                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                            read_column, slot, row_ids, column, storage_read_options, iter));
                 }
             }
             replace_point_query_read_time_hidden_columns(_reusable->read_time_hidden_columns(),

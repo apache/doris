@@ -151,7 +151,8 @@ public:
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
     // row_ids must be strictly increasing.
-    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
+    // `read_column` is what `slot` resolves to, or its variant parent column for a subpath slot.
+    Status seek_and_read_by_rowid(const TabletColumn& read_column, SlotDescriptor* slot,
                                   const std::vector<uint32_t>& row_ids, MutableColumnPtr& result,
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);

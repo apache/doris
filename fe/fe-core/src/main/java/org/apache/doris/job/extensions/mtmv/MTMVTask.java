@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
@@ -357,6 +358,8 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
+        } finally {
+            closeExecutionContext(ctx);
         }
     }
 
@@ -703,14 +706,18 @@ public class MTMVTask extends AbstractTask {
             ivmResult = executeWithRetry(() -> {
                 ConnectContext ivmConnectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-                setupComputeGroup(ivmConnectContext);
-                IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
-                        ivmConnectContext,
-                        getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
-                        this::recordQueryId,
-                        this::registerExecutor);
-                mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
-                return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
+                try {
+                    setupComputeGroup(ivmConnectContext);
+                    IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
+                            ivmConnectContext,
+                            getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
+                            this::recordQueryId,
+                            this::registerExecutor);
+                    mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
+                    return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
+                } finally {
+                    closeExecutionContext(ivmConnectContext);
+                }
             }, "IVM refresh");
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
@@ -990,7 +997,11 @@ public class MTMVTask extends AbstractTask {
                     getRefreshAuditStmt(refreshMode, refreshPartitionNames),
                     createRefreshConsumer(signatureRef));
         } finally {
-            recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+            try {
+                recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+            } finally {
+                closeExecutionContext(mtmvCtx);
+            }
         }
         if (getStatus() == TaskStatus.CANCELED) {
             throw new JobException("task is CANCELED");
@@ -1020,6 +1031,19 @@ public class MTMVTask extends AbstractTask {
             }
             registerExecutor(executor);
         };
+    }
+
+    private static void closeExecutionContext(ConnectContext executionContext) {
+        try {
+            if (executionContext.queryId() != null) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
+            }
+        } finally {
+            StatementContext statementContext = executionContext.getStatementContext();
+            if (statementContext != null) {
+                statementContext.close();
+            }
+        }
     }
 
     private void setupComputeGroup(ConnectContext ctx) {

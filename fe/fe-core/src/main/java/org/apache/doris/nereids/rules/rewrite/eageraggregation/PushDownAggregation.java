@@ -36,12 +36,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -76,15 +70,6 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             Max.class,
             Min.class);
 
-    private final Set<Class> acceptNodeType = Sets.newHashSet(
-            LogicalIntersect.class,
-            LogicalAggregate.class,
-            LogicalUnion.class,
-            LogicalProject.class,
-            LogicalFilter.class,
-            LogicalRelation.class,
-            LogicalJoin.class);
-
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         if (SessionVariable.isFeDebug()) {
@@ -111,7 +96,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, JobContext context) {
         Plan newChild = agg.child().accept(this, context);
         if (newChild != agg.child()) {
-            return agg.withChildren(newChild);
+            agg = (LogicalAggregate<? extends Plan>) agg.withChildren(newChild);
         }
 
         if (agg.getSourceRepeat().isPresent()) {
@@ -203,15 +188,11 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
 
-        if (!checkSubTreePattern(agg.child())) {
-            return agg;
-        }
         groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
-
         PushDownAggContext pushDownContext = new PushDownAggContext(new ArrayList<>(aggFunctions),
                 groupKeys, null, context.getCascadesContext(), false, hasDecomposedAggIf, containsNullToNonNull,
                 new BilateralState());
-        if (groupKeys.isEmpty()) {
+        if (groupKeys.isEmpty() || !pushDownContext.isValid()) {
             return agg;
         }
         try {
@@ -319,34 +300,5 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
         return Optional.ofNullable(commonDistinctKeys);
-    }
-
-    private boolean checkSubTreePattern(Plan root) {
-        return containsPushDownJoin(root)
-                && checkPlanNodeType(root);
-    }
-
-    private boolean containsPushDownJoin(Plan root) {
-        if (root instanceof LogicalJoin && !((LogicalJoin) root).isMarkJoin()) {
-            return true;
-        }
-        if (root.children().isEmpty()) {
-            return false;
-        }
-        return root.children().stream().anyMatch(this::containsPushDownJoin);
-    }
-
-    private boolean checkPlanNodeType(Plan root) {
-        boolean accepted = acceptNodeType.stream()
-                .anyMatch(clazz -> clazz.isAssignableFrom(root.getClass()));
-        if (!accepted) {
-            return false;
-        }
-        for (Plan child : root.children()) {
-            if (!checkPlanNodeType(child)) {
-                return false;
-            }
-        }
-        return true;
     }
 }

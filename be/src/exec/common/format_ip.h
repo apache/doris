@@ -179,21 +179,6 @@ inline bool parse_ipv4_whole(const char* src, const char* end, unsigned char* ds
     return parse_ipv4(src, end, dst) == end;
 }
 
-/// returns pointer to the right after parsed sequence or null on failed parsing
-inline const char* parse_ipv4(const char* src, unsigned char* dst) {
-    if (parse_ipv4(
-                src, []() { return false; }, dst)) {
-        return src;
-    }
-    return nullptr;
-}
-
-/// returns true if whole null-terminated string was parsed successfully
-inline bool parse_ipv4_whole(const char* src, unsigned char* dst) {
-    const char* end = parse_ipv4(src, dst);
-    return end != nullptr && *end == '\0';
-}
-
 /// integer logarithm, return ceil(log(value, base)) (the smallest integer greater or equal than log(value, base)
 inline constexpr UInt32 int_log(const UInt32 value, const UInt32 base, const bool carry) {
     return value >= base ? 1 + int_log(value / base, base, value % base || carry)
@@ -478,20 +463,6 @@ inline const char* parse_ipv6(const char* src, const char* end, unsigned char* d
 /// returns true if whole buffer was parsed successfully
 inline bool parse_ipv6_whole(const char* src, const char* end, unsigned char* dst) {
     return parse_ipv6(src, end, dst) == end;
-}
-
-/// returns pointer to the right after parsed sequence or null on failed parsing
-inline const char* parse_ipv6(const char* src, unsigned char* dst) {
-    if (parse_ipv6(
-                src, []() { return false; }, dst))
-        return src;
-    return nullptr;
-}
-
-/// returns true if whole null-terminated string was parsed successfully
-inline bool parse_ipv6_whole(const char* src, unsigned char* dst) {
-    const char* end = parse_ipv6(src, dst);
-    return end != nullptr && *end == '\0';
 }
 
 } // namespace doris

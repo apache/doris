@@ -27,9 +27,12 @@
 namespace doris {
 
 class IColumn;
+class TabletColumn;
 class TabletSchema;
 
 enum class ReadTimeHiddenColumnType { NONE, VERSION, COMMIT_TSO, BINLOG_TSO };
+
+ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletColumn& column);
 
 ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& schema,
                                                           int32_t column_unique_id);

@@ -32,6 +32,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
@@ -391,6 +392,8 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
     }
 
+    // GTest assertion macros inflate the cognitive complexity of this segment-building fixture.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     void build_hidden_bigint_segment(const std::string& file_name, int num_rows,
                                      uint32_t num_rows_per_block, const Field& hidden_value,
                                      std::shared_ptr<Segment>* segment) {
@@ -521,7 +524,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonema
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -544,7 +546,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMay
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -564,7 +565,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     SegmentIterator iter(segment, read_schema);
     iter._file_reader = segment->_file_reader;
     iter._opts.stats = &_stats;
-    iter._opts.tablet_schema = _tablet_schema;
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     VExprContextSPtrs conjuncts {expr_ctx};
@@ -595,7 +595,6 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalPageIndexes)
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(kVersion, kVersion);
     read_options.block_row_max = 1024;
     read_options.col_id_to_predicates.emplace(1, make_version_eq_predicate(1, kVersion));
@@ -622,15 +621,24 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionMinMaxFallsBackFromStatisticsItera
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(kVersion, kVersion);
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+    read_options.block_row_max = 1024;
 
-    std::unique_ptr<RowwiseIterator> iter;
-    auto st = segment->new_iterator(read_schema, read_options, &iter);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, iter);
-    EXPECT_NE(nullptr, dynamic_cast<SegmentIterator*>(iter.get()));
+    for (bool forced : {false, true}) {
+        SCOPED_TRACE(forced);
+        TQueryOptions query_options;
+        query_options.__set_force_pushdown_zonemap_minmax(forced);
+        _runtime_state.set_query_options(query_options);
+
+        std::unique_ptr<RowwiseIterator> iter;
+        auto st = segment->new_iterator(read_schema, read_options, &iter);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(nullptr, iter);
+        EXPECT_NE(nullptr, dynamic_cast<SegmentIterator*>(iter.get()));
+        ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options, read_schema,
+                                                            kNumRows, kVersion));
+    }
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, CommitTsoMinMaxUsesStatisticsIterator) {
@@ -644,18 +652,63 @@ TEST_F(SegmentIteratorExprZonemapTest, CommitTsoMinMaxUsesStatisticsIterator) {
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
 
-    std::unique_ptr<RowwiseIterator> iter;
-    auto st = segment->new_iterator(read_schema, read_options, &iter);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, iter);
-    ASSERT_NE(nullptr, dynamic_cast<VStatisticsIterator*>(iter.get()));
-    ASSERT_NO_FATAL_FAILURE(
-            assert_hidden_column_values(iter.get(), read_options, read_schema, 2, kCommitTso));
+    for (bool forced : {false, true}) {
+        SCOPED_TRACE(forced);
+        TQueryOptions query_options;
+        query_options.__set_force_pushdown_zonemap_minmax(forced);
+        _runtime_state.set_query_options(query_options);
+
+        std::unique_ptr<RowwiseIterator> iter;
+        auto st = segment->new_iterator(read_schema, read_options, &iter);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NE(nullptr, iter);
+        ASSERT_NE(nullptr, dynamic_cast<VStatisticsIterator*>(iter.get()));
+        ASSERT_NO_FATAL_FAILURE(
+                assert_hidden_column_values(iter.get(), read_options, read_schema, 2, kCommitTso));
+    }
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, BinlogTsoMinMaxFallsBackFromStatisticsIterator) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_binlog_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_binlog_tso_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.version = Version(7, 7);
+    read_options.read_row_binlog = true;
+    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+    read_options.block_row_max = 1024;
+
+    for (bool forced : {false, true}) {
+        SCOPED_TRACE(forced);
+        TQueryOptions query_options;
+        query_options.__set_force_pushdown_zonemap_minmax(forced);
+        _runtime_state.set_query_options(query_options);
+        for (int64_t commit_tso : {kCommitTso, int64_t {-1}}) {
+            SCOPED_TRACE(commit_tso);
+            read_options.commit_tso = TsoRange(commit_tso, commit_tso);
+
+            std::unique_ptr<RowwiseIterator> iter;
+            auto st = segment->new_iterator(read_schema, read_options, &iter);
+            ASSERT_TRUE(st.ok()) << st;
+            ASSERT_NE(nullptr, iter);
+            EXPECT_NE(nullptr, dynamic_cast<SegmentIterator*>(iter.get()));
+            // The physical column is all NULL, but binlog reads synthesize a non-NULL TSO (0
+            // before the rowset's commit TSO is assigned), even when MIN/MAX is forced.
+            ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options,
+                                                                read_schema, kNumRows,
+                                                                commit_tso == -1 ? 0 : commit_tso));
+        }
+    }
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {
@@ -670,6 +723,10 @@ TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {
 
     const auto column_type = get_read_time_hidden_column_type(
             *_tablet_schema, _tablet_schema->column(1).unique_id());
+    ASSERT_EQ(ReadTimeHiddenColumnType::VERSION, column_type);
+    EXPECT_EQ(column_type, get_read_time_hidden_column_type(_tablet_schema->column(1)));
+    EXPECT_EQ(ReadTimeHiddenColumnType::NONE,
+              get_read_time_hidden_column_type(_tablet_schema->column(0)));
     replace_suffix_with_read_time_hidden_column(column_type, Version(kVersion, kVersion),
                                                 TsoRange(), 2, *column);
 
@@ -700,7 +757,6 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalInvertedInde
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(kVersion, kVersion);
     read_options.block_row_max = 1024;
     read_options.column_predicates = {predicate};
@@ -730,7 +786,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeVersion) {
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(kVersion, kVersion);
     read_options.block_row_max = 1024;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
@@ -760,7 +815,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapRejectsPhysicalVersionPlacehol
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(kVersion, kVersion);
     read_options.common_expr_ctxs_push_down = {expr_ctx};
 
@@ -787,7 +841,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeCommitTso) {
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -819,7 +872,6 @@ TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeBinlogTso) {
     StorageReadOptions read_options;
     read_options.stats = &_stats;
     read_options.runtime_state = &_runtime_state;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -857,7 +909,6 @@ TEST_F(SegmentIteratorExprZonemapTest, CommitTsoReaderIgnoresCachedPhysicalReade
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -879,7 +930,6 @@ TEST_F(SegmentIteratorExprZonemapTest, CommitTsoReaderDoesNotPollutePhysicalRead
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -911,7 +961,6 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
-    read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;

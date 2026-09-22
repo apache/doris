@@ -1038,8 +1038,14 @@ public class StringArithmetic {
         if (startPos < 0) {
             return null;
         }
-        String queryStart = protocolEnd.substring(startPos + 1);
-        return substringEnd(queryStart, queryStart.indexOf('#'));
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (fragmentPos >= 0 && fragmentPos < startPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query component.
+            return null;
+        }
+        return protocolEnd.substring(startPos + 1,
+                fragmentPos >= 0 ? fragmentPos : protocolEnd.length());
     }
 
     private static String parseUrlRef(String protocolEnd) {
@@ -1186,6 +1192,11 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, "");
         }
         int hashPos = trimmedUrl.indexOf('#');
+        if (hashPos >= 0 && hashPos < questionPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query parameters.
+            return castStringLikeLiteral(first, "");
+        }
         String subUrl = hashPos < 0
                 ? trimmedUrl.substring(questionPos + 1)
                 : trimmedUrl.substring(questionPos + 1, hashPos);

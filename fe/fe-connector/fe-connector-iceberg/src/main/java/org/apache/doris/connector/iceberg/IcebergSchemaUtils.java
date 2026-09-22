@@ -397,6 +397,13 @@ public final class IcebergSchemaUtils {
             tField.setType(buildPrimitiveColumnType(type, enableVarbinary, enableTimestampTz));
             return tField;
         }
+        if (type.isVariantType()) {
+            // Variant object keys are data, not schema fields. BE resolves a Variant access path nested in a
+            // STRUCT/ARRAY/MAP only when this leaf keeps its VARIANT type instead of a scalar placeholder.
+            columnType.setType(TPrimitiveType.VARIANT);
+            tField.setType(columnType);
+            return tField;
+        }
 
         TNestedField nestedField = new TNestedField();
         switch (type.typeId()) {

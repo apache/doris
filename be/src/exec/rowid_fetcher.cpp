@@ -80,15 +80,14 @@ void set_topn_lazy_materialization_file_cache_stats(
     pstats->set_write_cache_io_time(stats.write_cache_io_timer);
 }
 
-void replace_rowid_read_time_hidden_columns(const TabletSchema& schema,
-                                            const std::vector<SlotDescriptor>& slots,
+void replace_rowid_read_time_hidden_columns(const std::vector<TabletColumn>& fetch_columns,
                                             const BetaRowset& rowset, size_t num_rows,
                                             Block& result_block) {
     auto columns_guard = result_block.mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
-    DORIS_CHECK_EQ(columns.size(), slots.size());
-    for (size_t i = 0; i < slots.size(); ++i) {
-        const auto column_type = get_read_time_hidden_column_type(schema, slots[i].col_unique_id());
+    DORIS_CHECK_EQ(columns.size(), fetch_columns.size());
+    for (size_t i = 0; i < fetch_columns.size(); ++i) {
+        const auto column_type = get_read_time_hidden_column_type(fetch_columns[i]);
         if (column_type == ReadTimeHiddenColumnType::NONE) {
             continue;
         }
@@ -156,15 +155,11 @@ struct IteratorItem {
     StorageReadOptions storage_read_options;
 };
 
-static void set_slot_access_paths(const SlotDescriptor& slot, const TabletSchema& schema,
+// read_column is what slot resolves to, or its variant parent column for a subpath slot.
+static void set_slot_access_paths(const SlotDescriptor& slot, const TabletColumn& read_column,
                                   StorageReadOptions& storage_read_options) {
-    int32_t unique_id = slot.col_unique_id();
-    const int field_index =
-            unique_id >= 0 ? schema.field_index(unique_id) : schema.field_index(slot.col_name());
-    if (field_index >= 0) {
-        const auto& column = schema.column(field_index);
-        unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
-    }
+    const int32_t unique_id =
+            read_column.unique_id() >= 0 ? read_column.unique_id() : read_column.parent_unique_id();
     if (unique_id < 0) {
         return;
     }
@@ -344,9 +339,10 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
-    TabletSchema full_read_schema;
+    std::vector<TabletColumn> fetch_columns;
+    fetch_columns.reserve(request_block_desc.column_descs_size());
     for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
-        full_read_schema.append_column(TabletColumn(column_pb));
+        fetch_columns.emplace_back(column_pb);
     }
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
@@ -419,7 +415,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
 
         scan_blocks[batch_idx] = Block(slots, row_ids.size());
         RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
+                id_file_map, scan_batch.file_mapping, row_ids, slots, fetch_columns,
                 row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
                 acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
                 file_cache_miss_policy, scan_blocks[batch_idx]));
@@ -949,7 +945,7 @@ Status RowIdStorageReader::read_batch_external_row(
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,
         const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_ids,
-        std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+        std::vector<SlotDescriptor>& slots, const std::vector<TabletColumn>& fetch_columns,
         RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
@@ -1061,14 +1057,19 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
             }
-            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                    full_read_schema, &slots[x], row_ids, column,
-                    iterator_item.storage_read_options, iterator_item.iterator));
+            if (x >= fetch_columns.size()) {
+                return Status::InternalError(
+                        "fetch request carries {} column descs for {} slots, slot {} has none",
+                        fetch_columns.size(), slots.size(), slots[x].col_name());
+            }
+            const TabletColumn& read_column = fetch_columns[x];
+            set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(read_column, &slots[x], row_ids, column,
+                                                            iterator_item.storage_read_options,
+                                                            iterator_item.iterator));
         }
     }
-    replace_rowid_read_time_hidden_columns(full_read_schema, slots, *rowset, row_ids.size(),
-                                           result_block);
+    replace_rowid_read_time_hidden_columns(fetch_columns, *rowset, row_ids.size(), result_block);
     return Status::OK();
 }
 

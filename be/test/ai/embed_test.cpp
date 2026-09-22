@@ -946,6 +946,49 @@ TEST(EMBED_TEST, local_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[0][1], 0.7F);
 }
 
+TEST(EMBED_TEST, local_adapter_rejects_non_object_data_item) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"data":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_numeric_data_embedding) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"data":[{"embedding":[0.1,"bad"]}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_array_embeddings_item) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embeddings":[0.1,0.2]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_numeric_embeddings_item) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embeddings":[[0.1,"bad"]]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_numeric_embedding) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embedding":[0.1,"bad"]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, mock_adapter_rejects_non_numeric_embedding) {
+    MockAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embedding":[0.1,"bad"]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(EMBED_TEST, openai_adapter_embedding_request) {
     OpenAIAdapter adapter;
     TAIResource config;
@@ -1112,6 +1155,21 @@ TEST(EMBED_TEST, qwen_embedding_request) {
     ASSERT_EQ(doc["dimension"].GetInt(), config.dimensions);
 }
 
+TEST(EMBED_TEST, qwen_adapter_rejects_non_object_embedding_item) {
+    QwenAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"output":{"embeddings":[1]}})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, qwen_adapter_rejects_non_numeric_embedding) {
+    QwenAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(
+            R"({"output":{"embeddings":[{"embedding":[0.1,"bad"]}]}})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     GeminiAdapter adapter;
     TAIResource config;
@@ -1235,6 +1293,29 @@ TEST(EMBED_TEST, gemini_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[1][2], 2.3F);
 }
 
+TEST(EMBED_TEST, gemini_adapter_rejects_non_object_embedding_item) {
+    GeminiAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embeddings":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, gemini_adapter_rejects_non_numeric_batch_embedding) {
+    GeminiAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"embeddings":[{"values":[0.1,"bad"]}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, gemini_adapter_rejects_non_numeric_single_embedding) {
+    GeminiAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"embedding":{"values":[0.1,"bad"]}})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(EMBED_TEST, voyageai_adapter_embedding_request) {
     VoyageAIAdapter adapter;
     TAIResource config;
@@ -1320,6 +1401,21 @@ TEST(EMBED_TEST, voyageai_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[0][2], 0.3F);
     ASSERT_FLOAT_EQ(results[1][0], 0.4F);
     ASSERT_FLOAT_EQ(results[1][1], 0.5F);
+}
+
+TEST(EMBED_TEST, voyageai_adapter_rejects_non_object_data_item) {
+    VoyageAIAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"data":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, voyageai_adapter_rejects_non_numeric_embedding) {
+    VoyageAIAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"data":[{"embedding":[0.1,"bad"]}]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {

@@ -24,13 +24,8 @@
 
 namespace doris {
 
-ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& schema,
-                                                          int32_t column_unique_id) {
-    const int32_t column_idx = schema.field_index(column_unique_id);
-    if (column_idx < 0) {
-        return ReadTimeHiddenColumnType::NONE;
-    }
-    const auto& column_name = schema.column(column_idx).name();
+ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletColumn& column) {
+    const auto& column_name = column.name();
     if (column_name == VERSION_COL) {
         return ReadTimeHiddenColumnType::VERSION;
     }
@@ -41,6 +36,15 @@ ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& sc
         return ReadTimeHiddenColumnType::BINLOG_TSO;
     }
     return ReadTimeHiddenColumnType::NONE;
+}
+
+ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& schema,
+                                                          int32_t column_unique_id) {
+    const int32_t column_idx = schema.field_index(column_unique_id);
+    if (column_idx < 0) {
+        return ReadTimeHiddenColumnType::NONE;
+    }
+    return get_read_time_hidden_column_type(schema.column(column_idx));
 }
 
 std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,

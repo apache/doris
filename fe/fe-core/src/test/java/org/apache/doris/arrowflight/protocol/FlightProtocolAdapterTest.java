@@ -17,6 +17,7 @@
 
 package org.apache.doris.arrowflight.protocol;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -27,6 +28,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ShowResultSet;
@@ -63,8 +65,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * An Arrow Flight SQL session is a ConnectContext bound to a FlightProtocolAdapter. The adapter
- * owns what only that protocol has (result cache, endpoints, deferred executors, the pool the
- * session is registered in) and serializes the session's commands, which gRPC does not do.
+ * owns what only that protocol has (result cache, endpoints, deferred executors) and serializes
+ * the session's commands, which gRPC does not do; the session is registered in the one connection
+ * pool every protocol shares, which asks the adapter to release those on teardown.
  */
 public class FlightProtocolAdapterTest {
     private boolean savedRunningUnitTest;
@@ -83,7 +86,10 @@ public class FlightProtocolAdapterTest {
     }
 
     private static ConnectContext flightSession() {
-        return ConnectContext.forFlight("test-peer-identity");
+        // Registrable in the one pool: the pool files a session under its user and asks its Env
+        // for the user's connection limit.
+        return ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100), UserIdentity.ROOT,
+                "test-peer-identity");
     }
 
     // A command that blocks on a latch, run from a plain thread.
@@ -129,7 +135,7 @@ public class FlightProtocolAdapterTest {
     }
 
     @Test
-    public void testSessionRegistersItsTraceIdInTheFlightPool() {
+    public void testSessionRegistersItsTraceIdInThePool() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ConnectContext ctx = flightSession();
         ctx.setConnectScheduler(scheduler);
@@ -138,25 +144,51 @@ public class FlightProtocolAdapterTest {
 
         ctx.setQueryId(queryId);
 
-        Assertions.assertEquals(DebugUtil.printId(queryId),
-                scheduler.getFlightSqlConnectPoolMgr().getQueryIdByTraceId("trace-1"));
-        Assertions.assertEquals("", scheduler.getConnectPoolMgr().getQueryIdByTraceId("trace-1"));
+        Assertions.assertEquals(DebugUtil.printId(queryId), scheduler.getQueryIdByTraceId("trace-1"));
     }
 
     @Test
-    public void testKillUnregistersTheSessionFromTheFlightPool() {
+    public void testKillUnregistersTheSessionFromThePool() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ConnectContext ctx = flightSession();
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
         Assertions.assertSame(ctx, scheduler.getContext(ctx.getConnectionId()));
+        Assertions.assertSame(ctx, scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
 
         ctx.kill(true);
 
         Assertions.assertTrue(ctx.isKilled());
         Assertions.assertNull(scheduler.getContext(ctx.getConnectionId()));
+        Assertions.assertNull(scheduler.getContextWithPeerIdentity(ctx.getPeerIdentity()));
     }
+
+    // Every Flight session teardown path meets in the pool's unregisterConnection, which asks the
+    // protocol to release what it holds: the channel-cached results first, then the deferred
+    // executors (tearDown), whether or not the session was ever registered.
+    @Test
+    public void testReleaseSessionClosesTheChannelAndTearsTheSessionDown() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        // A result the client never pulled: off-heap Arrow buffers the channel holds.
+        adapter.getChannel().addOKResult("query-1", "SELECT 1");
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+
+        ctx.releaseProtocolSession();
+
+        // The channel's results are released with their buffers, and the deferred query finalized.
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        // Idempotent: the second release finds nothing to do, throws nothing, and finalizes nothing twice.
+        Assertions.assertDoesNotThrow(ctx::releaseProtocolSession);
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
+
 
     @Test
     public void testCommandsOfOneSessionRunOneAtATime() throws Exception {
@@ -468,7 +500,7 @@ public class FlightProtocolAdapterTest {
         ConnectContext ctx = flightSession();
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor before = Mockito.mock(StmtExecutor.class);
         StmtExecutor late = Mockito.mock(StmtExecutor.class);

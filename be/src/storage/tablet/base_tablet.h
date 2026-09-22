@@ -78,6 +78,10 @@ public:
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_ttl_expiration_time() const {
+        return _tablet_meta->file_cache_ttl_expiration_time();
+    }
     // currently used by schema change, inverted index building, and cooldown
     std::timed_mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
@@ -98,6 +102,11 @@ public:
 
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
+
+    BinlogConfig binlog_config() const {
+        std::shared_lock rlock(_meta_lock);
+        return _tablet_meta->binlog_config();
+    }
 
     int32_t max_version_config();
 
