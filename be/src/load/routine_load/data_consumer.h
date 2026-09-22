@@ -262,17 +262,10 @@ private:
     // Updated during group_consume; read by the task executor to populate ctx after consumption.
     std::map<std::string, int64_t> _millis_behind_latest;
 
-    // Child shard lineage observed when a shard reaches its end.
-    std::map<std::string, std::set<std::string>> _child_shard_parent_ids;
-
 public:
     // Returns the MillisBehindLatest snapshot collected during group_consume.
     const std::map<std::string, int64_t>& get_millis_behind_latest() const {
         return _millis_behind_latest;
-    }
-
-    const std::map<std::string, std::set<std::string>>& get_child_shard_parent_ids() const {
-        return _child_shard_parent_ids;
     }
 
 private:

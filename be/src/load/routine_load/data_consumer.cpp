@@ -1069,10 +1069,8 @@ Status KinesisDataConsumer::
                     // An empty response is not EOF while a next iterator exists.
                     LOG(INFO) << "Shard has no records in this response: " << shard_id
                               << " (MillisBehindLatest=" << millis_behind << ")";
-                    ++it;
-                } else {
-                    ++it;
                 }
+                ++it;
             }
 
             // Check if all shards are exhausted
@@ -1155,7 +1153,6 @@ Status KinesisDataConsumer::reset() {
     _consuming_shard_ids.clear();
     _shard_iterators.clear();
     _millis_behind_latest.clear();
-    _child_shard_parent_ids.clear();
     _last_visit_time = time(nullptr);
     LOG(INFO) << "Kinesis consumer reset: " << _id;
     return Status::OK();
