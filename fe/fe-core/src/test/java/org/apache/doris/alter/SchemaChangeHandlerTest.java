@@ -1294,6 +1294,46 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "properties(\"analyzer\"=\"alter_nfd_decompose_analyzer\")", "already exists");
     }
 
+    @Test
+    public void testAddInvertedIndexRejectsBufferSizeAndCaseFoldAliases() throws Exception {
+        createAnalyzerAliasTable("sc_fold_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_keyword_256", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "256"));
+        replayAliasPolicy(policyMgr, "alter_keyword_512", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "512"));
+        replayAliasPolicy(policyMgr, "alter_keyword_256_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_keyword_256"));
+        replayAliasPolicy(policyMgr, "alter_keyword_512_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_keyword_512"));
+        replayAliasPolicy(policyMgr, "alter_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayAliasPolicy(policyMgr, "alter_x_to_y", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "x", "replacement", "y"));
+        replayAliasPolicy(policyMgr, "alter_fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        replayAliasPolicy(policyMgr, "alter_x_fold_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_x_to_y,alter_fold"));
+        replayAliasPolicy(policyMgr, "alter_lower_x_fold_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_lower_a,alter_x_to_y,alter_fold"));
+        replayAliasPolicy(policyMgr, "alter_keyword_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_keyword_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+
+        expectException("alter table test.sc_fold_alias add index idx_keyword_256(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_keyword_256_analyzer\"), add index idx_keyword_512(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_keyword_512_analyzer\")", "already exists");
+        expectException("alter table test.sc_fold_alias add index idx_x_fold(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_x_fold_analyzer\"), add index idx_lower_x_fold(c2) "
+                + "using inverted properties(\"analyzer\"=\"alter_lower_x_fold_analyzer\")", "already exists");
+        expectException("alter table test.sc_fold_alias add index idx_outer_lower(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_keyword_lower_1\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_plain_lower(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_keyword_lower_2\")", "already exists");
+    }
+
     private void createAnalyzerAliasTable(String tableName) throws Exception {
         createTable("CREATE TABLE IF NOT EXISTS test." + tableName
                 + " (k INT, c1 VARCHAR(100), c2 VARCHAR(100))\n"

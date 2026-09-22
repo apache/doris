@@ -181,6 +181,99 @@ public class InvertedIndexPropertiesTest {
                 Map.of("analyzer", analyzer), "");
     }
 
+    private static IndexDefinition invertedIndexDefinitionWithOuterLowerA(String name, String analyzer) {
+        return new IndexDefinition(name, false, List.of("content"), "INVERTED",
+                Map.of("analyzer", analyzer, "char_filter_type", "char_replace",
+                        "char_filter_pattern", "A", "char_filter_replacement", "a"), "");
+    }
+
+    @Test
+    public void testCreateTableRejectsIneffectiveKeywordBufferSizeAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "keyword_256", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "256")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "keyword_512", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "512")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "keyword_256_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword_256")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "keyword_512_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword_512")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                    StringType.INSTANCE, List.of(
+                            invertedIndexDefinition("idx_keyword_256", "keyword_256_analyzer"),
+                            invertedIndexDefinition("idx_keyword_512", "keyword_512_analyzer"))));
+        }
+    }
+
+    @Test
+    public void testCreateTableRejectsCaseFoldCarriedThroughNonInteractingCharReplace() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "x_to_y", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "x", "replacement", "y")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "a_to_b", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "a", "replacement", "b")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "x_then_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "x_to_y,fold")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "lower_x_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "lower_a,x_to_y,fold")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(7, "ab_then_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "a_to_b,fold")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(8, "lower_ab_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "lower_a,a_to_b,fold")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_x_then_fold", "x_then_fold"),
+                                    invertedIndexDefinition("idx_lower_x_fold", "lower_x_fold")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_ab_then_fold", "ab_then_fold"),
+                                    invertedIndexDefinition("idx_lower_ab_fold", "lower_ab_fold")))));
+        }
+    }
+
+    @Test
+    public void testCreateTableRejectsOuterCaseFoldAbsorbedByCustomLowercaseAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "keyword_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "keyword_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "keyword_plain_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "keyword_plain_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithOuterLowerA("idx_outer_lower", "keyword_lower_1"),
+                                    invertedIndexDefinition("idx_plain_lower", "keyword_lower_2")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithOuterLowerA("idx_outer_plain", "keyword_plain_1"),
+                                    invertedIndexDefinition("idx_plain_plain", "keyword_plain_2")))));
+        }
+    }
+
     @Test
     public void testRejectsAmbiguousOuterCharFiltersForSameAnalyzer() {
         IndexDefinition replaceA = new IndexDefinition("idx_replace_a", false, List.of("content"),

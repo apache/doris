@@ -669,6 +669,128 @@ public class AnalyzerIdentityBuilderTest {
         policyMgr.replayCreateIndexPolicy(new IndexPolicy(id, name, type, properties));
     }
 
+    private static String namedAnalyzerIdentity(String analyzer) {
+        return AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("analyzer", analyzer), analyzer, "none", "__default__", "none", null);
+    }
+
+    private static String namedAnalyzerIdentityWithOuterLowerA(String analyzer) {
+        return AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("analyzer", analyzer, "char_filter_type", "char_replace",
+                        "char_filter_pattern", "A", "char_filter_replacement", "a"),
+                analyzer, "none", "__default__", "none", null);
+    }
+
+    @Test
+    public void testKeywordBufferSizeDoesNotChangeIdentity() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "keyword_plain", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword"));
+        replayComponent(policyMgr, 2, "keyword_256", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "256"));
+        replayComponent(policyMgr, 3, "keyword_512", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword", "buffer_size", "512"));
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(4, "keyword_plain_analyzer", "keyword_plain"));
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(5, "keyword_256_analyzer", "keyword_256"));
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(6, "keyword_512_analyzer", "keyword_512"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String plain = namedAnalyzerIdentity("keyword_plain_analyzer");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(plain, namedAnalyzerIdentity("keyword_256_analyzer")),
+                    () -> Assertions.assertEquals(plain, namedAnalyzerIdentity("keyword_512_analyzer")));
+        }
+    }
+
+    @Test
+    public void testCaseFoldCarriesThroughNonInteractingCharReplace() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayComponent(policyMgr, 2, "x_to_y", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "x", "replacement", "y"));
+        replayComponent(policyMgr, 3, "a_to_b", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "a", "replacement", "b"));
+        replayComponent(policyMgr, 4, "upper_a_to_z", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "z"));
+        replayComponent(policyMgr, 5, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        String[][] analyzers = {
+                {"x_then_fold", "x_to_y,fold"},
+                {"lower_x_fold", "lower_a,x_to_y,fold"},
+                {"ab_then_fold", "a_to_b,fold"},
+                {"lower_ab_fold", "lower_a,a_to_b,fold"},
+                {"az_then_fold", "upper_a_to_z,fold"},
+                {"lower_az_fold", "lower_a,upper_a_to_z,fold"}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", analyzer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("x_then_fold"),
+                            namedAnalyzerIdentity("lower_x_fold")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("ab_then_fold"),
+                            namedAnalyzerIdentity("lower_ab_fold")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("az_then_fold"),
+                            namedAnalyzerIdentity("lower_az_fold")));
+        }
+    }
+
+    @Test
+    public void testOuterCharFilterAbsorbedByCustomCaseFoldingPipeline() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        replayComponent(policyMgr, 2, "x_to_y", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "x", "replacement", "y"));
+        replayComponent(policyMgr, 3, "group_on_upper_a", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "char_group", "tokenize_on_chars", "[A]"));
+        replayComponent(policyMgr, 4, "ngram_custom_a", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "custom", "custom_token_chars", "a"));
+        replayComponent(policyMgr, 5, "keyword_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 6, "keyword_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 7, "keyword_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword"));
+        replayComponent(policyMgr, 8, "fold_first", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "fold"));
+        replayComponent(policyMgr, 9, "x_then_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "x_to_y,fold"));
+        replayComponent(policyMgr, 10, "group_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "group_on_upper_a", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 11, "ngram_custom_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ngram_custom_a", "token_filter", "lowercase"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("keyword_lower_2"),
+                            namedAnalyzerIdentityWithOuterLowerA("keyword_lower_1")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("fold_first"),
+                            namedAnalyzerIdentityWithOuterLowerA("fold_first")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("x_then_fold"),
+                            namedAnalyzerIdentityWithOuterLowerA("x_then_fold")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("keyword_plain"),
+                            namedAnalyzerIdentityWithOuterLowerA("keyword_plain")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("group_lower"),
+                            namedAnalyzerIdentityWithOuterLowerA("group_lower")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("ngram_custom_lower"),
+                            namedAnalyzerIdentityWithOuterLowerA("ngram_custom_lower")));
+        }
+    }
+
     @Test
     public void testExplicitComponentDefaultsMatchBuiltinIdentity() throws Exception {
         IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
