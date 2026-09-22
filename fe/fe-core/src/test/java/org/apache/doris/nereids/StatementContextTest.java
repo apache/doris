@@ -45,6 +45,7 @@ import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -691,6 +692,36 @@ public class StatementContextTest {
         } finally {
             statementContext.close();
         }
+    }
+
+    @Test
+    public void collectRelationRegistersFilteredScanWithInitialFilter() {
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "select * from hive_catalog.db.hive_table where hive_table.p = 1");
+        UnboundRelation relation = findUnboundRelation(plan);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        List<String> qualifier = ImmutableList.of("hive_catalog", "db", "hive_table");
+
+        Mockito.when(cascadesContext.getConnectContext()).thenReturn(connectContext);
+        Mockito.when(cascadesContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(cascadesContext.getRewritePlan()).thenReturn(plan);
+        Mockito.when(cascadesContext.getRecursiveCteContext()).thenReturn(Optional.empty());
+        Mockito.when(cascadesContext.getCteContext()).thenReturn(new CTEContext());
+        Mockito.when(connectContext.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(statementContext.getAndCacheTable(Mockito.eq(qualifier),
+                Mockito.eq(StatementContext.TableFrom.QUERY), Mockito.eq(Optional.of(relation))))
+                .thenReturn(hiveExternalTable);
+        Mockito.when(statementContext.getPlannerHooks()).thenReturn(Collections.emptySet());
+
+        CollectRelation collectRelation = new CollectRelation(false);
+        Deencapsulation.invoke(collectRelation, "collectFromUnboundRelation", cascadesContext,
+                relation.getNameParts(), StatementContext.TableFrom.QUERY, Optional.of(relation));
+
+        Mockito.verify(statementContext).registerExternalTableForPreload(hiveExternalTable,
+                Optional.empty(), Optional.empty(), true);
     }
 
     private static UnboundRelation findUnboundRelation(Plan plan) {
