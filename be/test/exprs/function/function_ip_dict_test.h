@@ -68,21 +68,27 @@ public:
             std::visit(
                     [&](auto&& arg) {
                         using ValueDataType = std::decay_t<decltype(arg)>;
+                        if constexpr (std::is_same_v<ValueDataType, ColumnWithTypeGeneric>) {
+                            // Array value type not used in MockIPAddressDictionary tests
+                            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                                   "ColumnWithTypeGeneric not supported here");
+                        } else {
+                            using AttributeRealColumnType = ValueDataType::OutputColumnType;
 
-                        using AttributeRealColumnType = ValueDataType::OutputColumnType;
+                            auto* res_real_column =
+                                    assert_cast<AttributeRealColumnType*>(res_column.get());
+                            const auto* attributes_column = arg.get();
 
-                        auto* res_real_column =
-                                assert_cast<AttributeRealColumnType*>(res_column.get());
-                        const auto* attributes_column = arg.get();
-
-                        for (size_t i = 0; i < ipv6_column->size(); i++) {
-                            IPv6 ipv6 = ipv6_column->get_element(i);
-                            auto it = lookupIP(ipv6);
-                            if (it == ip_not_found()) {
-                                res_column->insert_default();
-                            } else {
-                                const auto idx = it->row;
-                                res_real_column->insert_value(attributes_column->get_element(idx));
+                            for (size_t i = 0; i < ipv6_column->size(); i++) {
+                                IPv6 ipv6 = ipv6_column->get_element(i);
+                                auto it = lookupIP(ipv6);
+                                if (it == ip_not_found()) {
+                                    res_column->insert_default();
+                                } else {
+                                    const auto idx = it->row;
+                                    res_real_column->insert_value(
+                                            attributes_column->get_element(idx));
+                                }
                             }
                         }
                     },
@@ -92,22 +98,28 @@ public:
             std::visit(
                     [&](auto&& arg) {
                         using ValueDataType = std::decay_t<decltype(arg)>;
+                        if constexpr (std::is_same_v<ValueDataType, ColumnWithTypeGeneric>) {
+                            // Array value type not used in MockIPAddressDictionary tests
+                            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                                   "ColumnWithTypeGeneric not supported here");
+                        } else {
+                            using AttributeRealColumnType = ValueDataType::OutputColumnType;
 
-                        using AttributeRealColumnType = ValueDataType::OutputColumnType;
+                            auto* res_real_column =
+                                    assert_cast<AttributeRealColumnType*>(res_column.get());
+                            const auto* attributes_column = arg.get();
 
-                        auto* res_real_column =
-                                assert_cast<AttributeRealColumnType*>(res_column.get());
-                        const auto* attributes_column = arg.get();
-
-                        for (size_t i = 0; i < ipv4_column->size(); i++) {
-                            IPv4 ipv4 = ipv4_column->get_element(i);
-                            IPv6 ipv6 = ipv4_to_ipv6(ipv4);
-                            auto it = lookupIP(ipv6);
-                            if (it == ip_not_found()) {
-                                res_column->insert_default();
-                            } else {
-                                const auto idx = it->row;
-                                res_real_column->insert_value(attributes_column->get_element(idx));
+                            for (size_t i = 0; i < ipv4_column->size(); i++) {
+                                IPv4 ipv4 = ipv4_column->get_element(i);
+                                IPv6 ipv6 = ipv4_to_ipv6(ipv4);
+                                auto it = lookupIP(ipv6);
+                                if (it == ip_not_found()) {
+                                    res_column->insert_default();
+                                } else {
+                                    const auto idx = it->row;
+                                    res_real_column->insert_value(
+                                            attributes_column->get_element(idx));
+                                }
                             }
                         }
                     },
