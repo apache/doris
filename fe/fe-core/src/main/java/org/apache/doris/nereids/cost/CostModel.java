@@ -554,7 +554,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             nljPenalty = Math.min(leftStatistics.getRowCount(), rightStatistics.getRowCount());
         }
         nljPenalty = Math.max(nljPenalty, 1.0);
-        return Cost.of(context.getSessionVariable(),
+        return Cost.of(context.getCostWeight(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount() * nljPenalty,
                 rightStatistics.getRowCount() * nljPenalty,
                 0);
