@@ -803,19 +803,38 @@ public class MTMV extends OlapTable {
         }
         try {
             // A partition that is missing from the metadata here is invisible to the mapping as well, so
-            // an empty answer below would be indistinguishable from "no MV partition reads it". The match
-            // is deliberately exact: the mapping is keyed by the metadata's spelling, so a name that only
-            // differs in case must take the whole-MV path too, or the lookup below would quietly select
-            // nothing for a partition that some MV partition does read. Base tables that do not implement
-            // getPartitionNames -- the external ones -- report no partition at all, so a partition change
-            // on them always rebuilds the whole MV. That matches what the refresh-snapshot selection
-            // answered for them, and the mapping has never been exercised for external tables (IVM does
-            // not support them as base tables yet): revisit before taking the narrow path for them.
-            if (!pctTable.getPartitionNames().containsAll(changedBasePartitions.keySet())) {
-                return Optional.empty();
+            // an empty answer below would be indistinguishable from "no MV partition reads it". It has to
+            // be the partition the caller described, not merely one carrying the same name: RECOVER
+            // PARTITION reports the recycled partition under its old name, and a partition added after
+            // the drop may be live under that name again, with a different range. Matching on the name
+            // alone would accept that replacement, select the MV partitions of its range, and leave the
+            // recovered range -- whose rows no row binlog can repair -- without a barrier. The lookup is
+            // by exact name, so a name that only differs in case takes the whole-MV path too. Base tables
+            // that do not implement getPartition -- the external ones -- answer null for every name, so a
+            // partition change on them always rebuilds the whole MV. That matches what the
+            // refresh-snapshot selection answered for them, and the mapping has never been exercised for
+            // external tables (IVM does not support them as base tables yet): revisit before taking the
+            // narrow path for them.
+            for (Entry<String, Long> changedBasePartition : changedBasePartitions.entrySet()) {
+                Partition livePartition = pctTable.getPartition(changedBasePartition.getKey());
+                if (livePartition == null || livePartition.getId() != changedBasePartition.getValue()) {
+                    return Optional.empty();
+                }
             }
+            // Whether a partition_sync_limit is in effect decides whether the mapping built below may be
+            // trusted, and it is read on both sides of that construction. It has to be: the property is
+            // mutable (ALTER MATERIALIZED VIEW ... SET is not generation guarded) and the mapping is built
+            // from it, so a read taken on one side only can be the stale one. Reading it after the mapping
+            // alone misses a limit cleared while the mapping was built -- the mapping is then the windowed
+            // one and would be trusted; reading it before alone misses a limit set in that same window, for
+            // the opposite reason. The two reads bracket exactly the construction, and a limit in effect on
+            // either of them means the mapping that came out of it may carry a window.
+            boolean partitionSyncLimitActiveBeforeMapping =
+                    MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties);
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings =
                     calculatePartitionMappings(Maps.newHashMap());
+            boolean partitionSyncLimitActiveAfterMapping =
+                    MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties);
             Set<String> res = Sets.newHashSet();
             boolean pctTableMapped = false;
             // Every base partition this table's part of the mapping describes, which is what the selection
@@ -856,8 +875,10 @@ public class MTMV extends OlapTable {
             // change to be described, rather than only a non-empty selection, is what covers a change
             // that mixes a partition inside the window with one outside it: the inside half would
             // otherwise fill the selection and hide the missing half. Without a limit the mapping is
-            // complete, and a partition it leaves out really is one no MV partition reads.
-            if (MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties)
+            // complete, and a partition it leaves out really is one no MV partition reads. Either of the
+            // two reads above counts: a limit that was in effect while the mapping was built leaves it
+            // incomplete even if the limit is gone by now.
+            if ((partitionSyncLimitActiveBeforeMapping || partitionSyncLimitActiveAfterMapping)
                     && !mappedBasePartitions.containsAll(changedBasePartitions.keySet())) {
                 LOG.info("Changed base partitions are outside the partition_sync_limit window and the MV may "
                         + "still hold their rows, rebuild the whole MV. baseTable={}, changedPartitions={}, "

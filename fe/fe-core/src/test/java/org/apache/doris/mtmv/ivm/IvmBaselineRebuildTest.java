@@ -33,7 +33,9 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.persist.AlterMTMV;
@@ -47,6 +49,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.time.LocalDate;
 import java.util.Collections;
@@ -178,7 +182,12 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     public void testChangedPartitionOutsideTheSyncWindowRebuildsTheWholeMv() throws Exception {
         String db = "ivm_baseline_sync_window";
         String thisYear = LocalDate.now().withDayOfYear(1).toString();
-        String nextYear = LocalDate.now().withDayOfYear(1).plusYears(1).toString();
+        // The cutoff is now() truncated to the year, read when the marker runs, and a partition is kept
+        // while its upper bound is after it. The recent partition therefore ends more than one year out:
+        // a year boundary falling between building this DDL and marking the change would otherwise put
+        // its upper bound exactly on the cutoff, drop it from the mapping, and let this test pass through
+        // the "nothing was selected" answer it exists to rule out.
+        String recentEnd = LocalDate.now().withDayOfYear(1).plusYears(2).toString();
         createDatabaseAndUse(db);
         createTable("CREATE TABLE " + db + ".ivm_base (\n"
                 + "  dt date NOT NULL,\n"
@@ -189,7 +198,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "PARTITION BY RANGE(dt) (\n"
                 + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),\n"
-                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + nextYear + "'))\n"
+                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -223,7 +232,12 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     public void testChangeThatMixesInWindowAndOutOfWindowPartitionsRebuildsTheWholeMv() throws Exception {
         String db = "ivm_baseline_sync_window_mixed";
         String thisYear = LocalDate.now().withDayOfYear(1).toString();
-        String nextYear = LocalDate.now().withDayOfYear(1).plusYears(1).toString();
+        // The cutoff is now() truncated to the year, read when the marker runs, and a partition is kept
+        // while its upper bound is after it. The recent partition therefore ends more than one year out:
+        // a year boundary falling between building this DDL and marking the change would otherwise put
+        // its upper bound exactly on the cutoff, drop it from the mapping, and let this test pass through
+        // the "nothing was selected" answer it exists to rule out.
+        String recentEnd = LocalDate.now().withDayOfYear(1).plusYears(2).toString();
         createDatabaseAndUse(db);
         createTable("CREATE TABLE " + db + ".ivm_base (\n"
                 + "  dt date NOT NULL,\n"
@@ -234,7 +248,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "PARTITION BY RANGE(dt) (\n"
                 + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
                 + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),\n"
-                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + nextYear + "'))\n"
+                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -253,6 +267,40 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         // p202001 is not, which is exactly the mix a non-empty selection must not be allowed to hide.
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001, pThisYear)");
 
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * The limit is read on both sides of the mapping the selection judges: the mapping is built under
+     * whatever window the properties hold at that moment, and MV properties are mutable in between --
+     * <code>ALTER MATERIALIZED VIEW ... SET</code> is not generation guarded, so a limit can be cleared
+     * while the mapping is built. A read that happens only afterwards then sees no limit and trusts a
+     * windowed mapping, and a change outside that window is answered with "no MV partition reads it",
+     * which records no barrier at all. The read taken before the mapping is the one that cannot be
+     * reconstructed afterwards, so this pins that the selection takes both.
+     *
+     * <p>The interleaving itself is not staged: the mapping is built with no injection point between the
+     * two reads, so the test pins that both reads happen rather than a racy outcome.
+     */
+    @Test
+    public void testTheSyncLimitIsReadOnBothSidesOfTheMapping() throws Exception {
+        String db = "ivm_baseline_sync_limit_both_reads";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        OlapTable baseTable = getBaseTable(db);
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+
+        try (MockedStatic<MTMVPartitionUtil> partitionUtil = Mockito.mockStatic(MTMVPartitionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Assertions.assertTrue(mtmv.invalidateIvmBaseline(new BaseTableInfo(baseTable),
+                    Collections.singletonMap("p202001", baseTable.getPartition("p202001").getId())));
+            partitionUtil.verify(() -> MTMVPartitionUtil.isPartitionSyncLimitActive(Mockito.any()),
+                    Mockito.times(2));
+        }
+
+        // p202001 is outside the window while it is in effect, so its rows are described by no mapping
+        // entry and only the limit can tell that apart from "no MV partition reads it".
         Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
@@ -445,6 +493,32 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202002");
         Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    /**
+     * RECOVER reports the recycled partition under the name it had, and a partition added after the drop
+     * can be live under that name again by then, with a different range. The change is then not the one
+     * the mapping describes: the recovered range is the one whose rows have to come back, and its MV
+     * partition -- which partition sync adds when the recovered partition returns -- is read from a base
+     * partition that the replacement does not describe at all. Narrowing to the replacement's MV
+     * partitions would leave that one out, and recovery emits no row binlog to fill it later, so the
+     * whole MV has to be rebuilt.
+     */
+    @Test
+    public void testRecoveredPartitionWhoseNameWasReusedRebuildsTheWholeMv() throws Exception {
+        String db = "ivm_recover_partition_name_reused";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+
+        executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
+        clearBaselineRebuild(mtmv);
+        // Live again under the dropped name, with a range no MV partition covers: the RECOVER below is
+        // still about the recycled partition, not about this one.
+        executeSql("ALTER TABLE ivm_base ADD PARTITION p202001 VALUES [('2020-04-01'), ('2020-05-01'))");
+
+        executeSql("RECOVER PARTITION p202001 AS p202003 FROM ivm_base");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
     @Test
