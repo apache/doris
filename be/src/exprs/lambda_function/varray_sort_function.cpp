@@ -32,6 +32,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/lambda_function/lambda_execution_context.h"
@@ -41,6 +42,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vlambda_function_expr.h"
+#include "util/untrusted_comparator_sort.h"
 
 namespace doris {
 
@@ -228,18 +230,17 @@ public:
                         return cmp < 0;
                     };
 
+                    // The comparator is user SQL and may violate strict weak ordering, or
+                    // even be non-deterministic. Standard library sorts rely on the comparator
+                    // contract to keep their accesses in range, so a broken comparator crashes
+                    // BE. sort_with_untrusted_comparator bounds every access by the range
+                    // length; an inconsistent comparator yields an unspecified order instead.
+                    DorisVector<size_t> scratch;
                     for (int row = 0; row < input_rows; ++row) {
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
-                        // The comparator is user SQL and may violate strict weak ordering, or
-                        // even be non-deterministic. std::sort relies on the comparator to stop
-                        // its unguarded loops and reads outside the range when it is broken,
-                        // which crashes BE. Heap sort bounds every access by the range length
-                        // and only uses the comparator to pick which element to move, so it is
-                        // safe with any comparator; an inconsistent comparator yields an
-                        // unspecified order instead of a crash.
-                        std::make_heap(permutation.data() + start, permutation.data() + end, less);
-                        std::sort_heap(permutation.data() + start, permutation.data() + end, less);
+                        sort_with_untrusted_comparator(permutation.data() + start,
+                                                       permutation.data() + end, scratch, less);
                     }
                 },
                 src_data);

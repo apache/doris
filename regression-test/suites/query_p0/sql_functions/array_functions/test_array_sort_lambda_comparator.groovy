@@ -43,8 +43,11 @@ suite("test_array_sort_lambda_comparator") {
     order_qt_large_desc """
         SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), array_range(1, 100))
     """
+    // NULLs sort first and compare equal to each other, so the comparator stays a strict weak
+    // ordering with several NULL elements.
     order_qt_large_with_null """
-        SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN -1
+        SELECT array_sort((x, y) -> CASE WHEN x IS NULL AND y IS NULL THEN 0
+                                         WHEN x IS NULL THEN -1
                                          WHEN y IS NULL THEN 1
                                          WHEN x < y THEN -1
                                          WHEN x = y THEN 0
