@@ -94,7 +94,7 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkOffsetBeforeTypeCoercion(getArgument(1), "LAG");
+        checkOffset(getArgument(1), "LAG");
     }
 
     @Override
@@ -105,10 +105,7 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
         if (children().size() >= 2) {
             checkValidParams(getOffset());
             if (getOffset() instanceof Literal) {
-                if (((Literal) getOffset()).getDouble() < 0) {
-                    throw new AnalysisException(
-                            "The offset parameter of LAG must be a constant positive integer: " + this.toSql());
-                }
+                checkOffset(getOffset(), "LAG");
             } else {
                 throw new AnalysisException(
                     "The offset parameter of LAG must be a constant positive integer: " + this.toSql());

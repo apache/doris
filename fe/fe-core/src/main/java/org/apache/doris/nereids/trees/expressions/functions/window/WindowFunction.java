@@ -32,7 +32,7 @@ import java.util.Objects;
  */
 public abstract class WindowFunction extends BoundFunction implements SupportWindowAnalytic {
 
-    private static final BigDecimal MAX_BIGINT_OFFSET = BigDecimal.valueOf(Long.MAX_VALUE);
+    private static final BigDecimal MAX_LEAD_LAG_OFFSET = BigDecimal.valueOf(Integer.MAX_VALUE);
 
     public WindowFunction(String name, Expression... arguments) {
         super(name, arguments);
@@ -84,7 +84,7 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         }
     }
 
-    protected void checkOffsetBeforeTypeCoercion(Expression offset, String functionName) {
+    protected void checkOffset(Expression offset, String functionName) {
         if (!offset.getDataType().isIntegralType()) {
             throw new AnalysisException("The offset parameter of " + functionName
                     + " must be a constant positive integer: " + this.toSql());
@@ -95,9 +95,9 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
                 throw new AnalysisException("The offset parameter of " + functionName
                         + " must be a constant positive integer: " + this.toSql());
             }
-            if (offsetValue.compareTo(MAX_BIGINT_OFFSET) > 0) {
+            if (offsetValue.compareTo(MAX_LEAD_LAG_OFFSET) > 0) {
                 throw new AnalysisException("The offset parameter of " + functionName
-                        + " must not exceed " + Long.MAX_VALUE + ": " + this.toSql());
+                        + " must not exceed " + Integer.MAX_VALUE + ": " + this.toSql());
             }
         }
     }

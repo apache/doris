@@ -25,6 +25,8 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -33,7 +35,6 @@ public class LeadLagOffsetTest {
 
     private static final DecimalV3Literal NON_INTEGER_OFFSET =
             new DecimalV3Literal(new BigDecimal("922337203685477580.1"));
-    private static final BigIntLiteral MAX_BIGINT_OFFSET = new BigIntLiteral(Long.MAX_VALUE);
     private static final LargeIntLiteral OVER_MAX_BIGINT_OFFSET =
             new LargeIntLiteral(BigInteger.valueOf(Long.MAX_VALUE).add(BigInteger.ONE));
 
@@ -64,7 +65,7 @@ public class LeadLagOffsetTest {
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, lag::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(exception.getMessage().contains(
-                "The offset parameter of LAG must not exceed " + Long.MAX_VALUE));
+                "The offset parameter of LAG must not exceed " + Integer.MAX_VALUE));
     }
 
     @Test
@@ -74,15 +75,45 @@ public class LeadLagOffsetTest {
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, lead::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(exception.getMessage().contains(
-                "The offset parameter of LEAD must not exceed " + Long.MAX_VALUE));
+                "The offset parameter of LEAD must not exceed " + Integer.MAX_VALUE));
     }
 
-    @Test
-    public void testMaxBigintOffsetIsAcceptedBeforeTypeCoercion() {
-        Lag lag = new Lag(new IntegerLiteral(1), MAX_BIGINT_OFFSET);
-        Lead lead = new Lead(new IntegerLiteral(1), MAX_BIGINT_OFFSET);
+    @ParameterizedTest
+    @ValueSource(longs = {2147483648L, 9223372036854775805L, 9223372036854775806L, Long.MAX_VALUE})
+    public void testOffsetOverMaxIntIsRejected(long offset) {
+        Lag lag = new Lag(new IntegerLiteral(1), new BigIntLiteral(offset));
+        Lead lead = new Lead(new IntegerLiteral(1), new BigIntLiteral(offset));
+
+        for (WindowFunction function : new WindowFunction[] {lag, lead}) {
+            AnalysisException beforeCoercion = Assertions.assertThrows(
+                    AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertTrue(beforeCoercion.getMessage().contains("must not exceed " + Integer.MAX_VALUE));
+            AnalysisException afterRewrite = Assertions.assertThrows(
+                    AnalysisException.class, function::checkLegalityAfterRewrite);
+            Assertions.assertTrue(afterRewrite.getMessage().contains("must not exceed " + Integer.MAX_VALUE));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0L, 1L, 2147483646L, Integer.MAX_VALUE})
+    public void testValidOffsetIsAccepted(long offset) {
+        Lag lag = new Lag(new IntegerLiteral(1), new BigIntLiteral(offset));
+        Lead lead = new Lead(new IntegerLiteral(1), new BigIntLiteral(offset));
 
         Assertions.assertDoesNotThrow(lag::checkLegalityBeforeTypeCoercion);
         Assertions.assertDoesNotThrow(lead::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(lag::checkLegalityAfterRewrite);
+        Assertions.assertDoesNotThrow(lead::checkLegalityAfterRewrite);
+    }
+
+    @Test
+    public void testNegativeOffsetIsRejected() {
+        Lag lag = new Lag(new IntegerLiteral(1), new BigIntLiteral(-1));
+        Lead lead = new Lead(new IntegerLiteral(1), new BigIntLiteral(-1));
+
+        for (WindowFunction function : new WindowFunction[] {lag, lead}) {
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
+        }
     }
 }
