@@ -107,8 +107,8 @@ public class ForeignKeyContext {
                 if (relation instanceof LogicalCatalogRelation) {
                     TableIf table = ((LogicalCatalogRelation) relation).getTable();
                     context.putAllForeignKeys(table);
-                    context.putAllPrimaryKeys(table);
-                    context.putSlots((LogicalCatalogRelation) relation, table);
+                    Set<Set<QualifiedColumn>> tablePrimaryKeys = context.putAllPrimaryKeys(table);
+                    context.putSlots((LogicalCatalogRelation) relation, table, tablePrimaryKeys);
                 }
                 return null;
             }
@@ -168,24 +168,29 @@ public class ForeignKeyContext {
     }
 
     /**
-     * Load a table's declared primary-key column sets. The declaration is trusted as metadata;
+     * Load a table's declared primary-key column sets into the context-wide lookup, then return
+     * only this table's declarations for scan activation. The declaration is trusted as metadata;
      * whether a particular scan can use it is decided separately by
      * {@link #canActivatePrimaryKey(LogicalCatalogRelation)}.
      *
      * @param table catalog table whose PK declarations should be registered
+     * @return declared primary keys belonging to this table, excluding unrelated tables' keys
      */
-    void putAllPrimaryKeys(TableIf table) {
+    Set<Set<QualifiedColumn>> putAllPrimaryKeys(TableIf table) {
+        Set<Set<QualifiedColumn>> tablePrimaryKeys = new HashSet<>();
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
-            return;
+            return tablePrimaryKeys;
         }
         for (PrimaryKeyConstraint c : Env.getCurrentEnv().getConstraintManager()
                 .getPrimaryKeyConstraints(tableNameInfo)) {
             Set<QualifiedColumn> primaryKey = c.getPrimaryKeys(table).stream()
                     .map(column -> new QualifiedColumn(table, column))
                     .collect(ImmutableSet.toImmutableSet());
+            tablePrimaryKeys.add(primaryKey);
             primaryKeys.add(primaryKey);
         }
+        return tablePrimaryKeys;
     }
 
     /**
@@ -237,13 +242,17 @@ public class ForeignKeyContext {
     }
 
     /**
-     * Register each scan slot's table column and relation instance, then activate the slots of
-     * complete declared primary keys when scan selectors still cover the full relation.
+     * Register each scan slot's table column and relation instance, then activate this table's
+     * complete declared primary keys if the scan covers the full relation. Passing only local
+     * declarations avoids revisiting keys from every previously visited table; scan eligibility
+     * is computed once regardless of how many keys this table declares.
      *
      * @param relation catalog scan contributing the slots and relation identity
      * @param table catalog table containing the declared columns
+     * @param tablePrimaryKeys declared PK column sets belonging to this scan's table
      */
-    void putSlots(LogicalCatalogRelation relation, TableIf table) {
+    void putSlots(LogicalCatalogRelation relation, TableIf table,
+            Set<Set<QualifiedColumn>> tablePrimaryKeys) {
         Map<QualifiedColumn, Slot> columnToSlot = new HashMap<>();
         for (Slot slot : relation.getOutput()) {
             if (!(slot instanceof SlotReference) || !((SlotReference) slot).getOriginalColumn().isPresent()) {
@@ -256,8 +265,11 @@ public class ForeignKeyContext {
             columnToSlot.put(qualifiedColumn, slot);
         }
 
-        for (Set<QualifiedColumn> primaryKey : primaryKeys) {
-            if (!columnToSlot.keySet().containsAll(primaryKey) || !canActivatePrimaryKey(relation)) {
+        if (tablePrimaryKeys.isEmpty() || !canActivatePrimaryKey(relation)) {
+            return;
+        }
+        for (Set<QualifiedColumn> primaryKey : tablePrimaryKeys) {
+            if (!columnToSlot.keySet().containsAll(primaryKey)) {
                 continue;
             }
             Set<Slot> primaryKeySlots = primaryKey.stream()

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -339,6 +341,44 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
 
         Assertions.assertEquals(32, context.activePrimaryKeySlotCount());
         Assertions.assertEquals(1, context.primaryKeys.size());
+    }
+
+    /**
+     * Collect 24 distinct PK-bearing scans into one context to guard against quadratic work.
+     * Each scan must activate its own key without iterating declarations collected from earlier
+     * scans, and the scan eligibility check must run exactly once per relation.
+     */
+    @Test
+    void testPrimaryKeyActivationScalesWithDistinctTables() throws Exception {
+        int tableCount = 24;
+        List<String> tableNames = new ArrayList<>();
+        List<String> createTableStatements = new ArrayList<>();
+        for (int i = 0; i < tableCount; i++) {
+            String tableName = "fk_pk_perf_" + i;
+            tableNames.add(tableName);
+            createTableStatements.add("create table " + tableName + " (id int not null) "
+                    + "unique key(id) distributed by hash(id) buckets 1 "
+                    + "properties (\"replication_num\" = \"1\")");
+        }
+        createTables(createTableStatements.toArray(new String[0]));
+        for (String tableName : tableNames) {
+            addConstraint("alter table " + tableName + " add constraint " + tableName + "_pk primary key (id)");
+        }
+
+        String sql = "select * from " + String.join(" cross join ", tableNames);
+        Plan analyzed = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        List<LogicalOlapScan> scans = analyzed.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance);
+        Assertions.assertEquals(tableCount, scans.size());
+
+        ForeignKeyContext context = Mockito.spy(new ForeignKeyContext());
+        context.primaryKeys = Mockito.spy(context.primaryKeys);
+        for (LogicalOlapScan scan : scans) {
+            context.collectForeignKeyConstraint(scan);
+        }
+        Assertions.assertEquals(tableCount, context.primaryKeys.size());
+        Assertions.assertEquals(tableCount, context.activePrimaryKeySlotCount());
+        Mockito.verify(context.primaryKeys, Mockito.never()).iterator();
+        Mockito.verify(context, Mockito.times(tableCount)).canActivatePrimaryKey(Mockito.any(LogicalOlapScan.class));
     }
 
     @Test
