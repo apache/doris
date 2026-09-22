@@ -83,7 +83,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
         // synchronized with meta-service.
         if (_tablet->tablet_meta()->all_rs_metas().size() >=
                     cloud_tablet()->fetch_add_approximate_num_rowsets(0) &&
-            cloud_tablet()->last_sync_time_s > 0) {
+            cloud_tablet()->last_sync_rowsets_time_s > 0) {
             need_sync_tablet = false;
         }
     }
@@ -164,7 +164,7 @@ Status CloudCumulativeCompaction::request_global_lock() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
-            cloud_tablet()->last_sync_time_s = 0;
+            cloud_tablet()->last_sync_rowsets_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();
@@ -463,7 +463,8 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         }
     }
     // agg delete bitmap for pre rowsets
-    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
+    if (config::delete_bitmap_store_write_version != 2 &&
+        config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
         _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         OlapStopWatch watch;
@@ -479,17 +480,23 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
         auto pre_rowsets_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
         std::map<std::string, int64_t> pre_rowset_to_versions;
+        std::unique_ptr<CloudTablet::PreRowsetDeleteBitmapStats> pre_rowset_delete_bitmap_stats;
+        if (config::enable_remove_pre_rowsets_delete_bitmap_by_keys) {
+            pre_rowset_delete_bitmap_stats =
+                    std::make_unique<CloudTablet::PreRowsetDeleteBitmapStats>();
+        }
         cloud_tablet()->agg_delete_bitmap_for_compaction(
                 _output_rowset->start_version(), _output_rowset->end_version(), pre_rowsets,
-                pre_rowsets_delete_bitmap, pre_rowset_to_versions);
+                pre_rowsets_delete_bitmap, pre_rowset_to_versions,
+                pre_rowset_delete_bitmap_stats.get());
         // update delete bitmap to ms
         DBUG_EXECUTE_IF(
                 "CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block",
                 DBUG_BLOCK);
         auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                 *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
-                cloud_tablet()->table_id(), _output_rowset->start_version(),
-                _output_rowset->end_version());
+                pre_rowset_delete_bitmap_stats.get(), cloud_tablet()->table_id(),
+                _output_rowset->start_version(), _output_rowset->end_version());
         if (!status.ok()) {
             LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
                          << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
@@ -736,7 +743,7 @@ void CloudCumulativeCompaction::update_cumulative_point(int64_t input_cumulative
     if (!st.ok()) {
         if (start_resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
-            cloud_tablet()->last_sync_time_s = 0;
+            cloud_tablet()->last_sync_rowsets_time_s = 0;
         } else if (start_resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();

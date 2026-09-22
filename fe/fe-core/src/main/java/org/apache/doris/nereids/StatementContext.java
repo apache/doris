@@ -204,6 +204,11 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+    // Resources that must outlive planning and remain valid until the statement itself finishes.
+    // Keep these separate from plannerResources: NereidsPlanner releases planner resources as soon as
+    // physical planning completes, while external split planning can still use statement-scoped objects.
+    private final Map<Object, CloseableResource> statementResources = new LinkedHashMap<>();
+    private boolean statementResourcesClosed;
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -381,6 +386,53 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    /**
+     * Create a fresh StatementContext for the next EXECUTE of a prepared statement.
+     *
+     * <p>A prepared statement keeps its StatementContext inside {@code PreparedStatementContext}
+     * for the whole lifetime of the connection. Reusing the same object across executions makes
+     * its per-statement state (bound tables, CTE maps, statistics, snapshots, connector scope,
+     * ...) accumulate and it is only released when the connection closes, which can OOM
+     * long-lived connections. Instead of clearing in place, allocate a brand-new context per
+     * EXECUTE and copy over only the state that must survive between executions, so the previous
+     * context becomes unreachable and is promptly GC'd.
+     *
+     * <p>Carried over:
+     * <ul>
+     *   <li>id generator positions, so ids generated during this execution never collide with
+     *       ids already present in the cached analyzed plan from PREPARE;</li>
+     *   <li>the placeholder real expressions bound by this EXECUTE (the protocol layer fills
+     *       them on the previous context before this method runs) and the placeholder list;</li>
+     *   <li>the placeholder to comparison-slot registry used by the short-circuit fast path;</li>
+     *   <li>the short-circuit and nondeterministic flags that gate the short-circuit fast path
+     *       before this execution re-plans.</li>
+     * </ul>
+     * Everything else (tables, CTEs, statistics, snapshots, planner resources, connector
+     * scope, ...) starts empty/fresh on the new context.
+     */
+    public StatementContext createNextExecuteContext() {
+        // Continue the id generators from the previous context. The cached analyzed plan from
+        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
+        // generator starting at 0 would collide with those ids during this execution's planning.
+        StatementContext next = new StatementContext(connectContext, originStatement,
+                exprIdGenerator.getCurrentId());
+        next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
+        next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
+        next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
+        next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
+        next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
+        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
+        // conjuncts on the cached short-circuit plan without re-planning.
+        next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.placeholders = new ArrayList<>(placeholders);
+        // Short-circuit gating flags are computed by the previous execution's planning and gate
+        // the fast path of this execution before any re-planning happens.
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -933,11 +985,56 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Returns one closeable resource per statement key and closes it when this statement is closed.
+     * The supplier is invoked at most once for a key. This is intentionally independent from planner locks,
+     * whose lifetime ends at the end of Nereids planning.
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized <T extends Closeable> T getOrRegisterStatementResource(
+            Object resourceKey, java.util.function.Supplier<T> supplier) {
+        if (statementResourcesClosed) {
+            throw new IllegalStateException("Statement resources are already closed");
+        }
+        CloseableResource existing = statementResources.get(resourceKey);
+        if (existing != null) {
+            return (T) existing.resource;
+        }
+        T resource = supplier.get();
+        statementResources.put(resourceKey, new CloseableResource(
+                String.valueOf(resourceKey), Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, resource));
+        return resource;
+    }
+
+    private synchronized void releaseStatementResources() {
+        if (statementResourcesClosed) {
+            return;
+        }
+        statementResourcesClosed = true;
+        Throwable throwable = null;
+        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
+        statementResources.clear();
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            try {
+                resources.get(i).close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release statement resource failed", throwable);
+        }
+    }
+
     // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
-        if (!plannerResources.isEmpty()) {
-            String msg = "Resources leak: " + plannerResources;
+        if (!plannerResources.isEmpty() || !statementResources.isEmpty()) {
+            String msg = "Resources leak: planner=" + plannerResources + ", statement=" + statementResources;
             LOG.error(msg);
             throw new IllegalStateException(msg);
         }
@@ -947,7 +1044,11 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         clearExternalScanTasks();
-        releasePlannerResources();
+        try {
+            releaseStatementResources();
+        } finally {
+            releasePlannerResources();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {

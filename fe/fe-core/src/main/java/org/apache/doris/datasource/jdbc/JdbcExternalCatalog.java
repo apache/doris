@@ -38,6 +38,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.datasource.mapping.IdentifierMapping;
 import org.apache.doris.datasource.mapping.JdbcIdentifierMapping;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
@@ -60,17 +61,13 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.regex.Pattern;
 
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
-    private static final Pattern SAFE_DRIVER_FILE_NAME = Pattern.compile("^[A-Za-z0-9._-]+\\.jar$");
 
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             JdbcResource.JDBC_URL,
@@ -128,30 +125,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
      * Catalog replay does not call {@link #checkProperties()}, so existing catalogs remain compatible.
      */
     static void checkDriverUrlSecurityRule(String driverUrl) throws DdlException {
-        if (driverUrl == null || driverUrl.isEmpty()) {
-            return;
-        }
-        String pathToCheck = driverUrl;
-        if (driverUrl.contains("://")) {
-            try {
-                String decoded = new URI(driverUrl).getPath();
-                if (decoded != null) {
-                    pathToCheck = decoded;
-                }
-            } catch (URISyntaxException e) {
-                throw new DdlException("Invalid driver_url: " + driverUrl);
-            }
-        }
-        String probe = pathToCheck.replace('\\', '/');
-        for (String segment : probe.split("/")) {
-            if ("..".equals(segment)) {
-                throw new DdlException(
-                        "Invalid driver_url: path traversal ('..') is not allowed: " + driverUrl);
-            }
-        }
-        if (!driverUrl.contains("://") && !SAFE_DRIVER_FILE_NAME.matcher(driverUrl).matches()) {
-            throw new DdlException("Invalid driver_url: a driver file name must match "
-                    + "[A-Za-z0-9._-]+.jar (got: " + driverUrl + ")");
+        try {
+            JdbcDriverUrlSecurity.check(driverUrl);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
         }
     }
 

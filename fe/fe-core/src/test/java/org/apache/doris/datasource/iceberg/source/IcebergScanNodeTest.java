@@ -34,20 +34,26 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.SplitAssignment;
+import org.apache.doris.datasource.SplitGenerator;
+import org.apache.doris.datasource.SplitToScanRange;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
+import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTableCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -113,6 +119,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -128,7 +135,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -495,7 +509,30 @@ public class IcebergScanNodeTest {
     }
 
     @Test
-    public void testSnapshotCacheIgnoresIdlessNameMappingWrapper() {
+    public void testExtractNameMappingRejectsMalformedProperty() throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.name()).thenReturn("db.tbl");
+        setIcebergTable(node, table);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        setIcebergSource(node, source);
+
+        Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
+                TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
+
+        // A malformed name mapping is a metadata fault that Iceberg refuses to read, so the scan
+        // must surface it instead of degrading to current-schema aliases (which silently returns
+        // NULL for the columns of ID-less files that were renamed).
+        InvocationTargetException thrown = Assert.assertThrows(InvocationTargetException.class,
+                () -> extractNameMapping(node));
+        Assert.assertTrue(thrown.getCause() instanceof UserException);
+        Assert.assertTrue(thrown.getCause().getMessage()
+                .contains(TableProperties.DEFAULT_NAME_MAPPING));
+    }
+
+    @Test
+    public void testSnapshotCacheIgnoresIdlessNameMappingWrapper() throws Exception {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
                 TableProperties.DEFAULT_NAME_MAPPING,
@@ -1833,6 +1870,83 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testDeleteFileSizePropagatedToThrift() throws Exception {
+        Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
+        Schema schema = new Schema(1, ImmutableList.of(id));
+        Snapshot snapshot = mockSnapshot(1001L, schema, null);
+        TableMetadata metadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(metadata.schemas()).thenReturn(ImmutableList.of(schema));
+        Mockito.when(metadata.schemasById()).thenReturn(ImmutableMap.of(1, schema));
+        Mockito.when(metadata.snapshot(1001L)).thenReturn(snapshot);
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(metadata);
+        BaseTable table = new BaseTable(operations, "test");
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(tableScan.snapshot()).thenReturn(snapshot);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        node.setTableScan(tableScan);
+        setPrivateField(node, "plannedScanSchema", schema);
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+        setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+
+        DeleteFile positionDelete = Mockito.mock(DeleteFile.class);
+        Mockito.when(positionDelete.content()).thenReturn(FileContent.POSITION_DELETES);
+        Mockito.when(positionDelete.recordCount()).thenReturn(1L);
+        Mockito.when(positionDelete.path()).thenReturn("file:///tmp/pos-delete.parquet");
+        Mockito.when(positionDelete.fileSizeInBytes()).thenReturn(96L);
+        Mockito.when(positionDelete.format()).thenReturn(FileFormat.PARQUET);
+
+        DeleteFile deletionVector = Mockito.mock(DeleteFile.class);
+        Mockito.when(deletionVector.content()).thenReturn(FileContent.POSITION_DELETES);
+        Mockito.when(deletionVector.recordCount()).thenReturn(1L);
+        Mockito.when(deletionVector.path()).thenReturn("file:///tmp/dv.puffin");
+        Mockito.when(deletionVector.fileSizeInBytes()).thenReturn(256L);
+        Mockito.when(deletionVector.format()).thenReturn(FileFormat.PUFFIN);
+        Mockito.when(deletionVector.contentOffset()).thenReturn(16L);
+        Mockito.when(deletionVector.contentSizeInBytes()).thenReturn(64L);
+        Mockito.when(deletionVector.referencedDataFile()).thenReturn("file:///tmp/data.parquet");
+
+        DeleteFile equalityDelete = equalityDeleteFile(1, "file:///tmp/eq-delete.parquet");
+
+        DataFile dataFile = Mockito.mock(DataFile.class);
+        Mockito.when(dataFile.path()).thenReturn("file:///tmp/data.parquet");
+        Mockito.when(dataFile.fileSizeInBytes()).thenReturn(128L);
+        Mockito.when(dataFile.format()).thenReturn(FileFormat.PARQUET);
+        FileScanTask task = Mockito.mock(FileScanTask.class);
+        Mockito.when(task.file()).thenReturn(dataFile);
+        Mockito.when(task.start()).thenReturn(0L);
+        Mockito.when(task.length()).thenReturn(128L);
+        Mockito.when(task.deletes())
+                .thenReturn(ImmutableList.of(positionDelete, deletionVector, equalityDelete));
+
+        IcebergSplit split = createIcebergSplit(node, task);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        setIcebergParams(node, rangeDesc, split);
+
+        List<TIcebergDeleteFileDesc> deletes = rangeDesc.getTableFormatParams().getIcebergParams()
+                .getDeleteFiles();
+        Assert.assertEquals(3, deletes.size());
+        TIcebergDeleteFileDesc posDesc = deletes.get(0);
+        Assert.assertEquals(1, posDesc.getContent());
+        Assert.assertTrue(posDesc.isSetFileSize());
+        Assert.assertEquals(96L, posDesc.getFileSize());
+        TIcebergDeleteFileDesc dvDesc = deletes.get(1);
+        Assert.assertEquals(3, dvDesc.getContent());
+        Assert.assertEquals(16L, dvDesc.getContentOffset());
+        Assert.assertEquals(64L, dvDesc.getContentSizeInBytes());
+        Assert.assertTrue(dvDesc.isSetFileSize());
+        Assert.assertEquals(256L, dvDesc.getFileSize());
+        TIcebergDeleteFileDesc eqDesc = deletes.get(2);
+        Assert.assertEquals(2, eqDesc.getContent());
+        Assert.assertTrue(eqDesc.isSetFileSize());
+        Assert.assertEquals(64L, eqDesc.getFileSize());
+    }
+
+    @Test
     public void testSchemaCarrierKeepsDroppedNestedEqualityFieldPath() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField existing = Types.NestedField.optional(
@@ -2460,6 +2574,54 @@ public class IcebergScanNodeTest {
                 "20", AccessPathInfo.ACCESS_OFFSET);
         assertRequiresRecursiveInitialDefault(schema, mapSlot, false,
                 "20", AccessPathInfo.ACCESS_NULL);
+    }
+
+    @Test
+    public void testVariantAccessPathTerminatesIcebergFieldTraversal() {
+        Types.NestedField nestedDefault = Types.NestedField.optional("added")
+                .withId(4)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(7)
+                .build();
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "message", Types.VariantType.get()));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "message", Types.VariantType.get()),
+                Types.NestedField.optional(2, "info", Types.StructType.of(
+                        Types.NestedField.optional(3, "payload", Types.VariantType.get()),
+                        nestedDefault)),
+                Types.NestedField.optional(5, "attrs", Types.MapType.ofOptional(
+                        6, 7, Types.StringType.get(), Types.VariantType.get())),
+                Types.NestedField.required(8, "required_variant", Types.VariantType.get()));
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+        SlotDescriptor messageSlot = slotDescriptor(1);
+        messageSlot.setColumn(columns.get(0));
+        SlotDescriptor infoSlot = slotDescriptor(2);
+        infoSlot.setColumn(columns.get(1));
+        SlotDescriptor attrsSlot = slotDescriptor(5);
+        attrsSlot.setColumn(columns.get(2));
+        SlotDescriptor requiredVariantSlot = slotDescriptor(8);
+        requiredVariantSlot.setColumn(columns.get(3));
+
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false, "1", "mainDomain");
+        // Variant keys are data selectors, even when they spell an Iceberg field ID or access token.
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false, "1", "4");
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false,
+                "1", AccessPathInfo.ACCESS_ALL);
+        assertRequiresRecursiveInitialDefault(schema, infoSlot, false, "2", "3", "kind");
+        assertRequiresRecursiveInitialDefault(schema, infoSlot, true, "2", "4");
+        assertRequiresRecursiveInitialDefault(schema, attrsSlot, false,
+                "5", AccessPathInfo.ACCESS_ALL, "object", "kind");
+
+        requiredVariantSlot.setAllAccessPaths(Collections.singletonList(
+                dataAccessPath(ImmutableList.of("8", "mainDomain"))));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(requiredVariantSlot),
+                ImmutableList.of(historicalSchema)));
+        messageSlot.setAllAccessPaths(Collections.singletonList(
+                dataAccessPath(ImmutableList.of("1", "mainDomain"))));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(messageSlot), ImmutableList.of(historicalSchema)));
     }
 
     @Test
@@ -3185,6 +3347,55 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testPinnedGenerationUsesFrozenSchemaMappingOptions() throws Exception {
+        Table frozenTable = Mockito.mock(Table.class);
+        Table refreshedTable = Mockito.mock(Table.class);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(
+                        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(101L, 21L),
+                Optional.empty(), frozenTable).bindSchemaMappingOptions(true, false);
+        IcebergScanNode node = new IcebergScanNode(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                new SessionVariable(), ScanContext.EMPTY);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(frozenTable, useFrozenTableGeneration(node, refreshedTable));
+        Assert.assertTrue(node.getEnableMappingVarbinary());
+        Assert.assertFalse(node.getEnableMappingTimestampTz());
+    }
+
+    @Test
+    public void testFrozenGenerationIsCapturedForAsyncPlanning() throws Exception {
+        Table frozenTable = Mockito.mock(Table.class);
+        Table currentTable = Mockito.mock(Table.class);
+        IcebergTableCacheValue frozenGeneration = new IcebergTableCacheValue(frozenTable);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(-1L, 20L), Optional.empty(), frozenTable)
+                .bindSourceGeneration(frozenGeneration);
+
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, currentTable);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(frozenTable, useFrozenTableGeneration(node, currentTable));
+
+        Field frozenSourceField = IcebergScanNode.class.getDeclaredField("frozenGenerationSource");
+        frozenSourceField.setAccessible(true);
+        Assert.assertSame("asynchronous planning must retain the frozen generation",
+                snapshotValue, frozenSourceField.get(node));
+
+        Closeable lease = IcebergUtils.retainTableGenerationForAsyncPlanning(
+                source.getTargetTable(), (IcebergSnapshotCacheValue) frozenSourceField.get(node));
+        Assert.assertNotNull(lease);
+        lease.close();
+    }
+
+    @Test
     public void testSnapshotSelectableMetadataTableUsesFrozenBaseGeneration() throws Exception {
         Schema schema = new Schema(21, ImmutableList.of(
                 Types.NestedField.optional(1, "id", Types.IntegerType.get())));
@@ -3218,6 +3429,82 @@ public class IcebergScanNodeTest {
         Assert.assertTrue(retainedMetadataTable instanceof BaseMetadataTable);
         Assert.assertEquals(schema.asStruct(), ((BaseMetadataTable) retainedMetadataTable).table()
                 .schema().asStruct());
+    }
+
+
+    @Test
+    public void testAllMetadataTableRetainsFrozenGenerationForAsyncPlanning() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        TableMetadata metadata = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:/tmp/frozen-all-table",
+                Collections.emptyMap());
+        Table frozenBaseTable = new BaseTable(new StaticTableOperations(
+                metadata, Mockito.mock(org.apache.iceberg.io.FileIO.class),
+                Mockito.mock(org.apache.iceberg.io.LocationProvider.class)), "table");
+        Table currentTable = Mockito.mock(Table.class);
+
+        IcebergSysExternalTable targetTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(targetTable.supportsSnapshotSelection()).thenReturn(false);
+        Mockito.when(targetTable.bindsToStatementGeneration()).thenReturn(true);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergSource(node, source);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(-1L, schema.schemaId()), Optional.empty(), frozenBaseTable);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(currentTable, useFrozenTableGeneration(node, currentTable));
+
+        Field frozenSourceField = IcebergScanNode.class.getDeclaredField("frozenGenerationSource");
+        frozenSourceField.setAccessible(true);
+        Assert.assertSame("ALL_* metadata tables must retain the frozen generation",
+                snapshotValue, frozenSourceField.get(node));
+    }
+
+    @Test
+    public void testStaticMetadataTableDropsPinnedGenerationResources() throws Exception {
+        Table frozenTable = Mockito.mock(Table.class);
+        Table currentTable = Mockito.mock(Table.class);
+
+        IcebergSysExternalTable targetTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(targetTable.supportsSnapshotSelection()).thenReturn(false);
+        Mockito.when(targetTable.bindsToStatementGeneration()).thenReturn(false);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergSource(node, source);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(-1L, 20L), Optional.empty(), frozenTable)
+                .bindSchemaMappingOptions(true, true)
+                .bindRuntimeContext(Mockito.mock(IcebergRuntimeContext.class));
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(currentTable, useFrozenTableGeneration(node, currentTable));
+
+        Field frozenSourceField = IcebergScanNode.class.getDeclaredField("frozenGenerationSource");
+        frozenSourceField.setAccessible(true);
+        Assert.assertNull(frozenSourceField.get(node));
+        Field runtimeField = IcebergScanNode.class.getDeclaredField("runtimeContext");
+        runtimeField.setAccessible(true);
+        Assert.assertNull(runtimeField.get(node));
+        Field frozenVarbinaryField = IcebergScanNode.class.getDeclaredField("frozenEnableMappingVarbinary");
+        frozenVarbinaryField.setAccessible(true);
+        Assert.assertNull(frozenVarbinaryField.get(node));
+        Field frozenTimestampField = IcebergScanNode.class.getDeclaredField("frozenEnableMappingTimestampTz");
+        frozenTimestampField.setAccessible(true);
+        Assert.assertNull(frozenTimestampField.get(node));
     }
 
     @Test
@@ -3659,5 +3946,188 @@ public class IcebergScanNodeTest {
 
         slot.setType(fullType);
         Assert.assertTrue(node.projectsVariant());
+    }
+
+    @Test
+    public void testAsyncPlanningRetainsGenerationUntilWorkerActuallyTerminates() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch workerStarted = new CountDownLatch(1);
+        CountDownLatch interruptObserved = new CountDownLatch(1);
+        CountDownLatch allowWorkerToFinish = new CountDownLatch(1);
+        CountDownLatch generationReleased = new CountDownLatch(1);
+        SplitAssignment assignment = newSplitAssignment();
+        try {
+            IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
+                    executor, assignment, generationReleased::countDown, () -> {
+                        workerStarted.countDown();
+                        while (true) {
+                            try {
+                                allowWorkerToFinish.await();
+                                return;
+                            } catch (InterruptedException e) {
+                                interruptObserved.countDown();
+                            }
+                        }
+                    });
+            assignment.addCloseable(task);
+            task.submit();
+            Assert.assertTrue(workerStarted.await(3L, TimeUnit.SECONDS));
+
+            assignment.stop();
+            Assert.assertTrue(interruptObserved.await(3L, TimeUnit.SECONDS));
+            Assert.assertEquals("a running planner must retain its generation after cancellation",
+                    1L, generationReleased.getCount());
+
+            allowWorkerToFinish.countDown();
+            Assert.assertTrue(generationReleased.await(3L, TimeUnit.SECONDS));
+        } finally {
+            allowWorkerToFinish.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAsyncPlanningCancellationRemovesQueuedTaskAndReleasesGeneration() throws Exception {
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch generationReleased = new CountDownLatch(1);
+        AtomicInteger planningRuns = new AtomicInteger();
+        SplitAssignment assignment = newSplitAssignment();
+        try {
+            executor.execute(() -> {
+                blockerStarted.countDown();
+                try {
+                    releaseBlocker.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            Assert.assertTrue(blockerStarted.await(3L, TimeUnit.SECONDS));
+
+            IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
+                    executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
+            assignment.addCloseable(task);
+            task.submit();
+            Assert.assertEquals(1, executor.getQueue().size());
+
+            assignment.stop();
+            Assert.assertTrue(generationReleased.await(3L, TimeUnit.SECONDS));
+            Assert.assertTrue(executor.getQueue().isEmpty());
+            Assert.assertEquals(0, planningRuns.get());
+        } finally {
+            releaseBlocker.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAsyncPlanningCancellationDuringSubmissionReleasesGeneration() throws Exception {
+        ExecutorService delegate = Executors.newSingleThreadExecutor();
+        ExecutorService executor = Mockito.mock(ExecutorService.class);
+        CountDownLatch executeEntered = new CountDownLatch(1);
+        CountDownLatch allowExecute = new CountDownLatch(1);
+        CountDownLatch generationReleased = new CountDownLatch(1);
+        AtomicInteger planningRuns = new AtomicInteger();
+        SplitAssignment assignment = newSplitAssignment();
+        Mockito.doAnswer(invocation -> {
+            executeEntered.countDown();
+            allowExecute.await();
+            delegate.execute(invocation.getArgument(0));
+            return null;
+        }).when(executor).execute(Mockito.any(Runnable.class));
+        IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
+                executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
+        assignment.addCloseable(task);
+        Thread submitter = new Thread(task::submit);
+        try {
+            submitter.start();
+            Assert.assertTrue(executeEntered.await(3L, TimeUnit.SECONDS));
+
+            assignment.stop();
+            Assert.assertTrue(generationReleased.await(3L, TimeUnit.SECONDS));
+
+            allowExecute.countDown();
+            submitter.join(3000L);
+            Assert.assertFalse(submitter.isAlive());
+            delegate.shutdown();
+            Assert.assertTrue(delegate.awaitTermination(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(0, planningRuns.get());
+        } finally {
+            allowExecute.countDown();
+            submitter.join(3000L);
+            delegate.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAsyncPlanningCancellationDuringFullQueueSubmissionReturnsImmediately() throws Exception {
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch planningExecuteEntered = new CountDownLatch(1);
+        CountDownLatch allowPlanningExecute = new CountDownLatch(1);
+        AtomicInteger submissions = new AtomicInteger();
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(1),
+                new ThreadPoolManager.BlockedPolicy("iceberg-planning-test", 10)) {
+            @Override
+            public void execute(Runnable command) {
+                if (submissions.incrementAndGet() == 3) {
+                    planningExecuteEntered.countDown();
+                    try {
+                        allowPlanningExecute.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RejectedExecutionException("interrupted before planning submission", e);
+                    }
+                }
+                super.execute(command);
+            }
+        };
+        CountDownLatch generationReleased = new CountDownLatch(1);
+        AtomicInteger planningRuns = new AtomicInteger();
+        SplitAssignment assignment = newSplitAssignment();
+        executor.execute(() -> {
+            blockerStarted.countDown();
+            try {
+                releaseBlocker.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        Assert.assertTrue(blockerStarted.await(3L, TimeUnit.SECONDS));
+        executor.execute(() -> { });
+
+        IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
+                executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
+        assignment.addCloseable(task);
+        Thread submitter = new Thread(task::submit);
+        try {
+            submitter.start();
+            Assert.assertTrue(planningExecuteEntered.await(3L, TimeUnit.SECONDS));
+
+            assignment.stop();
+            Assert.assertTrue(generationReleased.await(3L, TimeUnit.SECONDS));
+
+            allowPlanningExecute.countDown();
+            submitter.join(3000L);
+            Assert.assertFalse("cancelled submission must not wait for the full rejection timeout",
+                    submitter.isAlive());
+            Assert.assertEquals(0, planningRuns.get());
+            Assert.assertEquals(1, executor.getQueue().size());
+        } finally {
+            allowPlanningExecute.countDown();
+            releaseBlocker.countDown();
+            submitter.join(3000L);
+            executor.shutdownNow();
+        }
+    }
+
+    private SplitAssignment newSplitAssignment() {
+        return new SplitAssignment(
+                Mockito.mock(FederationBackendPolicy.class),
+                Mockito.mock(SplitGenerator.class),
+                Mockito.mock(SplitToScanRange.class),
+                Collections.emptyMap(), Collections.emptyList(), false);
     }
 }

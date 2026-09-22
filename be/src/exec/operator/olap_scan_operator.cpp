@@ -457,7 +457,6 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     const auto& children = fn_call->children();
     doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -670,15 +669,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                 tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
                     // Record bthread scheduling delay
                     auto task_start_time = std::chrono::steady_clock::now();
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return Status::OK();
+                    }
+                    // The local state owns sync_stats, so keep its context alive before access.
                     if (sync_stats) {
                         sync_stats->bthread_schedule_delay_ns +=
                                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         task_start_time - task_create_time)
                                         .count();
-                    }
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        return Status::OK();
                     }
                     Defer defer([&] {
                         if (_pending_tablets_num.fetch_sub(1) == 1) {

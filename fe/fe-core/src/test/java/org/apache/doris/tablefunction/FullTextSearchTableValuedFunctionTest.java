@@ -20,7 +20,8 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.thrift.TFtsCoverageMode;
 import org.apache.doris.thrift.TFtsMatchOperator;
 import org.apache.doris.thrift.TFtsQueryType;
@@ -120,8 +121,8 @@ public class FullTextSearchTableValuedFunctionTest {
     }
 
     private static LanceTableMetadata metadata(Field... fields) {
-        return LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42, new Schema(Arrays.asList(fields)),
-                Collections.emptyList(), Collections.emptyMap());
+        return LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, new Schema(Arrays.asList(fields)),
+                Collections.emptyList());
     }
 }

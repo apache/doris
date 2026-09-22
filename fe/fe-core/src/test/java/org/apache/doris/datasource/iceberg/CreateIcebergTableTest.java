@@ -71,7 +71,7 @@ public class CreateIcebergTableTest {
         icebergCatalog = (IcebergHadoopExternalCatalog) CatalogFactory.createFromCommand(1, createCatalogCommand);
         icebergCatalog.makeSureInitialized();
         // create db
-        ops = new IcebergMetadataOps(icebergCatalog, icebergCatalog.getCatalog());
+        ops = (IcebergMetadataOps) icebergCatalog.getMetadataOps();
         ops.createDb(dbName, true, Maps.newHashMap());
         icebergCatalog.makeSureInitialized();
         IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName, dbName);

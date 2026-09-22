@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
@@ -29,23 +31,36 @@ import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -165,7 +180,15 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     }
 
     private LogicalAggregate<LogicalFileScan> newNullableFileCountAggregate() {
-        Column nullableColumn = new Column("value", Type.INT, true);
+        LogicalFileScan fileScan = newFileScan(Type.INT, true);
+        return new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(fileScan.getOutput().get(0)), "count")),
+                true, Optional.empty(), fileScan);
+    }
+
+    private LogicalFileScan newFileScan(Type type, boolean nullable) {
+        Column nullableColumn = new Column("value", type, nullable);
         IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any()))
                 .thenReturn(SelectedPartitions.NOT_PRUNED);
@@ -177,13 +200,108 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         Mockito.when(database.getCatalog()).thenReturn(catalog);
         Mockito.when(database.getFullName()).thenReturn("db");
         Mockito.when(table.getDatabase()).thenReturn(database);
-        LogicalFileScan fileScan = new LogicalFileScan(new RelationId(1), table,
+        return new LogicalFileScan(new RelationId(1), table,
                 ImmutableList.of("catalog", "db"), Collections.emptyList(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        return new LogicalAggregate<>(
-                Collections.emptyList(),
-                ImmutableList.of(new Alias(new Count(fileScan.getOutput().get(0)), "count")),
-                true, Optional.empty(), fileScan);
+    }
+
+    @Test
+    public void testFileMinMaxUnsafeCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkFileMinMaxCast(Type.BIGINT, IntegerType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(Type.DOUBLE, IntegerType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(3, 2).toCatalogDataType(),
+                            DecimalV3Type.createDecimalV3Type(2, 1), nullable, projected, strict, false);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testFileMinMaxSafeCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                checkFileMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, false, true);
+                checkFileMinMaxCast(Type.INT, DoubleType.INSTANCE, nullable, projected, false, true);
+                checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(3, 2).toCatalogDataType(),
+                        DecimalV3Type.createDecimalV3Type(4, 2), nullable, projected, false, true);
+            }
+        }
+    }
+
+    @Test
+    public void testFileMinMaxFloatingCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkFileMinMaxCast(Type.DOUBLE, FloatType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(Type.FLOAT, DoubleType.INSTANCE, nullable, projected, strict, false);
+                    checkFileMinMaxCast(DecimalV3Type.createDecimalV3TypeNotCheck256(76, 60).toCatalogDataType(),
+                            FloatType.INSTANCE, nullable, projected, strict, false);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testOlapMinMaxCast() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean nullable : new boolean[] {false, true}) {
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkOlapMinMaxCast(Type.BIGINT, IntegerType.INSTANCE, nullable, projected, strict, false);
+                    checkOlapMinMaxCast(Type.DOUBLE, FloatType.INSTANCE, nullable, projected, strict, false);
+                    checkOlapMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, strict, true);
+                }
+            }
+        }
+    }
+
+    private void checkOlapMinMaxCast(Type sourceType, DataType targetType, boolean nullable,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(1, "cast_table", 0);
+        scan.getTable().getFullSchema().get(0).setType(sourceType);
+        scan.getTable().getFullSchema().get(0).setIsAllowNull(nullable);
+        checkMinMaxCast(scan, targetType, projected, strict, expectedPushdown);
+    }
+
+    private void checkFileMinMaxCast(Type sourceType, DataType targetType, boolean nullable,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        checkMinMaxCast(newFileScan(sourceType, nullable), targetType, projected, strict, expectedPushdown);
+    }
+
+    private void checkMinMaxCast(LogicalRelation scan, DataType targetType,
+            boolean projected, boolean strict, boolean expectedPushdown) {
+        Expression argument = new Cast(scan.getOutput().get(0), targetType, true);
+        Plan child = scan;
+        RuleType ruleType = scan instanceof LogicalFileScan
+                ? RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN
+                : RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT;
+        if (projected) {
+            Alias alias = new Alias(argument, "cast_value");
+            child = new LogicalProject<>(ImmutableList.of(alias), scan);
+            argument = alias.toSlot();
+            ruleType = scan instanceof LogicalFileScan
+                    ? RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN
+                    : RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT;
+        }
+        LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(Collections.emptyList(),
+                ImmutableList.of(new Alias(new Min(argument), "min"), new Alias(new Max(argument), "max")),
+                true, Optional.empty(), child);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        context.getConnectContext().getSessionVariable().enableStrictCast = strict;
+        RuleType selectedRuleType = ruleType;
+        Rule rule = new AggregateStrategies().buildRules().stream()
+                .filter(candidate -> candidate.getRuleType() == selectedRuleType).findFirst().get();
+        PlanChecker checker = PlanChecker.from(context).applyImplementation(rule);
+        if (expectedPushdown) {
+            checker.matches(projected
+                    ? logicalAggregate(logicalProject(physicalStorageLayerAggregate()))
+                    : logicalAggregate(physicalStorageLayerAggregate()));
+        } else {
+            checker.nonMatch(physicalStorageLayerAggregate());
+        }
     }
 
     @Override
@@ -256,6 +374,31 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     }
 
     @Test
+    public void testCountOnIndexRejectsIsNullOnProjectedCountSlot() {
+        LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(2, "count_alias", 0);
+        Index invertedIndex = new Index(1L, "idx_name", ImmutableList.of("name"),
+                IndexType.INVERTED, null, "");
+        olapScan.getTable().getIndexIdToMeta().values().forEach(
+                meta -> meta.setIndexes(ImmutableList.of(invertedIndex)));
+
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new IsNull(olapScan.getOutput().get(1))), olapScan);
+        LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(
+                ImmutableList.of(new Alias(olapScan.getOutput().get(1), "x")), filter);
+        LogicalAggregate<LogicalProject<LogicalFilter<LogicalOlapScan>>> aggregate = new LogicalAggregate<>(
+                Collections.emptyList(),
+                ImmutableList.of(new Alias(new Count(project.getOutput().get(0)), "count_x"),
+                        new Alias(new Count(), "count_star")),
+                true, Optional.empty(), project);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        context.getConnectContext().getSessionVariable().setEnablePushDownCountOnIndex(true);
+
+        PlanChecker.from(context)
+                .applyImplementation(countOnIndex())
+                .matches(logicalAggregate(logicalProject(logicalFilter(logicalOlapScan()))));
+    }
+
+    @Test
     void testProjectionCheck() {
         LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
         LogicalProject<LogicalOlapScan> project = new LogicalProject<>(
@@ -302,6 +445,14 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         return new AggregateStrategies().buildRules()
                 .stream()
                 .filter(rule -> rule.getRuleType() == RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT)
+                .findFirst()
+                .get();
+    }
+
+    private Rule countOnIndex() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.COUNT_ON_INDEX)
                 .findFirst()
                 .get();
     }

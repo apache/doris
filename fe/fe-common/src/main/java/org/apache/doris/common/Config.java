@@ -435,7 +435,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Path to the FE TLS private key."})
     public static String tls_private_key_path = "";
 
-    @ConfField(description = {"Password for the FE TLS private key."})
+    @ConfField(sensitive = true, description = "Password for the FE TLS private key.")
     public static String tls_private_key_password = "";
 
     @ConfField(description = {"Path to the FE TLS CA certificate."})
@@ -469,8 +469,7 @@ public class Config extends ConfigBase {
     public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
-    @ConfField(description = {"FE https 服务的 key store 密码",
-            "The key store password of FE https service"})
+    @ConfField(sensitive = true, description = "The key store password of FE https service")
     public static String key_store_password = "";
 
     @ConfField(description = {"FE https 服务的 key store 类型",
@@ -2683,13 +2682,13 @@ public class Config extends ConfigBase {
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_ca_certificate_password = "doris";
 
     /**
      * Password for default CA certificate file.
      */
-    @ConfField(mutable = false, masterOnly = false)
+    @ConfField(sensitive = true, mutable = false, masterOnly = false)
     public static String mysql_ssl_default_server_certificate_password = "doris";
 
     /**
@@ -3101,6 +3100,10 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_python_udf = true;
 
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
+
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
                     + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
@@ -3198,16 +3201,13 @@ public class Config extends ConfigBase {
     })
     public static double diagnose_balance_max_tablet_num_ratio = 1.1;
 
-    @ConfField(masterOnly = true, description = {
-            "设置 root 用户初始化 2 阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
-                    + "后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。"
-                    + "示例：如要配置密码的明文是 `root@123`，可在 Doris 执行 SQL `select password('root@123')` "
-                    + "获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`",
-            "Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. "
-                    + "Subsequent `set password` operations for root user will overwrite the initial root password. "
-                    + "Example: If you want to configure a plaintext password `root@123`."
-                    + "You can execute Doris SQL `select password('root@123')` to generate encrypted "
-                    + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`"})
+    @ConfField(sensitive = true, masterOnly = true, description = "Set root user initial 2-staged SHA-1 "
+            + "encrypted password, default as "
+            + "'', means no root password. Subsequent `set password` operations for "
+            + "root user will overwrite the initial root password. Example: If you "
+            + "want to configure a plaintext password `root@123`.You can execute "
+            + "Doris SQL `select password('root@123')` to generate encrypted "
+            + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
 
     @ConfField(description = {"nereids trace 文件的存放路径。",
@@ -3894,7 +3894,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"存算分离模式下同步 table 和 partition version 的间隔. 所有 frontend 都会检查",
             "Cloud table and partition version syncer interval. All frontends will perform the checking"})
-    public static int cloud_version_syncer_interval_second = 20;
+    public static int cloud_version_syncer_interval_second = 60;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否启用同步 table 和 partition version 的功能",
             "Whether to enable the function of syncing table and partition version in cloud mode"})
@@ -3909,7 +3909,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"Get version task 包含的 table 或 partition 数目的 batch size",
             "Maximal table or partition batch size of get version task."})
-    public static int cloud_get_version_task_batch_size = 2000;
+    public static int cloud_get_version_task_batch_size = 200;
+
+    @ConfField(mutable = true, description = {"Maximum retry times for cloud version syncer get version tasks."})
+    public static int cloud_version_syncer_get_version_retry_times = 3;
 
     @ConfField(mutable = true, description = {"schema change job 失败是否重试",
             "Whether to enable retry when a schema change job fails, default is true."})
@@ -4225,5 +4228,52 @@ public class Config extends ConfigBase {
                     + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
                     + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
     public static boolean enable_adaptive_random_bucket_load = true;
+
+    @ConfField(description = {"每个 Lance catalog client 代际共享的 Java Arrow 内存上限，单位字节，必须大于 0。"
+            + "刷新期间新旧代际可短暂并存；不包含 Rust Session 缓存及独立索引检查任务。",
+            "Shared Java Arrow memory limit in bytes per Lance catalog client generation; must be positive. "
+                    + "Generations may overlap during refresh. Excludes Rust Session caches and independent "
+                    + "index inspection tasks."})
+    public static long lance_catalog_arrow_memory_limit_bytes = 256L * 1024 * 1024;
+
+    @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的 admission。默认关闭;"
+                    + "启用前需确认未决 job 配额均为正值。注意:在 dispatch(后续版本)与 FORCE_RELEASE(后续版本)就绪前"
+                    + "开启本开关会产生不可回收的 PENDING job 并冻结对应 catalog 的身份属性变更与 DROP CATALOG。",
+            "Enable admission of Lance index mutations (CREATE/CREATE OR REPLACE/DROP INDEX). "
+                    + "Disabled by default; unresolved-job quotas must be positive before enabling. "
+                    + "WARNING: enabling before dispatch and FORCE_RELEASE land in a later release creates "
+                    + "PENDING jobs that cannot be resolved and freezes catalog identity changes and DROP CATALOG."})
+    public static boolean enable_lance_index_mutation = false;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"单个 Lance 数据表(locator 身份)允许的最大未决索引 job 数。",
+                    "Max unresolved Lance index jobs per table (locator identity)."})
+    public static long lance_index_job_max_unresolved_per_table = 8;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"单个 Lance catalog 允许的最大未决索引 job 数。",
+                    "Max unresolved Lance index jobs per catalog."})
+    public static long lance_index_job_max_unresolved_per_catalog = 64;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
+            description = {"全部 catalog 合计允许的最大未决 Lance 索引 job 数。",
+                    "Max unresolved Lance index jobs across all catalogs (global)."})
+    public static long lance_index_job_max_unresolved_global = 256;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance IVF_PQ 索引 num_partitions 的静态上限。",
+                    "Static upper bound for num_partitions of Lance IVF_PQ indexes."})
+    public static int lance_index_max_num_partitions = 4096;
+
+    @ConfField(mutable = true, masterOnly = true,
+            callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
+            description = {"Lance IVF_PQ 索引 num_sub_vectors 的静态上限。",
+                    "Static upper bound for num_sub_vectors of Lance IVF_PQ indexes."})
+    public static int lance_index_max_num_sub_vectors = 256;
 
 }

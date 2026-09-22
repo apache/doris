@@ -311,7 +311,7 @@ under the License.
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <grpc.version>1.65.1</grpc.version>
+        <grpc.version>1.75.0</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
         <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
         <protobuf.version>4.33.4</protobuf.version>
@@ -349,7 +349,7 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.11.0</iceberg.version>
-        <lance.version>9.1.0-beta.3</lance.version>
+        <lance.version>11.0.0</lance.version>
         <substrait.version>0.40.0</substrait.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
@@ -433,7 +433,7 @@ under the License.
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <argLine></argLine>
         <trino.version>435</trino.version>
-        <nimbusds.version>10.0.1</nimbusds.version>
+        <nimbusds.version>10.0.2</nimbusds.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
@@ -1475,6 +1475,10 @@ under the License.
                 <version>${maxcompute.version}</version>
                 <exclusions>
                     <exclusion>
+                        <groupId>org.lz4</groupId>
+                        <artifactId>lz4-pure-java</artifactId>
+                    </exclusion>
+                    <exclusion>
                         <groupId>org.apache.arrow</groupId>
                         <artifactId>arrow-vector</artifactId>
                     </exclusion>
@@ -1489,6 +1493,17 @@ under the License.
                     <exclusion>
                         <groupId>com.squareup.okio</groupId>
                         <artifactId>okio</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-table-api</artifactId>
+                <version>${maxcompute.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.lz4</groupId>
+                        <artifactId>lz4-pure-java</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>

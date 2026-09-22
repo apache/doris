@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -184,7 +185,8 @@ public class ShowColumnsCommand extends ShowCommand {
         }
         table.readLock();
         try {
-            List<Column> columns = table.getBaseSchema();
+            List<Column> columns = table instanceof IcebergExternalTable
+                    ? ((IcebergExternalTable) table).getBaseSchemaForDisplay() : table.getBaseSchema();
             for (Column col : columns) {
                 if (matcher != null && !matcher.match(col.getName())) {
                     continue;

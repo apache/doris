@@ -24,6 +24,11 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlCursorFetchCompatibility;
+import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.MysqlResultSetEndPacket;
+import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -42,6 +47,8 @@ import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -208,15 +215,44 @@ public class FEOpExecutor {
 
         if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
             if (null != ctx.getPrepareExecuteBuffer()) {
-                params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
+                params.setPrepareExecuteBuffer(buildPrepareExecuteBuffer());
             }
+            params.setCursorFetchRequested(ctx.isCursorFetchRequested());
         }
 
         // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
         // generates packets matching the original client's protocol expectations.
-        params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
+        // Only a MySQL connection negotiates this capability and owns a MysqlChannel;
+        // an Arrow Flight SQL session has none, and leaving the field unset keeps the
+        // master on its default packet layout.
+        if (ctx.getConnectType() == ConnectType.MYSQL) {
+            params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
+            params.setMysqlCapability(ctx.getCapability().getFlags());
+        }
 
         return params;
+    }
+
+    private ByteBuffer buildPrepareExecuteBuffer() {
+        int[] typeCodes = ctx.getPrepareExecuteTypeCodes();
+        if (typeCodes == null || typeCodes.length == 0) {
+            return ctx.getPrepareExecuteBuffer();
+        }
+        // Every master RPC rebuilds PREPARE without cached types. Expand only for forwarding
+        // so local executions do not copy potentially large vector or binary parameter values.
+        ByteBuffer source = ctx.getPrepareExecuteBuffer().duplicate();
+        ByteBuffer forwarded = ByteBuffer.allocate(Math.addExact(source.remaining(), typeCodes.length * 2))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        byte[] nullBitmap = new byte[(typeCodes.length + 7) / 8];
+        source.get(nullBitmap);
+        source.get(); // Replace new_params_bind_flag=0 with a complete type table.
+        forwarded.put(nullBitmap).put((byte) 1);
+        for (int typeCode : typeCodes) {
+            forwarded.putChar((char) typeCode);
+        }
+        forwarded.put(source);
+        forwarded.flip();
+        return forwarded;
     }
 
     public int getStatusCode() {
@@ -245,6 +281,76 @@ public class FEOpExecutor {
             return null;
         }
         return result.packet;
+    }
+
+    public boolean isClientDeprecatedEofApplied() {
+        return result != null && result.isSetClientDeprecatedEofApplied()
+                && result.isClientDeprecatedEofApplied();
+    }
+
+    public boolean hasQueryResultPackets() {
+        return result != null && result.isSetQueryResultBufList()
+                && !result.getQueryResultBufList().isEmpty();
+    }
+
+    // An old master cannot add the Connector/J cursor terminator. Normalize its buffered
+    // result at the follower, which still has the original execute flag and client capability.
+    // DML/DDL OK and ERR packets are retained verbatim, including warnings and load info.
+    public void prepareQueryResultForClient() {
+        if (!ctx.getMysqlChannel().clientDeprecatedEOF() || isClientDeprecatedEofApplied()
+                || !hasQueryResultPackets()) {
+            return;
+        }
+        List<ByteBuffer> packets = new ArrayList<>(result.getQueryResultBufList());
+        int metadataEnd = Math.toIntExact(MysqlProto.readVInt(packets.get(0).duplicate())) + 1;
+        boolean needsCursorTerminator = ctx.isCursorFetchRequested()
+                && MysqlCursorFetchCompatibility.resolve(ctx.getConnectAttributes())
+                        != MysqlCursorFetchCompatibility.Behavior.STANDARD;
+        // An execution error may occur after only part of the metadata has been buffered.
+        if (metadataEnd > packets.size()) {
+            Preconditions.checkState(isErrorPacket(result.packet));
+            return;
+        }
+        boolean hasMetadataTerminator = metadataEnd < packets.size()
+                && isEofPacket(packets.get(metadataEnd));
+        if (hasMetadataTerminator) {
+            ByteBuffer metadata = packets.remove(metadataEnd);
+            if (needsCursorTerminator) {
+                packets.add(metadataEnd, resultSetTerminator(metadata));
+            }
+        } else if (needsCursorTerminator) {
+            MysqlSerializer serializer = MysqlSerializer.newInstance(ctx.getCapability());
+            new MysqlResultSetEndPacket(new QueryState()).writeTo(serializer);
+            packets.add(metadataEnd, serializer.toByteBuffer());
+        }
+        result.setQueryResultBufList(packets);
+        if (isEofPacket(result.packet)) {
+            result.setPacket(resultSetTerminator(result.packet));
+        }
+        result.setClientDeprecatedEofApplied(true);
+    }
+
+    private static boolean isErrorPacket(ByteBuffer packet) {
+        return Byte.toUnsignedInt(packet.get(packet.position())) == 0xFF;
+    }
+
+    private static boolean isEofPacket(ByteBuffer packet) {
+        return packet.remaining() <= 8 && Byte.toUnsignedInt(packet.get(packet.position())) == 0xFE;
+    }
+
+    private static ByteBuffer resultSetTerminator(ByteBuffer packet) {
+        if (packet.remaining() != 5) {
+            return packet;
+        }
+        ByteBuffer eof = packet.duplicate();
+        MysqlProto.readInt1(eof);
+        int warnings = MysqlProto.readInt2(eof);
+        QueryState state = new QueryState();
+        state.setOk(0, warnings, null);
+        state.serverStatus = MysqlProto.readInt2(eof);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        new MysqlResultSetEndPacket(state).writeTo(serializer);
+        return serializer.toByteBuffer();
     }
 
     public TUniqueId getQueryId() {

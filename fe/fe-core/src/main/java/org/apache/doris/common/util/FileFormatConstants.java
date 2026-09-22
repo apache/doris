@@ -30,7 +30,6 @@ public class FileFormatConstants {
     public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
-    public static final String FORMAT_NATIVE = "native";
     public static final String FORMAT_LANCE = "lance";
 
     public static final String PROP_FORMAT = "format";

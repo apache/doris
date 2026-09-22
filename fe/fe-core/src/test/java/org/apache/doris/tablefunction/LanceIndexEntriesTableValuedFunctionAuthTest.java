@@ -24,7 +24,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
-import org.apache.doris.datasource.lance.LancePhysicalIndexEntry;
+import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;

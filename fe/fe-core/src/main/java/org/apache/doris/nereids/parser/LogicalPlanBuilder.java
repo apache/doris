@@ -414,6 +414,8 @@ import org.apache.doris.nereids.DorisParser.ShowIndexCharFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexNormalizerContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenFilterContext;
 import org.apache.doris.nereids.DorisParser.ShowIndexTokenizerContext;
+import org.apache.doris.nereids.DorisParser.ShowLanceIndexJobContext;
+import org.apache.doris.nereids.DorisParser.ShowLanceIndexJobsContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
@@ -853,6 +855,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexNormalizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
@@ -2871,9 +2875,34 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.tvfName.getText();
 
-            Map<String, String> map = visitPropertyItemList(ctx.properties);
+            Map<String, Placeholder> parameters = new LinkedHashMap<>();
+            Map<String, String> map;
+            if ("vector_search".equalsIgnoreCase(functionName) && ctx.properties != null) {
+                map = new HashMap<>();
+                Set<String> keys = new HashSet<>();
+                for (PropertyItemContext argument : ctx.properties.properties) {
+                    if (argument.key.constant() instanceof DorisParser.PlaceholderContext) {
+                        throw new AnalysisException("vector_search property names must be constant");
+                    }
+                    String key = parsePropertyKey(argument.key).toLowerCase(Locale.ROOT);
+                    if (!keys.add(key)) {
+                        throw new AnalysisException("Duplicate vector_search property: " + key);
+                    }
+                    if (argument.value.constant() instanceof DorisParser.PlaceholderContext) {
+                        if (!ImmutableSet.of("query_vector", "top_k", "offset", "filter").contains(key)) {
+                            throw new AnalysisException("vector_search property '" + key
+                                    + "' must be constant in a prepared statement");
+                        }
+                        parameters.put(key, (Placeholder) visit(argument.value.constant()));
+                    } else {
+                        map.put(key, parsePropertyValue(argument.value));
+                    }
+                }
+            } else {
+                map = visitPropertyItemList(ctx.properties);
+            }
             LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
-                    functionName, new Properties(map));
+                    functionName, new Properties(map), parameters);
             return withTableAlias(relation, ctx.tableAlias());
         });
     }
@@ -7020,6 +7049,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             whereClause = getExpression(ctx.expression());
         }
         return new ShowCatalogRecycleBinCommand(whereClause);
+    }
+
+    @Override
+    public LogicalPlan visitShowLanceIndexJobs(ShowLanceIndexJobsContext ctx) {
+        List<String> nameParts = ctx.db == null ? null : visitMultipartIdentifier(ctx.db);
+        Expression whereClause = null;
+        if (ctx.WHERE() != null) {
+            whereClause = getExpression(ctx.expression());
+        }
+        return new ShowLanceIndexJobsCommand(nameParts, whereClause);
+    }
+
+    @Override
+    public LogicalPlan visitShowLanceIndexJob(ShowLanceIndexJobContext ctx) {
+        long jobId = Long.parseLong(ctx.jobId.getText());
+        return new ShowLanceIndexJobCommand(jobId);
     }
 
     @Override

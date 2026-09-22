@@ -66,6 +66,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.math.BigDecimal;
@@ -499,7 +500,7 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(dorisTable.getId()).thenReturn(9L);
         Mockito.when(dorisTable.getName()).thenReturn("v1_table");
         IcebergWriteSchemaContext context =
-                IcebergWriteSchemaContext.create(dorisTable, Optional.empty());
+                createFromGeneration(dorisTable, table, Optional.empty(), true, true);
         Assertions.assertDoesNotThrow(() -> context.validateCurrentSchema(table));
 
         TableMetadata.MetadataLogEntry pinnedEntry =
@@ -574,8 +575,8 @@ public class IcebergWriteSchemaContextTest {
                 new IcebergSnapshotCacheValue(IcebergPartitionInfo.empty(),
                         new IcebergSnapshot(101L, pinnedSchema.schemaId()))));
         try {
-            IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
-                    dorisTable, Optional.empty());
+            IcebergWriteSchemaContext context = createFromGeneration(
+                    dorisTable, table, Optional.empty(), true, true);
             Assertions.assertEquals(pinnedSchema.schemaId(), context.getSchemaId());
             Assertions.assertEquals("24",
                     stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
@@ -634,8 +635,8 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(dorisTable.getId()).thenReturn(7L);
         Mockito.when(dorisTable.getName()).thenReturn("branch_table");
 
-        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
-                dorisTable, Optional.of("audit"));
+        IcebergWriteSchemaContext context = createFromGeneration(
+                dorisTable, table, Optional.of("audit"), true, true);
         Assertions.assertEquals(currentSchema.schemaId(), context.getSchemaId());
         Assertions.assertEquals("31",
                 stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
@@ -700,8 +701,8 @@ public class IcebergWriteSchemaContextTest {
                 new IcebergSnapshotCacheValue(IcebergPartitionInfo.empty(),
                         new IcebergSnapshot(105L, mvccSchema.schemaId()))));
         try {
-            IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
-                    dorisTable, Optional.of("audit"));
+            IcebergWriteSchemaContext context = createFromGeneration(
+                    dorisTable, table, Optional.of("audit"), true, true);
             Assertions.assertEquals(currentSchema.schemaId(), context.getSchemaId());
             Assertions.assertEquals("41",
                     stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
@@ -747,8 +748,8 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(dorisTable.getId()).thenReturn(10L);
         Mockito.when(dorisTable.getName()).thenReturn("branch_table");
 
-        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.create(
-                dorisTable, Optional.of("audit"));
+        IcebergWriteSchemaContext context = createFromGeneration(
+                dorisTable, table, Optional.of("audit"), true, true);
         Assertions.assertEquals(pinnedCurrentSchema.schemaId(), context.getSchemaId());
         Assertions.assertEquals("7",
                 stringValue(context.resolveWriteDefault(context.getColumns().get(0))));
@@ -800,11 +801,58 @@ public class IcebergWriteSchemaContextTest {
         Mockito.when(dorisTable.getName()).thenReturn("branch_table");
 
         IcebergWriteSchemaContext context = Assertions.assertDoesNotThrow(
-                () -> IcebergWriteSchemaContext.create(dorisTable, Optional.of("audit")));
+                () -> createFromGeneration(dorisTable, table, Optional.of("audit"), true, true));
         Assertions.assertEquals(currentSchema.schemaId(), context.getSchemaId());
         Assertions.assertEquals(currentSpec.specId(), context.getPartitionSpec().specId());
         Assertions.assertEquals(1, context.getPartitionSpec().fields().get(0).sourceId());
         Mockito.verify(table, Mockito.never()).snapshot(branchRef.snapshotId());
+    }
+
+    @Test
+    public void testCreateUsesMappingOptionsFromRetainedGeneration() {
+        Schema schema = new Schema(50, ImmutableList.of(
+                Types.NestedField.optional(1, "binary_col", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "timestamptz_col", Types.TimestampType.withZone())));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(schema.schemaId(), schema));
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(TableProperties.FORMAT_VERSION, "3"));
+        stubUnpartitionedWriterMetadata(table);
+
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(false);
+        Mockito.when(catalog.getEnableMappingTimestampTz()).thenReturn(true);
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(dorisTable.getId()).thenReturn(13L);
+        Mockito.when(dorisTable.getName()).thenReturn("mapping_table");
+        Mockito.clearInvocations(catalog);
+
+        IcebergWriteSchemaContext context = createFromGeneration(
+                dorisTable, table, Optional.empty(), true, false);
+
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
+                context.getColumns().get(0).getType().getPrimitiveType());
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+                context.getColumns().get(1).getType().getPrimitiveType());
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();
+    }
+
+    private static IcebergWriteSchemaContext createFromGeneration(
+            IcebergExternalTable dorisTable, Table table, Optional<String> branchName,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
+                            Mockito.eq(dorisTable),
+                            Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
+                    .thenAnswer(invocation -> {
+                        IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
+                        return action.apply(table, enableMappingVarbinary, enableMappingTimestampTz);
+                    });
+            return IcebergWriteSchemaContext.create(dorisTable, branchName);
+        }
     }
 
     private static void stubUnpartitionedWriterMetadata(Table table) {

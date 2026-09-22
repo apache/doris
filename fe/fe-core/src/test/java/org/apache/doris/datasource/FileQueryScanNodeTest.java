@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -45,6 +46,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -87,6 +89,10 @@ public class FileQueryScanNodeTest {
             this.targetTable = targetTable;
         }
 
+        void setSplitAssignment(SplitAssignment splitAssignment) {
+            this.splitAssignment = splitAssignment;
+        }
+
         long selectFeSplitSize(long fallbackSize, TFileFormatType format, boolean supportsBeSplit) {
             return selectFeSplitSizeForBe(fallbackSize, format, supportsBeSplit);
         }
@@ -125,6 +131,29 @@ public class FileQueryScanNodeTest {
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
         Assert.assertEquals(100 * MB, target);
+    }
+
+    @Test
+    public void testStopRemovesEverySourceAfterPlanningFailure() {
+        SplitAssignment assignment = new SplitAssignment(
+                null, null, null, Collections.emptyMap(), Collections.emptyList(), false);
+        assignment.registerSource(11L);
+        assignment.registerSource(12L);
+        assignment.setException(new UserException("planning failed"));
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setSplitAssignment(assignment);
+        Env env = Mockito.mock(Env.class);
+        SplitSourceManager manager = Mockito.mock(SplitSourceManager.class);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSplitSourceManager()).thenReturn(manager);
+
+            node.stop();
+        }
+
+        Mockito.verify(manager).removeSplitSource(11L);
+        Mockito.verify(manager).removeSplitSource(12L);
     }
 
     @Test
@@ -251,6 +280,46 @@ public class FileQueryScanNodeTest {
         SessionVariable sv = new SessionVariable();
         Assert.assertEquals(512 * MB, sv.getFileSplitSizeOnFe());
         Assert.assertEquals(64 * MB, sv.getFileSplitSizeOnBe());
+    }
+
+    @Test
+    public void testRowIdFetchRetainsCategoriesOfPrunedColumns() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable()) {
+            @Override
+            protected TColumnCategory classifyColumn(String name, List<String> partitionKeys) {
+                if (name.equals("metadata_path") || name.equals("metadata_position")) {
+                    return TColumnCategory.SYNTHESIZED;
+                }
+                if (name.equals("generated_col")) {
+                    return TColumnCategory.GENERATED;
+                }
+                return super.classifyColumn(name, partitionKeys);
+            }
+        };
+        node.setTargetTable(table);
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor sortSlot = new SlotDescriptor(new SlotId(1), desc);
+        sortSlot.setColumn(new Column("id", Type.INT));
+        desc.addSlot(sortSlot);
+        SlotDescriptor rowIdSlot = new SlotDescriptor(new SlotId(2), desc);
+        rowIdSlot.setColumn(new Column(Column.GLOBAL_ROWID_COL, Type.STRING));
+        desc.addSlot(rowIdSlot);
+        List<Column> fullSchema = Arrays.asList(sortSlot.getColumn(), new Column("metadata_path", Type.STRING),
+                new Column("metadata_position", Type.BIGINT), new Column("generated_col", Type.BIGINT));
+        Mockito.when(table.getBaseSchema(false)).thenReturn(fullSchema);
+        Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
+
+        node.params = new TFileScanRangeParams();
+        UPDATE_REQUIRED_SLOTS_METHOD.invoke(node);
+
+        TFileScanRangeParams params = node.getFileScanRangeParams();
+        Assert.assertEquals(2, params.getRequiredSlotsSize());
+        Assert.assertEquals(Arrays.asList(0), params.getColumnIdxs());
+        Assert.assertEquals(TColumnCategory.SYNTHESIZED, params.getColumnNameToCategory().get("metadata_path"));
+        Assert.assertEquals(TColumnCategory.SYNTHESIZED, params.getColumnNameToCategory().get("metadata_position"));
+        Assert.assertEquals(TColumnCategory.GENERATED, params.getColumnNameToCategory().get("generated_col"));
+        Assert.assertFalse(params.getColumnNameToCategory().containsKey("id"));
     }
 
     @Test
