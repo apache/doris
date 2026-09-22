@@ -389,6 +389,13 @@ TEST_F(AggregateFunctionExceptionTest, ForEachNormalizesShiftedOffsetsOncePerBat
     auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
     const IColumn* columns[] = {compacted.get(), original.get()};
 
+    auto normalized_columns = foreach_function.prepare_batch_columns_for_streaming(
+            3, columns, [](size_t row) { return row != 0; });
+    ASSERT_EQ(normalized_columns.size(), 2);
+    const auto& normalized_first = assert_cast<const ColumnArray&>(*normalized_columns[0]);
+    const auto& normalized_second = assert_cast<const ColumnArray&>(*normalized_columns[1]);
+    EXPECT_EQ(normalized_first.get_offsets_ptr().get(), normalized_second.get_offsets_ptr().get());
+
     AggregateFunctionGuard state(&foreach_function);
     std::array<AggregateDataPtr, 3> places {nullptr, state.data(), state.data()};
     foreach_function.add_batch_selected(places.size(), places.data(), 0, columns, arena);

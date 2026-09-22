@@ -128,6 +128,13 @@ protected:
         return state;
     }
 
+private:
+    struct PreparedBatchColumns {
+        Columns owned_columns;
+        std::vector<const IColumn*> nested_columns;
+        const ColumnArray::Offsets64* offsets = nullptr;
+    };
+
     void add_aligned(AggregateDataPtr __restrict place, const IColumn** nested,
                      const ColumnArray::Offsets64& offsets, size_t row_num, Arena& arena) const {
         const size_t begin = offsets[row_num - 1];
@@ -180,31 +187,60 @@ protected:
             return {};
         }
 
-        // Slow path: copy only selected row slices and preserve the outer row count by emitting
-        // repeated offsets for unselected rows.
+        // Slow path: build the shared offsets once, copy only selected row slices, and preserve
+        // the outer row count by emitting repeated offsets for unselected rows.
+        auto offsets_column = ColumnArray::ColumnOffsets::create();
+        auto& normalized_offsets = offsets_column->get_data();
+        normalized_offsets.reserve(batch_size);
+        size_t normalized_offset = 0;
+        const auto& first_offsets =
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_offsets();
+        for (size_t row = 0; row < batch_size; ++row) {
+            if (is_selected(row)) {
+                normalized_offset += first_offsets[row] - first_offsets[row - 1];
+            }
+            normalized_offsets.push_back(normalized_offset);
+        }
+        ColumnPtr shared_offsets = std::move(offsets_column);
+
         Columns normalized_columns(num_arguments);
         for (size_t i = 0; i < num_arguments; ++i) {
             const auto& array =
                     assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
             auto nested = array.get_data().clone_empty();
-            auto offsets_column = ColumnArray::ColumnOffsets::create();
-            auto& normalized_offsets = offsets_column->get_data();
-            normalized_offsets.reserve(batch_size);
-            size_t normalized_offset = 0;
             for (size_t row = 0; row < batch_size; ++row) {
                 if (is_selected(row)) {
                     const auto& offsets = array.get_offsets();
                     const size_t begin = offsets[row - 1];
                     const size_t row_size = offsets[row] - begin;
                     nested->insert_range_from(array.get_data(), begin, row_size);
-                    normalized_offset += row_size;
                 }
-                normalized_offsets.push_back(normalized_offset);
             }
-            normalized_columns[i] =
-                    ColumnArray::create(std::move(nested), std::move(offsets_column));
+            ColumnPtr nested_column = std::move(nested);
+            normalized_columns[i] = ColumnArray::create(nested_column, shared_offsets);
         }
         return normalized_columns;
+    }
+
+    template <typename IsSelected>
+    PreparedBatchColumns prepare_batch_columns(size_t batch_size, const IColumn** columns,
+                                               IsSelected&& is_selected) const {
+        PreparedBatchColumns prepared;
+        prepared.owned_columns =
+                normalize_batch_columns(batch_size, columns, std::forward<IsSelected>(is_selected));
+        prepared.nested_columns.resize(num_arguments);
+        for (size_t i = 0; i < num_arguments; ++i) {
+            const IColumn* column =
+                    prepared.owned_columns.empty() ? columns[i] : prepared.owned_columns[i].get();
+            const auto& array =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*column);
+            prepared.nested_columns[i] = &array.get_data();
+            if (i == 0) {
+                prepared.offsets = &array.get_offsets();
+            }
+        }
+        return prepared;
     }
 
 public:
@@ -404,72 +440,30 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena& arena, bool /*agg_many*/) const override {
-        auto normalized_columns =
-                normalize_batch_columns(batch_size, columns, [](size_t) { return true; });
-        std::vector<const IColumn*> effective_columns(num_arguments);
-        for (size_t i = 0; i < num_arguments; ++i) {
-            effective_columns[i] =
-                    normalized_columns.empty() ? columns[i] : normalized_columns[i].get();
-        }
-        std::vector<const IColumn*> nested_columns(num_arguments);
-        for (size_t i = 0; i < num_arguments; ++i) {
-            nested_columns[i] = &assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                                         *effective_columns[i])
-                                         .get_data();
-        }
-        const auto& offsets =
-                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*effective_columns[0])
-                        .get_offsets();
+        auto prepared = prepare_batch_columns(batch_size, columns, [](size_t) { return true; });
         for (size_t row = 0; row < batch_size; ++row) {
-            add_aligned(places[row] + place_offset, nested_columns.data(), offsets, row, arena);
+            add_aligned(places[row] + place_offset, prepared.nested_columns.data(),
+                        *prepared.offsets, row, arena);
         }
     }
 
     void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                             const IColumn** columns, Arena& arena) const override {
-        auto normalized_columns = normalize_batch_columns(
-                batch_size, columns, [&](size_t row) { return places[row] != nullptr; });
-        std::vector<const IColumn*> effective_columns(num_arguments);
-        for (size_t i = 0; i < num_arguments; ++i) {
-            effective_columns[i] =
-                    normalized_columns.empty() ? columns[i] : normalized_columns[i].get();
-        }
-        std::vector<const IColumn*> nested_columns(num_arguments);
-        for (size_t i = 0; i < num_arguments; ++i) {
-            nested_columns[i] = &assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                                         *effective_columns[i])
-                                         .get_data();
-        }
-        const auto& offsets =
-                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*effective_columns[0])
-                        .get_offsets();
+        auto prepared = prepare_batch_columns(batch_size, columns,
+                                              [&](size_t row) { return places[row] != nullptr; });
         for (size_t row = 0; row < batch_size; ++row) {
             if (places[row] != nullptr) {
-                add_aligned(places[row] + place_offset, nested_columns.data(), offsets, row, arena);
+                add_aligned(places[row] + place_offset, prepared.nested_columns.data(),
+                            *prepared.offsets, row, arena);
             }
         }
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena& arena) const override {
-        auto normalized_columns =
-                normalize_batch_columns(batch_size, columns, [](size_t) { return true; });
-        std::vector<const IColumn*> effective_columns(num_arguments);
-        for (size_t i = 0; i < num_arguments; ++i) {
-            effective_columns[i] =
-                    normalized_columns.empty() ? columns[i] : normalized_columns[i].get();
-        }
-        std::vector<const IColumn*> nested_columns(num_arguments);
-        for (size_t i = 0; i < num_arguments; ++i) {
-            nested_columns[i] = &assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
-                                         *effective_columns[i])
-                                         .get_data();
-        }
-        const auto& offsets =
-                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*effective_columns[0])
-                        .get_offsets();
+        auto prepared = prepare_batch_columns(batch_size, columns, [](size_t) { return true; });
         for (size_t row = 0; row < batch_size; ++row) {
-            add_aligned(place, nested_columns.data(), offsets, row, arena);
+            add_aligned(place, prepared.nested_columns.data(), *prepared.offsets, row, arena);
         }
     }
 
