@@ -477,6 +477,7 @@ Status FixedReadPlan::fill_missing_columns(
                                                              old_value_block, default_value_block));
     auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
     auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
+    const int32_t version_col_idx = tablet_schema.version_col_idx();
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
@@ -489,7 +490,13 @@ Status FixedReadPlan::fill_missing_columns(
             const auto& tablet_column = tablet_schema.column(missing_cids[i]);
             auto& missing_col = mutable_full_columns[missing_cids[i]];
 
-            bool should_use_default = use_default_or_null_flag[idx];
+            // The version belongs to the output rowset, whose publish version is still unknown.
+            // For example, rebuilding a row from historical rowset [2-2] must write the physical
+            // placeholder 0 instead of carrying version 2 into the new segment.
+            const bool is_version_col =
+                    version_col_idx >= 0 &&
+                    missing_cids[i] == static_cast<uint32_t>(version_col_idx);
+            bool should_use_default = use_default_or_null_flag[idx] || is_version_col;
             if (!should_use_default) {
                 bool old_row_delete_sign = old_delete_sign_column_data[pos_in_old_block] != 0;
                 if (old_row_delete_sign) {

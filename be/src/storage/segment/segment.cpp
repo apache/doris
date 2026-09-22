@@ -1041,7 +1041,7 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
     // Only row-binlog reads reinterpret the NULL/0 placeholder as commit_tso. For example, an
     // incremental binlog read of rowset [9-9] should expose its commit_tso, while a checksum or
     // schema-change read that happens to include the hidden column must keep the physical value.
-    if (col.name() == BINLOG_TSO_COL) {
+    if (read_options.read_row_binlog && col.name() == BINLOG_TSO_COL) {
         const int64_t commit_tso = read_options.commit_tso.end_tso();
         if (read_options.version.first == read_options.version.second) {
             DCHECK_EQ(read_options.commit_tso.start_tso(), commit_tso);
