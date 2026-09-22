@@ -913,8 +913,70 @@ public class MTMVTaskTest {
         Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
     }
 
+    @Test
+    public void testPendingBaselineRebuildChecksTheStreamsItsPartitionsRead() throws Exception {
+        // A partial barrier left by an earlier failed refresh. The pre-step rebuilds those partitions
+        // before the attempts run, and that rebuild reads their streams, so a stream missing for them
+        // decides the request just as it does for the partition attempt -- and PARTITIONS FALLBACK
+        // reaches this pre-step without an IVM attempt for buildAttempts to have judged.
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.addPendingBaselineRebuildPartitions(Sets.newHashSet(poneName));
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        OlapTable t1 = mockBaseTable("t1");
+        BaseTableInfo t1Info = Mockito.mock(BaseTableInfo.class);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t1Info)).thenReturn(t1);
+        // t1 is not a PCT table, so every partition this rebuild refreshes reads it through its stream,
+        // and the MV's database holds no stream for it.
+        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(context.getByPartitionName(Mockito.anyString())).thenReturn(Maps.newHashMap());
 
+        MTMVRelation relation = new MTMVRelation(Sets.newHashSet(t1Info), Sets.newHashSet(t1Info),
+                Sets.newHashSet(t1Info), Sets.newHashSet(), Sets.newHashSet());
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<Object> attempts = Lists.newArrayList();
+        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
 
+        try {
+            Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild", context, request,
+                    new ConnectContext(), attempts);
+        } catch (Exception expected) {
+            // Without the stream check the pre-step rebuilds inline, and how far that rebuild gets
+            // against these mocks is not what this test is about; the attempts it leaves behind are.
+        }
+
+        // The rebuild that cannot read its streams is skipped rather than attempted: its own barrier
+        // would have guarded nothing but the data it never wrote, and the COMPLETE attempt left in the
+        // list reconciles the stream and clears the barrier that is already pending.
+        Assertions.assertEquals("[COMPLETE]", attempts.toString());
+        Assertions.assertEquals(IvmFailureReason.STREAM_UNSUPPORTED.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+        Mockito.verify(mtmv, Mockito.never()).persistIvmBaselineGuard(Mockito.any(), Mockito.anySet(),
+                Mockito.anyLong());
+        Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
+
+        // The same rebuild without fallback is not covered by a COMPLETE attempt, so it fails here
+        // rather than starting a rebuild that cannot read its streams.
+        MTMVTask strictTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
+        Object strictRequest = Deencapsulation.invoke(strictTask, "resolveRefreshRequest");
+        List<Object> strictAttempts = Lists.newArrayList();
+        strictAttempts.addAll(Deencapsulation.invoke(strictTask, "buildAttempts", strictRequest, false));
+        Assertions.assertEquals("[PARTITIONS]", strictAttempts.toString());
+
+        JobException exception = Assertions.assertThrows(JobException.class,
+                () -> Deencapsulation.invoke(strictTask, "handlePendingIvmBaselineRebuild", context,
+                        strictRequest, new ConnectContext(), strictAttempts));
+
+        Assertions.assertTrue(exception.getMessage().contains("IVM stream is unusable"));
+    }
 
     @Test
     public void testCompleteAttemptWritesTheBarrierBeforeReconcilingStreams() throws Exception {

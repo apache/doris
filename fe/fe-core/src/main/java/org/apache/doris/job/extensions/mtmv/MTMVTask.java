@@ -644,13 +644,32 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getName(), getTaskId());
         } else {
             baselinePartitions.sort(String::compareTo);
+            // This rebuild reads the streams of the partitions it rebuilds, exactly like any other
+            // partition refresh, so it judges them before it commits to the rebuild. A request that may
+            // not fall back fails instead of rebuilding less than it asked for; one that may reaches the
+            // COMPLETE attempt, which is also the only attempt that reconciles the stream this rebuild
+            // cannot read. Judging it here rather than in buildAttempts matters for a request whose
+            // attempt list holds no IVM attempt -- PARTITIONS FALLBACK is exactly that -- because the
+            // pre-step runs before the attempts do.
+            if (mtmv.isIvm()
+                    && hasUnusableIvmStreamForPartitions(context, baselinePartitions)) {
+                if (!request.allowFallback) {
+                    throw new JobException("IVM stream is unusable for the partitions of this refresh, mv="
+                            + mtmv.getName());
+                }
+                ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
+                LOG.warn("IVM stream is unusable for the partitions this baseline rebuild plans, mv={}, "
+                        + "taskId={}. Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
+                attempts.clear();
+                attempts.add(RefreshAttemptType.COMPLETE);
+                return;
+            }
             this.needRefreshPartitions = baselinePartitions;
             this.refreshMode = generateRefreshMode(baselinePartitions);
             writeIvmBaselineBarrier(RefreshMode.PARTITIONS);
-            // An unusable stream is decided before this point, by the attempt list: it holds no
-            // partition attempt then, so this rebuild is not reached. Anything else that fails here is
-            // reported as it is -- leaving the barrier behind would make the IVM attempt that follows
-            // reject the task with "baseline rebuild is pending" instead of the real reason.
+            // Anything else that fails here is reported as it is -- leaving the barrier behind would
+            // make the IVM attempt that follows reject the task with "baseline rebuild is pending"
+            // instead of the real reason.
             executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
         }
         mtmv.releaseIvmBaselineRebuild(mtmvSchemaChangeVersion);
