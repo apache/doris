@@ -21,6 +21,7 @@
 #include <rapidjson/rapidjson.h>
 
 #include <cctype>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -37,6 +38,14 @@
 #include "util/security.h"
 
 namespace doris {
+
+// AI max_retries excludes the initial request, while HttpClient expects total attempts.
+inline int ai_http_request_attempts(int32_t max_retries) {
+    if (max_retries <= 0) {
+        return 1;
+    }
+    return max_retries == std::numeric_limits<int32_t>::max() ? max_retries : max_retries + 1;
+}
 
 struct AIResource {
     AIResource() = default;

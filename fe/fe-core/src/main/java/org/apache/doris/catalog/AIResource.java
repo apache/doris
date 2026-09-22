@@ -27,9 +27,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -54,9 +53,10 @@ import java.util.Map;
  */
 
 public class AIResource extends Resource {
-    private static final Logger LOG = LogManager.getLogger(AIResource.class);
+    private static final String LEGACY_VALIDITY_CHECK = "ai.validity_check";
+
     @SerializedName(value = "properties")
-    private Map<String, String> properties;
+    private volatile Map<String, String> properties;
     @SerializedName(value = "createdByRoot")
     private boolean createdByRoot;
 
@@ -66,7 +66,7 @@ public class AIResource extends Resource {
 
     public AIResource(String name) {
         super(name, ResourceType.AI);
-        properties = Maps.newHashMap();
+        properties = ImmutableMap.of();
     }
 
     public boolean isCreatedByRoot() {
@@ -80,65 +80,62 @@ public class AIResource extends Resource {
     @Override
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
-        this.properties = Maps.newHashMap(newProperties);
+        Map<String, String> changedProperties = Maps.newHashMap(newProperties);
+        changedProperties.remove(LEGACY_VALIDITY_CHECK);
 
-        AIProperties.requiredAIProperties(properties);
-
-        boolean needCheck = isNeedCheck(properties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("AI resource need check validity: {}", needCheck);
-        }
-
-        AIProperties.optionalAIProperties(this.properties);
+        AIProperties.requiredAIProperties(changedProperties);
+        AIProperties.optionalAIProperties(changedProperties);
+        this.properties = ImmutableMap.copyOf(changedProperties);
     }
 
     public String getProperty(String propertyKey) {
-        return properties.get(propertyKey);
-    }
-
-    private boolean isNeedCheck(Map<String, String> newProperties) {
-        boolean needCheck = !this.properties.containsKey(AIProperties.VALIDITY_CHECK)
-                || Boolean.parseBoolean(this.properties.get(AIProperties.VALIDITY_CHECK));
-
-        if (newProperties != null && newProperties.containsKey(AIProperties.VALIDITY_CHECK)) {
-            needCheck = Boolean.parseBoolean(newProperties.get(AIProperties.VALIDITY_CHECK));
+        readLock();
+        try {
+            return properties.get(propertyKey);
+        } finally {
+            readUnlock();
         }
-
-        if ("LOCAL".equalsIgnoreCase(this.properties.getOrDefault(AIProperties.PROVIDER_TYPE, ""))) {
-            needCheck = false;
-        }
-        return needCheck;
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
-        boolean needCheck = isNeedCheck(properties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("AI resource need check validity: {}", needCheck);
-        }
-
-        if (needCheck) {
-            Map<String, String> changedProperties = new HashMap<>(this.properties);
-            changedProperties.putAll(properties);
-            AIProperties.requiredAIProperties(changedProperties);
-        }
-
-        // modify properties
+    public void modifyProperties(Map<String, String> newProperties) throws DdlException {
         writeLock();
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(AIProperties.API_KEY)) {
-                this.properties.put(kv.getKey(), kv.getValue());
+        try {
+            Map<String, String> changedProperties = new HashMap<>(this.properties);
+            changedProperties.remove(LEGACY_VALIDITY_CHECK);
+            for (Map.Entry<String, String> kv : newProperties.entrySet()) {
+                if (LEGACY_VALIDITY_CHECK.equals(kv.getKey())) {
+                    continue;
+                }
+                replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
+                if (AIProperties.API_KEY.equals(kv.getKey())) {
+                    changedProperties.put(kv.getKey(), kv.getValue());
+                }
             }
+            AIProperties.requiredAIProperties(changedProperties);
+            AIProperties.optionalAIProperties(changedProperties);
+
+            this.properties = ImmutableMap.copyOf(changedProperties);
+            ++version;
+        } finally {
+            writeUnlock();
         }
-        ++version;
-        writeUnlock();
-        super.modifyProperties(properties);
+        super.modifyProperties(newProperties);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        if (properties != null) {
+            Map<String, String> loadedProperties = Maps.newHashMap(properties);
+            loadedProperties.remove(LEGACY_VALIDITY_CHECK);
+            properties = ImmutableMap.copyOf(loadedProperties);
+        }
     }
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        return Maps.newHashMap(properties);
+        return getPropertiesSnapshot();
     }
 
     @Override
@@ -146,18 +143,22 @@ public class AIResource extends Resource {
         String lowerCaseType = type.name().toLowerCase();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "id", String.valueOf(id)));
         readLock();
-        result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().equals(AIProperties.API_KEY)) {
-                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
-            } else {
-                result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+        try {
+            result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                if (entry.getKey().equals(AIProperties.API_KEY)) {
+                    result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
+                } else {
+                    result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
+                }
             }
+        } finally {
+            readUnlock();
         }
-        readUnlock();
     }
 
     public TAIResource toThrift() throws NumberFormatException {
+        Map<String, String> properties = getPropertiesSnapshot();
         TAIResource tAIResource = new TAIResource();
         tAIResource.setProviderType(properties.get(AIProperties.PROVIDER_TYPE));
         tAIResource.setEndpoint(properties.get(AIProperties.ENDPOINT));
@@ -197,5 +198,14 @@ public class AIResource extends Resource {
         }
 
         return tAIResource;
+    }
+
+    private Map<String, String> getPropertiesSnapshot() {
+        readLock();
+        try {
+            return Maps.newHashMap(properties);
+        } finally {
+            readUnlock();
+        }
     }
 }

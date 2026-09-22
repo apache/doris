@@ -41,6 +41,22 @@ private:
     std::string _content_type;
 };
 
+TEST(AI_ADAPTER_TEST, max_retries_is_in_addition_to_initial_request) {
+    auto count_attempts = [](int32_t max_retries) {
+        int attempts = 0;
+        Status status = HttpClient::execute_with_retry(
+                ai_http_request_attempts(max_retries), 0, [&attempts](HttpClient*) {
+                    ++attempts;
+                    return Status::InternalError("force retry");
+                });
+        EXPECT_FALSE(status.ok());
+        return attempts;
+    };
+
+    EXPECT_EQ(count_attempts(0), 1);
+    EXPECT_EQ(count_attempts(2), 3);
+}
+
 TEST(AI_ADAPTER_TEST, local_adapter_request_chat_endpoint) {
     LocalAdapter adapter;
     TAIResource config;
