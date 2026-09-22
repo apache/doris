@@ -538,6 +538,8 @@ PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enque
             DORIS_CHECK(*queue_position == discarded_task);
             *queue_position = candidate;
             candidate->queue_position = queue_position;
+            // The replacement starts a new merge window; retain admission order for deadline scans.
+            _queue.splice(_queue.end(), _queue, queue_position);
             existing_entry->second = candidate;
         } else {
             DORIS_CHECK_LE(_tasks.size(), _max_pending_tasks);
@@ -759,10 +761,23 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
     for (auto iterator = _queue.begin(); iterator != _queue.end();) {
         const auto& candidate = *iterator;
         DORIS_CHECK(!candidate->is_active());
+        if (trace != nullptr) {
+            ++trace->scanned;
+        }
+        const auto ready_at = candidate->enqueued_at + _merge_delay;
+        if (now < ready_at) {
+            if (trace != nullptr) {
+                ++trace->delayed;
+            }
+            // Admission order and a shared delay make every following deadline at least this late.
+            // Leave delayed tasks mergeable without probing their epoch or inflight buffer.
+            *next_wakeup = std::min(*next_wakeup, ready_at);
+            break;
+        }
+
         const auto check_start = trace != nullptr ? MonotonicNanos() : 0;
         const bool discard = candidate->should_discard_before_read();
         if (trace != nullptr) {
-            ++trace->scanned;
             trace->discard_check_ns += MonotonicNanos() - check_start;
         }
         if (discard) {
@@ -771,16 +786,6 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
             }
             const auto discarded = iterator++;
             _discard_queued_task_locked(discarded, discarded_tasks);
-            continue;
-        }
-
-        const auto ready_at = candidate->enqueued_at + _merge_delay;
-        if (now < ready_at) {
-            if (trace != nullptr) {
-                ++trace->delayed;
-            }
-            *next_wakeup = std::min(*next_wakeup, ready_at);
-            ++iterator;
             continue;
         }
 
@@ -805,6 +810,7 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
         if (trace != nullptr) {
             ++trace->capacity_waits;
         }
+        // Another due task may target a different cache writer with available capacity.
         *next_wakeup = std::min(*next_wakeup, now + kCapacityRetryInterval);
         ++iterator;
     }
