@@ -163,6 +163,24 @@ bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const Data
     }
 }
 
+// The file block column and the reader that fills it are derived from one projection by two
+// different passes, so nothing structurally forces them to agree. A mismatch confined to the
+// CHILDREN of a complex column is invisible to every later check -- both sides still say STRUCT --
+// and surfaces only at assert_cast inside a decoder, which takes the whole process down. Refuse
+// the read here instead, naming both types.
+Status check_block_column_type(const DataTypePtr& block_type,
+                               const ParquetColumnReader& column_reader,
+                               format::LocalColumnId local_id, size_t block_position) {
+    if (types_equal_ignoring_nested_nullability(column_reader.type(), block_type)) {
+        return Status::OK();
+    }
+    return Status::InternalError(
+            "Parquet column {} (file column id {}, block position {}) is read as {} but its file "
+            "block column is {}",
+            column_reader.name(), local_id.value(), block_position,
+            column_reader.type()->get_name(), block_type->get_name());
+}
+
 bool is_data_page_type(tparquet::PageType::type page_type) {
     return page_type == tparquet::PageType::DATA_PAGE ||
            page_type == tparquet::PageType::DATA_PAGE_V2;
@@ -2031,11 +2049,8 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
         *used_direct_reader_filter = false;
         // External table schemas may make required Parquet descendants nullable. Preserve the
         // recursive type and shape checks while ignoring only nullability at every nesting level.
-        DCHECK(types_equal_ignoring_nested_nullability(
-                column_reader->type(), file_block->get_by_position(block_position).type))
-                << column_reader->type()->get_name() << " "
-                << file_block->get_by_position(block_position).type->get_name() << " "
-                << column_reader->name() << " " << file_block->get_by_position(block_position).name;
+        RETURN_IF_ERROR(check_block_column_type(file_block->get_by_position(block_position).type,
+                                                *column_reader, local_id, block_position));
         auto column = file_block->get_by_position(block_position).column->assert_mutable();
         SCOPED_TIMER(_scan_profile.column_read_time);
         const auto dictionary_filter_it = _current_dictionary_filters.find(local_id);
@@ -2700,12 +2715,13 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         for (const auto& [fid, column_reader] : _current_non_predicate_columns) {
             const auto block_position = request.non_predicate_position(fid).value();
             auto column = file_block->get_by_position(block_position).column->assert_mutable();
-            DCHECK_EQ(file_block->get_by_position(block_position).type->get_primitive_type(),
-                      column_reader->type()->get_primitive_type())
-                    << type_to_string(file_block->get_by_position(block_position)
-                                              .type->get_primitive_type())
-                    << " " << type_to_string(column_reader->type()->get_primitive_type()) << " "
-                    << column_reader->name() << " " << fid << " " << block_position;
+            // Compare the whole type, not just the top-level primitive one: the block column and
+            // the reader's type are derived from the same projection by two different passes, and
+            // a complex column whose CHILDREN disagree reads as STRUCT on both sides here and is
+            // only caught by assert_cast deep inside the decoder, which aborts the process.
+            RETURN_IF_ERROR(
+                    check_block_column_type(file_block->get_by_position(block_position).type,
+                                            *column_reader, fid, block_position));
             if (need_filter_output) {
                 [[maybe_unused]] auto old_size = column->size();
                 RETURN_IF_ERROR(
