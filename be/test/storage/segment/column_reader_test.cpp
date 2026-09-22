@@ -604,15 +604,16 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
     ASSERT_GT(baseline_array.size_at(1), 0);
 
     // Compare physical item spans as well as logical rows, including payload under NULL parents.
-    auto check_selected_rows = [&](const IColumn& result) {
-        ASSERT_EQ(rowids.size(), result.size());
+    auto check_selected_rows = [&](const std::vector<rowid_t>& selected_rowids,
+                                   const IColumn& result) {
+        ASSERT_EQ(selected_rowids.size(), result.size());
         const auto& actual_nullable = assert_cast<const ColumnNullable&>(result);
         const auto& actual_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
                 actual_nullable.get_nested_column());
         size_t expected_item_count = 0;
         size_t actual_item_index = 0;
-        for (size_t i = 0; i < rowids.size(); ++i) {
-            const auto rowid = rowids[i];
+        for (size_t i = 0; i < selected_rowids.size(); ++i) {
+            const auto rowid = selected_rowids[i];
             EXPECT_EQ(baseline_nullable.get_null_map_data()[rowid],
                       actual_nullable.get_null_map_data()[i]);
 
@@ -628,7 +629,21 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
         }
         EXPECT_EQ(expected_item_count, actual_array.get_data().size());
     };
-    check_selected_rows(*actual);
+    check_selected_rows(rowids, *actual);
+
+    {
+        // FixedReadPlan preserves input order. Read the final physical row before an earlier row
+        // to cover the unordered fallback, including the end-of-offset-stream sentinel.
+        const std::vector<rowid_t> unordered_rowids {11999, 0};
+        MutableColumnPtr unordered_actual = column_type->create_column();
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        ASSERT_TRUE(iterator->read_by_rowids(unordered_rowids.data(), unordered_rowids.size(),
+                                             unordered_actual)
+                            .ok());
+        check_selected_rows(unordered_rowids, *unordered_actual);
+    }
 
     {
         SCOPED_TRACE("predicate metadata -> filter -> lazy items");
@@ -668,7 +683,7 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
         ASSERT_FALSE(iterator->need_to_read_meta_columns());
         ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), lazy).ok());
         iterator->finalize_lazy_phase(lazy);
-        check_selected_rows(*lazy);
+        check_selected_rows(rowids, *lazy);
     }
 }
 
