@@ -911,6 +911,22 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                     }
                 }
                 EXPECT_TRUE(reader.close().ok());
+                if (indexed) {
+                    // Read metrics after close: lance-c publishes its final execution summary
+                    // when the stream is released, including for an early top-k stop.
+                    for (const char* name : {"LancePrefilterLoads", "LancePrefilterInputRows",
+                                             "LancePrefilterInputBatches", "LancePrefilterRowIds",
+                                             "LancePrefilterLoadTime", "LancePrefilterInputTime",
+                                             "LancePrefilterBuildTime"}) {
+                        auto* counter = profile.get_counter(name);
+                        ASSERT_NE(nullptr, counter) << name;
+                        if (filtered) {
+                            EXPECT_GT(counter->value(), 0) << name;
+                        } else {
+                            EXPECT_EQ(counter->value(), 0) << name;
+                        }
+                    }
+                }
             }
         }
     }
