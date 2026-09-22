@@ -20,6 +20,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 #include <signal.h>
+#include <spawn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -331,6 +332,38 @@ TEST_F(CdcClientMgrTest, StartCdcClientWithResult) {
     // Should succeed
     EXPECT_TRUE(status.ok());
     EXPECT_GT(mgr.get_child_pid(), 0); // PID should be set
+}
+
+// Scenario: starting the cdc client installs a process-wide SIGCHLD handler, and a process-wide
+// handler sees every child of the BE, not just the cdc client. BE also runs an embedded JVM, which
+// forks children of its own for Runtime.exec() and reads their exit status from its process-reaper
+// thread. Reaping one of those here makes that thread find the child already gone, and
+// java.lang.ProcessHandleImpl turns the resulting ECHILD into exit code 0 whatever the child
+// really returned - Java code inside BE that branches on an exit status then takes the wrong
+// branch silently. The handler must wait on the cdc client's pid alone.
+TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
+    CdcClientMgr mgr;
+    PRequestCdcClientResult result;
+    ASSERT_TRUE(mgr.start_cdc_client(&result).ok());
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 0.2; exit 7"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    // Be somewhere other than waitpid() when the child exits, so its SIGCHLD reaches the handler
+    // rather than a waiter that is already blocked on this pid.
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    int child_status = 0;
+    const pid_t reaped = waitpid(pid, &child_status, 0);
+    ASSERT_EQ(reaped, pid) << "the cdc SIGCHLD handler consumed a child that is not the cdc client";
+    ASSERT_TRUE(WIFEXITED(child_status));
+    EXPECT_EQ(WEXITSTATUS(child_status), 7);
+
+    mgr.stop();
 }
 
 // Test start_cdc_client when environment is missing

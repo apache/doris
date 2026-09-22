@@ -50,12 +50,31 @@
 namespace doris {
 
 namespace {
-// Handle SIGCHLD signal to prevent zombie processes
+// The pid of the cdc client this process forked, published for handle_sigchld(). A signal handler
+// may only touch lock-free atomics, so the one pid it is allowed to reap lives here rather than
+// behind CdcClientMgr's mutex. ExecEnv owns a single CdcClientMgr, so there is a single pid.
+std::atomic<pid_t> g_cdc_child_pid {0};
+
+// Reap the cdc client so it does not linger as a zombie.
+//
+// waitpid(-1) here would reap ANY child of this process, including the ones the embedded JVM forks
+// for Runtime.exec(): the JVM's process-reaper thread would then find its own child already gone,
+// and java.lang.ProcessHandleImpl turns that ECHILD into exit code 0 no matter what the child
+// really returned. Java code inside BE that branches on an exit status would silently take the
+// wrong branch - which is how frocksdbjni's `ldd /usr/bin/env | grep -q musl` probe answered "yes"
+// on a glibc host and loaded the musl build of librocksdbjni.so. Wait for our own pid only.
 void handle_sigchld(int sig_no) {
-    int status = 0;
-    pid_t pid;
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+    const pid_t cdc_pid = g_cdc_child_pid.load(std::memory_order_relaxed);
+    if (cdc_pid <= 0) {
+        return;
     }
+    // A handler must leave errno as it found it: it can interrupt a thread between a failing call
+    // and its errno check.
+    const int saved_errno = errno;
+    int status = 0;
+    while (waitpid(cdc_pid, &status, WNOHANG) < 0 && errno == EINTR) {
+    }
+    errno = saved_errno;
 }
 
 // Check CDC client health
@@ -116,6 +135,9 @@ void CdcClientMgr::stop() {
         }
         _child_pid.store(0);
     }
+    // Nothing of ours is left to reap, so stop the handler from waiting on a pid the OS may hand
+    // to somebody else.
+    g_cdc_child_pid.store(0);
 
     LOG(INFO) << "CdcClientMgr is stopped";
 }
@@ -234,10 +256,14 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
 
     const std::string cdc_out_file = std::string(log_dir) + "/cdc-client.out";
 
-    struct sigaction act;
-    act.sa_flags = 0;
+    struct sigaction act {};
+    sigemptyset(&act.sa_mask);
+    // SA_RESTART: the handler runs on whichever thread the kernel picks, and without it every
+    // blocking call in BE becomes interruptible whenever the cdc client exits. SA_NOCLDSTOP: only
+    // the child's exit is interesting, not its stops.
+    act.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     act.sa_handler = handle_sigchld;
-    sigaction(SIGCHLD, &act, NULL);
+    sigaction(SIGCHLD, &act, nullptr);
     LOG(INFO) << "Start to fork cdc client process with " << path;
 #ifdef BE_TEST
     _child_pid.store(99999);
@@ -268,6 +294,12 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     } else {
         // Parent process: save PID and wait for startup
         _child_pid.store(pid);
+        g_cdc_child_pid.store(pid);
+        // A child that died between fork() returning and the store above raised a SIGCHLD the
+        // handler saw with no pid to reap. Collect it here; a child still running just returns 0.
+        int forked_status = 0;
+        while (waitpid(pid, &forked_status, WNOHANG) < 0 && errno == EINTR) {
+        }
 
         // Waiting for cdc to start, failed after more than 3 * 10 seconds
         std::string health_response;
