@@ -1295,7 +1295,7 @@ TEST_F(SpillFileTest, FinalCloseReleasesRerunnableQueryContextAndDeletesSpillDir
         auto context = std::make_shared<PipelineFragmentContext>(
                 query_id, params, query_ctx, exec_env, [](RuntimeState*, Status*) {});
         fragment_mgr->_pipeline_map.insert({query_id, fragment_id}, context);
-        g_fragment_executing_count << 1;
+        increment_fragment_executing_count();
         query_ctx->set_pipeline_context(fragment_id, context);
         {
             std::lock_guard lock(fragment_mgr->_rerunnable_params_lock);
