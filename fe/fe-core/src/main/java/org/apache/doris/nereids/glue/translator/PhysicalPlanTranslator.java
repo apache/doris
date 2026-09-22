@@ -3261,7 +3261,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         private int typePriority(SlotDescriptor s) {
             if (s.getType().isNumericType() || s.getType().isDateType() || s.getType().isBoolean()
-                    || s.getType().isTimeType() || s.getType().isIP()) {
+                    || s.getType().isTimeType() || s.getType().isIP() || s.getType().isUuid()) {
                 return 1;
             } else if (s.getType().isStringType()) {
                 return 2;
