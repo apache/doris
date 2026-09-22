@@ -968,7 +968,7 @@ class ModuleUDFLoader(UDFLoader):
     _FORBIDDEN_MODULE_NAMES: frozenset = frozenset({
         "argparse", "base64", "gc", "importlib", "inspect", "ipaddress",
         "json", "sys", "os", "traceback", "logging", "time", "threading",
-        "pickle", "abc", "contextlib", "typing", "datetime", "enum",
+        "pickle", "uuid", "abc", "contextlib", "typing", "datetime", "enum",
         "pathlib", "pandas", "pd", "pyarrow", "pa", "flight",
         "logging.handlers",
     })
