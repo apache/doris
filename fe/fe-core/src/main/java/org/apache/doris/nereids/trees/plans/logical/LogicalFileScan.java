@@ -383,10 +383,24 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
+        /** Materialization state for a partition selection. */
+        public enum State {
+            NOT_PRUNED,
+            DEFERRED,
+            MATERIALIZED
+        }
+
         // NOT_PRUNED means the Nereids planner does not handle the partition pruning.
         // This can be treated as the initial value of SelectedPartitions.
         // Or used to indicate that the partition pruning is not processed.
-        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false);
+        public static SelectedPartitions NOT_PRUNED = new SelectedPartitions(0, ImmutableMap.of(), false, false,
+                State.NOT_PRUNED);
+
+        // DEFERRED means a Hive table with a selective predicate can ask HMS for only the matching
+        // partitions after Nereids supplies that predicate.
+        public static SelectedPartitions DEFERRED_PARTITION_PRUNING = new SelectedPartitions(0, ImmutableMap.of(),
+                false, false, State.DEFERRED);
+
         /**
          * total partition number
          */
@@ -406,6 +420,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public final boolean hasPartitionPredicate;
 
+        public final State state;
+
         /**
          * Constructor for SelectedPartitions.
          */
@@ -419,11 +435,25 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
          */
         public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned, boolean hasPartitionPredicate) {
+            this(totalPartitionNum, selectedPartitions, isPruned, hasPartitionPredicate, State.MATERIALIZED);
+        }
+
+        private SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
+                boolean isPruned, boolean hasPartitionPredicate, State state) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
                     "selectedPartitions is null"));
             this.isPruned = isPruned;
             this.hasPartitionPredicate = hasPartitionPredicate;
+            this.state = state;
+        }
+
+        public boolean isNotPruned() {
+            return state == State.NOT_PRUNED;
+        }
+
+        public boolean isDeferredPartitionPruning() {
+            return state == State.DEFERRED;
         }
 
         @Override
@@ -437,13 +467,14 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             SelectedPartitions that = (SelectedPartitions) o;
             return isPruned == that.isPruned
                     && hasPartitionPredicate == that.hasPartitionPredicate
+                    && state == that.state
                     && Objects.equals(
                     selectedPartitions.keySet(), that.selectedPartitions.keySet());
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate);
+            return Objects.hash(selectedPartitions, isPruned, hasPartitionPredicate, state);
         }
     }
 

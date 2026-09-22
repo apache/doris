@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
@@ -24,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -62,6 +64,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
@@ -97,6 +100,7 @@ import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.utils.FileUtils;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.internal.schema.InternalSchema;
@@ -467,6 +471,42 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return hivePartitionValues.getSortedPartitionRanges();
     }
 
+    @Override
+    public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        if (getDlaType() == DLAType.HIVE && !getPartitionColumns(snapshot).isEmpty()) {
+            return SelectedPartitions.DEFERRED_PARTITION_PRUNING;
+        }
+        return super.initSelectedPartitions(snapshot);
+    }
+
+    /**
+     * Materializes only the partitions admitted by a safe HMS partition filter. An empty result means
+     * the predicate or metastore does not support the filter grammar and local pruning remains intact.
+     */
+    public Optional<Map<String, PartitionItem>> getNameToPartitionItemsByFilter(
+            Optional<MvccSnapshot> snapshot, Expression predicate) {
+        if (getDlaType() != DLAType.HIVE) {
+            return Optional.empty();
+        }
+        List<Column> partitionColumns = getPartitionColumns(snapshot);
+        if (partitionColumns.isEmpty()) {
+            return Optional.empty();
+        }
+        String filter = HivePartitionFilterBuilder.build(predicate, partitionColumns);
+        if (filter == null) {
+            return Optional.empty();
+        }
+        try {
+            List<Partition> partitions = ((HMSExternalCatalog) catalog).getClient()
+                    .listPartitionsByFilter(getRemoteDbName(), getRemoteName(), filter);
+            return Optional.of(toNameToPartitionItems(partitions, partitionColumns, snapshot));
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to prune Hive partitions through HMS filter for table {}.{}",
+                    getDbName(), getName());
+            return Optional.empty();
+        }
+    }
+
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {
         if (getDlaType() != DLAType.HUDI) {
             return SelectedPartitions.NOT_PRUNED;
@@ -516,6 +556,35 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             nameToPartitionItem.put(idToName.get(entry.getKey()), entry.getValue());
         }
         return nameToPartitionItem;
+    }
+
+    private Map<String, PartitionItem> toNameToPartitionItems(List<Partition> partitions,
+            List<Column> partitionColumns, Optional<MvccSnapshot> snapshot) {
+        List<String> partitionColumnNames = partitionColumns.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList());
+        List<Type> partitionColumnTypes = getPartitionColumnTypes(snapshot);
+        Map<String, PartitionItem> result = Maps.newHashMapWithExpectedSize(partitions.size());
+        for (Partition partition : partitions) {
+            String partitionName = FileUtils.makePartName(partitionColumnNames, partition.getValues());
+            result.put(partitionName, toListPartitionItem(partitionName, partitionColumnTypes));
+        }
+        return result;
+    }
+
+    private ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
+        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
+        List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
+        for (String partitionValue : partitionValues) {
+            values.add(new PartitionValue(partitionValue,
+                    HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(partitionValue)));
+        }
+        try {
+            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
+            return new ListPartitionItem(Lists.newArrayList(partitionKey));
+        } catch (AnalysisException e) {
+            throw new HMSClientException("failed to convert filtered Hive partition %s", e, partitionName);
+        }
     }
 
     public boolean isHiveTransactionalTable() {

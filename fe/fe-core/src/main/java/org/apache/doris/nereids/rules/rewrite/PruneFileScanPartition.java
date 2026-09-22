@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -91,22 +92,43 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .collect(Collectors.toList());
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        boolean connectorFilteredPartitions = false;
+        if (nameToPartitionItem.isEmpty()
+                && scan.getSelectedPartitions().isDeferredPartitionPruning()
+                && externalTable instanceof HMSExternalTable) {
+            Optional<Map<String, PartitionItem>> filteredPartitions =
+                    ((HMSExternalTable) externalTable).getNameToPartitionItemsByFilter(
+                            scan.getRelationSnapshot(), filter.getPredicate());
+            if (filteredPartitions.isPresent()) {
+                nameToPartitionItem = filteredPartitions.get();
+                connectorFilteredPartitions = true;
+            }
+        }
+        if (!connectorFilteredPartitions && nameToPartitionItem.isEmpty()
+                && (scan.getSelectedPartitions().isNotPruned()
+                || scan.getSelectedPartitions().isDeferredPartitionPruning())) {
+            nameToPartitionItem = externalTable.getNameToPartitionItems(scan.getRelationSnapshot());
+        }
+        final Map<String, PartitionItem> partitionItems = nameToPartitionItem;
         Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
         boolean enableBinarySearch = ctx.getConnectContext() == null
                 || ctx.getConnectContext().getSessionVariable().enableBinarySearchFilteringPartitions;
         if (enableBinarySearch) {
-            sortedPartitionRanges = (Optional) externalTable.getSortedPartitionRanges(scan);
+            sortedPartitionRanges = connectorFilteredPartitions
+                    ? Optional.ofNullable(SortedPartitionRanges.build(partitionItems))
+                    : (Optional) externalTable.getSortedPartitionRanges(scan);
         }
         PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
-                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
+                partitionSlots, filter.getPredicate(), partitionItems, ctx,
                 PartitionTableType.EXTERNAL, sortedPartitionRanges);
         List<String> prunedPartitions = new ArrayList<>(result.partitions);
 
         for (String name : prunedPartitions) {
-            selectedPartitionItems.put(name, nameToPartitionItem.get(name));
+            selectedPartitionItems.put(name, partitionItems.get(name));
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+        return new SelectedPartitions(
+                connectorFilteredPartitions ? -1L : partitionItems.size(),
+                selectedPartitionItems, true, connectorFilteredPartitions || result.hasPartitionPredicate);
     }
 
     static List<Column> getPartitionColumnsForScan(ExternalTable externalTable, LogicalFileScan scan) {
