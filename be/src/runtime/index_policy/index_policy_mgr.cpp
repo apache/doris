@@ -160,16 +160,35 @@ Policys IndexPolicyMgr::get_index_policys() {
     return _policys; // Return copy to ensure thread safety after lock release
 }
 
+// Resolve a top-level analyzer or normalizer name the way FE validates it: an exact policy
+// wins, then the canonical built-in normalizer, then the normalized policy fallback.
+const TIndexPolicy* IndexPolicyMgr::find_top_level_policy_locked(const std::string& name,
+                                                                 bool* builtin_normalizer) const {
+    *builtin_normalizer = false;
+    const std::string exact_name = trim_name(name);
+    if (auto exact_it = _exact_name_to_id.find(exact_name); exact_it != _exact_name_to_id.end()) {
+        if (auto policy_it = _policys.find(exact_it->second); policy_it != _policys.end()) {
+            return &policy_it->second;
+        }
+    }
+    if (BUILTIN_NORMALIZERS.contains(normalize_name(name))) {
+        *builtin_normalizer = true;
+        return nullptr;
+    }
+    return find_policy_by_name_locked(name);
+}
+
 // Hold the lock throughout nested policy resolution so an analyzer observes a consistent
 // policy-name mapping and policy set.
 AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
 
     std::string normalized_name = normalize_name(name);
-    const auto* index_policy = find_policy_by_name_locked(name);
+    bool builtin_normalizer = false;
+    const auto* index_policy = find_top_level_policy_locked(name, &builtin_normalizer);
     if (index_policy == nullptr) {
-        if (is_builtin_normalizer(normalized_name)) {
-            return build_builtin_normalizer(name);
+        if (builtin_normalizer) {
+            return build_builtin_normalizer(normalized_name);
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
@@ -186,10 +205,11 @@ AnalyzerPtr IndexPolicyMgr::get_policy_by_name(const std::string& name) {
 AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
     std::shared_lock lock(_mutex);
     const std::string normalized_name = normalize_name(name);
-    const auto* index_policy = find_policy_by_name_locked(name);
+    bool builtin_normalizer = false;
+    const auto* index_policy = find_top_level_policy_locked(name, &builtin_normalizer);
     if (index_policy == nullptr) {
-        if (is_builtin_normalizer(normalized_name)) {
-            return build_builtin_normalizer(name);
+        if (builtin_normalizer) {
+            return build_builtin_normalizer(normalized_name);
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }
@@ -215,10 +235,12 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
         legacy_name->clear();
     }
     const std::string normalized_name = normalize_name(name);
-    const auto* index_policy = find_policy_by_name_locked(name);
+    bool builtin_normalizer = false;
+    const auto* index_policy = find_top_level_policy_locked(name, &builtin_normalizer);
     if (index_policy == nullptr) {
-        if (is_builtin_normalizer(normalized_name)) {
-            return std::make_shared<SingleAnalyzerProvider>(build_builtin_normalizer(name));
+        if (builtin_normalizer) {
+            return std::make_shared<SingleAnalyzerProvider>(
+                    build_builtin_normalizer(normalized_name));
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
     }

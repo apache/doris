@@ -374,6 +374,32 @@ TEST_F(IndexPolicyMgrTest, ReplayedPoliciesRejectWrongExactTokenizerType) {
     }
 }
 
+TEST_F(IndexPolicyMgrTest, BuiltinNormalizerWinsOverNormalizedLegacyPolicy) {
+    IndexPolicyMgr manager;
+
+    // FE resolves "lowercase" to the built-in normalizer when only a case-distinct legacy
+    // policy exists, so BE must not bind that policy through the normalized fallback.
+    TIndexPolicy legacy;
+    legacy.id = 170;
+    legacy.name = "LOWERCASE";
+    legacy.type = TIndexPolicyType::TOKEN_FILTER;
+    legacy.properties["type"] = "lowercase";
+    manager.apply_policy_changes({legacy}, {});
+
+    EXPECT_NE(manager.get_policy_by_name("lowercase"), nullptr);
+    EXPECT_NE(manager.get_analyzer_by_name("lowercase"), nullptr);
+    std::string resolved_name;
+    std::string legacy_name;
+    auto provider =
+            manager.get_analyzer_provider_by_name("lowercase", {}, &resolved_name, &legacy_name);
+    EXPECT_NE(provider, nullptr);
+    EXPECT_EQ(resolved_name, "lowercase");
+    EXPECT_TRUE(legacy_name.empty());
+
+    // The exact spelling still binds the replayed policy, which is not a top-level policy.
+    EXPECT_THROW(manager.get_policy_by_name("LOWERCASE"), Exception);
+}
+
 TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
     TIndexPolicy analyzer;
     analyzer.id = 20;

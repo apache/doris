@@ -72,6 +72,8 @@ private:
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
 
     const TIndexPolicy* find_policy_by_name_locked(const std::string& name) const;
+    const TIndexPolicy* find_top_level_policy_locked(const std::string& name,
+                                                     bool* builtin_normalizer) const;
     void register_policy_name_locked(const TIndexPolicy& policy);
     void unregister_policy_name_locked(const TIndexPolicy& policy);
 
