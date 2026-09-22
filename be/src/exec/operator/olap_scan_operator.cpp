@@ -457,7 +457,6 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     const auto& children = fn_call->children();
     doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
