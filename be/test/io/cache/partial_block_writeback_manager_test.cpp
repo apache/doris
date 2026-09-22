@@ -597,7 +597,7 @@ TEST_F(PartialBlockWritebackManagerTest, MergesQueuedFragmentsAndWaitsForCacheWr
         PartialBlockWritebackManager::Queue discarded;
         auto deadline = std::chrono::steady_clock::time_point::max();
         std::lock_guard lock(manager->_mutex);
-        EXPECT_EQ(manager->_take_runnable_task_locked(&discarded, &deadline), nullptr);
+        EXPECT_FALSE(manager->_dispatch_task_locked(&discarded, &deadline));
         EXPECT_TRUE(discarded.empty());
         return deadline;
     };
@@ -883,7 +883,7 @@ TEST_F(PartialBlockWritebackManagerTest, ReplacesQueuedTaskAfterEpochInvalidatio
         PartialBlockWritebackManager::Queue discarded;
         auto deadline = std::chrono::steady_clock::time_point::max();
         std::lock_guard lock(manager->_mutex);
-        EXPECT_EQ(manager->_take_runnable_task_locked(&discarded, &deadline), nullptr);
+        EXPECT_FALSE(manager->_dispatch_task_locked(&discarded, &deadline));
         EXPECT_TRUE(discarded.empty());
         EXPECT_NE(deadline, std::chrono::steady_clock::time_point::max());
         EXPECT_GE(deadline, replaced_at + 60s);
@@ -972,7 +972,7 @@ TEST_F(PartialBlockWritebackManagerTest, TracesDelayedScansAndMergedFragments) {
     auto cache = create_cache("partial_block_trace_delay");
     auto* writer = cache->async_write_manager();
     constexpr size_t pending_blocks = 1024;
-    auto options = partial_writeback_options(1, pending_blocks);
+    auto options = partial_writeback_options(32, pending_blocks);
     options.merge_delay_ms = 60000;
     auto manager = create_manager(options);
     const auto content = patterned_content('d');
@@ -980,6 +980,10 @@ TEST_F(PartialBlockWritebackManagerTest, TracesDelayedScansAndMergedFragments) {
     const auto hash = BlockFileCache::hash("partial_block_trace_delay");
     ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
               PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(wait_until([&] {
+        std::lock_guard lock(manager->_mutex);
+        return manager->_next_wakeup.has_value();
+    }));
     ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 1024, 3072)),
               PartialBlockSubmitResult::MERGED);
     for (size_t index = 1; index < pending_blocks; ++index) {
@@ -989,9 +993,14 @@ TEST_F(PartialBlockWritebackManagerTest, TracesDelayedScansAndMergedFragments) {
                           0, 1024)),
                   PartialBlockSubmitResult::QUEUED);
     }
+    // Admissions and worker wakeups must leave the dispatcher's existing deadline alone. Allow a
+    // spurious timer wake, but the scan count must not scale with workers or queue depth.
+    manager->_queue_cv.notify_all();
+    std::this_thread::sleep_for(30ms);
+    EXPECT_LE(trace.events("hole_queue_scan").size(), 1);
     ASSERT_TRUE(wait_until([&] {
         // Wake the unchanged deadline wait so the completed scan is emitted outside the lock.
-        manager->_queue_cv.notify_one();
+        manager->_dispatch_cv.notify_one();
         const auto scans = trace.events("hole_queue_scan");
         return std::any_of(scans.begin(), scans.end(), [&](const auto& event) {
             return event["details"]["queue_size"].GetInt64() == pending_blocks;
@@ -1024,6 +1033,112 @@ TEST_F(PartialBlockWritebackManagerTest, TracesDelayedScansAndMergedFragments) {
               PartialBlockSubmitResult::MERGED);
     EXPECT_EQ(trace.events("hole_submit").size(), pending_blocks + 1);
     manager->shutdown();
+}
+
+TEST_F(PartialBlockWritebackManagerTest, DispatchesAllWorkersAndKeepsOverflowMergeable) {
+    constexpr size_t workers = 32;
+    auto cache = create_cache("partial_block_dispatch_slots", workers + 1);
+    auto* writer = cache->async_write_manager();
+    auto options = partial_writeback_options(workers, workers + 1);
+    options.merge_delay_ms = 60000;
+    auto manager = create_manager(options);
+    const auto content = patterned_content('d');
+    auto reader = std::make_shared<ControlledFileReader>(content, true);
+    Defer release {[&] { reader->release_reads(); }};
+    UInt128Wrapper last_hash;
+    for (size_t index = 0; index <= workers; ++index) {
+        last_hash = BlockFileCache::hash("dispatch_slot_" + std::to_string(index));
+        ASSERT_EQ(manager->try_submit(
+                          make_request(writer, nullptr, reader, last_hash, content, 0, 1024)),
+                  PartialBlockSubmitResult::QUEUED);
+    }
+    manager->set_merge_delay_ms(0);
+    ASSERT_TRUE(reader->wait_for_entered(workers));
+    EXPECT_EQ(reader->max_active_reads(), workers);
+    EXPECT_EQ(manager->active_count(), workers);
+    EXPECT_EQ(manager->queued_count(), 1);
+    EXPECT_EQ(manager->try_submit(
+                      make_request(writer, nullptr, reader, last_hash, content, 1024, 3072)),
+              PartialBlockSubmitResult::MERGED);
+
+    reader->release_reads();
+    ASSERT_TRUE(wait_until([&] { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&] { return writer->pending_count() == 0; }));
+    // The overflow task merged to a full block while all execution slots were occupied.
+    EXPECT_EQ(reader->read_calls(), workers);
+    EXPECT_EQ(read_cached_block(cache.get(), last_hash), content);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, ResizesIdleWorkersDuringDispatchDeadlineWait) {
+    auto cache = create_cache("partial_block_dispatch_resize");
+    auto* writer = cache->async_write_manager();
+    auto options = partial_writeback_options(4, 1);
+    options.merge_delay_ms = 60000;
+    auto manager = create_manager(options);
+    const auto content = patterned_content('r');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    const auto hash = BlockFileCache::hash("partial_block_dispatch_resize");
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(wait_until([&] {
+        std::lock_guard lock(manager->_mutex);
+        return manager->_next_wakeup.has_value();
+    }));
+
+    ASSERT_TRUE(manager->resize_workers(1).ok());
+    EXPECT_EQ(manager->running_worker_count(), 1);
+    ASSERT_TRUE(manager->resize_workers(8).ok());
+    ASSERT_TRUE(wait_until([&] { return manager->running_worker_count() == 8; }));
+    EXPECT_EQ(manager->queued_count(), 1);
+    EXPECT_EQ(reader->read_calls(), 0);
+    manager->set_merge_delay_ms(0);
+    ASSERT_TRUE(wait_until([&] { return manager->pending_count() == 0; }));
+    ASSERT_TRUE(wait_until([&] { return writer->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 1);
+    EXPECT_EQ(read_cached_block(cache.get(), hash), content);
+}
+
+TEST_F(PartialBlockWritebackManagerTest, ShutdownDiscardsUndeliveredTasksWithoutReading) {
+    auto& metrics = read_ahead_bvars();
+    const auto pending_before = metrics.hole_fill_pending_bytes.get_value();
+    const auto active_before = metrics.hole_fill_active_blocks.get_value();
+    auto cache = create_cache("partial_block_dispatch_shutdown");
+    auto* writer = cache->async_write_manager();
+    OneShotSyncPointGate take_gate;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "PartialBlockWritebackManager::_take_ready_task:before_lock",
+            [&](auto&&) { take_gate.arrive_and_wait(); }, &guard);
+    sync_point->enable_processing();
+    std::unique_ptr<PartialBlockWritebackManager> manager;
+    std::future<void> shutdown;
+    Defer clear_sync_point {[&] {
+        take_gate.release();
+        sync_point->disable_processing();
+        sync_point->clear_all_call_backs();
+    }};
+    manager = create_manager(partial_writeback_options(1, 1));
+    ASSERT_TRUE(take_gate.wait_until_arrived());
+    const auto content = patterned_content('s');
+    auto reader = std::make_shared<ControlledFileReader>(content);
+    const auto hash = BlockFileCache::hash("partial_block_dispatch_shutdown");
+    ASSERT_EQ(manager->try_submit(make_request(writer, nullptr, reader, hash, content, 0, 1024)),
+              PartialBlockSubmitResult::QUEUED);
+    ASSERT_TRUE(wait_until([&] {
+        std::lock_guard lock(manager->_mutex);
+        return manager->_ready_queue.size() == 1;
+    }));
+    EXPECT_EQ(manager->active_count(), 1);
+    shutdown = std::async(std::launch::async, [&] { manager->shutdown(); });
+    ASSERT_TRUE(wait_until([&] { return !manager->accepting() && manager->pending_count() == 0; }));
+    EXPECT_EQ(reader->read_calls(), 0);
+    EXPECT_EQ(writer->pending_count(), 0);
+    take_gate.release();
+    ASSERT_EQ(shutdown.wait_for(5s), std::future_status::ready);
+    shutdown.get();
+    EXPECT_EQ(metrics.hole_fill_pending_bytes.get_value(), pending_before);
+    EXPECT_EQ(metrics.hole_fill_active_blocks.get_value(), active_before);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, TracesForegroundQueueLockWait) {

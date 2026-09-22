@@ -95,7 +95,20 @@ Use the same capture command for both delay settings, keeping pending capacity a
 
 Scan start/end timestamps are captured while holding the manager mutex. The scan summary is serialized only after releasing it, possibly after the existing deadline wait wakes; its recorded duration excludes that wait and condition-variable mutex reacquisition. One event describes the whole scan, so there is no per-entry logging. Detailed timing still reads clocks per checked entry and can perturb scheduling. Submission completion events likewise serialize after manager/fragment locks have been released; their own serialization is outside their recorded duration, but remains inside the enclosing foreground call/Profile timer.
 
-Workers examine tasks in admission order and stop at the first unexpired merge deadline. When the entire queue is delayed, each scan reports `scanned=1`, `delayed=1`, and zero discard/capacity check time, regardless of `queue_size`. These counts describe visited entries, not the total delayed backlog. Due tasks blocked by one cache writer's capacity can still be bypassed to serve another writer.
+The dedicated `HoleFillDispatch` thread examines tasks in admission order and stops at the first unexpired merge deadline. It is the only deadline/capacity waiter; later admissions and fragment merges leave its existing timer undisturbed. When the entire queue is delayed, each scan reports `scanned=1`, `delayed=1`, and zero discard/capacity check time, regardless of `queue_size`. These counts describe visited entries, not the total delayed backlog. Due tasks blocked by one cache writer's capacity can still be bypassed to serve another writer.
+
+```mermaid
+flowchart LR
+    Submit[Foreground fragments] --> Waiting[Bounded mergeable queue]
+    Waiting --> Dispatch[HoleFillDispatch<br/>deadline and capacity checks]
+    Dispatch --> Ready[Bounded worker handoff]
+    Ready --> Workers[Block workers<br/>complete and submit blocks]
+    Workers --> Remote[Shared remote-read pool<br/>multi-range GETs]
+    Workers --> Writer[Async cache writer]
+    Workers -. slot released .-> Dispatch
+```
+
+Dispatched tasks (handoff plus executing) are bounded by the configured block-worker count; previously dispatched tasks drain when that count shrinks. This bounds the extra handoff queue and leaves overflow fragments mergeable. `doris_hole_fill_active_blocks` includes this handoff, as activation closes the merge window; it is not a count of running S3 GETs. Workers retain their remote-read tokens. Shutdown drops waiting and undelivered tasks, then waits for executing reads. Compare scan counts as well as scan duration after this change: the timer work should track task deadlines and capacity changes, rather than the number of idle workers. Copy timing and captured GET intervals remain available to check for a shifted bottleneck or changed read amplification.
 
 With `--query-id`, process diagnostics retain scans intersecting that query's observed event time envelope, including its recorded asynchronous tail. They include other queries using the same manager and are not attributed to the selected query. Compare the slowest submissions' timestamps with scan timestamps, queue lengths and check costs before attributing high lock wait to scanning. The analysis reports overlapping scans in full rather than clipping their individual timing fields. Capture isolated queries and include drained tails for the cleanest comparison.
 
