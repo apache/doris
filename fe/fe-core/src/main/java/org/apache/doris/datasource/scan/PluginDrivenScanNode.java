@@ -163,15 +163,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // so that connectors / non-partitioned tables read all partitions unless pruning applies.
     private SelectedPartitions selectedPartitions = SelectedPartitions.NOT_PRUNED;
 
-    // Memoizes the one-shot resolution of an unknown total partition count (see
-    // resolveUnknownTotalPartitionNum), including a FAILED one: an UNAVAILABLE connector view leaves the count
-    // unknown and a connector error aborts the render, so without this flag every later render of the same node
-    // would rebuild the whole view for the same answer - and the render callers are allowed to swallow the throw
-    // (the profile path logs and ignores it), so a failure has to be remembered and rethrown rather than
-    // re-queried.
-    private boolean totalPartitionNumResolved;
-    private RuntimeException totalPartitionNumFailure;
-
     // Cached isBatchMode() result. isBatchMode is read on both the dispatch (FileQueryScanNode)
     // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
     // keep the decision stable across reads (mirrors IcebergScanNode).
@@ -670,10 +661,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // FileScanNode.getNodeExplainString()'s `partition=N/M` line. This override replaces the
             // parent's body wholesale (custom TABLE/QUERY/PREDICATES format), so it must re-emit the
             // line itself; the counts are populated from the Nereids pruning result in
-            // getSplits()/startSplit() (see setSelectedPartitions). M is the table's TOTAL partition count,
-            // which a connector-filtered selection does not know (see resolveUnknownTotalPartitionNum), so it
-            // is completed here - at the only consumer of the number - rather than on the query path.
-            resolveUnknownTotalPartitionNum();
+            // getSplits()/startSplit() (see setSelectedPartitions). A connector-filtered selection does not
+            // know the table's total without enumerating every partition, so an unknown total stays `?`;
+            // rendering must not trigger the unfiltered metadata lookup this PR exists to avoid.
             output.append(prefix).append("partition=").append(selectedPartitionNum)
                     .append("/").append(totalPartitionNum < 0 ? "?" : totalPartitionNum).append("\n");
             // FIX-E / FIX-R3-RESIDUAL (explain gap): the VERBOSE per-backend block (the backends: list,
@@ -1209,69 +1199,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // become an empty selection: keep NOT_PRUNED so the scan reads every partition instead of none.
         return partitions.map(items -> new SelectedPartitions(items.size(), items, false))
                 .orElse(SelectedPartitions.NOT_PRUNED);
-    }
-
-    /**
-     * Completes the EXPLAIN {@code partition=N/M} total for a selection that cannot know it.
-     *
-     * <p>A connector-filtered selection ({@code PruneFileScanPartition}) carries only the surviving partition
-     * names - not enumerating the table's full partition view is exactly what pushing the predicate into the
-     * connector buys - so it leaves {@code totalPartitionNum} at
-     * {@link SelectedPartitions#UNKNOWN_TOTAL_PARTITION_NUM}. The reader of an EXPLAIN still gets the real
-     * total: it is resolved from the connector's UNFILTERED view, the same view a no-filter full scan
-     * materializes on this node before generating splits ({@link #materializeDeferredSelectedPartitions}), and
-     * it is resolved here so a statement that renders no EXPLAIN string never pays for it. An unavailable view
-     * leaves the count unknown, which the renderers write as {@code ?} - never as a fabricated 0.</p>
-     */
-    private void resolveUnknownTotalPartitionNum() {
-        // Memoized, failure included: an UNAVAILABLE view leaves the count unknown, so without the flag every
-        // later render of the same node (toString, getPlanTreeExplainStr, Profile.updateSummary) would ask the
-        // connector again and rebuild the whole view for the same answer. A FAILED attempt is remembered and
-        // rethrown instead of re-asked, because its caller may swallow the throw: StmtExecutor.updateProfile
-        // catches Throwable with a WARN, and re-querying there would both repeat the enumeration and keep
-        // aborting the profile update.
-        if (totalPartitionNumResolved) {
-            if (totalPartitionNumFailure != null) {
-                throw totalPartitionNumFailure;
-            }
-            return;
-        }
-        if (totalPartitionNum >= 0) {
-            totalPartitionNumResolved = true;
-            return;
-        }
-        // A metadata TVF scan (PluginDrivenSysTable) has no partition view to ask about; its counts stay at
-        // their NOT_PRUNED default, so this resolver never fires for it, and the cast below must not be reached
-        // through that shape.
-        TableIf table = desc.getTable();
-        if (!(table instanceof PluginDrivenExternalTable)) {
-            totalPartitionNumResolved = true;
-            return;
-        }
-        PluginDrivenExternalTable pluginDrivenTable = (PluginDrivenExternalTable) table;
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pluginDrivenTable,
-                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
-        try {
-            totalPartitionNum = totalPartitionNumFromUnfilteredView(totalPartitionNum,
-                    pluginDrivenTable.getNameToPartitionItemsForScan(snapshot));
-        } catch (RuntimeException e) {
-            totalPartitionNumFailure = e;
-            totalPartitionNumResolved = true;
-            throw e;
-        }
-        totalPartitionNumResolved = true;
-    }
-
-    /**
-     * The displayed total for a selection whose own total is unknown, given the connector's unfiltered
-     * partition view: the view's size, or the unchanged (still unknown) count when the view is unavailable.
-     */
-    static long totalPartitionNumFromUnfilteredView(long totalPartitionNum,
-            Optional<Map<String, PartitionItem>> unfilteredView) {
-        if (totalPartitionNum >= 0) {
-            return totalPartitionNum;
-        }
-        return unfilteredView.map(view -> (long) view.size()).orElse(totalPartitionNum);
     }
 
     @Override
