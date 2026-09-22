@@ -1208,7 +1208,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             return 0;
         }
         long removed = 0;
-        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
                     if (replica instanceof CloudReplica) {

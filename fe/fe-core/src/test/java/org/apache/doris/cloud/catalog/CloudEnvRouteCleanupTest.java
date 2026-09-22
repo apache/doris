@@ -31,6 +31,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +39,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CloudEnvRouteCleanupTest {
@@ -131,7 +131,7 @@ public class CloudEnvRouteCleanupTest {
 
     private static Backend backend(long id) {
         Backend backend = new Backend(id, "127.0.0.1", (int) (9050 + id));
-        backend.setTagMap(Map.of(Tag.TYPE_LOCATION, "default",
+        backend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "default",
                 Tag.CLOUD_CLUSTER_ID, "cg", Tag.CLOUD_CLUSTER_NAME, "cg"));
         return backend;
     }

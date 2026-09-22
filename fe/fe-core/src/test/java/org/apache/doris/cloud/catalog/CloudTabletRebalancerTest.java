@@ -316,12 +316,12 @@ public class CloudTabletRebalancerTest {
             Config.enable_cloud_replica_stale_route_clean = true;
             TestRebalancer rebalancer = new TestRebalancer();
 
-            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(1L)));
-            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(1L)));
-            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of()));
-            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of()));
-            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Set.of()));
-            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Set.of(2L)));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Collections.singleton(1L)));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Collections.singleton(1L)));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Collections.emptySet()));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Collections.emptySet()));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Collections.emptySet()));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Collections.singleton(2L)));
         } finally {
             Config.enable_cloud_replica_stale_route_clean = saved;
         }

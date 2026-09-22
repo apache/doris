@@ -632,7 +632,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
      *
      * Such an entry is already dead weight: getBackendIdImpl() resolves the backend id, gets null and
      * falls back to hashReplicaToBe(), so removing it does not change routing. But nothing ever removes
-     * it either -- dropCluster() only touches CloudSystemInfoService, and the rebalancer only walks the
+     * it either -- removeComputeGroup() only touches CloudSystemInfoService, and the rebalancer only walks the
      * compute groups that currently exist -- so entries of dropped compute groups pile up forever, both
      * in FE heap and in the image (the `bes`/`be` field).
      *

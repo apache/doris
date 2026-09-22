@@ -93,7 +93,7 @@ public class CheckpointTest {
         Mockito.when(database.getTables()).thenReturn(Collections.singletonList(table));
         Mockito.when(table.isManagedTable()).thenReturn(true);
         Mockito.when(table.getAllPartitions()).thenReturn(Collections.singletonList(partition));
-        Mockito.when(partition.getMaterializedIndices(IndexExtState.ALL, true))
+        Mockito.when(partition.getMaterializedIndices(IndexExtState.ALL))
                 .thenReturn(Collections.singletonList(materializedIndex));
     }
 
@@ -115,7 +115,7 @@ public class CheckpointTest {
             Mockito.when(recycledPartition.getId()).thenReturn(PARTITION_ID + 1);
             Mockito.when(recycledPartition.getName()).thenReturn("recycled_partition");
             MaterializedIndex recycledIndex = Mockito.mock(MaterializedIndex.class);
-            Mockito.when(recycledPartition.getMaterializedIndices(IndexExtState.ALL, true))
+            Mockito.when(recycledPartition.getMaterializedIndices(IndexExtState.ALL))
                     .thenReturn(Collections.singletonList(recycledIndex));
             CloudReplica partitionReplica = addReplica(recycledIndex, 60002L);
             partitionReplica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
@@ -189,9 +189,7 @@ public class CheckpointTest {
         withRouteCleanup(() -> {
             MaterializedIndex shadowIndex = Mockito.mock(MaterializedIndex.class);
             Mockito.when(shadowIndex.getState()).thenReturn(MaterializedIndex.IndexState.SHADOW);
-            Mockito.when(partition.getMaterializedIndices(IndexExtState.VISIBLE, true))
-                    .thenReturn(Collections.singletonList(materializedIndex));
-            Mockito.when(partition.getMaterializedIndices(IndexExtState.ALL, true))
+            Mockito.when(partition.getMaterializedIndices(IndexExtState.ALL))
                     .thenReturn(Arrays.asList(materializedIndex, shadowIndex));
             CloudReplica visibleReplica = addReplica(materializedIndex, 60001L);
             CloudReplica shadowReplica = addReplica(shadowIndex, 60002L);
