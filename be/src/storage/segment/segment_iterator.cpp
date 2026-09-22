@@ -1082,6 +1082,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     return Status::OK();
 }
 
+// Rows of `ranges` that are still set in `_row_bitmap`. `ranges.count()` would also include
+// rows the key range or an index already removed, which must not be charged to a later step.
 uint64_t SegmentIterator::_count_alive_rows(const RowRanges& ranges) const {
     uint64_t rows = 0;
     for (size_t i = 0; i < ranges.range_size(); ++i) {
@@ -1143,12 +1145,17 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         }
     }
 
+    // From here on `condition_row_ranges` is narrowed in place: each column intersects it with
+    // its own matching pages, and only pages holding rows of `_row_bitmap` are evaluated. Later
+    // columns and stages therefore inspect just what earlier ones left, and an empty result
+    // ends a stage early. The caller applies `_row_bitmap` afterwards, so the ranges only need
+    // page granularity here.
     size_t pre_size = 0;
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_bf_ns);
         // first filter data by bloom filter index
         // bloom filter index only use CondColumn
-        RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
+        pre_size = condition_row_ranges->count();
         for (auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
@@ -1156,20 +1163,19 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 continue;
             }
             // get row ranges by bf index of this column,
-            RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
-                    _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
-            RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
+                    _opts.col_id_to_predicates.at(cid).get(), _row_bitmap, condition_row_ranges));
+            if (condition_row_ranges->is_empty()) {
+                break;
+            }
         }
 
-        pre_size = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
         _opts.stats->rows_bf_filtered += newly_filtered_rows(pre_size);
     }
 
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
-        RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
+        pre_size = condition_row_ranges->count();
         // second filter data by zone map
         for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
@@ -1189,21 +1195,17 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 continue;
             }
             // get row ranges by zone map of this column,
-            RowRanges column_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                     _opts.col_id_to_predicates.at(cid).get(),
                     _opts.del_predicates_for_zone_map.count(cid) > 0
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
-                    &column_row_ranges));
-            // intersect different columns's row ranges to get final row ranges by zone map
-            RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
-                                           &zone_map_row_ranges);
+                    _row_bitmap, condition_row_ranges));
+            if (condition_row_ranges->is_empty()) {
+                break;
+            }
         }
 
-        pre_size = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                       condition_row_ranges);
         _opts.stats->rows_stats_filtered += newly_filtered_rows(pre_size);
     }
 
@@ -3412,6 +3414,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         row_ranges->is_empty()) {
         return Status::OK();
     }
+    if (_row_bitmap.isEmpty()) {
+        // No row survives, so no page can match. Clear up front so the result does not depend
+        // on whether any column below has page zone maps to evaluate.
+        row_ranges->clear();
+        return Status::OK();
+    }
 
     std::unordered_map<int, VExprContextSPtrs> ctxs_by_slot;
     for (const auto& conjunct : conjuncts) {
@@ -3452,19 +3460,30 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         }
         const std::vector<ZoneMapPB>* page_zone_maps = nullptr;
         RETURN_IF_ERROR(reader->get_page_zone_maps(iter_opts, &page_zone_maps));
+        // Synthetic constant readers have a segment ZoneMap but no physical pages
+        // or ordinal index. Preserve their existing page-pruning fallback.
         if (page_zone_maps == nullptr || page_zone_maps->empty()) {
             continue;
+        }
+        std::vector<uint32_t> candidate_pages;
+        RETURN_IF_ERROR(reader->get_candidate_page_indexes(_row_bitmap, *row_ranges, iter_opts,
+                                                           &candidate_pages));
+        if (candidate_pages.empty()) {
+            // No surviving row under `row_ranges` for this column, so the segment yields nothing.
+            row_ranges->clear();
+            return Status::OK();
         }
         auto data_type = _segment->get_data_type_of(*tablet_column, _schema->data_type(cid), _opts);
 
         RowRanges column_ranges;
         ZoneMapEvalStats page_stats;
-        for (uint32_t page_index = 0; page_index < page_zone_maps->size(); ++page_index) {
+        for (auto page_index : candidate_pages) {
             RowRange page_range;
             RETURN_IF_ERROR(reader->get_row_range_for_page(page_index, iter_opts, &page_range));
             if (!page_range.is_valid() || page_range.to() <= min_rowid) {
                 continue;
             }
+            ++_opts.stats->zonemap_index_pages_evaluated;
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
             slot_zone_map.data_type = data_type;
