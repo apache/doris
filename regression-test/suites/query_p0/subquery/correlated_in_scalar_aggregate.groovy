@@ -276,7 +276,6 @@ suite("correlated_in_scalar_aggregate") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
     """
     sql "INSERT INTO cisa_nn VALUES (1, 10), (2, 10), (5, 20)"
-    sql "set fe_debug = true"
     order_qt_not_in_nested_aggregation_not_null_group_key """
         SELECT o.k FROM cisa_o o
         WHERE o.k NOT IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_nn i WHERE i.k = o.k GROUP BY i.g) x)
@@ -291,7 +290,6 @@ suite("correlated_in_scalar_aggregate") {
             WHERE i.k = o.k GROUP BY i.g HAVING i.g + count(*) > 0) x)
         ORDER BY o.k
     """
-    sql "set fe_debug = false"
     // an IN subquery whose select list reads the outer query cannot be unnested: the rewrite reads
     // the value it compares from the aggregation of the domain, which cannot aggregate the value of
     // the outer row
@@ -408,5 +406,15 @@ suite("correlated_in_scalar_aggregate") {
         sql "SELECT o.k FROM cisa_o o" +
                 " WHERE o.k IN (SELECT o.k FROM cisa_i i WHERE i.k = o.k HAVING count(*) >= o.k - 4)"
         exception "access outer query's column in project is not supported"
+    }
+    // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
+    // domain, and the rewrite which unnests the subquery reads the aggregation of that domain from
+    // below the repeat: the value which the IN compares would be the value which the grouping sets
+    // of every correlation key together compute, so the subquery is rejected when it is analyzed
+    // instead of comparing the outer rows with the rows of another correlation key
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT count(*) FROM cisa_i i" +
+                " WHERE i.k = o.k GROUP BY GROUPING SETS ((i.g), ()))"
+        exception "access outer query's column before grouping sets is not supported"
     }
 }

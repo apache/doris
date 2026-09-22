@@ -411,6 +411,57 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testScalarSubqueryWithGroupingSetsIsRejected() {
+        // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
+        // domain (see containsARepeatAboveTheCorrelatedPredicate): the rewrite which unnests the
+        // subquery reads the aggregation of that domain from below the repeat, so the repeat would be
+        // evaluated on the rows of every correlation key together and the correlation predicate of the
+        // subquery would have no aggregation below it to carry it.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id, (SELECT count(*) FROM T2 WHERE T2.id = T1.id"
+                                + " GROUP BY GROUPING SETS ((T2.score), ())) FROM T1"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testInSubqueryWithGroupingSetsIsRejected() {
+        // The IN subquery of the query is compared with the value of the grouping sets of every
+        // correlation key together when the repeat is not reported: the value of the subquery of an
+        // outer row would be the value of the aggregation of the domains of the other outer rows.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM T2"
+                                + " WHERE T2.id = T1.id GROUP BY GROUPING SETS ((T2.score), ()))"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testExistsSubqueryWithGroupingSetsIsRejected() {
+        // The EXISTS of the outer rows whose correlated domain is empty would be true when the grouping
+        // sets of the subquery are computed for the rows of every correlation key together: the group
+        // above the aggregation of the domain of one of the other keys has a row as well.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE EXISTS (SELECT count(*) FROM T2"
+                                + " WHERE T2.id = T1.id GROUP BY GROUPING SETS ((T2.score), ()))"));
+        Assertions.assertTrue(exception.getMessage().contains("before grouping sets"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testGroupingSetsBelowTheCorrelatedPredicateIsAccepted() {
+        // a repeat below the correlated predicate computes the rows which that predicate selects, so
+        // the rewrite keeps its evaluation domain unchanged
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM"
+                        + " (SELECT id, score FROM T2 GROUP BY GROUPING SETS ((id, score), ())) x"
+                        + " WHERE x.id = T1.id)");
+    }
+
+    @Test
     public void testExistsCorrelatedScalarAggUnionOrderBy() {
         // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
         // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().

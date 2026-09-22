@@ -130,3 +130,11 @@
 
 -- !having_with_a_rejecting_conjunct_dominates_unknown_conjuncts --
 
+-- !exists_grouping_the_row_of_the_empty_domain --
+\N
+1
+2
+7
+
+-- !not_exists_grouping_the_row_of_the_empty_domain --
+

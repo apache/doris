@@ -1288,6 +1288,30 @@ class UnCorrelatedApplyAggregateFilterTest {
                 "the EXISTS has to keep its semi join: " + joins);
     }
 
+    @Test
+    public void testExistsWhichGroupsTheRowOfAnEmptyDomainIsRewritten() {
+        // select o.k from o where exists (
+        //     select count(*) from (select count(*) as c from i where i.k = o.k) x group by c)
+        // The count of the aggregation of the domain is global, so the original subquery computes one
+        // row for every outer row, the outer rows whose correlated domain is empty included (the count
+        // 0 of the empty derived table), and the count(*) above it groups that row: the group of the
+        // count 0 has one row as well, so the EXISTS reports every outer row. The rewrite keeps the row
+        // which the aggregation of the domain returns for an empty domain (the left outer join of the
+        // aggregation of the outer side) and lets the aggregates above the aggregation of the domain
+        // group it, so the row which they read for such a key is the row which the original subquery
+        // computes for the key as well.
+        Plan rewritten = rewriteAnExistsWhichGroupsTheRowOfAnEmptyDomain();
+        assertEveryProjectIsResolvable(rewritten);
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN),
+                "the aggregation of the domain has to keep the row of an empty correlated domain: " + joins);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the EXISTS has to keep its semi join: " + joins);
+        Assertions.assertFalse(containsTheGuardOfTheKeptRow(rewritten),
+                "the aggregates above the aggregation of the domain group the row which it computes for "
+                        + "an empty domain, so they must not ignore that row");
+    }
+
     /**
      * Whether the plan guards an aggregate above the aggregation of the domain with the marker of the
      * row which the rewrite keeps for an empty correlated domain (see guardAggregateArguments): the
@@ -1534,6 +1558,33 @@ class UnCorrelatedApplyAggregateFilterTest {
         LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
                 LogicalApply.SubQueryType.EXITS_SUBQUERY, false, Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), false, false, left, having);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     o exists (select count(*) from (select count(*) as c from i where i.k = o.k) x group by c)
+     *
+     * whose aggregation of the domain is global (the count of the derived table of the correlated
+     * domain returns the count 0 for an empty domain) and whose aggregation above it groups the rows
+     * of that count, and apply the rule.
+     */
+    private static Plan rewriteAnExistsWhichGroupsTheRowOfAnEmptyDomain() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregationOfTheCount = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
+        Alias countOfTheDerivedTable = new Alias(new Count(), "n");
+        Plan aggregationAboveTheCount = new LogicalAggregate<>(ImmutableList.of(count.toSlot()),
+                ImmutableList.of(countOfTheDerivedTable, count.toSlot()), aggregationOfTheCount);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.EXITS_SUBQUERY, false, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), false, false, left, aggregationAboveTheCount);
         return applyTheRule(apply);
     }
 

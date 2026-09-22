@@ -556,4 +556,18 @@ suite("correlated_scalar_subquery") {
         """
         exception "correlate scalar subquery must return only 1 row"
     }
+
+    // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
+    // domain, and the rewrite which unnests the subquery reads the aggregation of that domain from
+    // below the repeat: the grouping sets of a repeat above the correlated predicate would be
+    // computed for the rows of every correlation key together, so the subquery is reported instead
+    // of building a plan whose correlation predicate no aggregation below it can carry
+    test {
+        sql """
+            select c1 from correlated_scalar_t1 where c1 = (select count(*)
+                from correlated_scalar_t2 where correlated_scalar_t2.c1 = correlated_scalar_t1.c1
+                group by grouping sets ((correlated_scalar_t2.c2), ()));
+        """
+        exception "access outer query's column before grouping sets is not supported"
+    }
 }

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -113,6 +114,16 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             return BooleanLiteral.of(!exists.isNot());
         }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
+        if (analyzedResult.isCorrelated() && containsARepeatAboveTheCorrelatedPredicate(
+                analyzedResult.getLogicalPlan(), ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+            // The rewrite of a correlated EXISTS subquery reads the aggregation of the domain of an
+            // outer row, and a repeat above the correlated predicate duplicates the rows of every
+            // correlation key together (see containsARepeatAboveTheCorrelatedPredicate): report the
+            // subquery instead of evaluating its grouping sets once for all of them.
+            throw new AnalysisException(
+                    "access outer query's column before grouping sets is not supported "
+                            + analyzedResult.getLogicalPlan());
+        }
         return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
@@ -186,6 +197,12 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             // from the rows of another correlation key.
             rejectTheWrappersWhichTheRewriteCannotRebuild(analyzedResult.getLogicalPlan(),
                     ImmutableSet.copyOf(analyzedResult.correlatedSlots));
+            if (containsARepeatAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                throw new AnalysisException(
+                        "access outer query's column before grouping sets is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
         }
 
         return new InSubquery(
@@ -528,6 +545,22 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                         case LOGICAL_GENERATE:
                             throw new AnalysisException(
                                     "access outer query's column before lateral view is not supported");
+                        case LOGICAL_REPEAT:
+                            // The aggregation above a repeat node computes the grouping sets of the
+                            // subquery (GROUP BY GROUPING SETS ...), and the rewrite which unnests the
+                            // subquery reads the aggregation of the domain below the repeat (see
+                            // locateAggregate of UnCorrelatedApplyAggregateFilter): a repeat above the
+                            // correlated predicate belongs to the grouping sets of that aggregation,
+                            // whose groups the rewrite would compute for the rows of every correlation
+                            // key together, so the subquery of
+                            //
+                            //     select t1.id, (select count(*) from t2 where t2.id = t1.id
+                            //         group by grouping sets ((t2.score), ())) from t1
+                            //
+                            // is reported instead of building a plan whose correlation predicate no
+                            // aggregation below it can carry (see the walk of validateNodeInfoList).
+                            throw new AnalysisException(
+                                    "access outer query's column before grouping sets is not supported");
                         case LOGICAL_AGGREGATE:
                             if (checkAfterAggNode) {
                                 throw new AnalysisException(
@@ -653,6 +686,38 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
         return plan.children().stream()
                 .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots));
+    }
+
+    /**
+     * Whether a repeat of the subtree computes the grouping sets of the rows of the correlated domain
+     * of one outer row (see visitInSubquery): that is the case for a repeat which sits above the
+     * correlated predicate, whose rows the predicate selects below it. The rewrite which unnests a
+     * correlated subquery reads the aggregation of the domain of an outer row from below the repeat
+     * (see locateAggregate of UnCorrelatedApplyAggregateFilter), because the repeat of the subquery
+     * duplicates the rows of its child into the grouping sets which the aggregation above it
+     * aggregates: a repeat above the correlated predicate would duplicate the rows of every
+     * correlation key together, so the subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from i where i.k = o.k group by grouping sets ((i.g), ()))
+     *
+     * is reported as unsupported for that reason. A repeat below the correlated predicate computes the
+     * rows which that predicate selects, so the rewrite keeps its evaluation domain unchanged and the
+     * subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from (select k, g from i group by grouping sets ((k, g), ())) x
+     *         where x.k = o.k)
+     *
+     * is accepted.
+     */
+    private static boolean containsARepeatAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
+        if (plan instanceof LogicalRepeat && plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> containsARepeatAboveTheCorrelatedPredicate(child, correlatedSlots));
     }
 
     /**

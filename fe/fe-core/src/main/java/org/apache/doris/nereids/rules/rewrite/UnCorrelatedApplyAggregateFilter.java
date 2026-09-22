@@ -1574,6 +1574,21 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * has a correlated predicate which is not an equality and a HAVING clause which references the
      * outer query, so its aggregation is built on the outer side as well.
      *
+     * An EXISTS/NOT EXISTS subquery whose aggregation of the domain is global is built on the outer
+     * side when an aggregate above that aggregation groups the rows it reads: the aggregation of the
+     * domain returns the row of the empty input of the outer rows whose correlated domain is empty
+     * (the count 0 of the count(*) below), and the aggregation above it groups that row, so its group
+     * exists for those outer rows as well. For example the subquery of
+     *
+     *     select t1.c1 from t1 where exists (select count(*) from
+     *         (select count(*) c from t2 where t2.c1 = t1.c1) x group by c)
+     *
+     * is true for every outer row, while the aggregation of the inner side produces no row for the
+     * keys whose rows below the aggregation of the domain are missing (the group above it disappears
+     * with the row of the key). The whole EXISTS is true as well when the aggregation above is global
+     * (see the top level scalar aggregate of SubExprAnalyzer), so the aggregates above decide on the
+     * EXISTS here.
+     *
      * A scalar subquery reads the output of the aggregation of the correlated domain of one outer
      * row, and the join which pairs the outer row with that aggregation (the left outer join of
      * ScalarApplyToJoin, or the join this rewrite builds) keeps the groups of the inner side whose
@@ -1670,6 +1685,29 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // returns for an empty correlated domain (eg. select t1.c1 from t1 where t1.c1 in
             // (select count(*) from t2 where t2.c1 = t1.c1) compares the outer row with the count
             // 0 of its empty domain) has to be produced for it as well
+            if (agg.getGroupByExpressions().isEmpty()) {
+                // The aggregation of the domain is global, so the subquery computes one row for every
+                // outer row, the outer rows whose correlated domain is empty included (the count 0 of
+                // the count(*) of the subquery of
+                //
+                //     select t1.c1 from t1 where exists (select count(*) from
+                //         (select count(*) c from t2 where t2.c1 = t1.c1) x group by c)
+                //
+                // for example), and the aggregates above the aggregation of the domain group that
+                // row: the group of the count 0 above has one row as well, so the EXISTS reports
+                // every outer row. The whole EXISTS is folded when the top aggregate of the subquery
+                // is global (see the top level scalar aggregate of SubExprAnalyzer), so the
+                // aggregates above the aggregation of the domain decide on the EXISTS here, and the
+                // row which the aggregation of the domain returns for an empty domain is the rows
+                // below those aggregates. The aggregation of the outer side keeps that row (the
+                // aggregation of the domain returns the value of its empty input for it, see
+                // pullUpCorrelatedPredicateByAggregatingOuter), while the rewrite of the inner side
+                // adds the keys to the group by of every aggregate of the chain: the key whose rows
+                // below the aggregation of the domain are missing has no row at all then, the groups
+                // above it disappear with it, and the semi join drops the outer row of that key (a
+                // NOT EXISTS reports that row instead).
+                return true;
+            }
             return false;
         }
         // The IN subqueries and the EXISTS/NOT EXISTS subqueries which have a HAVING clause: the

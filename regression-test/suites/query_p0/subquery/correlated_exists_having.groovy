@@ -473,4 +473,32 @@ suite("correlated_exists_having") {
                 " WHERE EXISTS (SELECT count(*) FROM ceh_n_i i WHERE i.k < n.number HAVING count(*) = 0)"
         exception "Unsupported correlated subquery with grouping and/or aggregation"
     }
+    // The count of the aggregation of the domain is global, so the subquery computes one row for
+    // every outer row, the outer rows whose correlated domain is empty included (the count 0 of the
+    // empty derived table), and the count(*) above it groups that row: the group of the count 0 has
+    // one row as well, so the EXISTS reports every outer row, the keys of the outer rows without any
+    // matching inner row included. The aggregation of the inner side would add the keys to the group
+    // by of every aggregate of the chain, so those keys would have no row at all and the semi join
+    // would drop their outer rows (a NOT EXISTS would report them instead)
+    order_qt_exists_grouping_the_row_of_the_empty_domain """
+        SELECT e.k FROM ceh_e e
+        WHERE EXISTS (SELECT count(*) FROM (SELECT count(*) AS c FROM ceh_i i WHERE i.k = e.k) x
+            GROUP BY c)
+        ORDER BY e.k
+    """
+    order_qt_not_exists_grouping_the_row_of_the_empty_domain """
+        SELECT e.k FROM ceh_e e
+        WHERE NOT EXISTS (SELECT count(*) FROM (SELECT count(*) AS c FROM ceh_i i WHERE i.k = e.k) x
+            GROUP BY c)
+        ORDER BY e.k
+    """
+    // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
+    // domain, and the rewrite which unnests the subquery reads the aggregation of that domain from
+    // below the repeat: the grouping sets of a repeat above the correlated predicate would be
+    // computed for the rows of every correlation key together, so the subquery is reported
+    test {
+        sql "SELECT e.k FROM ceh_e e WHERE EXISTS (SELECT count(*) FROM ceh_i i" +
+                " WHERE i.k = e.k GROUP BY GROUPING SETS ((i.g), ()))"
+        exception "access outer query's column before grouping sets is not supported"
+    }
 }
