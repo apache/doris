@@ -48,16 +48,11 @@ suite("test_expr_zonemap_pruning") {
     def profileAction = new ProfileAction(context)
 
     def getProfileByToken = { String token ->
-        for (int retry = 0; retry < 10; ++retry) {
-            List profileData = profileAction.getProfileList()
-            for (final def profileItem in profileData) {
-                if (profileItem["Sql Statement"].toString().contains(token)) {
-                    return profileAction.getProfile(profileItem["Profile ID"].toString())
-                }
-            }
-            Thread.sleep(500)
-        }
-        throw new IllegalStateException("Missing profile for token: " + token)
+        // Wait for the profile to reach COMPLETE before reading counters. A profile can be listed and
+        // fetchable while still aggregating across instances, so an exact counter (the 2 / 1 / 3
+        // filtered-segment assertions below) could otherwise read a partial total. getProfileBySql
+        // polls Profile Completion State and returns only once it is COMPLETE.
+        return profileAction.getProfileBySql(token)
     }
 
     def counterSum = { String profile, String counterName ->
