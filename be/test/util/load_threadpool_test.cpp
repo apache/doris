@@ -21,6 +21,9 @@
 #include <chrono>
 #include <vector>
 
+#include "common/signal_handler.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
@@ -95,19 +98,57 @@ TEST(LoadThreadPoolTest, NestedBitmapRunsInlineWithOneWorker) {
     ASSERT_TRUE(ThreadPoolBuilder("load_nested_test").set_max_threads(1).build(&pool).ok());
     CalcDeleteBitmapExecutor executor;
     executor.init("background_bitmap_test", 1, pool.get());
-    auto parent = pool->new_load_token(1, LoadTaskPriority::HIGHEST);
-    std::atomic<bool> completed = false;
-    EXPECT_TRUE(parent->submit_func([&] {
-                          auto child =
-                                  executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+    auto resource_ctx = ResourceContext::create_shared();
+    auto request_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "load_nested_request");
+    auto tablet_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "load_nested_tablet");
+    resource_ctx->memory_context()->set_mem_tracker(request_tracker);
+    TUniqueId task_id;
+    task_id.hi = 1;
+    task_id.lo = 2;
+    resource_ctx->task_controller()->set_task_id(task_id);
+    SCOPED_ATTACH_TASK(resource_ctx);
+    auto parent = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+    std::atomic<int> completed = 0;
+    EXPECT_TRUE(
+            parent->submit_func([&] {
+                      EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
+                      EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),
+                                request_tracker.get());
+                      // Match the cloud tablet handler's tracker switch inside an
+                      // already attached bitmap callback.
+                      SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tablet_tracker);
+                      auto check_context = [&] {
+                          EXPECT_TRUE(thread_context()->is_attach_task());
+                          EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
+                          EXPECT_EQ(signal::query_id_hi, task_id.hi);
+                          EXPECT_EQ(signal::query_id_lo, task_id.lo);
+                          EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),
+                                    tablet_tracker.get());
+                      };
+                      auto child =
+                              executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                      for (int i = 0; i < 2; ++i) {
                           EXPECT_TRUE(child->submit_func([&] {
-                                               completed = true;
-                                               return Status::InternalError("test bitmap failure");
+                                               check_context();
+                                               ++completed;
+                                               return Status::OK();
                                            }).ok());
-                          EXPECT_FALSE(child->wait().ok());
-                      }).ok());
-    parent->wait();
-    EXPECT_TRUE(completed);
+                          EXPECT_EQ(completed.load(), i + 1);
+                          check_context();
+                      }
+                      EXPECT_TRUE(child->submit_func([&] {
+                                           check_context();
+                                           ++completed;
+                                           return Status::InternalError("test bitmap failure");
+                                       }).ok());
+                      EXPECT_FALSE(child->wait().ok());
+                      check_context();
+                      return Status::OK();
+                  }).ok());
+    EXPECT_TRUE(parent->wait().ok());
+    EXPECT_EQ(completed.load(), 3);
 }
 
 TEST(LoadThreadPoolTest, CancelledBitmapIsNotReportedAsComplete) {

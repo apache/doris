@@ -76,9 +76,7 @@ public:
             std::shared_lock rlock(_lock);
             RETURN_IF_ERROR(_status);
         }
-        return _submit_func([this, func = std::forward<Func>(func),
-                             resource_ctx = thread_context()->resource_ctx()]() {
-            SCOPED_ATTACH_TASK(resource_ctx);
+        return _submit_func([this, func = std::forward<Func>(func)]() {
             auto st = func();
             if (!st.ok()) {
                 std::lock_guard wlock(_lock);

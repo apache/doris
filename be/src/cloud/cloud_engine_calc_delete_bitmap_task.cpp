@@ -164,7 +164,8 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
 Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
                << ", txn_id=" << _transaction_id;
-    SCOPED_ATTACH_TASK(_mem_tracker);
+    // The bitmap token attaches the request context at the worker entry.
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
     auto get_tablet_time_us = MonotonicMicros() - t1;

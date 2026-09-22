@@ -44,10 +44,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
     }
 
     const auto submit_time_us = MonotonicMicros();
-    auto resource_ctx = thread_context()->resource_ctx();
     return _submit_func([=, this]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(resource_ctx);
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
                                                      tablet_delete_bitmap, queue_time_us);
@@ -73,10 +71,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
         RETURN_IF_ERROR(_status);
     }
     const auto submit_time_us = MonotonicMicros();
-    auto resource_ctx = thread_context()->resource_ctx();
     return _submit_func([=, this]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(resource_ctx);
         auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
                                                               delete_bitmap, queue_time_us);
         if (!st.ok()) {
@@ -111,8 +107,14 @@ Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
         ++_finished_tasks;
     };
     if (_thread_token) {
-        return _thread_token->submit_func(std::move(task));
+        return _thread_token->submit_func(
+                [task = std::move(task), resource_ctx = thread_context()->resource_ctx()]() {
+                    SCOPED_ATTACH_TASK(resource_ctx);
+                    task();
+                });
     }
+    // Inline children already run in the parent's attached context, including
+    // any tablet-specific MemTracker scope. AttachTask cannot be nested.
     task();
     return Status::OK();
 }
