@@ -1156,9 +1156,9 @@ public class SessionVariable implements Serializable, Writable {
     public int localExchangeFreeBlocksLimit = 4;
 
     @VariableMgr.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = {
-        "Scanner 的最小并发度，默认为 1", "The min concurrency of Scanner, default 1"
+        "Scanner 的最小并发度，默认为 4", "The min concurrency of Scanner, default 4"
     })
-    public int minScannersConcurrency = 1;
+    public int minScannersConcurrency = 4;
 
     @VariableMgr.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = {
         "外表 Scanner 的最小并发度，默认为 1", "The min concurrency of Remote Scanner, default 1"
@@ -2779,12 +2779,12 @@ public class SessionVariable implements Serializable, Writable {
             name = ENABLE_EXPR_ZONEMAP_FILTER,
             fuzzy = true,
             description = {"控制支持该变量的 scanner 是否启用表达式 ZoneMap 过滤。"
-                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 false。",
+                    + "File Scanner V2 始终启用安全的表达式 ZoneMap 过滤。默认为 true。",
                     "Controls expression ZoneMap filtering in scanners that honor this variable. "
                             + "File Scanner V2 always enables safe expression ZoneMap filtering. "
-                            + "The default value is false."},
+                            + "The default value is true."},
             needForward = true)
-    public boolean enableExprZonemapFilter = false;
+    public boolean enableExprZonemapFilter = true;
 
     @VariableMgr.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
