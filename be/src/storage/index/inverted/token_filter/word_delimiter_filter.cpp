@@ -70,6 +70,7 @@ Token* WordDelimiterFilter::next(Token* t) {
                 _first = false;
                 _current_source_byte_offsets = _saved_source_byte_offsets;
                 _current_source_byte_end_offsets = _saved_source_byte_end_offsets;
+                _current_generated = false;
                 return t;
             }
 
@@ -92,6 +93,7 @@ Token* WordDelimiterFilter::next(Token* t) {
                 _first = false;
                 _current_source_byte_offsets = _saved_source_byte_offsets;
                 _current_source_byte_end_offsets = _saved_source_byte_end_offsets;
+                _current_generated = false;
                 return t;
             }
         }
@@ -132,6 +134,7 @@ Token* WordDelimiterFilter::next(Token* t) {
                 _current_source_byte_offsets = _states[_buffered_pos - 1].source_byte_offsets;
                 _current_source_byte_end_offsets =
                         _states[_buffered_pos - 1].source_byte_end_offsets;
+                _current_generated = true;
                 if (_first && get_position_increment(t) == 0) {
                     set_position_increment(t, 1);
                 }
@@ -153,6 +156,7 @@ Token* WordDelimiterFilter::next(Token* t) {
             t->setEndOffset(_attribute.token_end_offset);
             _current_source_byte_offsets = _attribute.source_byte_offsets;
             _current_source_byte_end_offsets = _attribute.source_byte_end_offsets;
+            _current_generated = true;
             return t;
         }
 
@@ -189,6 +193,7 @@ Token* WordDelimiterFilter::next(Token* t) {
 void WordDelimiterFilter::reset() {
     DorisTokenFilter::reset();
     _has_saved_state = false;
+    _current_generated = false;
     _concat->clear();
     _concat_all->clear();
     _accum_pos_inc = 0;
@@ -218,6 +223,23 @@ void WordDelimiterFilter::reset() {
     } else {
         std::ranges::for_each(_states, release_attribute);
     }
+}
+
+bool WordDelimiterFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+    if (!_current_source_byte_offsets.empty()) {
+        return false;
+    }
+    if (!_current_generated) {
+        return DorisTokenFilter::get_conservative_source_byte_span(start, end);
+    }
+    if (DorisTokenFilter::get_conservative_source_byte_span(start, end)) {
+        return true;
+    }
+    // A generated part without an exact slice keeps the whole upstream token as its span, which
+    // is also the offset range it was published with.
+    start = 0;
+    end = _saved_end_offset - _saved_start_offset;
+    return end >= 0;
 }
 
 size_t WordDelimiterFilter::scratch_capacity_bytes_for_test() const {

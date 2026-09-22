@@ -66,9 +66,11 @@ Token* ASCIIFoldingFilter::next(Token* t) {
             if (c >= 0x0080) {
                 const int32_t input_runes = count_utf8_runes(std::string_view(buffer, length));
                 fold_to_ascii(buffer, length);
+                // Malformed bytes are skipped while folding, so the upstream map no longer
+                // describes the output either.
                 _rune_count_changed =
-                        input_runes >= 0 && input_runes != count_utf8_runes(std::string_view(
-                                                                   _output.data(), _output_pos));
+                        input_runes < 0 || input_runes != count_utf8_runes(std::string_view(
+                                                                  _output.data(), _output_pos));
                 if (_rune_count_changed && _source_byte_offsets_enabled) {
                     _has_source_span =
                             get_delegated_source_byte_span(*t, _source_start, _source_end);

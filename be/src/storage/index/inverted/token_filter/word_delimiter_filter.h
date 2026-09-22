@@ -42,6 +42,7 @@ public:
     std::span<const int32_t> get_source_byte_end_offsets() const override {
         return _current_source_byte_end_offsets;
     }
+    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
 
     size_t scratch_capacity_bytes_for_test() const;
 
@@ -113,6 +114,8 @@ private:
     int32_t _saved_start_offset = 0;
     int32_t _saved_end_offset = 0;
     bool _has_saved_state = false;
+    // Whether the current token is a generated part rather than the upstream token itself.
+    bool _current_generated = false;
     bool _has_output_token = false;
     bool _has_output_following_original = false;
 

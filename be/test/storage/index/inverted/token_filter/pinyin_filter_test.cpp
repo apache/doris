@@ -37,6 +37,7 @@
 #include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
+#include "storage/index/inverted/tokenizer/pinyin/pinyin_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/standard/standard_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -795,6 +796,157 @@ TEST_F(PinyinFilterTest, TestResetReleasesOversizedUpstreamProvenanceScratch) {
 
     reset_to(ordinary);
     EXPECT_EQ(collect(), ordinary_tokens);
+}
+
+namespace {
+
+// Offset-aware Pinyin filter that emits every ASCII letter on its own.
+PinyinFilterFactory make_letters_filter_factory() {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "false");
+    settings.set("keep_original", "false");
+    settings.set("keep_none_chinese", "true");
+    settings.set("keep_none_chinese_together", "false");
+    settings.set("keep_none_chinese_in_first_letter", "false");
+    settings.set("ignore_pinyin_offset", "false");
+    PinyinFilterFactory factory;
+    factory.initialize(settings);
+    return factory;
+}
+
+void assert_stream(const TokenStreamPtr& filter,
+                   const std::vector<std::tuple<std::string, int32_t, int32_t>>& expected) {
+    Token token;
+    for (const auto& [term, start, end] : expected) {
+        ASSERT_NE(filter->next(&token), nullptr) << "missing " << term;
+        EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), term);
+        EXPECT_EQ(token.startOffset(), start) << term;
+        EXPECT_EQ(token.endOffset(), end) << term;
+    }
+    EXPECT_EQ(filter->next(&token), nullptr);
+}
+
+TokenizerPtr make_pinyin_tokenizer(const ReaderPtr& reader, bool tokenize_none_chinese) {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "true");
+    settings.set("keep_original", "false");
+    settings.set("keep_none_chinese", "true");
+    settings.set("keep_none_chinese_together", "true");
+    settings.set("none_chinese_pinyin_tokenize", tokenize_none_chinese ? "true" : "false");
+    settings.set("ignore_pinyin_offset", "false");
+    PinyinTokenizerFactory factory;
+    factory.initialize(settings);
+    auto tokenizer = factory.create();
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+    return tokenizer;
+}
+
+} // namespace
+
+TEST_F(PinyinFilterTest, TestPinyinTokenizerPublishesCandidateProvenanceAndCorrectsOffsets) {
+    PinyinFilterFactory letters = make_letters_filter_factory();
+
+    // Transformed text keeps the whole Chinese rune span for every letter.
+    {
+        const std::string text = "中";
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+        auto filter = letters.create(make_pinyin_tokenizer(reader, true));
+        assert_stream(filter, {{"z", 0, 3}, {"h", 0, 3}, {"o", 0, 3}, {"n", 0, 3}, {"g", 0, 3}});
+    }
+    // A compacted ASCII buffer ends at the last letter's real byte and stays conservative.
+    {
+        const std::string text = "a-b";
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+        auto filter = letters.create(make_pinyin_tokenizer(reader, false));
+        assert_stream(filter, {{"a", 0, 3}, {"b", 0, 3}});
+    }
+    // Offsets follow a preceding char filter back to the source, with reset/reuse.
+    {
+        auto source = std::make_shared<lucene::util::SStringReader<char>>();
+        const std::string text = "\xEF\xAC\x81"; // U+FB01 expands to "fi"
+        source->init(text.data(), static_cast<int32_t>(text.size()), false);
+        ICUNormalizerCharFilterFactory char_filter_factory;
+        char_filter_factory.initialize({});
+        auto reader = char_filter_factory.create(source);
+        auto tokenizer = make_pinyin_tokenizer(reader, false);
+        auto filter = letters.create(tokenizer);
+        assert_stream(filter, {{"f", 0, 3}, {"i", 0, 3}});
+
+        const std::string reset_text = "ＬＩ";
+        reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+        tokenizer->set_reader(reader);
+        filter->reset();
+        assert_stream(filter, {{"l", 0, 3}, {"i", 3, 6}});
+    }
+}
+
+TEST_F(PinyinFilterTest, TestAsciiFoldingMalformedInputPublishesConservativeSpan) {
+    PinyinFilterFactory letters = make_letters_filter_factory();
+    for (const bool preserve_original : {false, true}) {
+        SCOPED_TRACE(preserve_original);
+        const std::string text = "\xFF\xC3\x86"; // stray byte, then U+00C6
+        auto tokenizer = createTokenizer("keyword", text);
+        Settings settings;
+        settings.set("preserve_original", preserve_original ? "true" : "false");
+        ASCIIFoldingFilterFactory folding_factory;
+        folding_factory.initialize(settings);
+        auto folding = folding_factory.create(tokenizer);
+        auto filter = letters.create(folding);
+
+        std::vector<std::tuple<std::string, int32_t, int32_t>> expected = {{"a", 0, 3},
+                                                                           {"e", 0, 3}};
+        if (preserve_original) {
+            expected.emplace_back(text, 0, 3);
+        }
+        assert_stream(filter, expected);
+
+        const std::string reset_text = "\xC3\x86";
+        auto reset_reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reset_reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+        tokenizer->set_reader(reset_reader);
+        filter->reset();
+        expected = {{"a", 0, 2}, {"e", 0, 2}};
+        if (preserve_original) {
+            expected.emplace_back(reset_text, 0, 2);
+        }
+        assert_stream(filter, expected);
+    }
+}
+
+TEST_F(PinyinFilterTest, TestWordDelimiterWithoutUpstreamProvenancePublishesTokenSpan) {
+    PinyinFilterFactory letters = make_letters_filter_factory();
+    const std::string text =
+            "\xFF"
+            "a";
+    auto tokenizer = createTokenizer("keyword", text);
+    WordDelimiterFilterFactory delimiter_factory;
+    delimiter_factory.initialize({});
+    auto filter = letters.create(delimiter_factory.create(tokenizer));
+    // Malformed upstream text has no rune map, so the part claims the whole token.
+    assert_stream(filter, {{"a", 0, 2}});
+
+    auto reset_to = [&](const std::string& reset_text) {
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+        tokenizer->set_reader(reader);
+        filter->reset();
+    };
+    // The readers keep pointers into these strings, so they must outlive the assertions.
+    const std::string interior_text =
+            "a\xFF"
+            "b";
+    // An interior malformed byte is not a delimiter, so the token passes through unchanged and
+    // its letters keep their exact byte positions.
+    reset_to(interior_text);
+    assert_stream(filter, {{"a", 0, 1}, {"b", 2, 3}});
+    const std::string valid_text = "liu-de";
+    reset_to(valid_text);
+    assert_stream(filter, {{"l", 0, 1}, {"i", 1, 2}, {"u", 2, 3}, {"d", 4, 5}, {"e", 5, 6}});
 }
 
 TEST_F(PinyinFilterTest, TestOffsetTrackingReusesTokenizerScratchAcrossTokens) {
