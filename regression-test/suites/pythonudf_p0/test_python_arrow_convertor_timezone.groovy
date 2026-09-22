@@ -37,8 +37,9 @@ suite("test_python_arrow_convertor_timezone") {
 def evaluate(value):
     return None if value is None else value.strftime('%Y-%m-%d %H:%M:%S.%f')
 \$\$"""
+        // Declare the yielded string as the array element; ARRAY<STRUCT<...>> emits a struct.
         sql """CREATE TABLES FUNCTION ${tableFunction}(DATETIME(6))
-            RETURNS ARRAY<STRUCT<value:STRING>>
+            RETURNS ARRAY<STRING>
             PROPERTIES("type"="PYTHON_UDF", "symbol"="evaluate",
                        "runtime_version"="${runtimeVersion}") AS \$\$
 def evaluate(value):
