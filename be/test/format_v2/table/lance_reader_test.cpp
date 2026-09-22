@@ -299,6 +299,14 @@ Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
     });
 }
 
+Status convert_record_batch_for_test(RuntimeState* runtime_state, const Columns& projected_columns,
+                                     const std::shared_ptr<arrow::RecordBatch>& record_batch,
+                                     Block* block, size_t* rows) {
+    LanceRecordBatchConverter converter;
+    RETURN_IF_ERROR(converter.init(runtime_state, projected_columns, SearchKind::NORMAL));
+    return converter.convert_record_batch_to_block(record_batch, block, std::nullopt, rows);
+}
+
 Status prepare_range(LanceTableReader* reader, TFileRangeDesc range,
                      std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt) {
     // Assign after value initialization so adding optional split state cannot break this fixture's
@@ -2302,7 +2310,7 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
 
     const auto& null_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
@@ -2377,7 +2385,7 @@ TEST(LanceTableReaderTypeTest, ReadsSlicedDurationAndJsonValues) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
 
     const auto& duration = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
@@ -2444,7 +2452,7 @@ TEST(LanceTableReaderTypeTest, ReadsRegisteredJsonNestedInSlicedList) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(1, rows);
 
     const auto& nullable_list =
@@ -2693,7 +2701,7 @@ TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedMap) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(1, rows);
 
     const auto& nullable_map = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
@@ -2740,7 +2748,7 @@ TEST(LanceTableReaderTypeTest, ReadsLanceJsonLargeBinaryValues) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
     const auto& json_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     EXPECT_EQ((ColumnUInt8::Container {0, 1}), json_values.get_null_map_data());
@@ -2772,7 +2780,7 @@ TEST(LanceTableReaderTypeTest, ReadsDurationBoundaryValues) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(5, rows);
     const auto& durations = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& duration_values = assert_cast<const ColumnInt64&>(durations.get_nested_column());
