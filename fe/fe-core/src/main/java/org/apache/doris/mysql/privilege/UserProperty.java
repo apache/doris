@@ -253,6 +253,11 @@ public class UserProperty {
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + " is not number");
                 }
+                // Replay must accept historical values; SessionVariable caps their effective parallelism.
+                if (!isReplay && newParallelFragmentExecInstanceNum > 256) {
+                    throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM
+                            + " must be less than or equal to 256, got " + value);
+                }
             } else if (keyArr[0].equalsIgnoreCase(PROP_SQL_BLOCK_RULES)) {
                 // set property "sql_block_rules" = "test_rule1,test_rule2"
                 if (keyArr.length != 1) {
