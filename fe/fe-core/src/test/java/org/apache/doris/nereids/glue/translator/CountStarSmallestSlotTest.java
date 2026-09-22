@@ -60,12 +60,17 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
                         + "properties('replication_num' = '1')",
                 "create table count_star_test_db.count_test5(k1 varchar(35), k2 int) partition by range(k2) "
                         + "(partition p1 values less than ('100')) "
+                        + "properties('replication_num' = '1')",
+                "create table count_star_test_db.count_test6(k1 uuid, k2 string, k3 array<int>, "
+                        + "k4 map<int, int>, k5 struct<f1:int>) duplicate key(k1) "
+                        + "distributed by hash(k1) buckets 1 "
                         + "properties('replication_num' = '1')");
         checkCountStarSlot("select count(*) from count_star_test_db.count_test1", "k2");
         checkCountStarSlot("select count(*) from count_star_test_db.count_test2", "k3");
         checkCountStarSlot("select count(*) from count_star_test_db.count_test3", "k3");
         checkCountStarSlot("select count(*) from count_star_test_db.count_test4", "k2");
         checkCountStarSlot("select count(*) from count_star_test_db.count_test5", "k2");
+        checkCountStarSlot("select count(*) from count_star_test_db.count_test6", "k1");
     }
 
     private void checkCountStarSlot(String sql, String countCol) {
@@ -112,6 +117,34 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
         List<SlotDescriptor> slots = Lists.newArrayList(stringSlot, arraySlot, intSlot);
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         Assertions.assertEquals(intSlot, result);
+    }
+
+    @Test
+    public void testGetSmallestSlotUuidTypePriority() {
+        SlotDescriptor uuidSlot = createSlotDescriptor(Type.UUID, "uuid_col");
+        SlotSizeComparator comparator = new SlotSizeComparator();
+        for (Type type : Lists.newArrayList(Type.CHAR, Type.VARCHAR, Type.STRING,
+                Type.ARRAY, Type.MAP, Type.STRUCT)) {
+            SlotDescriptor otherSlot = createSlotDescriptor(type, "other_col");
+            Assertions.assertTrue(comparator.compare(uuidSlot, otherSlot) < 0, type.toString());
+            Assertions.assertTrue(comparator.compare(otherSlot, uuidSlot) > 0, type.toString());
+            Assertions.assertSame(uuidSlot,
+                    PhysicalPlanTranslator.getSmallestSlot(Lists.newArrayList(otherSlot, uuidSlot)));
+            Assertions.assertSame(uuidSlot,
+                    PhysicalPlanTranslator.getSmallestSlot(Lists.newArrayList(uuidSlot, otherSlot)));
+        }
+    }
+
+    @Test
+    public void testGetSmallestSlotUuidSlotSizeComparison() {
+        SlotDescriptor uuidSlot = createSlotDescriptor(Type.UUID, "uuid_col");
+        SlotDescriptor intSlot = createSlotDescriptor(Type.INT, "int_col");
+        SlotDescriptor decimal256Slot = createSlotDescriptor(Type.DECIMAL256, "decimal256_col");
+
+        Assertions.assertSame(intSlot,
+                PhysicalPlanTranslator.getSmallestSlot(Lists.newArrayList(uuidSlot, intSlot)));
+        Assertions.assertSame(uuidSlot,
+                PhysicalPlanTranslator.getSmallestSlot(Lists.newArrayList(decimal256Slot, uuidSlot)));
     }
 
     @Test
