@@ -112,6 +112,17 @@ protected:
         if (term_runes < 0) {
             return;
         }
+        publish_source_byte_offsets(term_runes, std::move(source_offsets));
+    }
+
+    // Publish per-rune source boundaries for a term, widening repeated boundaries into
+    // conservative start/end spans so no rune claims an empty source range.
+    void publish_source_byte_offsets(int32_t term_runes, std::vector<int32_t> source_offsets) {
+        _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
+        if (!_source_byte_offsets_enabled || term_runes < 0 || source_offsets.empty()) {
+            return;
+        }
         if (static_cast<size_t>(term_runes + 1) == source_offsets.size()) {
             const bool strictly_increasing =
                     std::ranges::adjacent_find(source_offsets, std::greater_equal<>()) ==

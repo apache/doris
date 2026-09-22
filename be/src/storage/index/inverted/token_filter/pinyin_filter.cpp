@@ -81,14 +81,16 @@ Token* PinyinFilter::next(Token* token) {
         current_start_offset_ = token->startOffset();
         current_end_offset_ = token->endOffset();
         if (!config_->ignorePinyinOffset) {
-            auto source_byte_offsets = get_source_byte_offsets();
+            // Read the upstream token's provenance; the overrides publish this filter's own.
+            auto source_byte_offsets = DorisTokenFilter::get_source_byte_offsets();
             current_source_byte_offsets_.assign(source_byte_offsets.begin(),
                                                 source_byte_offsets.end());
-            auto source_byte_end_offsets = get_source_byte_end_offsets();
+            auto source_byte_end_offsets = DorisTokenFilter::get_source_byte_end_offsets();
             current_source_byte_end_offsets_.assign(source_byte_end_offsets.begin(),
                                                     source_byte_end_offsets.end());
-            has_current_conservative_source_span_ = get_conservative_source_byte_span(
-                    current_conservative_source_start_, current_conservative_source_end_);
+            has_current_conservative_source_span_ =
+                    DorisTokenFilter::get_conservative_source_byte_span(
+                            current_conservative_source_start_, current_conservative_source_end_);
         }
 
         done_ = false;
@@ -119,6 +121,12 @@ void PinyinFilter::reset() {
     resetVariables();
     has_current_token_ = false;
     current_token_text_.clear();
+    has_published_token_ = false;
+    published_source_length_ = 0;
+    published_source_byte_offsets_.clear();
+    published_source_byte_end_offsets_.clear();
+    release_oversized_scratch(published_source_byte_offsets_);
+    release_oversized_scratch(published_source_byte_end_offsets_);
     release_oversized_scratch(current_runes_);
     release_oversized_scratch(current_source_byte_offsets_);
     release_oversized_scratch(current_source_byte_end_offsets_);
@@ -529,6 +537,7 @@ void PinyinFilter::setTokenAttributes(Token* token, const std::string& term, int
     }
     token->setStartOffset(absolute_start);
     token->setEndOffset(absolute_end);
+    publishCandidateProvenance(term, is_whole_token, absolute_end - absolute_start);
 
     int offset = position - last_increment_position_;
     if (offset < 0) {
@@ -536,6 +545,36 @@ void PinyinFilter::setTokenAttributes(Token* token, const std::string& term, int
     }
     token->setPositionIncrement(offset);
     last_increment_position_ = position;
+}
+
+bool PinyinFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+    if (!has_published_token_ || !published_source_byte_offsets_.empty()) {
+        return false;
+    }
+    start = 0;
+    end = published_source_length_;
+    return true;
+}
+
+void PinyinFilter::publishCandidateProvenance(const std::string& term, bool is_whole_token,
+                                              int32_t source_length) {
+    has_published_token_ = true;
+    published_source_length_ = source_length;
+    published_source_byte_offsets_.clear();
+    published_source_byte_end_offsets_.clear();
+    // Only an unchanged original token keeps exact rune boundaries; transformed candidates
+    // publish their whole source span instead of the input token's map.
+    if (config_->ignorePinyinOffset || !is_whole_token || current_runes_.empty() ||
+        term != current_source_) {
+        return;
+    }
+    published_source_byte_offsets_.reserve(current_runes_.size() + 1);
+    published_source_byte_end_offsets_.reserve(current_runes_.size());
+    for (const auto& rune : current_runes_) {
+        published_source_byte_offsets_.push_back(rune.byte_start);
+        published_source_byte_end_offsets_.push_back(rune.byte_end);
+    }
+    published_source_byte_offsets_.push_back(current_runes_.back().byte_end);
 }
 
 std::string PinyinFilter::trim(const std::string& str) {

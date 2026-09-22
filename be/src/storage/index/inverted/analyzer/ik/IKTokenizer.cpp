@@ -130,12 +130,13 @@ Token* IKTokenizer::next(Token* token) {
                                     ? token_data.end_offset
                                     : source_char_filter_->correct_offset(token_data.end_offset));
     }
+    if (source_byte_offsets_enabled_) {
+        // Char-filter expansions can repeat a corrected boundary; publish through the shared
+        // path so such runes keep a conservative span instead of an empty one.
+        publish_source_byte_offsets(static_cast<int32_t>(current_source_byte_offsets_.size()) - 1,
+                                    std::move(current_source_byte_offsets_));
+    }
     return token;
-}
-
-std::span<const int32_t> IKTokenizer::get_source_byte_offsets() const {
-    return current_token_ == nullptr ? std::span<const int32_t> {}
-                                     : std::span<const int32_t> {current_source_byte_offsets_};
 }
 
 void IKTokenizer::reset() {
@@ -156,6 +157,8 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
     this->tokens_.clear();
     this->current_token_ = nullptr;
     this->current_source_byte_offsets_.clear();
+    _source_byte_offsets.clear();
+    _source_byte_end_offsets.clear();
 
     try {
         buffer_.reserve(input->size());

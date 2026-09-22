@@ -42,6 +42,15 @@ public:
 
     void reset() override;
 
+    // Provenance of the most recently emitted candidate, never the input token's map.
+    std::span<const int32_t> get_source_byte_offsets() const override {
+        return published_source_byte_offsets_;
+    }
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        return published_source_byte_end_offsets_;
+    }
+    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
+
 #ifdef BE_TEST
     size_t current_runes_capacity_for_test() const { return current_runes_.capacity(); }
     size_t current_source_offsets_capacity_for_test() const {
@@ -73,6 +82,9 @@ private:
 
     void setTokenAttributes(Token* token, const std::string& term, int startOffset, int endOffset,
                             int position);
+
+    void publishCandidateProvenance(const std::string& term, bool is_whole_token,
+                                    int32_t source_length);
 
     std::string trim(const std::string& str);
 
@@ -118,6 +130,12 @@ private:
     int32_t current_conservative_source_start_ = 0;
     int32_t current_conservative_source_end_ = 0;
     bool has_current_conservative_source_span_ = false;
+
+    // Provenance published for the most recently emitted candidate
+    std::vector<int32_t> published_source_byte_offsets_;
+    std::vector<int32_t> published_source_byte_end_offsets_;
+    int32_t published_source_length_ = 0;
+    bool has_published_token_ = false;
 };
 
 using PinyinFilterPtr = std::shared_ptr<PinyinFilter>;

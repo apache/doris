@@ -42,9 +42,9 @@ public:
     Token* next(Token* token) override;
     void reset() override;
     void reset(lucene::util::Reader* reader) override;
-    std::span<const int32_t> get_source_byte_offsets() const override;
     void set_source_byte_offsets_enabled(bool enabled) override {
         source_byte_offsets_enabled_ = enabled;
+        inverted_index::DorisTokenizer::set_source_byte_offsets_enabled(enabled);
     }
 
 private:
