@@ -30,41 +30,33 @@ fluss lake tiering service as a Flink job while building the fixtures.
 
 ## Where the images come from
 
-Fluss 1.0.0 is a release candidate: its artifacts are staged on
-[repository.apache.org](https://repository.apache.org/content/repositories/orgapachefluss-1013/org/apache/fluss/)
-for the release vote rather than published to Maven Central, and no official
-image exists for it yet, so neither image can be pulled. `build-images.sh`
-builds both from the staged artifacts: the server image from the `fluss-dist`
-tarball (unpacked under the same `Dockerfile` and entrypoint the fluss project
-builds its own image with, kept in `server/`), the flink image from
-`fluss-flink-1.20`, `fluss-flink-tiering` and `fluss-lake-paimon`, plus the
-paimon runtime and a hadoop from Maven Central. Nothing is built from source
-and no fluss checkout is needed.
+Both images are the ones the fluss project publishes for its 1.0.0 release,
+pinned in `fluss.env.tpl` and pulled by compose:
 
-The build is pinned by `FLUSS_VERSION` in `fluss.env.tpl` -- the same version
-`fe/pom.xml` pins `fluss.version` to, so the cluster the suites run against is
-the one the connector was compiled against -- and `FLUSS_MAVEN_REPO_URL` next
-to it names the repository the `org/apache/fluss` artifacts come from
-(everything else comes from central; a timestamped snapshot version is resolved
-from the apache snapshots repository regardless). Moving the version means
-editing it, the two image tags that repeat it, and `FLUSS_PAIMON_VERSION` if the
-fluss parent pom's `paimon.version` moved with it; new tags rebuild by
-themselves. Downloads are kept in `cache/` (git-ignored) and checked against the
-repository's `.sha1`, so a rebuild after the first one needs no network for the
-artifacts.
+- `apache/fluss:1.0.0` runs the coordinator and the tablet server. It carries
+  `plugins/paimon` (fluss-lake-paimon, paimon-bundle, a shaded hadoop) but not
+  `paimon-s3`, which the servers need to open the object-store warehouse the
+  moment a datalake-enabled table is created. `fetch-paimon-s3.sh` downloads
+  that one jar into `cache/` (git-ignored, checked against the repository's
+  `.sha1`, looked up in `~/.m2` first) and the compose file bind mounts it into
+  the plugin directory of both server containers -- the same arrangement the
+  fluss project's lakehouse quickstart uses.
+- `apache/fluss-quickstart-flink:1.20-1.0.0` runs the Flink cluster and the
+  sql-client: stock Flink 1.20 plus the fluss connector, the lake tiering job
+  under `opt/`, and the paimon runtime (paimon-flink, paimon-s3,
+  fluss-lake-paimon, hadoop) kept aside under `/opt/flink/paimon` until the
+  image's `init_paimon.sh` copies it into `lib/`. Every flink container here
+  starts through that script.
+
+The version is the same one `fe/pom.xml` pins `fluss.version` to, so the
+cluster the suites run against is the release the connector was compiled
+against. Moving it means editing the two image tags, and `FLUSS_PAIMON_VERSION`
+if the fluss parent pom's `paimon.version` moved with it.
 
 Note that the paimon this environment runs (the one fluss was compiled against,
 2.0.0 at the time of writing) is not Doris's own `paimon.version` (1.3.1). Doris
 reads the lake half of a table with its own paimon, so the tables tiered here
 double as a cross-version read check.
-
-When 1.0.0 is released, the staging repository is retired and the same files
-appear on central: point `FLUSS_MAVEN_REPO_URL` at
-`https://repo1.maven.org/maven2`, or drop the line (`build-images.sh` then
-defaults to central). Once the fluss project publishes its 1.0.0 images, they
-may replace the local builds: the official `apache/fluss` image for the server
-outright, and its quickstart flink image if it carries what this one does (the
-connector, the tiering job, paimon-flink and paimon-s3).
 
 ## Start / stop
 
@@ -73,10 +65,6 @@ CONTAINER_UID=doris-e2e-- bash docker/thirdparties/run-thirdparties-docker.sh -c
 
 CONTAINER_UID=doris-e2e-- bash docker/thirdparties/run-thirdparties-docker.sh -c fluss --stop
 ```
-
-`build-images.sh` reuses images that already exist; set
-`FLUSS_DOCKER_REUSE_IMAGES=0` to force a rebuild without changing the pinned
-version.
 
 Then enable the suites in `regression-test/conf/regression-conf.groovy`:
 

@@ -1513,11 +1513,11 @@ start_fluss() {
         return 0
     fi
 
-    # Fluss 1.0.0 is a release candidate with no official image yet: both images
-    # are built from the artifacts staged for its vote (fluss.env.tpl names the
-    # repository; docker-compose/fluss/README.md has the details).
-    FLUSS_DOCKER_REUSE_IMAGES="${FLUSS_DOCKER_REUSE_IMAGES:-1}" \
-        bash "${fluss_dir}/build-images.sh"
+    # The official fluss server image carries no paimon-s3, and the servers need
+    # it to reach the object-store warehouse: fetched once into cache/ and bind
+    # mounted into both server containers (fluss.env.tpl says why; the images
+    # themselves are pulled by compose).
+    bash "${fluss_dir}/fetch-paimon-s3.sh"
 
     reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
     # The fluss and flink images run as uid 9999, the host directories are
