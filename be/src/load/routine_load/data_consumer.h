@@ -277,11 +277,13 @@ private:
     Status _get_shard_iterator(const std::string& shard_id, const std::string& sequence_number,
                                std::string* iterator);
 
-    // Process records from GetRecords result and add to queue
-    Status _process_records(const std::string& shard_id,
-                            Aws::Kinesis::Model::GetRecordsResult result,
-                            BlockingQueue<KinesisQueueItem>* queue, int64_t* received_rows,
-                            int64_t* put_rows);
+    enum class EnqueueResult { COMPLETE, QUEUE_SHUTDOWN };
+
+    // Queue shutdown is normal batch completion, but the caller must stop the whole consumer.
+    EnqueueResult _process_records(const std::string& shard_id,
+                                   Aws::Kinesis::Model::GetRecordsResult result,
+                                   BlockingQueue<KinesisQueueItem>* queue, int64_t* received_rows,
+                                   int64_t* put_rows);
 
     // Check if an AWS error is retriable (throttling, network, etc.)
     bool _is_retriable_error(const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error);

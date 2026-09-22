@@ -937,21 +937,18 @@ Status KinesisDataConsumer::
     MonotonicStopWatch watch;
     watch.start();
 
-    while (true) {
-        // Check cancellation flag
-        {
-            std::unique_lock<std::mutex> l(_lock);
-            if (_cancelled) {
-                break;
-            }
-        }
+    auto should_stop = [&] {
+        std::unique_lock<std::mutex> l(_lock);
+        return _cancelled || watch.elapsed_time() / 1000 / 1000 >= max_running_time_ms;
+    };
 
-        if (left_time <= 0) {
-            break;
-        }
-
+    while (!should_stop()) {
         // Round-robin through all active shards
         for (auto it = _consuming_shard_ids.begin(); it != _consuming_shard_ids.end() && !done;) {
+            // Cancellation can arrive while processing the previous shard (including an empty page).
+            if (should_stop()) {
+                return Status::OK();
+            }
             const std::string& shard_id = *it;
             auto iter_it = _shard_iterators.find(shard_id);
 
@@ -1045,8 +1042,10 @@ Status KinesisDataConsumer::
                             std::move(parent_shard_ids);
                 }
             }
-            RETURN_IF_ERROR(_process_records(shard_id, std::move(result), queue, &received_rows,
-                                             &put_rows));
+            if (_process_records(shard_id, std::move(result), queue, &received_rows, &put_rows) ==
+                EnqueueResult::QUEUE_SHUTDOWN) {
+                return Status::OK();
+            }
 
             // Track MillisBehindLatest for this shard (used by FE for lag monitoring & scheduling)
             _millis_behind_latest[shard_id] = millis_behind;
@@ -1102,10 +1101,9 @@ Status KinesisDataConsumer::
     return st;
 }
 
-Status KinesisDataConsumer::_process_records(const std::string& shard_id,
-                                             Aws::Kinesis::Model::GetRecordsResult result,
-                                             BlockingQueue<KinesisQueueItem>* queue,
-                                             int64_t* received_rows, int64_t* put_rows) {
+KinesisDataConsumer::EnqueueResult KinesisDataConsumer::_process_records(
+        const std::string& shard_id, Aws::Kinesis::Model::GetRecordsResult result,
+        BlockingQueue<KinesisQueueItem>* queue, int64_t* received_rows, int64_t* put_rows) {
     // result is owned by value, safe to get mutable access to its records
     auto records =
             std::move(const_cast<Aws::Vector<Aws::Kinesis::Model::Record>&>(result.GetRecords()));
@@ -1125,8 +1123,8 @@ Status KinesisDataConsumer::_process_records(const std::string& shard_id,
 
         if (!queue->controlled_blocking_put(item, config::blocking_queue_cv_wait_timeout_ms)) {
             // The group may have reached a batch boundary while this consumer was still draining
-            // a prefetched response. The appended prefix remains a valid batch.
-            return Status::OK();
+            // a prefetched response. Stop the caller before it requests another shard.
+            return EnqueueResult::QUEUE_SHUTDOWN;
         }
 
         (*put_rows)++;
@@ -1134,7 +1132,7 @@ Status KinesisDataConsumer::_process_records(const std::string& shard_id,
         DorisMetrics::instance()->routine_load_consume_rows->increment(1);
     }
 
-    return Status::OK();
+    return EnqueueResult::COMPLETE;
 }
 
 bool KinesisDataConsumer::_is_retriable_error(

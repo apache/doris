@@ -84,9 +84,9 @@ protected:
         int64_t queued = 0;
         // A valid interleaving: the producer queues a whole response before
         // the group drains it. Invoke the real producer processing function.
-        ASSERT_TRUE(consumer->_process_records("shard-0", std::move(response), &group._queue,
-                                               &received, &queued)
-                            .ok());
+        ASSERT_EQ(KinesisDataConsumer::EnqueueResult::COMPLETE,
+                  consumer->_process_records("shard-0", std::move(response), &group._queue,
+                                             &received, &queued));
         ASSERT_EQ(5, queued);
         if (add_end_marker) {
             KinesisQueueItem end_marker;
@@ -148,11 +148,11 @@ TEST_F(KinesisBatchProgressReproduction, QueueShutdownDuringPrefetchIsGraceful) 
                                           payload.size()));
     response.AddRecords(std::move(record));
 
-    Status producer_status = Status::OK();
+    auto producer_result = KinesisDataConsumer::EnqueueResult::COMPLETE;
     int64_t received = 0;
     int64_t queued = 0;
     std::thread producer([&] {
-        producer_status = consumer->_process_records("shard-0", std::move(response), &group._queue,
+        producer_result = consumer->_process_records("shard-0", std::move(response), &group._queue,
                                                      &received, &queued);
     });
     while (group._queue.put_waiting_count_for_test() == 0) {
@@ -161,7 +161,7 @@ TEST_F(KinesisBatchProgressReproduction, QueueShutdownDuringPrefetchIsGraceful) 
     group._queue.shutdown();
     producer.join();
 
-    ASSERT_TRUE(producer_status.ok());
+    ASSERT_EQ(KinesisDataConsumer::EnqueueResult::QUEUE_SHUTDOWN, producer_result);
     ASSERT_EQ(0, queued);
 }
 
