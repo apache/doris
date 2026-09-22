@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -31,7 +32,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Remove deterministic grouping expressions whose inputs are already bare grouping slots.
+ * Remove deterministic grouping expressions whose inputs are already bare grouping slots
+ * with exact grouping equality.
  * <p>
  * GROUP BY ClientIP, ClientIP + 1, ClientIP + 2
  * -->
@@ -64,9 +66,19 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
         // Keep at least one key: removing all constant keys changes the result for empty input.
         if (!determinants.isEmpty()) {
             distinctGroupBy.removeIf(expression -> !(expression instanceof Slot)
-                    && !expression.containsVolatileExpression()
-                    && determinants.containsAll(expression.getInputSlots()));
+                    && !expression.containsVolatileOrNoneMovableExpression()
+                    && !expression.containsNondeterministic()
+                    && determinants.containsAll(expression.getInputSlots())
+                    && expression.getInputSlots().stream().allMatch(SimplifyAggGroupBy::hasExactGroupingEquality));
         }
         return distinctGroupBy.size() == groupByExpressions.size() ? null : ImmutableList.copyOf(distinctGroupBy);
+    }
+
+    // Floating-point grouping can merge +0.0 and -0.0 even though signbit distinguishes them.
+    // Other non-exact key types may likewise have a grouping equality different from their
+    // input representation, so do not infer dependency from slot containment for those types.
+    private static boolean hasExactGroupingEquality(Slot slot) {
+        DataType type = slot.getDataType();
+        return type.isIntegralType() || type.isDecimalLikeType() || type.isBooleanType();
     }
 }

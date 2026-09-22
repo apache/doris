@@ -36,6 +36,10 @@
 \N	1
 1	1
 
+-- !signed_zero --
+false	1
+true	1
+
 -- !string_cast_dependency --
 1	1
 2	1

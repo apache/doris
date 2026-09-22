@@ -196,6 +196,46 @@ suite("simplify_agg_group_by") {
         notContains "cast(x as TEXT)"
     }
 
+    // Non-movable grouping functions must still run, even if a bare slot determines them.
+    test {
+        sql """
+            select count(*)
+            from simplify_agg_group_by_decimal
+            group by x, assert_true(x > 1, 'bad')
+        """
+        exception "bad"
+    }
+
+    // score() is rejected by a later validator; simplification must not erase it first.
+    test {
+        sql """
+            select count(*)
+            from simplify_agg_group_by_decimal
+            group by x, score()
+        """
+        exception "score() function requires WHERE clause with MATCH function"
+    }
+
+    sql "drop table if exists simplify_agg_group_by_signed_zero"
+    sql """
+        create table simplify_agg_group_by_signed_zero (
+            id int not null,
+            v double not null
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "insert into simplify_agg_group_by_signed_zero values (1, cast('+0.0' as double)), (2, cast('-0.0' as double))"
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
+    order_qt_signed_zero """
+        select signbit(v), count(*)
+        from simplify_agg_group_by_signed_zero
+        group by v, signbit(v)
+        order by 1
+    """
+    sql "set disable_nereids_rules=''"
+
     order_qt_string_cast_dependency """
         select cast(x as string) as k, count(*)
         from simplify_agg_group_by_decimal

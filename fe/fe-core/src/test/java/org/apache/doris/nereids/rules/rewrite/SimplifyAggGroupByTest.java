@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -30,15 +31,20 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -148,6 +154,20 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
 
         assertSimplified(ImmutableList.of(x, random, dependent, new Abs(x)),
                 ImmutableList.of(x, random, dependent));
+    }
+
+    @Test
+    void testNonMovableAndNondeterministicGroupKeysAreKept() {
+        assertUnchanged(ImmutableList.of(x,
+                new AssertTrue(new GreaterThan(x, Literal.of(0)), new StringLiteral("bad"))));
+        assertUnchanged(ImmutableList.of(x, new Score()));
+        assertUnchanged(ImmutableList.of(x, new Abs(new Score())));
+    }
+
+    @Test
+    void testFloatingPointGroupingDoesNotDetermineSignBit() {
+        Slot floating = new SlotReference("floating", DoubleType.INSTANCE);
+        assertUnchanged(ImmutableList.of(floating, new SignBit(floating)));
     }
 
     @Test
