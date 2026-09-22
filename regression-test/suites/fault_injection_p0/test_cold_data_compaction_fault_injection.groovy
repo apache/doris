@@ -140,11 +140,12 @@ suite("test_cold_data_compaction_fault_injection", "docker") {
             GetDebugPoint().enableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
             sql """alter table ${tabletName} set ("disable_auto_compaction" = "false")"""
 
-            // The five remote rowsets must become one while cumulative compaction is blocked.
+            // Cold compaction also merges the initial empty rowset, so all rowsets must
+            // become one while cumulative compaction is blocked.
             retryUntilTimeout(900, {
                 def rowsetsAfter = readRowsets()
                 logger.info("${tabletName}'s rowsets before: ${rowsetsBefore}, after: ${rowsetsAfter}")
-                return rowsetsAfter.size() == rowsetsBefore.size() - 4
+                return rowsetsAfter.size() == 1
             })
 
             // File reclamation is asynchronous, so compare data-file keys, not total file count.
