@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -26,7 +25,6 @@
 
 namespace doris {
 
-class IColumn;
 class TabletColumn;
 class TabletSchema;
 
@@ -39,21 +37,21 @@ ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& sc
 
 // Loads write VERSION and COMMIT_TSO as placeholders into both column storage and the row-store
 // JSONB. Compaction materializes the per-row values in column storage but copies the JSONB
-// unchanged, so a direct row-store read must take these two columns from column storage.
+// unchanged, so a direct read never takes these two columns from the JSONB: a singleton rowset
+// answers with its own version/TSO (get_read_time_hidden_column_value), any other rowset with the
+// materialized column storage.
 inline bool row_store_value_may_be_stale(ReadTimeHiddenColumnType column_type) {
     return column_type == ReadTimeHiddenColumnType::VERSION ||
            column_type == ReadTimeHiddenColumnType::COMMIT_TSO;
 }
 
+// The logical value every row of a single-version rowset carries for `column_type`, or nullopt
+// when the stored value is the one to read: a multi-version rowset, an unassigned commit TSO, or
+// BINLOG_TSO outside a row-binlog read. Point-query and row-ID direct reads are not row-binlog
+// reads; SegmentIterator materializes BINLOG_TSO when StorageReadOptions::read_row_binlog is set.
 std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
                                                        const Version& version,
                                                        const TsoRange& commit_tso,
                                                        bool read_row_binlog);
-
-// Point-query and row-ID direct reads are not row-binlog reads, so BINLOG_TSO has no replacement
-// here. SegmentIterator materializes it when StorageReadOptions::read_row_binlog is set.
-void replace_suffix_with_read_time_hidden_column(ReadTimeHiddenColumnType column_type,
-                                                 const Version& version, const TsoRange& commit_tso,
-                                                 size_t num_rows, IColumn& column);
 
 } // namespace doris

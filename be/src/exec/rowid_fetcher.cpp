@@ -80,22 +80,6 @@ void set_topn_lazy_materialization_file_cache_stats(
     pstats->set_write_cache_io_time(stats.write_cache_io_timer);
 }
 
-void replace_rowid_read_time_hidden_columns(const std::vector<TabletColumn>& fetch_columns,
-                                            const BetaRowset& rowset, size_t num_rows,
-                                            Block& result_block) {
-    auto columns_guard = result_block.mutate_columns_scoped();
-    auto& columns = columns_guard.mutable_columns();
-    DORIS_CHECK_EQ(columns.size(), fetch_columns.size());
-    for (size_t i = 0; i < fetch_columns.size(); ++i) {
-        const auto column_type = get_read_time_hidden_column_type(fetch_columns[i]);
-        if (column_type == ReadTimeHiddenColumnType::NONE) {
-            continue;
-        }
-        replace_suffix_with_read_time_hidden_column(column_type, rowset.version(),
-                                                    rowset.commit_tso(), num_rows, *columns[i]);
-    }
-}
-
 } // namespace
 
 struct IteratorKey {
@@ -180,14 +164,24 @@ struct SegItem {
     SegmentSharedPtr segment;
 };
 
-// Appends the values of `read_column` at `row_ids` to `column`, reading them straight from
-// `segment`. The column iterator and its read options live in `iterator_map` per slot.
+// Appends the values of `read_column` at `row_ids` to `column`. VERSION/COMMIT_TSO of a
+// single-version rowset are the rowset's own version/TSO; every other value is read straight
+// from `segment`, whose column iterator and read options live in `iterator_map` per slot.
 static Status read_slot_column_by_rowid(
-        const SegKey& seg_key, const SegmentSharedPtr& segment, SlotDescriptor& slot,
-        const TabletColumn& read_column, const std::vector<uint32_t>& row_ids,
+        const SegKey& seg_key, const BetaRowset& rowset, const SegmentSharedPtr& segment,
+        SlotDescriptor& slot, const TabletColumn& read_column, const std::vector<uint32_t>& row_ids,
         OlapReaderStatistics& stats, io::FileCacheMissPolicy file_cache_miss_policy,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
         MutableColumnPtr& column) {
+    if (auto value =
+                get_read_time_hidden_column_value(get_read_time_hidden_column_type(read_column),
+                                                  rowset.version(), rowset.commit_tso(), false);
+        value.has_value()) {
+        for (size_t i = 0; i < row_ids.size(); ++i) {
+            column->insert(*value);
+        }
+        return Status::OK();
+    }
     IteratorKey iterator_key {.tablet_id = seg_key.tablet_id,
                               .rowset_id = seg_key.rowset_id,
                               .segment_id = seg_key.segment_id,
@@ -375,11 +369,24 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     std::string row_store_buffer;
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
+        bool has_rowset_derived_hidden_column = false;
         for (int i = 0; i < request_block_desc.slots_size(); ++i) {
             row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
             row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
             row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
+            if (i < fetch_columns.size() &&
+                row_store_value_may_be_stale(get_read_time_hidden_column_type(fetch_columns[i]))) {
+                has_rowset_derived_hidden_column = true;
+            } else {
+                row_store_read_struct.include_col_uids.insert(slots[i].col_unique_id());
+            }
         }
+        if (!has_rowset_derived_hidden_column) {
+            // Nothing to leave out; an empty include set decodes every slot.
+            row_store_read_struct.include_col_uids.clear();
+        }
+        row_store_read_struct.decode_row_store = !has_rowset_derived_hidden_column ||
+                                                 !row_store_read_struct.include_col_uids.empty();
     }
 
     // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
@@ -1049,7 +1056,7 @@ Status RowIdStorageReader::read_doris_format_row(
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
-        {
+        if (row_store_read_struct.decode_row_store) {
             auto result_columns_guard = result_block.mutate_columns_scoped();
             MutableColumns& result_columns = result_columns_guard.mutable_columns();
             io::IOContext io_ctx;
@@ -1071,11 +1078,11 @@ Status RowIdStorageReader::read_doris_format_row(
                         row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                         row_store_read_struct.row_store_buffer.size(),
                         row_store_read_struct.col_uid_to_idx, result_columns,
-                        row_store_read_struct.default_values, {}));
+                        row_store_read_struct.default_values,
+                        row_store_read_struct.include_col_uids));
             }
         }
-        // The JSONB filled every slot for this batch; replace the stale hidden-column values
-        // with their per-row values from column storage, see row_store_value_may_be_stale().
+        // The JSONB decode left VERSION/COMMIT_TSO untouched; serve them from the rowset.
         for (int x = 0; x < slots.size(); ++x) {
             const TabletColumn& read_column = fetch_columns[x];
             if (!row_store_value_may_be_stale(get_read_time_hidden_column_type(read_column))) {
@@ -1083,22 +1090,19 @@ Status RowIdStorageReader::read_doris_format_row(
             }
             auto column_guard = result_block.mutate_column_scoped(x);
             MutableColumnPtr& column = column_guard.mutable_column();
-            DCHECK_GE(column->size(), row_ids.size());
-            column->pop_back(row_ids.size());
-            RETURN_IF_ERROR(read_slot_column_by_rowid(seg_key, segment, slots[x], read_column,
-                                                      row_ids, stats, file_cache_miss_policy,
-                                                      iterator_map, column));
+            RETURN_IF_ERROR(read_slot_column_by_rowid(
+                    seg_key, *rowset, segment, slots[x], read_column, row_ids, stats,
+                    file_cache_miss_policy, iterator_map, column));
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             auto column_guard = result_block.mutate_column_scoped(x);
             MutableColumnPtr& column = column_guard.mutable_column();
-            RETURN_IF_ERROR(read_slot_column_by_rowid(seg_key, segment, slots[x], fetch_columns[x],
-                                                      row_ids, stats, file_cache_miss_policy,
-                                                      iterator_map, column));
+            RETURN_IF_ERROR(read_slot_column_by_rowid(
+                    seg_key, *rowset, segment, slots[x], fetch_columns[x], row_ids, stats,
+                    file_cache_miss_policy, iterator_map, column));
         }
     }
-    replace_rowid_read_time_hidden_columns(fetch_columns, *rowset, row_ids.size(), result_block);
     return Status::OK();
 }
 

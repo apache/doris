@@ -24,6 +24,8 @@
 #include <memory>
 #include <mutex>
 #include <semaphore>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -59,6 +61,11 @@ struct RowStoreReadStruct {
     DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     std::vector<std::string> default_values;
+    // Slots the JSONB decode fills; empty means every slot. VERSION/COMMIT_TSO are left out, see
+    // row_store_value_may_be_stale().
+    std::unordered_set<int> include_col_uids;
+    // False when every slot is such a hidden column, so the JSONB serves nothing.
+    bool decode_row_store = true;
 };
 
 class RowIdStorageReader {

@@ -72,16 +72,6 @@ static BetaRowsetSharedPtr get_beta_rowset(RowsetSharedPtr* rowset_ptr) {
     return std::static_pointer_cast<BetaRowset>(*rowset_ptr);
 }
 
-static void replace_point_query_read_time_hidden_columns(
-        const std::vector<std::pair<int32_t, uint32_t>>& hidden_columns, const TabletSchema& schema,
-        const BetaRowset& rowset, MutableColumns& result_columns) {
-    for (const auto& [column_uid, position] : hidden_columns) {
-        replace_suffix_with_read_time_hidden_column(
-                get_read_time_hidden_column_type(schema, column_uid), rowset.version(),
-                rowset.commit_tso(), 1, *result_columns[position]);
-    }
-}
-
 class PointQueryResultBlockBuffer final : public MySQLResultBlockBuffer {
 public:
     PointQueryResultBlockBuffer(RuntimeState* state) : MySQLResultBlockBuffer(state) {}
@@ -194,16 +184,6 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
     }
 
-    std::unordered_set<int32_t> read_time_hidden_column_uids;
-    for (const auto* slot : output_slot_descs) {
-        const int32_t column_uid = slot->col_unique_id();
-        if (get_read_time_hidden_column_type(schema, column_uid) !=
-                    ReadTimeHiddenColumnType::NONE &&
-            read_time_hidden_column_uids.insert(column_uid).second) {
-            _read_time_hidden_columns.emplace_back(column_uid, _col_uid_to_idx.at(column_uid));
-        }
-    }
-
     // get the delete sign idx in block
     if (has_delete_sign) {
         _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
@@ -216,10 +196,30 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids, has_delete_sign,
                                  _missing_col_uids, _include_col_uids);
     _column_store_col_uids = _missing_col_uids;
-    for (const auto& [column_uid, position] : _read_time_hidden_columns) {
+    // VERSION/COMMIT_TSO never come from the row-store JSONB, see row_store_value_may_be_stale().
+    // Serve them like the columns the row store lacks and keep the JSONB decode away from them.
+    std::unordered_set<int32_t> rowset_derived_hidden_uids;
+    for (const auto* slot : output_slot_descs) {
+        const int32_t column_uid = slot->col_unique_id();
         if (row_store_value_may_be_stale(get_read_time_hidden_column_type(schema, column_uid))) {
-            _column_store_col_uids.insert(column_uid);
+            rowset_derived_hidden_uids.insert(column_uid);
         }
+    }
+    _has_rowset_derived_hidden_columns = !rowset_derived_hidden_uids.empty();
+    _column_store_col_uids.insert(rowset_derived_hidden_uids.begin(),
+                                  rowset_derived_hidden_uids.end());
+    if (_row_store_column_ids != -1 && _has_rowset_derived_hidden_columns) {
+        if (_include_col_uids.empty()) {
+            // A full row store decodes every slot; name them so the hidden ones can be left out.
+            for (const auto* slot : tuple_desc()->slots()) {
+                _include_col_uids.insert(slot->col_unique_id());
+            }
+        }
+        for (int32_t column_uid : rowset_derived_hidden_uids) {
+            _include_col_uids.erase(column_uid);
+        }
+        // An empty include set would mean "every slot" to the decoder again.
+        _decode_row_store = !_include_col_uids.empty();
     }
 
     return Status::OK();
@@ -531,7 +531,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         RowLocation location;
         // The row cache contains the physical JSONB row but not the owning rowset's version/TSO.
         // A query projecting read-time hidden columns must resolve the rowset before decoding it.
-        if (!config::disable_storage_row_cache && !_reusable->has_read_time_hidden_columns()) {
+        if (!config::disable_storage_row_cache && !_reusable->has_rowset_derived_hidden_columns()) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
@@ -571,7 +571,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
         for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
             if (_row_read_ctxs[i]._cached_row_data.valid()) {
-                DORIS_CHECK(!_reusable->has_read_time_hidden_columns());
+                DORIS_CHECK(!_reusable->has_rowset_derived_hidden_columns());
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         _reusable->get_data_type_serdes(),
                         _row_read_ctxs[i]._cached_row_data.data().data,
@@ -586,7 +586,7 @@ Status PointQueryExecutor::_lookup_row_data() {
             auto rowset = get_beta_rowset(_row_read_ctxs[i]._rowset_ptr.get());
             std::string value;
             // fill block by row store
-            if (_reusable->rs_column_uid() != -1) {
+            if (_reusable->decode_row_store()) {
                 bool use_row_cache = !config::disable_storage_row_cache;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -618,7 +618,25 @@ Status PointQueryExecutor::_lookup_row_data() {
                             "row_store_columns in table properties, missing columns: " +
                             missing_columns + " should be added to row store");
                 }
-                // Fill missing columns and refresh read-time hidden columns from column storage.
+                // A single-version rowset stores only placeholders for VERSION/COMMIT_TSO; the
+                // value every row carries is the rowset's own version/TSO. Everything else comes
+                // from column storage, including these columns once compaction materialized them.
+                const auto tablet_schema = _tablet->tablet_schema();
+                std::vector<int32_t> column_store_reads;
+                for (int cid : _reusable->column_store_col_uids()) {
+                    if (auto hidden_value = get_read_time_hidden_column_value(
+                                get_read_time_hidden_column_type(*tablet_schema, cid),
+                                rowset->version(), rowset->commit_tso(), false);
+                        hidden_value.has_value()) {
+                        result_columns[_reusable->get_col_uid_to_idx().at(cid)]->insert(
+                                *hidden_value);
+                        continue;
+                    }
+                    column_store_reads.push_back(cid);
+                }
+                if (column_store_reads.empty()) {
+                    continue;
+                }
                 RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
                 SegmentCacheHandle segment_cache;
                 io::IOContext io_ctx;
@@ -637,18 +655,11 @@ Status PointQueryExecutor::_lookup_row_data() {
                                            return seg->id() == row_loc.segment_id;
                                        });
                 const auto& segment = *it;
-                const auto tablet_schema = _tablet->tablet_schema();
-                for (int cid : _reusable->column_store_col_uids()) {
+                for (int cid : column_store_reads) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
                     std::vector<segment_v2::rowid_t> row_ids {
                             static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                     auto& column = result_columns[pos];
-                    if (!missing_col_uids.contains(cid)) {
-                        // The row-store JSONB already filled this row with a stale placeholder,
-                        // see row_store_value_may_be_stale().
-                        DCHECK_GE(column->size(), 1);
-                        column->pop_back(1);
-                    }
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
                     int32_t index = slot->col_unique_id() >= 0
@@ -677,9 +688,6 @@ Status PointQueryExecutor::_lookup_row_data() {
                             read_column, slot, row_ids, column, storage_read_options, iter));
                 }
             }
-            replace_point_query_read_time_hidden_columns(_reusable->read_time_hidden_columns(),
-                                                         *_tablet->tablet_schema(), *rowset,
-                                                         result_columns);
         }
         if (result_columns.size() > _reusable->include_col_uids().size()) {
             // Padding rows for some columns that no need to output to mysql client

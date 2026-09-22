@@ -711,15 +711,11 @@ TEST_F(SegmentIteratorExprZonemapTest, BinlogTsoMinMaxFallsBackFromStatisticsIte
     }
 }
 
-TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {
+TEST_F(SegmentIteratorExprZonemapTest, ClassifiesReadTimeHiddenColumnsByName) {
     constexpr int64_t kVersion = 7;
     _tablet_schema = make_version_tablet_schema();
     // TabletSchemaPB may contain the hidden column without carrying its ordinal index.
     _tablet_schema->set_version_col_idx(-1);
-    auto column = ColumnInt64::create();
-    column->insert_value(123);
-    column->insert_value(0);
-    column->insert_value(0);
 
     const auto column_type = get_read_time_hidden_column_type(
             *_tablet_schema, _tablet_schema->column(1).unique_id());
@@ -727,13 +723,12 @@ TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {
     EXPECT_EQ(column_type, get_read_time_hidden_column_type(_tablet_schema->column(1)));
     EXPECT_EQ(ReadTimeHiddenColumnType::NONE,
               get_read_time_hidden_column_type(_tablet_schema->column(0)));
-    replace_suffix_with_read_time_hidden_column(column_type, Version(kVersion, kVersion),
-                                                TsoRange(), 2, *column);
-
-    ASSERT_EQ(3, column->size());
-    EXPECT_EQ(123, column->get_element(0));
-    EXPECT_EQ(kVersion, column->get_element(1));
-    EXPECT_EQ(kVersion, column->get_element(2));
+    EXPECT_EQ(kVersion, get_read_time_hidden_column_value(column_type, Version(kVersion, kVersion),
+                                                          TsoRange(), false)
+                                ->get<TYPE_BIGINT>());
+    EXPECT_FALSE(
+            get_read_time_hidden_column_value(column_type, Version(2, kVersion), TsoRange(), false)
+                    .has_value());
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalInvertedIndex) {
