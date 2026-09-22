@@ -26,10 +26,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TMaterializationNode;
@@ -136,27 +133,22 @@ public class MaterializationNode extends PlanNode {
 
     private boolean isTopMaterializeNode;
 
-    public MaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child) {
+    /**
+     * @param fetchBackends the phase-2 fetch address book. It is computed once by
+     *        LazyMaterializeTopN (local policy filtered backends plus remote doris catalog
+     *        backends, with backend id collisions already rejected there) and carried on the
+     *        PhysicalLazyMaterialize node, so this node only repackages it into nodes_info.
+     */
+    public MaterializationNode(PlanNodeId id, TupleDescriptor desc, PlanNode child,
+            List<Backend> fetchBackends) {
         super(id, desc.getId().asList(), "MaterializeNode");
         this.materializeTupleDescriptor = desc;
-        initNodeInfo();
-        this.children.add(child);
-    }
-
-    public void initNodeInfo() {
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
-                .needQueryAvailable()
-                .setRequireAliveBe()
-                .build();
         nodesInfo = new TPaloNodesInfo();
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            context = new ConnectContext();
+        for (Backend backend : fetchBackends) {
+            nodesInfo.addToNodes(
+                    new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
-        ComputeGroup computeGroup = context.getComputeGroupSafely();
-        for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
+        this.children.add(child);
     }
 
     @Override

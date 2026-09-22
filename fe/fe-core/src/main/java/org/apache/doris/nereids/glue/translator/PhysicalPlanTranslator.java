@@ -2777,8 +2777,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputPlanFragment = materialize.child(0).accept(this, context);
         TupleDescriptor materializeTupleDesc = generateTupleDesc(materialize.getOutput(), null, context);
 
+        // The whole fetch address book (local policy filtered + remote doris catalog backends,
+        // id collision checked) was computed once by LazyMaterializeTopN and carried here.
         MaterializationNode materializeNode = new MaterializationNode(context.nextPlanNodeId(), materializeTupleDesc,
-                inputPlanFragment.getPlanRoot());
+                inputPlanFragment.getPlanRoot(), materialize.getFetchBackends());
 
         List<Expr> rowIds = materialize.getRowIds().stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
