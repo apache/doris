@@ -169,21 +169,16 @@ struct RegexpExtractEngine {
                 pos += offset + matches[0].size();
             }
         } else if (is_boost()) {
-            const char* search_start = data;
-            const char* search_end = data + size;
-            boost::match_results<const char*> matches;
-
-            while (boost::regex_search(search_start, search_end, matches, *boost_regex)) {
+            // Iterate over the whole input instead of re-running regex_search on a
+            // shrinking range: the iterator keeps the preceding text visible to
+            // lookbehind/`^`/`\b` and steps past zero-width matches (e.g. lookahead)
+            // without matching the same position twice.
+            boost::cregex_iterator it(data, data + size, *boost_regex);
+            boost::cregex_iterator end;
+            for (; it != end; ++it) {
+                const auto& matches = *it;
                 if (matches.size() > 1 && matches[1].matched) {
                     results.emplace_back(matches[1].str());
-                }
-                if (matches[0].length() == 0) {
-                    if (search_start == search_end) {
-                        break;
-                    }
-                    search_start += 1;
-                } else {
-                    search_start = matches[0].second;
                 }
             }
         }
