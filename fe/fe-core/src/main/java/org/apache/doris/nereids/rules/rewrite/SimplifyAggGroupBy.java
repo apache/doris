@@ -19,8 +19,16 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsInf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -32,8 +40,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Remove deterministic grouping expressions whose inputs are already bare grouping slots
- * with exact grouping equality.
+ * Remove deterministic grouping expressions whose inputs are already bare grouping slots.
  * <p>
  * GROUP BY ClientIP, ClientIP + 1, ClientIP + 2
  * -->
@@ -69,14 +76,41 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
                     && !expression.containsVolatileOrNoneMovableExpression()
                     && !expression.containsNondeterministic()
                     && determinants.containsAll(expression.getInputSlots())
-                    && expression.getInputSlots().stream().allMatch(SimplifyAggGroupBy::hasExactGroupingEquality));
+                    && preservesGroupingEquality(expression));
         }
         return distinctGroupBy.size() == groupByExpressions.size() ? null : ImmutableList.copyOf(distinctGroupBy);
     }
 
-    // Floating-point grouping can merge +0.0 and -0.0 even though signbit distinguishes them.
-    // Other non-exact key types may likewise have a grouping equality different from their
-    // input representation, so do not infer dependency from slot containment for those types.
+    /**
+     * Doris grouping equality merges signed zeros and NaN payloads. A dependent expression
+     * can be removed only if it maps each such equivalence class to one grouping result.
+     * Addition, subtraction, multiplication, abs, floating casts, isnan, and isinf
+     * preserve those classes. Signbit, atan2, pow, and string casts can distinguish
+     * their members, so unreviewed float-dependent operations stay.
+     */
+    private static boolean preservesGroupingEquality(Expression expression) {
+        Set<Slot> inputSlots = expression.getInputSlots();
+        if (inputSlots.stream().anyMatch(slot -> !hasExactGroupingEquality(slot)
+                && !slot.getDataType().isFloatLikeType())) {
+            return false;
+        }
+        if (inputSlots.stream().noneMatch(slot -> slot.getDataType().isFloatLikeType())) {
+            return true;
+        }
+        if (expression instanceof Slot || expression instanceof Literal) {
+            return true;
+        }
+        if (expression instanceof Cast && !expression.getDataType().isFloatLikeType()) {
+            return false;
+        }
+        if (!(expression instanceof Cast || expression instanceof Add || expression instanceof Subtract
+                || expression instanceof Multiply || expression instanceof Abs
+                || expression instanceof IsNan || expression instanceof IsInf)) {
+            return false;
+        }
+        return expression.children().stream().allMatch(SimplifyAggGroupBy::preservesGroupingEquality);
+    }
+
     private static boolean hasExactGroupingEquality(Slot slot) {
         DataType type = slot.getDataType();
         return type.isIntegralType() || type.isDecimalLikeType() || type.isBooleanType();

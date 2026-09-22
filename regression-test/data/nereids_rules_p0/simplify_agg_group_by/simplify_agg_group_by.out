@@ -40,6 +40,21 @@
 false	1
 true	1
 
+-- !signed_zero_atan2 --
+-3.141592653589793	1
+3.141592653589793	1
+
+-- !signed_zero_power --
+-Infinity	1
+Infinity	1
+
+-- !signed_zero_string --
+-0	1
+0	1
+
+-- !signed_zero_safe_arithmetic --
+2
+
 -- !string_cast_dependency --
 1	1
 2	1

@@ -32,6 +32,10 @@ import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsInf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
@@ -45,6 +49,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -165,9 +171,22 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    void testFloatingPointGroupingDoesNotDetermineSignBit() {
+    void testFloatingPointGroupingKeepsRepresentationSensitiveExpressions() {
         Slot floating = new SlotReference("floating", DoubleType.INSTANCE);
         assertUnchanged(ImmutableList.of(floating, new SignBit(floating)));
+        assertUnchanged(ImmutableList.of(floating, new Atan2(floating, new DoubleLiteral(-1.0))));
+        assertUnchanged(ImmutableList.of(floating, new Pow(floating, new DoubleLiteral(-1.0))));
+        assertUnchanged(ImmutableList.of(floating, new Cast(floating, StringType.INSTANCE)));
+    }
+
+    @Test
+    void testFloatingPointGroupingSimplifiesCongruentExpressions() {
+        Slot floating = new SlotReference("floating", DoubleType.INSTANCE);
+        assertSimplified(ImmutableList.of(floating, new Abs(floating),
+                new Add(floating, new DoubleLiteral(1.0)),
+                new Multiply(floating, new DoubleLiteral(1.0)),
+                new Cast(floating, FloatType.INSTANCE),
+                new IsNan(floating), new IsInf(floating)), ImmutableList.of(floating));
     }
 
     @Test

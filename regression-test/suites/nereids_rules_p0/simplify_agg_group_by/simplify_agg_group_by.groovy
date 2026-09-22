@@ -234,6 +234,29 @@ suite("simplify_agg_group_by") {
         group by v, signbit(v)
         order by 1
     """
+    order_qt_signed_zero_atan2 """
+        select atan2(v, -1.0), count(*)
+        from simplify_agg_group_by_signed_zero
+        group by v, atan2(v, -1.0)
+        order by 1
+    """
+    order_qt_signed_zero_power """
+        select pow(v, -1.0), count(*)
+        from simplify_agg_group_by_signed_zero
+        group by v, pow(v, -1.0)
+        order by 1
+    """
+    order_qt_signed_zero_string """
+        select cast(v as string), count(*)
+        from simplify_agg_group_by_signed_zero
+        group by v, cast(v as string)
+        order by 1
+    """
+    order_qt_signed_zero_safe_arithmetic """
+        select count(*)
+        from simplify_agg_group_by_signed_zero
+        group by v, abs(v), v + 1.0, v * 1.0
+    """
     sql "set disable_nereids_rules=''"
 
     order_qt_string_cast_dependency """
