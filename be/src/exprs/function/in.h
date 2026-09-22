@@ -105,6 +105,10 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
+        // Binary IO must not route IN through the shared string/storage predicate implementation.
+        if (context->get_arg_type(0)->get_primitive_type() == TYPE_VARBINARY) {
+            return Status::NotSupported("VARBINARY IN/NOT IN is not supported");
+        }
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);

@@ -200,6 +200,10 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     private String getStringValueInSessionTimeZone() {
         ZoneId sessionZone = DateUtils.getTimeZone();
         ZonedDateTime localDateTime = toJavaDateType().atZone(ZoneId.of("UTC")).withZoneSameInstant(sessionZone);
+        if (localDateTime.getYear() < 0 || localDateTime.getYear() > 9999) {
+            // Defer to BE in both modes; CastException would incorrectly fold non-strict casts to NULL.
+            throw new AnalysisException("TIMESTAMPTZ local year is outside [0, 9999]");
+        }
         String offset = localDateTime.getOffset().getId();
         if ("Z".equals(offset)) {
             offset = "+00:00";
