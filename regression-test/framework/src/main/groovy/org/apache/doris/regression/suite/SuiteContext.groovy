@@ -30,7 +30,6 @@ import groovy.util.logging.Slf4j
 import java.lang.reflect.UndeclaredThrowableException
 import java.sql.Connection
 import java.sql.DriverManager
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.function.Function
 import org.apache.doris.regression.util.JdbcUtils
@@ -56,16 +55,10 @@ class SuiteContext implements Closeable {
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadSparkIcebergConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
-    // Every Doris connection the thread-local accessors above opened, with the thread that opened it.
-    // Only the suite thread and the threads Suite.thread() runs end with closeThreadLocal(); a thread
-    // the suite created itself (a Thread, an Executors pool) never does, so its connection stayed open
-    // on the frontend until the client JVM garbage-collected it - seconds or minutes later, at the
-    // JVM's whim. Now every statement closes the connections of threads that have finished
-    // (closeConnectionsOfFinishedThreads), and close() closes whatever is left. Registration and that
-    // final drain are serialized on the map itself, and once the suite is over (dorisConnectionsClosed)
-    // a thread the suite left running gets no connection any more: nothing would close it.
-    private final Map<Connection, Thread> openedDorisConnections = new ConcurrentHashMap<>()
-    private boolean dorisConnectionsClosed = false
+    // Every Doris connection the thread-local accessors above opened, with the thread that opened it,
+    // kept open as long as that thread runs (see OpenedDorisConnections). Drained when the suite is over;
+    // what a thread the suite left running still holds, or opens afterwards, goes to the strays.
+    private final OpenedDorisConnections openedDorisConnections
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -93,6 +86,7 @@ class SuiteContext implements Closeable {
         this.config = config
         this.scriptContext = scriptContext
         this.cluster = cluster
+        this.openedDorisConnections = new OpenedDorisConnections("suite ${suiteName}".toString())
 
         String packageName = getPackageName()
         String className = getClassName()
@@ -172,71 +166,50 @@ class SuiteContext implements Closeable {
     }
 
     private Connection trackDorisConnection(Connection conn) {
-        synchronized (openedDorisConnections) {
-            if (!dorisConnectionsClosed) {
-                openedDorisConnections.put(conn, Thread.currentThread())
-                return conn
-            }
+        if (!openedDorisConnections.add(conn)) {
+            // The suite is over and its table drained (closeLeftoverDorisConnections): the thread asking
+            // outlived it. It keeps its connection, with the strays, closed once the thread has finished.
+            log.warn("Thread ${Thread.currentThread().name} still runs statements after the end of suite "
+                    + "${suiteName}; its connection is closed once the thread finishes".toString())
+            OpenedDorisConnections.STRAY.add(conn)
         }
-        // The suite is over and its connections have been drained (closeLeftoverDorisConnections): this one
-        // was opened by a thread the suite left running past its end, and nothing would ever close it. Close
-        // it now and fail the statement that asked for it, on that thread - the suite's own verdict is in.
-        closeQuietly(conn, "connection opened after the end of the suite")
-        throw new IllegalStateException("Suite ${suiteName} is over, but thread ${Thread.currentThread().name}"
-                + " it left running still asks for a connection".toString())
+        return conn
     }
 
     // Closes a connection one of the thread-local accessors opened, and forgets it (see openedDorisConnections).
     void closeDorisConnection(Connection conn, String what) {
         openedDorisConnections.remove(conn)
-        closeQuietly(conn, what)
+        OpenedDorisConnections.STRAY.remove(conn)
+        OpenedDorisConnections.closeQuietly(conn, what)
     }
 
-    private static void closeQuietly(Connection conn, String what) {
-        try {
-            conn.close()
-        } catch (Throwable t) {
-            log.warn("Close ${what} failed".toString(), t)
-        }
-    }
-
-    // A thread the suite created itself took its thread-local connection to the grave: nothing on that
-    // thread runs closeThreadLocal() once it has finished. Called on every statement, this closes those
-    // connections, so a suite that starts a thread per step (Thread.start { streamLoad ... }; join) holds
-    // at most the connections of the threads still running, not one per step until the suite ends.
+    // Called on every statement (see OpenedDorisConnections): a suite that starts a thread per step
+    // (Thread.start { streamLoad ... }; join) holds at most the connections of the threads still running,
+    // not one per step until the suite ends; a thread that outlived its suite is closed the same way.
     private void closeConnectionsOfFinishedThreads() {
-        int closed = 0
-        for (Map.Entry<Connection, Thread> entry : openedDorisConnections.entrySet()) {
-            if (!entry.value.isAlive() && openedDorisConnections.remove(entry.key, entry.value)) {
-                closeQuietly(entry.key, "connection of finished thread ${entry.value.name}".toString())
-                closed++
-            }
-        }
-        if (closed > 0) {
-            log.info("Closed ${closed} connection(s) opened on threads of suite ${suiteName} that have finished"
-                    .toString())
-        }
+        openedDorisConnections.closeThoseOfFinishedThreads()
+        OpenedDorisConnections.STRAY.closeThoseOfFinishedThreads()
     }
 
     // The connections still open once the suite is over, whichever thread opened them (see
-    // openedDorisConnections). The warning names the suite: a `sql` on a thread the suite created
-    // itself and left running (an Executors pool it never shut down) is what leaves them behind.
-    // Serialized with trackDorisConnection, so a registration racing this drain is either drained
-    // here or refused there; none slips between the snapshot and the clear.
+    // openedDorisConnections). Those of threads that have finished are closed here. A thread the suite
+    // left running (an Executors pool it never shut down, the daemon poller of test_active_queries)
+    // keeps its own - closing it under the thread would only fail its next statement - handed to the
+    // strays to be closed once the thread has finished; the warning names the suite and the threads.
     private void closeLeftoverDorisConnections() {
-        List<Connection> leftover
-        synchronized (openedDorisConnections) {
-            dorisConnectionsClosed = true
-            leftover = new ArrayList<>(openedDorisConnections.keySet())
-            openedDorisConnections.clear()
+        List<String> running = []
+        for (Map.Entry<Connection, Thread> entry : openedDorisConnections.drain().entrySet()) {
+            if (entry.value.isAlive()) {
+                OpenedDorisConnections.STRAY.add(entry.key, entry.value)
+                running.add(entry.value.name)
+            } else {
+                OpenedDorisConnections.closeQuietly(entry.key,
+                        "connection of finished thread ${entry.value.name}".toString())
+            }
         }
-        if (leftover.isEmpty()) {
-            return
-        }
-        log.warn("Suite ${suiteName} left ${leftover.size()} connection(s) open on threads of its own, "
-                + "closing them now".toString())
-        for (Connection conn : leftover) {
-            closeQuietly(conn, "leftover connection")
+        if (!running.isEmpty()) {
+            log.warn("Suite ${suiteName} is over but left thread(s) ${running} running; their connections "
+                    + "are closed once they finish".toString())
         }
     }
 
