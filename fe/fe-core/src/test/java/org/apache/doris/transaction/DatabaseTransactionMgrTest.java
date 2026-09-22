@@ -503,7 +503,7 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testUpdateCatalogAfterCommittedAdvancesIvmRefreshVersionForNormalCommitAndReplay()
+    public void testUpdateCatalogAfterCommittedAdvancesIvmSequencePrefixForNormalCommitAndReplay()
             throws Exception {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Database masterDb = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
@@ -520,7 +520,7 @@ public class DatabaseTransactionMgrTest {
         method.setAccessible(true);
         method.invoke(masterDbTransMgr, normalCommitTxn, masterDb, false);
 
-        Assertions.assertEquals(1L, normalCommitIvmInfo.getRefreshVersion());
+        Assertions.assertEquals(1L, normalCommitIvmInfo.getSequencePrefix());
         Mockito.verify(normalCommitStream).unprotectedUpdateStreamUpdate(
                 normalCommitTxn.getStreamUpdateInfos().get(0).getUpdate(), normalCommitTxn.getCommitTime());
 
@@ -535,7 +535,7 @@ public class DatabaseTransactionMgrTest {
                 slaveDb.getId(), 9001L, 10002L, replayStreamId, 456L);
         method.invoke(slaveDbTransMgr, replayTxn, slaveDb, true);
 
-        Assertions.assertEquals(1L, replayIvmInfo.getRefreshVersion());
+        Assertions.assertEquals(1L, replayIvmInfo.getSequencePrefix());
         Mockito.verify(replayStream).unprotectedUpdateStreamUpdate(
                 replayTxn.getStreamUpdateInfos().get(0).getUpdate(), replayTxn.getCommitTime());
     }
