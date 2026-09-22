@@ -255,8 +255,8 @@ public class MTMV extends OlapTable {
         return getIvmInfo().isEnableIvm();
     }
 
-    public long getNextRefreshVersion() {
-        return Config.isCloudMode() ? getNextVersion() : getIvmInfo().getRefreshVersion() + 1;
+    public long getNextSequencePrefix() {
+        return Config.isCloudMode() ? getNextVersion() : getIvmInfo().getSequencePrefix() + 1;
     }
 
     public boolean addTaskResult(AlterMTMV alterMTMV, boolean isReplay) {
