@@ -151,6 +151,41 @@ TEST(IndexQueryIoBatch, CoalescingFreesARangeForAnotherReader) {
     EXPECT_EQ(budget.used_bytes(), 16U);
 }
 
+TEST(IndexQueryIoBatch, ReadsRangesWithinTheWaveGapTogether) {
+    CountingIoReader reader;
+    MemoryBudget budget(64);
+    IoBatch batch(budget, {.bytes = 16, .ranges = 1, .coalesce_gap = 4});
+    bool accepted = false;
+    size_t first = 0;
+    size_t second = 0;
+    ASSERT_TRUE(batch.try_add(reader, 0, 4, &accepted, &first).ok());
+    ASSERT_TRUE(accepted);
+    // The four-byte gap is read with both ranges, so they need one range slot.
+    ASSERT_TRUE(batch.try_add(reader, 8, 4, &accepted, &second).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(batch.fetch().ok());
+    EXPECT_EQ(reader.calls, 1U);
+    EXPECT_EQ(budget.used_bytes(), 12U);
+    EXPECT_EQ(batch.get(first).data() + 8, batch.get(second).data());
+    EXPECT_EQ(batch.get(second).front(), 8U);
+    EXPECT_EQ(batch.get(second).size(), 4U);
+}
+
+TEST(IndexQueryIoBatch, ReadsRangesBeyondTheWaveGapSeparately) {
+    CountingIoReader reader;
+    MemoryBudget budget(64);
+    IoBatch batch(budget, {.bytes = 64, .ranges = 2, .coalesce_gap = 3});
+    bool accepted = false;
+    size_t handle = 0;
+    ASSERT_TRUE(batch.try_add(reader, 0, 4, &accepted, &handle).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(batch.try_add(reader, 8, 4, &accepted, &handle).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(batch.fetch().ok());
+    EXPECT_EQ(reader.calls, 2U);
+    EXPECT_EQ(budget.used_bytes(), 8U);
+}
+
 TEST(IndexQueryIoBatch, ReadFailureReleasesEarlierReadersAndAllowsRetry) {
     CountingIoReader first;
     CountingIoReader second;

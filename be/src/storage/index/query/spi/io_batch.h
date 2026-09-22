@@ -53,6 +53,9 @@ public:
     struct Limits {
         uint64_t bytes;
         size_t ranges;
+        // Requests of one reader separated by at most this many bytes share a read;
+        // the gap is read and charged like the requested bytes.
+        uint64_t coalesce_gap = 0;
     };
 
     IoBatch(MemoryBudget& budget, Limits limits) : budget_(budget), limits_(limits) {}

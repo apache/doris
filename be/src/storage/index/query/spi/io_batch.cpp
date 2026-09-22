@@ -32,7 +32,7 @@ Status IoBatch::try_add(IoReader& reader, uint64_t offset, uint64_t len, bool* a
     const size_t reader_index = it - readers_.begin();
     const bool added_reader = it == readers_.end();
     if (added_reader) {
-        readers_.push_back(std::make_unique<IoReadBatch>(&reader));
+        readers_.push_back(std::make_unique<IoReadBatch>(&reader, limits_.coalesce_gap));
     }
     IoReadBatch& batch = *readers_[reader_index];
     const uint64_t other_bytes = bytes_ - batch.bounded_bytes_;
