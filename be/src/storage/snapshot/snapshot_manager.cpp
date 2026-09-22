@@ -374,6 +374,11 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
                                    "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
+    // build() derives the meta from the writer context, which carries no publish-time commit TSO.
+    // The linked segments hold placeholders that readers resolve from this field on a singleton.
+    if (org_rowset_meta->has_commit_tso()) {
+        new_rowset->rowset_meta()->set_commit_tso(org_rowset_meta->commit_tso());
+    }
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
     RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();

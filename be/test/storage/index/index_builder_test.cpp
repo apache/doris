@@ -702,6 +702,29 @@ TEST_F(IndexBuilderTest, HandleSingleRowsetPreservesOrdinaryAppendFailure) {
     EXPECT_EQ(status.msg(), "debug point: handle_single_rowset_write_inverted_index_data_error");
 }
 
+TEST_F(IndexBuilderTest, ReplacementRowsetKeepsPublishTimeMetadata) {
+    prepare_single_index_build(16605);
+    auto input_rowset = _tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(nullptr, input_rowset);
+    // Publish assigns the commit TSO and compaction assigns the level after the rowset was
+    // written; neither is known to the rowset writer context the index build creates.
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    input_rowset->rowset_meta()->set_commit_tso(TsoRange(kCommitTso, kCommitTso));
+    input_rowset->rowset_meta()->set_compaction_level(3);
+    input_rowset->rowset_meta()->mark_row_binlog();
+
+    auto status = build_single_index();
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto output_rowset = _tablet->get_rowset_by_version(Version(10, 10));
+    ASSERT_NE(nullptr, output_rowset);
+    EXPECT_NE(input_rowset->rowset_id(), output_rowset->rowset_id());
+    ASSERT_TRUE(output_rowset->rowset_meta()->has_commit_tso());
+    EXPECT_EQ(kCommitTso, output_rowset->rowset_meta()->commit_tso().end_tso());
+    EXPECT_EQ(3, output_rowset->rowset_meta()->compaction_level());
+    EXPECT_TRUE(output_rowset->rowset_meta()->is_row_binlog());
+}
+
 TEST_F(IndexBuilderTest, DropInvertedIndexTest) {
     // 0. prepare tablet path
     auto tablet_path = _absolute_dir + "/" + std::to_string(15676);
