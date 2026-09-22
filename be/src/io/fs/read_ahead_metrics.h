@@ -82,6 +82,9 @@ struct ReadAheadStatistics {
     RuntimeProfile::Counter consumed_range_bytes {TUnit::BYTES};
     RuntimeProfile::Counter released_pages {TUnit::UNIT};
     RuntimeProfile::Counter writeback_time {TUnit::TIME_NS};
+    /// Disjoint foreground dispatch sub-timers; neither includes background hole reads/disk writes.
+    RuntimeProfile::Counter complete_block_submit_time {TUnit::TIME_NS};
+    RuntimeProfile::Counter partial_block_submit_time {TUnit::TIME_NS};
     RuntimeProfile::Counter complete_blocks_submitted {TUnit::UNIT};
     RuntimeProfile::Counter complete_block_bytes {TUnit::BYTES};
     RuntimeProfile::Counter partial_blocks_queued {TUnit::UNIT};
