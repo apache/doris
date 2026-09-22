@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
@@ -267,5 +268,48 @@ public class RemoteDorisScanNodeTest {
         session.close();
 
         Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
+    }
+
+    @Test
+    public void testACoordinatorStopsTheScansAfterOneThatFailsToStop() throws Exception {
+        // A batch-mode external scan planned before the remote Doris scan, whose split source
+        // rethrows the failure of its asynchronous split generation from stop().
+        ScanNode failing = Mockito.mock(ScanNode.class);
+        Mockito.doThrow(new RuntimeException("split generation failed")).when(failing).stop();
+        RemoteDorisScanNode node = scanNode();
+        node.executeFlightSqlQuery(hostAndPort, USER, PASSWORD, "select 1", 10);
+        // The deferred case, where the coordinator is the session's only owner: the statement's end
+        // is no fallback for it.
+        statementContext.handOverScanNodesToDeferredCoordinator(Lists.newArrayList(failing, node));
+        statementContext.close();
+        Assertions.assertTrue(remote.closedSessions.isEmpty());
+
+        coordinator(failing, node).close();
+
+        Mockito.verify(failing).stop();
+        Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
+    }
+
+    @Test
+    public void testAutoCloseConnectContextEndsTheStatementItRan() throws Exception {
+        // An EXPORT's SELECT INTO OUTFILE, an ANALYZE's statistics query: the statement runs under a
+        // ConnectContext installed for the block, and its StatementContext is dropped with the block.
+        ConnectContext blockContext = new ConnectContext();
+        StatementContext blockStatement = new StatementContext(blockContext, new OriginStatement("select 1", 0));
+        blockContext.setStatementContext(blockStatement);
+        RemoteDorisScanNode node = scanNode();
+        try (AutoCloseConnectContext r = new AutoCloseConnectContext(blockContext)) {
+            r.call();
+            // Planned under the block's context, then failed before a coordinator took the plan.
+            node.executeFlightSqlQuery(hostAndPort, USER, PASSWORD, "select 1", 10);
+            Assertions.assertTrue(remote.closedSessions.isEmpty());
+        }
+
+        Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
+        Assertions.assertNull(blockContext.getStatementContext());
+        // The context of the thread before the block is back, with nothing of the block's in it.
+        Assertions.assertSame(statementContext, ConnectContext.get().getStatementContext());
+        statementContext.close();
+        Assertions.assertEquals(1, remote.closedSessions.size());
     }
 }

@@ -60,9 +60,12 @@ class SuiteContext implements Closeable {
     // Only the suite thread and the threads Suite.thread() runs end with closeThreadLocal(); a thread
     // the suite created itself (a Thread, an Executors pool) never does, so its connection stayed open
     // on the frontend until the client JVM garbage-collected it - seconds or minutes later, at the
-    // JVM's whim. Now the next connection the suite opens closes the connections of threads that have
-    // finished (closeConnectionsOfFinishedThreads), and close() closes whatever is left.
+    // JVM's whim. Now every statement closes the connections of threads that have finished
+    // (closeConnectionsOfFinishedThreads), and close() closes whatever is left. Registration and that
+    // final drain are serialized on the map itself, and once the suite is over (dorisConnectionsClosed)
+    // a thread the suite left running gets no connection any more: nothing would close it.
     private final Map<Connection, Thread> openedDorisConnections = new ConcurrentHashMap<>()
+    private boolean dorisConnectionsClosed = false
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
     public final File dataPath
@@ -169,8 +172,18 @@ class SuiteContext implements Closeable {
     }
 
     private Connection trackDorisConnection(Connection conn) {
-        openedDorisConnections.put(conn, Thread.currentThread())
-        return conn
+        synchronized (openedDorisConnections) {
+            if (!dorisConnectionsClosed) {
+                openedDorisConnections.put(conn, Thread.currentThread())
+                return conn
+            }
+        }
+        // The suite is over and its connections have been drained (closeLeftoverDorisConnections): this one
+        // was opened by a thread the suite left running past its end, and nothing would ever close it. Close
+        // it now and fail the statement that asked for it, on that thread - the suite's own verdict is in.
+        closeQuietly(conn, "connection opened after the end of the suite")
+        throw new IllegalStateException("Suite ${suiteName} is over, but thread ${Thread.currentThread().name}"
+                + " it left running still asks for a connection".toString())
     }
 
     // Closes a connection one of the thread-local accessors opened, and forgets it (see openedDorisConnections).
@@ -208,9 +221,15 @@ class SuiteContext implements Closeable {
     // The connections still open once the suite is over, whichever thread opened them (see
     // openedDorisConnections). The warning names the suite: a `sql` on a thread the suite created
     // itself and left running (an Executors pool it never shut down) is what leaves them behind.
+    // Serialized with trackDorisConnection, so a registration racing this drain is either drained
+    // here or refused there; none slips between the snapshot and the clear.
     private void closeLeftoverDorisConnections() {
-        List<Connection> leftover = new ArrayList<>(openedDorisConnections.keySet())
-        openedDorisConnections.clear()
+        List<Connection> leftover
+        synchronized (openedDorisConnections) {
+            dorisConnectionsClosed = true
+            leftover = new ArrayList<>(openedDorisConnections.keySet())
+            openedDorisConnections.clear()
+        }
         if (leftover.isEmpty()) {
             return
         }
@@ -251,6 +270,7 @@ class SuiteContext implements Closeable {
 
     // like getConnection, but connect to FE master
     Connection getMasterConnection() {
+        closeConnectionsOfFinishedThreads()
         def threadConnInfo = threadLocalMasterConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()
@@ -263,6 +283,7 @@ class SuiteContext implements Closeable {
     }
 
     Connection getArrowFlightSqlConnection() {
+        closeConnectionsOfFinishedThreads()
         def threadConnInfo = threadArrowFlightSqlConn.get()
         if (threadConnInfo == null) {
             threadConnInfo = new ConnectionInfo()

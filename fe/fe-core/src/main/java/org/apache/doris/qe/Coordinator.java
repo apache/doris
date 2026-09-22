@@ -829,12 +829,23 @@ public class Coordinator implements CoordInterface {
             }
         }
 
-        try {
-            for (ScanNode scanNode : scanNodes) {
+        stopScanNodes(scanNodes);
+    }
+
+    /**
+     * Stops every scan node of the query, one failing to stop not keeping the next from stopping:
+     * each node releases what it holds on the FE for the BE (a batch split source, a remote Doris
+     * scan's Flight SQL session on the other frontend) and this coordinator is the owner that
+     * releases them, on close and on cancel. A batch split source rethrows the failure of its
+     * asynchronous split generation from stop(), which must not skip the nodes after it.
+     */
+    protected static void stopScanNodes(List<ScanNode> scanNodes) {
+        for (ScanNode scanNode : scanNodes) {
+            try {
                 scanNode.stop();
+            } catch (Throwable t) {
+                LOG.warn("error happens when scan node {} stop", scanNode.getId(), t);
             }
-        } catch (Throwable t) {
-            LOG.error("error happens when scannode stop ", t);
         }
     }
 
@@ -1412,9 +1423,7 @@ public class Coordinator implements CoordInterface {
         if (queueToken != null) {
             queueToken.cancel();
         }
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
+        stopScanNodes(scanNodes);
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());

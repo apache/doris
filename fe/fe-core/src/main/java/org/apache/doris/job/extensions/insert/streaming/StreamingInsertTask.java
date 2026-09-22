@@ -239,6 +239,15 @@ public class StreamingInsertTask extends AbstractStreamingTask {
             taskCommand = null;
         }
         if (null != ctx) {
+            // This attempt's statement is over: end its StatementContext the way TaskProcessor does
+            // for the tasks it runs (this task is run by the streaming scheduler instead). The plan
+            // before() built only to rewrite the TVF never gets a coordinator, so what its scan nodes
+            // opened for one - the Flight SQL session of a remote Doris scan joined with the TVF - is
+            // released here rather than left to the remote frontend's wait_timeout.
+            StatementContext statementContext = ctx.getStatementContext();
+            if (statementContext != null) {
+                statementContext.close();
+            }
             ctx = null;
         }
     }
