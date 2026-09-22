@@ -396,6 +396,80 @@ class HudiBatchFsViewOwnerTest {
         Assertions.assertThrows(CancellationException.class, owner::awaitCompletion);
     }
 
+    @Test
+    void closeInterruptsBlockedBatchSyncAndKeepsLeaseUntilTerminal() throws Exception {
+        SplitAssignment assignment = Mockito.mock(SplitAssignment.class);
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.BatchFsViewOwner owner = new HudiScanNode.BatchFsViewOwner(
+                assignment, lease, Runnable::run, Runnable::run);
+        CountDownLatch syncStarted = new CountDownLatch(1);
+        CountDownLatch syncInterrupted = new CountDownLatch(1);
+        Thread syncThread = new Thread(() -> {
+            owner.beginSync(Thread.currentThread());
+            syncStarted.countDown();
+            while (true) {
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException e) {
+                    syncInterrupted.countDown();
+                    return;
+                }
+            }
+        });
+        try {
+            syncThread.start();
+            Assertions.assertTrue(syncStarted.await(3, TimeUnit.SECONDS));
+
+            owner.close();
+
+            Assertions.assertTrue(syncInterrupted.await(3, TimeUnit.SECONDS));
+            // A blocked remote sync keeps owning the lease; only its terminal path releases it.
+            Mockito.verify(lease, Mockito.never()).close();
+            owner.finish();
+            Mockito.verify(lease).close();
+        } finally {
+            syncThread.interrupt();
+            syncThread.join(3000);
+            owner.finish();
+        }
+    }
+
+    @Test
+    void closeInterruptsBlockedListingSyncAndKeepsLeaseUntilTerminal() throws Exception {
+        HudiFsViewCacheValue.Lease lease = Mockito.mock(HudiFsViewCacheValue.Lease.class);
+        HudiScanNode.ListingFsViewOwner owner = new HudiScanNode.ListingFsViewOwner(lease, Runnable::run);
+        CountDownLatch syncStarted = new CountDownLatch(1);
+        CountDownLatch syncInterrupted = new CountDownLatch(1);
+        Thread syncThread = new Thread(() -> {
+            owner.beginSync(Thread.currentThread());
+            syncStarted.countDown();
+            while (true) {
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException e) {
+                    syncInterrupted.countDown();
+                    return;
+                }
+            }
+        });
+        try {
+            syncThread.start();
+            Assertions.assertTrue(syncStarted.await(3, TimeUnit.SECONDS));
+
+            owner.close();
+
+            Assertions.assertTrue(syncInterrupted.await(3, TimeUnit.SECONDS));
+            // A blocked remote sync keeps owning the lease; only its terminal path releases it.
+            Mockito.verify(lease, Mockito.never()).close();
+            owner.discardBeforeSubmission();
+            Mockito.verify(lease).close();
+        } finally {
+            syncThread.interrupt();
+            syncThread.join(3000);
+            owner.discardBeforeSubmission();
+        }
+    }
+
     private static ThreadPoolExecutor blockedExecutor(
             CountDownLatch workersStarted, CountDownLatch releaseWorkers) {
         ThreadPoolExecutor executor = new ThreadPoolExecutor(

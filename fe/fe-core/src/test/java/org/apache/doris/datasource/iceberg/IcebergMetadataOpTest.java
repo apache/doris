@@ -146,6 +146,46 @@ public class IcebergMetadataOpTest {
         verifyCreateTableCaseFoldCollisionUsesRetainedGeneration(true);
     }
 
+    @Test
+    public void testCreateTableCaseFoldCollisionIncludesViews() throws Exception {
+        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+        Catalog icebergCatalog = Mockito.mock(Catalog.class,
+                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "rest");
+        props.put("iceberg.rest.uri", "http://localhost:8181");
+        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+        });
+        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
+        Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, props));
+        Mockito.when(dorisCatalog.getLowerCaseTableNames()).thenReturn(1);
+        ExternalDatabase<?> retainedDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(retainedDb.getRemoteName()).thenReturn("db");
+        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
+        Mockito.when(dorisCatalog.beginCatalogOperation(ops)).thenAnswer(invocation -> tracker.beginOperation());
+        Mockito.doReturn(retainedDb).when(dorisCatalog).getDbForCatalogOperation(ops, "db");
+        Mockito.when(icebergCatalog.tableExists(TableIdentifier.of("db", "TBL1"))).thenReturn(false);
+        Mockito.when(icebergCatalog.listTables(Namespace.of("db"))).thenReturn(Collections.emptyList());
+        Mockito.when(((ViewCatalog) icebergCatalog).listViews(Namespace.of("db")))
+                .thenReturn(Collections.singletonList(TableIdentifier.of("db", "tbl1")));
+
+        CreateTableInfo createTableInfo = Mockito.mock(CreateTableInfo.class);
+        Mockito.when(createTableInfo.getDbName()).thenReturn("db");
+        Mockito.when(createTableInfo.getTableName()).thenReturn("TBL1");
+        Mockito.when(createTableInfo.isIfNotExists()).thenReturn(false);
+
+        // Doris exposes Iceberg tables and views in one case-folded namespace, so a view named
+        // tbl1 must reject CREATE TABLE TBL1 under lower_case_table_names.
+        Exception exception = Assert.assertThrows(Exception.class, () -> ops.createTableImpl(createTableInfo));
+        Assert.assertTrue(exception.getCause() instanceof DdlException);
+        Assert.assertTrue(exception.getCause().getMessage().contains("TBL1"));
+        Mockito.verify(icebergCatalog, Mockito.never()).createTable(
+                Mockito.any(TableIdentifier.class), Mockito.any(Schema.class),
+                Mockito.any(PartitionSpec.class), Mockito.anyMap());
+    }
+
     private void verifyCreateTableCaseFoldCollisionUsesRetainedGeneration(boolean hmsCatalog) throws Exception {
         ExternalCatalogSetup setup = createExternalCatalogSetup(hmsCatalog);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,

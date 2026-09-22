@@ -147,7 +147,7 @@ public class IcebergSysExternalTable extends ExternalTable {
      * with a different scan table. Only static metadata tables whose schemas never depend on
      * the source schema keep reading the latest generation.
      */
-    private boolean bindsToStatementGeneration() {
+    public boolean bindsToStatementGeneration() {
         if (supportsSnapshotSelection()) {
             return true;
         }

@@ -121,8 +121,9 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
         return new FsViewGeneration(catalogId, fsViewEntry.get(catalogId));
     }
 
-    private HudiFsViewCacheValue.Lease getFsView(
-            FsViewGeneration generation, NameMapping nameMapping, ExecutionAuthenticator authenticator) {
+    /** Resolve and pin the exact fs-view generation without running the blocking remote sync. */
+    private HudiFsViewCacheValue.Lease acquireFsView(
+            FsViewGeneration generation, NameMapping nameMapping) {
         HudiFsViewCacheKey key = HudiFsViewCacheKey.of(nameMapping);
         while (true) {
             synchronized (this) {
@@ -149,24 +150,42 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 value.releaseCacheReference();
             }
             value.releaseLoaderReference();
-            if (lease == null) {
-                continue;
-            }
-            try {
-                // The lease pins the exact view after the cache-generation handoff, so reset may
-                // retire the entry while remote timeline I/O runs outside every lifecycle monitor.
-                authenticator.execute(() -> {
-                    lease.get().sync();
-                    return null;
-                });
+            if (lease != null) {
                 return lease;
-            } catch (Exception e) {
-                lease.close();
-                if (e instanceof RuntimeException) {
-                    throw (RuntimeException) e;
-                }
-                throw new RuntimeException("Failed to synchronize Hudi filesystem view", e);
             }
+        }
+    }
+
+    /**
+     * Run the potentially blocking remote timeline sync for an already acquired lease. Callers
+     * publish a cancellable owner before invoking this, so a stalled sync can be signalled and the
+     * lease is released only from the terminal path that owns it.
+     */
+    private static void synchronizeFsView(
+            HudiFsViewCacheValue.Lease lease, ExecutionAuthenticator authenticator) {
+        try {
+            // The lease pins the exact view after the cache-generation handoff, so reset may
+            // retire the entry while remote timeline I/O runs outside every lifecycle monitor.
+            authenticator.execute(() -> {
+                lease.get().sync();
+                return null;
+            });
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to synchronize Hudi filesystem view", e);
+        }
+    }
+
+    private HudiFsViewCacheValue.Lease getFsView(
+            FsViewGeneration generation, NameMapping nameMapping, ExecutionAuthenticator authenticator) {
+        HudiFsViewCacheValue.Lease lease = acquireFsView(generation, nameMapping);
+        try {
+            synchronizeFsView(lease, authenticator);
+            return lease;
+        } catch (RuntimeException e) {
+            lease.close();
+            throw e;
         }
     }
 
@@ -184,6 +203,17 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
                 MetaCacheEntry<HudiFsViewCacheKey, HudiFsViewCacheValue> entry) {
             this.catalogId = catalogId;
             this.entry = entry;
+        }
+
+        /** Pin the exact fs-view generation without running the blocking remote sync. */
+        public HudiFsViewCacheValue.Lease acquireFsView(NameMapping nameMapping) {
+            return HudiExternalMetaCache.this.acquireFsView(this, nameMapping);
+        }
+
+        /** Run the blocking remote timeline sync for an already acquired lease. */
+        public void synchronizeFsView(
+                HudiFsViewCacheValue.Lease lease, ExecutionAuthenticator authenticator) {
+            HudiExternalMetaCache.synchronizeFsView(lease, authenticator);
         }
 
         public HudiFsViewCacheValue.Lease getFsView(

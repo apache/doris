@@ -1925,8 +1925,19 @@ public class IcebergScanNode extends FileQueryScanNode {
                         frozenGenerationSource = cacheValue;
                         return MetadataTableUtils.createMetadataTableInstance(frozenBaseTable, tableType);
                     }
-                    // This scan falls back to the current generation, so its asynchronous planner
-                    // must retain that generation rather than the pinned one.
+                    if (systemTable.bindsToStatementGeneration()) {
+                        // ALL_* metadata tables ignore a selected snapshot id but Iceberg derives
+                        // their schema from the statement generation, so they must keep the frozen
+                        // generation and its async-planning lease.
+                        frozenGenerationSource = cacheValue;
+                        return currentTable;
+                    }
+                    // Truly static metadata tables (SNAPSHOTS/HISTORY/REFS/...) read the current
+                    // generation. Drop the pinned runtime, mapping policy and planning lease so a
+                    // G2 table is never executed with G1 resources.
+                    runtimeContext = null;
+                    frozenEnableMappingVarbinary = null;
+                    frozenEnableMappingTimestampTz = null;
                     return currentTable;
                 }
                 // Snapshot selection fences data files, but spec, properties, expiration state,

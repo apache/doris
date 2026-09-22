@@ -395,16 +395,24 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
-    private synchronized void acquireFsView() {
+    /**
+     * Pin the exact fs-view generation without running the blocking remote timeline sync. The
+     * caller publishes a cancellable owner before {@link #syncFsView()} so a stalled sync can be
+     * signalled and the lease is released only from the terminal path that owns it.
+     */
+    private synchronized void acquireFsViewLease() {
         if (fsViewLease != null) {
             return;
         }
         if (fsViewReleased.get()) {
             throw new IllegalStateException("Hudi filesystem-view lease has already been released");
         }
-        fsViewLease = fsViewGeneration.getFsView(
-                hmsTable.getOrBuildNameMapping(), executionAuthenticator);
+        fsViewLease = fsViewGeneration.acquireFsView(hmsTable.getOrBuildNameMapping());
         fsView = fsViewLease.get();
+    }
+
+    private void syncFsView() {
+        fsViewGeneration.synchronizeFsView(fsViewLease, executionAuthenticator);
     }
 
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
@@ -542,7 +550,11 @@ public class HudiScanNode extends HiveScanNode {
         return splits;
     }
 
-    private void getPartitionsSplits(List<HivePartition> partitions, List<Split> splits) {
+    /**
+     * Publish the listing owner before the blocking remote sync so statement cancellation can
+     * signal it and the owner, not the caller, releases the exact fs-view generation.
+     */
+    private ListingFsViewOwner acquireListingOwner() {
         Executor executor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         ListingFsViewOwner createdOwner = new ListingFsViewOwner(fsViewLease, executor);
         ListingFsViewOwner owner = createdOwner;
@@ -559,11 +571,16 @@ public class HudiScanNode extends HiveScanNode {
                 throw e;
             }
         }
-        // The owner now releases the exact fs-view generation after every accepted task terminates.
+        // The owner now owns the exact lease actual-terminal release, before any remote sync runs.
         if (!fsViewReleased.compareAndSet(false, true)) {
             owner.discardBeforeSubmission();
             throw new IllegalStateException("Hudi filesystem-view lease has already been released");
         }
+        return owner;
+    }
+
+    private void getPartitionsSplits(
+            List<HivePartition> partitions, List<Split> splits, ListingFsViewOwner owner) {
         AtomicReference<Throwable> throwable = new AtomicReference<>();
         RuntimeException submissionFailure = null;
         long startTime = System.currentTimeMillis();
@@ -613,14 +630,30 @@ public class HudiScanNode extends HiveScanNode {
                 ensureHmsRuntimeGeneration();
                 return Collections.emptyList();
             }
-            acquireFsView();
-            List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-            executionAuthenticator.execute(() -> {
-                getPartitionsSplits(prunedPartitions, splits);
-                return null;
-            });
-            ensureHmsRuntimeGeneration();
-            return splits;
+            acquireFsViewLease();
+            ListingFsViewOwner owner = acquireListingOwner();
+            // Once the owner is published it owns the exact lease release. discardBeforeSubmission
+            // is idempotent, so it safely covers sync/submission/auth failures as well.
+            try {
+                owner.beginSync(Thread.currentThread());
+                try {
+                    syncFsView();
+                } finally {
+                    owner.endSync();
+                }
+                if (owner.isStopping()) {
+                    throw new UserException("Hudi split listing was cancelled");
+                }
+                List<Split> splits = Collections.synchronizedList(new ArrayList<>());
+                executionAuthenticator.execute(() -> {
+                    getPartitionsSplits(prunedPartitions, splits, owner);
+                    return null;
+                });
+                ensureHmsRuntimeGeneration();
+                return splits;
+            } finally {
+                owner.discardBeforeSubmission();
+            }
         } catch (Exception e) {
             throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
         } finally {
@@ -655,7 +688,7 @@ public class HudiScanNode extends HiveScanNode {
             releaseFsViewOnce();
             return;
         }
-        acquireFsView();
+        acquireFsViewLease();
         ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         Executor producerExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getFileListingExecutor();
         long startTime = System.currentTimeMillis();
@@ -680,6 +713,21 @@ public class HudiScanNode extends HiveScanNode {
 
         BatchFsViewOwner finalBatchOwner = batchOwner;
         splitAssignment.addCloseable(finalBatchOwner);
+        // Publish the owner before the blocking timeline sync: cancellation can now signal the
+        // sync thread, and the owner keeps the lease until the sync actually terminates.
+        finalBatchOwner.beginSync(Thread.currentThread());
+        try {
+            syncFsView();
+        } catch (RuntimeException e) {
+            finalBatchOwner.finish();
+            throw e;
+        } finally {
+            finalBatchOwner.endSync();
+        }
+        if (splitAssignment.isStop() || finalBatchOwner.isStopping()) {
+            finalBatchOwner.finish();
+            return;
+        }
         AtomicInteger pendingTasks = new AtomicInteger(1); // producer reference
         Runnable taskFinished = () -> {
             if (pendingTasks.decrementAndGet() == 0) {
@@ -836,6 +884,7 @@ public class HudiScanNode extends HiveScanNode {
         private final AtomicBoolean finished = new AtomicBoolean();
         private final ConcurrentHashMap<TerminalTask, Executor> tasks = new ConcurrentHashMap<>();
         private final AtomicBoolean stopping = new AtomicBoolean();
+        private volatile Thread syncThread;
 
         BatchFsViewOwner(SplitAssignment splitAssignment, HudiFsViewCacheValue.Lease lease,
                 Executor scheduleExecutor, Executor producerExecutor) {
@@ -853,6 +902,18 @@ public class HudiScanNode extends HiveScanNode {
                     LOG.warn("Failed to release Hudi fs-view lease after batch tasks terminated", e);
                 }
             }
+        }
+
+        void beginSync(Thread thread) {
+            syncThread = thread;
+        }
+
+        void endSync() {
+            syncThread = null;
+        }
+
+        boolean isStopping() {
+            return stopping.get();
         }
 
         boolean submitPartition(TerminalTask task) {
@@ -902,6 +963,10 @@ public class HudiScanNode extends HiveScanNode {
             if (finished.get() || !stopping.compareAndSet(false, true)) {
                 return;
             }
+            Thread sync = syncThread;
+            if (sync != null) {
+                sync.interrupt();
+            }
             try {
                 splitAssignment.stop();
             } catch (RuntimeException e) {
@@ -926,6 +991,7 @@ public class HudiScanNode extends HiveScanNode {
         private final ConcurrentLinkedQueue<TerminalTask> tasks = new ConcurrentLinkedQueue<>();
         private final CompletableFuture<Void> tasksFinished = new CompletableFuture<>();
         private final CompletableFuture<Void> cancelled = new CompletableFuture<>();
+        private volatile Thread syncThread;
 
         ListingFsViewOwner(HudiFsViewCacheValue.Lease lease, Executor executor) {
             this.lease = lease;
@@ -974,6 +1040,18 @@ public class HudiScanNode extends HiveScanNode {
             submissionDone();
         }
 
+        void beginSync(Thread thread) {
+            syncThread = thread;
+        }
+
+        void endSync() {
+            syncThread = null;
+        }
+
+        boolean isStopping() {
+            return stopping.get();
+        }
+
         private void taskDone() {
             if (pendingTasks.decrementAndGet() == 0) {
                 try {
@@ -1003,6 +1081,10 @@ public class HudiScanNode extends HiveScanNode {
         @Override
         public void close() {
             if (stopping.compareAndSet(false, true)) {
+                Thread sync = syncThread;
+                if (sync != null) {
+                    sync.interrupt();
+                }
                 // Publish cancellation first. Cancelling a FutureTask before it starts invokes
                 // done() synchronously and may complete terminal accounting on this thread.
                 // awaitCompletion must still observe cancellation rather than return partial splits.

@@ -49,6 +49,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
+import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
@@ -3428,6 +3429,82 @@ public class IcebergScanNodeTest {
         Assert.assertTrue(retainedMetadataTable instanceof BaseMetadataTable);
         Assert.assertEquals(schema.asStruct(), ((BaseMetadataTable) retainedMetadataTable).table()
                 .schema().asStruct());
+    }
+
+
+    @Test
+    public void testAllMetadataTableRetainsFrozenGenerationForAsyncPlanning() throws Exception {
+        Schema schema = new Schema(21, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get())));
+        TableMetadata metadata = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:/tmp/frozen-all-table",
+                Collections.emptyMap());
+        Table frozenBaseTable = new BaseTable(new StaticTableOperations(
+                metadata, Mockito.mock(org.apache.iceberg.io.FileIO.class),
+                Mockito.mock(org.apache.iceberg.io.LocationProvider.class)), "table");
+        Table currentTable = Mockito.mock(Table.class);
+
+        IcebergSysExternalTable targetTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(targetTable.supportsSnapshotSelection()).thenReturn(false);
+        Mockito.when(targetTable.bindsToStatementGeneration()).thenReturn(true);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergSource(node, source);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(-1L, schema.schemaId()), Optional.empty(), frozenBaseTable);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(currentTable, useFrozenTableGeneration(node, currentTable));
+
+        Field frozenSourceField = IcebergScanNode.class.getDeclaredField("frozenGenerationSource");
+        frozenSourceField.setAccessible(true);
+        Assert.assertSame("ALL_* metadata tables must retain the frozen generation",
+                snapshotValue, frozenSourceField.get(node));
+    }
+
+    @Test
+    public void testStaticMetadataTableDropsPinnedGenerationResources() throws Exception {
+        Table frozenTable = Mockito.mock(Table.class);
+        Table currentTable = Mockito.mock(Table.class);
+
+        IcebergSysExternalTable targetTable = Mockito.mock(IcebergSysExternalTable.class);
+        Mockito.when(targetTable.supportsSnapshotSelection()).thenReturn(false);
+        Mockito.when(targetTable.bindsToStatementGeneration()).thenReturn(false);
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(targetTable);
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergSource(node, source);
+        Field isSystemTableField = IcebergScanNode.class.getDeclaredField("isSystemTable");
+        isSystemTableField.setAccessible(true);
+        isSystemTableField.setBoolean(node, true);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(-1L, 20L), Optional.empty(), frozenTable)
+                .bindSchemaMappingOptions(true, true)
+                .bindRuntimeContext(Mockito.mock(IcebergRuntimeContext.class));
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(currentTable, useFrozenTableGeneration(node, currentTable));
+
+        Field frozenSourceField = IcebergScanNode.class.getDeclaredField("frozenGenerationSource");
+        frozenSourceField.setAccessible(true);
+        Assert.assertNull(frozenSourceField.get(node));
+        Field runtimeField = IcebergScanNode.class.getDeclaredField("runtimeContext");
+        runtimeField.setAccessible(true);
+        Assert.assertNull(runtimeField.get(node));
+        Field frozenVarbinaryField = IcebergScanNode.class.getDeclaredField("frozenEnableMappingVarbinary");
+        frozenVarbinaryField.setAccessible(true);
+        Assert.assertNull(frozenVarbinaryField.get(node));
+        Field frozenTimestampField = IcebergScanNode.class.getDeclaredField("frozenEnableMappingTimestampTz");
+        frozenTimestampField.setAccessible(true);
+        Assert.assertNull(frozenTimestampField.get(node));
     }
 
     @Test

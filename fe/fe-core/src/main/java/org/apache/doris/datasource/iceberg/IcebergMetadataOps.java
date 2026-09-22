@@ -1988,7 +1988,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         if (lowerCaseTableNames == 0) {
             return false;
         }
-        return listTableNamesInternal(dbName).stream().anyMatch(tblName::equalsIgnoreCase);
+        // Doris exposes Iceberg tables and views in one case-folded local namespace, so both must
+        // block a case-variant create. listTableNamesInternal deliberately excludes view names.
+        return Stream.concat(listTableNamesInternal(dbName).stream(), listViewNamesInternal(dbName).stream())
+                .anyMatch(tblName::equalsIgnoreCase);
     }
 
     private boolean databaseExistsInternal(String dbName) {
