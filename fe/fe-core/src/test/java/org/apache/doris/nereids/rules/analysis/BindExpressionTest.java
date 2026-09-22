@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -56,12 +57,16 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
         String outOfRange = "select col1, count(*) from t1 group by 3";
         String wrapsToOne = "select col1, count(*) from t1 group by 4294967297";
 
-        Assertions.assertThrows(Exception.class,
+        // Both must fail the same way: as a constant, the literal leaves col1
+        // ungrouped. checkPlannerResult surfaces that as NereidsException.
+        NereidsException expected = Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(outOfRange),
                 "an ordinal past the end of the select list must not bind");
-        Assertions.assertThrows(Exception.class,
+        NereidsException actual = Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(wrapsToOne),
                 "a 64-bit ordinal must not be narrowed into range");
+        Assertions.assertEquals(expected.getMessage(), actual.getMessage(),
+                "the wrapping ordinal must be rejected for the same reason as the out-of-range one");
     }
 
     @Test
