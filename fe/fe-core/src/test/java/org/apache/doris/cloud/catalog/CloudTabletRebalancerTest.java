@@ -19,6 +19,7 @@ package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.MetricRepo;
 
 import org.junit.jupiter.api.AfterEach;
@@ -31,8 +32,11 @@ import org.mockito.Mockito;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -302,6 +306,120 @@ public class CloudTabletRebalancerTest {
                     "compute_cluster_a", "cluster-a", CloudTabletRebalancer.StatType.PARTITION, 0L));
             metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
                     "compute_cluster_b", "cluster-b", CloudTabletRebalancer.StatType.PARTITION, 0L));
+        }
+    }
+
+    @Test
+    public void testStaleRouteSweepPreservedAcrossEmptyTopology() {
+        boolean saved = Config.enable_cloud_replica_stale_route_clean;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            TestRebalancer rebalancer = new TestRebalancer();
+
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(1L)));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of(1L)));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of()));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(Set.of()));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Set.of()));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(Set.of(2L)));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = saved;
+        }
+    }
+
+    @Test
+    public void testIsWithinWindow() {
+        // normal (non-wrapping) window
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(12, 0), LocalTime.of(10, 0), LocalTime.of(14, 0)));
+        Assertions.assertFalse(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(9, 59), LocalTime.of(10, 0), LocalTime.of(14, 0)));
+        Assertions.assertFalse(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(14, 1), LocalTime.of(10, 0), LocalTime.of(14, 0)));
+        // boundaries are inclusive
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(10, 0), LocalTime.of(10, 0), LocalTime.of(14, 0)));
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(14, 0), LocalTime.of(10, 0), LocalTime.of(14, 0)));
+
+        // window across midnight, e.g. 23:00 - 06:00
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(23, 30), LocalTime.of(23, 0), LocalTime.of(6, 0)));
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(1, 0), LocalTime.of(23, 0), LocalTime.of(6, 0)));
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(23, 0), LocalTime.of(23, 0), LocalTime.of(6, 0)));
+        Assertions.assertTrue(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(6, 0), LocalTime.of(23, 0), LocalTime.of(6, 0)));
+        Assertions.assertFalse(CloudTabletRebalancer.isWithinWindow(
+                LocalTime.of(12, 0), LocalTime.of(23, 0), LocalTime.of(6, 0)));
+    }
+
+    @Test
+    public void testIsStaleRouteCleanTimeAllowedDefaultsToUnrestricted() {
+        String savedStart = Config.cloud_tablet_rebalancer_stale_route_clean_start_time;
+        String savedEnd = Config.cloud_tablet_rebalancer_stale_route_clean_end_time;
+        try {
+            TestRebalancer rebalancer = new TestRebalancer();
+
+            // the actual default
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
+            Assertions.assertTrue(rebalancer.isStaleRouteCleanTimeAllowed());
+
+            // any equal start/end means unrestricted, not just the default value
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = "09:30";
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = "09:30";
+            Assertions.assertTrue(rebalancer.isStaleRouteCleanTimeAllowed());
+
+            // an unparseable configuration falls back to unrestricted rather than disabling cleanup
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = "not-a-time";
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = "18:00";
+            Assertions.assertTrue(rebalancer.isStaleRouteCleanTimeAllowed());
+        } finally {
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = savedStart;
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = savedEnd;
+        }
+    }
+
+    @Test
+    public void testStaleRouteSweepGateRespectsCleanWindow() {
+        boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
+        String savedStart = Config.cloud_tablet_rebalancer_stale_route_clean_start_time;
+        String savedEnd = Config.cloud_tablet_rebalancer_stale_route_clean_end_time;
+        try {
+            Config.enable_cloud_replica_stale_route_clean = true;
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
+            TestRebalancer rebalancer = new TestRebalancer();
+            Set<Long> bes = new HashSet<>(Arrays.asList(1L, 2L));
+            // establish a clean baseline with no rounds pending
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(bes));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(bes));
+
+            // close the window (a 1-2 hour offset from "now" is never in it), then a backend disappears
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("HH:mm");
+            LocalTime now = LocalTime.now(TimeUtils.getDorisZoneId());
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = now.plusHours(1).format(fmt);
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = now.plusHours(2).format(fmt);
+            Set<Long> shrunk = new HashSet<>(Arrays.asList(1L));
+            // the drop is detected (baseline advances) but the window blocks the sweep -- and the two
+            // rounds it owes must not be drained by rounds that never actually ran
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(shrunk));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(shrunk));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(shrunk));
+
+            // window opens: the two rounds owed from the earlier drop are still there, untouched
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(shrunk));
+            Assertions.assertTrue(rebalancer.staleRouteSweepNeeded(shrunk));
+            Assertions.assertFalse(rebalancer.staleRouteSweepNeeded(shrunk));
+        } finally {
+            Config.enable_cloud_replica_stale_route_clean = savedClean;
+            Config.cloud_tablet_rebalancer_stale_route_clean_start_time = savedStart;
+            Config.cloud_tablet_rebalancer_stale_route_clean_end_time = savedEnd;
         }
     }
 }
