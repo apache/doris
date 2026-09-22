@@ -33,6 +33,7 @@ import org.apache.doris.regression.suite.SqlFileSource
 import org.apache.doris.regression.suite.event.RecorderEventListener
 import org.apache.doris.regression.suite.event.StackEventListeners
 import org.apache.doris.regression.suite.SuiteScript
+import org.apache.doris.regression.suite.UncaughtThreadFailures
 import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
 import org.apache.doris.regression.util.TeamcityUtils
@@ -185,9 +186,12 @@ class RegressionTest {
         // that is the wrong suite by construction (a poller test_active_queries left running failed
         // test_partial_update_insert_schema_change, which happened to be awaiting a schema change), and
         // the handler in place is whichever suite entered an await() last, so the same exception may just
-        // as well reach nobody. A thread's failure reaches its suite through Suite.thread() and the future
-        // it returns; a thread a suite started itself is the suite's to join and check.
+        // as well reach nobody. A thread's failure reaches its own suite instead through the JVM's default
+        // handler installed here: a thread a suite constructs inherits the suite's UncaughtThreadFailures
+        // from the suite's thread, and Suite.doLazyCheck throws what was recorded there once the body -
+        // and so every thread it joined - is over. (A Suite.thread() reports through its future.)
         Awaitility.doNotCatchUncaughtExceptionsByDefault()
+        UncaughtThreadFailures.installAsDefaultHandler()
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((SuiteScript as Class).name)
