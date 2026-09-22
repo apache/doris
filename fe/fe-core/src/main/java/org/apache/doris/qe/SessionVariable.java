@@ -1481,7 +1481,7 @@ public class SessionVariable implements Serializable, Writable {
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
 
-    @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false,
+    @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
             description = "The level of query profile, "
                     + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
