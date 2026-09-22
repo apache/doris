@@ -348,12 +348,17 @@ public class InvertedIndexUtil {
      * case-distinct policy names, so a resolved custom policy must keep its exact stored name.
      */
     private static void normalizeInvertedIndexProperties(Map<String, String> properties) {
-        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY);
-        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        resolvePolicyNames(properties);
         AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
                 properties,
                 INVERTED_INDEX_PARSER_KEY,
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
+    }
+
+    /** Store analyzer and normalizer names in the spelling BE dispatches on. */
+    public static void resolvePolicyNames(Map<String, String> properties) {
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY);
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY);
     }
 
     private static void normalizeResolvedPolicyName(Map<String, String> properties, String key) {

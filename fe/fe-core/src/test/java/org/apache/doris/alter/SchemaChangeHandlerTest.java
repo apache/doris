@@ -33,6 +33,9 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -1227,6 +1230,80 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             // Verify the error message contains relevant info
             Assertions.assertTrue(e.getMessage().contains("index `idx_error_msg` already exist."));
         }
+    }
+
+    @Test
+    public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
+        createAnalyzerAliasTable("sc_ik_alias");
+        alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "
+                + "properties(\"analyzer\"=\"IK\")", connectContext);
+        jobSize++;
+        waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+
+        OlapTable tbl = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("sc_ik_alias", Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            Assertions.assertEquals(1, tbl.getIndexes().size());
+            Assertions.assertEquals("ik", tbl.getIndexes().get(0).getProperties().get("analyzer"));
+        } finally {
+            tbl.readUnlock();
+        }
+        expectException("alter table test.sc_ik_alias add index idx_lower(c1) using inverted "
+                + "properties(\"analyzer\"=\"ik\")", "already exists");
+        expectException("alter table test.sc_ik_alias add index idx_c2_lower(c2) using inverted "
+                + "properties(\"analyzer\"=\"ik\"), add index idx_c2_upper(c2) using inverted "
+                + "properties(\"analyzer\"=\"IK\")", "already exists");
+
+        IllegalStateException createError = Assertions.assertThrows(IllegalStateException.class,
+                () -> executeNereidsSql("CREATE TABLE test.sc_ik_alias_create (k INT, c1 VARCHAR(100),\n"
+                        + "INDEX idx_lower(c1) USING INVERTED PROPERTIES('analyzer' = 'ik'),\n"
+                        + "INDEX idx_upper(c1) USING INVERTED PROPERTIES('analyzer' = 'IK'))\n"
+                        + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1')"));
+        Assertions.assertTrue(createError.getMessage().contains("cannot have multiple inverted indexes"),
+                createError.getMessage());
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsEquivalentComponentAliases() throws Exception {
+        createAnalyzerAliasTable("sc_component_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_ngram_ld", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "letter,digit"));
+        replayAliasPolicy(policyMgr, "alter_ngram_dll", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "digit,letter,letter"));
+        replayAliasPolicy(policyMgr, "alter_ngram_ld_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_ngram_ld"));
+        replayAliasPolicy(policyMgr, "alter_ngram_dll_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "alter_ngram_dll"));
+        replayAliasPolicy(policyMgr, "alter_nfd", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfd"));
+        replayAliasPolicy(policyMgr, "alter_nfd_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfd", "mode", "decompose"));
+        replayAliasPolicy(policyMgr, "alter_nfd_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "char_filter", "alter_nfd"));
+        replayAliasPolicy(policyMgr, "alter_nfd_decompose_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "char_filter", "alter_nfd_decompose"));
+
+        expectException("alter table test.sc_component_alias add index idx_ld(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_ngram_ld_analyzer\"), add index idx_dll(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_ngram_dll_analyzer\")", "already exists");
+        expectException("alter table test.sc_component_alias add index idx_nfd(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_nfd_analyzer\"), add index idx_nfd_decompose(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_nfd_decompose_analyzer\")", "already exists");
+    }
+
+    private void createAnalyzerAliasTable(String tableName) throws Exception {
+        createTable("CREATE TABLE IF NOT EXISTS test." + tableName
+                + " (k INT, c1 VARCHAR(100), c2 VARCHAR(100))\n"
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
+    }
+
+    private static void replayAliasPolicy(IndexPolicyMgr policyMgr, String name, IndexPolicyTypeEnum type,
+            Map<String, String> properties) {
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(Env.getCurrentEnv().getNextId(), name, type, properties));
     }
 
     private void alterTable(String sql, ConnectContext connectContext) throws Exception {

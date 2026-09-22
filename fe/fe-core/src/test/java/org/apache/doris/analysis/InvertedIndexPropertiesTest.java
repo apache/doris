@@ -126,6 +126,56 @@ public class InvertedIndexPropertiesTest {
         }
     }
 
+    @Test
+    public void testCreateTableRejectsReorderedCollectionAndIneffectiveModeAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        long id = 100;
+        String[][] aliases = {
+                {"ngram_ld", "TOKENIZER", "type=ngram;token_chars=letter,digit"},
+                {"ngram_dll", "TOKENIZER", "type=ngram;token_chars=digit,letter,letter"},
+                {"edge_ab", "TOKENIZER", "type=edge_ngram;token_chars=letter,custom;custom_token_chars=ab"},
+                {"edge_bba", "TOKENIZER", "type=edge_ngram;token_chars=custom,letter;custom_token_chars=bba"},
+                {"group_ab", "TOKENIZER", "type=char_group;tokenize_on_chars=[a],[b]"},
+                {"group_bba", "TOKENIZER", "type=char_group;tokenize_on_chars=[b],[a],[b]"},
+                {"protect_ab", "TOKEN_FILTER", "type=word_delimiter;protected_words=foo,bar"},
+                {"protect_bba", "TOKEN_FILTER", "type=word_delimiter;protected_words=bar,foo,bar"},
+                {"types_ab", "TOKEN_FILTER", "type=word_delimiter;type_table=[a => DIGIT],[b => ALPHA]"},
+                {"types_bba", "TOKEN_FILTER", "type=word_delimiter;type_table=[b => ALPHA],[a => ALPHA],[a => DIGIT]"},
+                {"nfd_default", "CHAR_FILTER", "type=icu_normalizer;name=nfd"},
+                {"nfd_decompose", "CHAR_FILTER", "type=icu_normalizer;name=nfd;mode=decompose"}};
+        for (String[] alias : aliases) {
+            Map<String, String> properties = new HashMap<>();
+            for (String entry : alias[2].split(";")) {
+                String[] keyValue = entry.split("=", 2);
+                properties.put(keyValue[0], keyValue[1]);
+            }
+            IndexPolicyTypeEnum type = IndexPolicyTypeEnum.valueOf(alias[1]);
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(id++, alias[0], type, properties));
+            String componentKey = type == IndexPolicyTypeEnum.TOKENIZER ? "tokenizer"
+                    : type == IndexPolicyTypeEnum.TOKEN_FILTER ? "token_filter" : "char_filter";
+            Map<String, String> analyzer = new HashMap<>();
+            analyzer.put("tokenizer", "standard");
+            analyzer.put(componentKey, alias[0]);
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                    id++, alias[0] + "_analyzer", IndexPolicyTypeEnum.ANALYZER, analyzer));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (int i = 0; i < aliases.length; i += 2) {
+                String left = aliases[i][0];
+                String right = aliases[i + 1][0];
+                Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                        StringType.INSTANCE, List.of(
+                                invertedIndexDefinition("idx_" + left, left + "_analyzer"),
+                                invertedIndexDefinition("idx_" + right, right + "_analyzer"))),
+                        left + " and " + right + " must share one analyzer identity");
+            }
+        }
+    }
+
     private static IndexDefinition invertedIndexDefinition(String name, String analyzer) {
         return new IndexDefinition(name, false, List.of("content"), "INVERTED",
                 Map.of("analyzer", analyzer), "");

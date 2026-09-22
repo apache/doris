@@ -562,6 +562,114 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testCollectionValuedComponentSettingsUseEffectiveValues() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "ngram_ld", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "letter,digit"));
+        replayComponent(policyMgr, 2, "ngram_dll", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "digit, letter,letter"));
+        replayComponent(policyMgr, 3, "ngram_l", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "letter"));
+        replayComponent(policyMgr, 4, "edge_custom_ab", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "edge_ngram", "token_chars", "letter,custom", "custom_token_chars", "ab"));
+        replayComponent(policyMgr, 5, "edge_custom_bba", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "edge_ngram", "token_chars", "custom,letter,custom", "custom_token_chars", "bba"));
+        replayComponent(policyMgr, 6, "group_ab", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "char_group", "tokenize_on_chars", "[a],[b],[whitespace]"));
+        replayComponent(policyMgr, 7, "group_ba", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "char_group", "tokenize_on_chars", "[whitespace], [b],[a],[a]"));
+        replayComponent(policyMgr, 8, "protect_ab", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "protected_words", "foo,bar"));
+        replayComponent(policyMgr, 9, "protect_ba", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "protected_words", "bar, foo,foo"));
+        replayComponent(policyMgr, 10, "types_ab", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[a => DIGIT],[b => ALPHA]"));
+        replayComponent(policyMgr, 11, "types_overridden", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[b => ALPHA], [a => ALPHA],[a => DIGIT]"));
+        replayComponent(policyMgr, 12, "types_last_alpha", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[a => DIGIT],[a => ALPHA]"));
+        replayComponent(policyMgr, 13, "types_last_digit", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "type_table", "[a => ALPHA],[a => DIGIT]"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum tokenizer = IndexPolicyTypeEnum.TOKENIZER;
+            IndexPolicyTypeEnum filter = IndexPolicyTypeEnum.TOKEN_FILTER;
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(resolve.invoke(null, "ngram_ld", tokenizer),
+                            resolve.invoke(null, "ngram_dll", tokenizer)),
+                    () -> Assertions.assertNotEquals(resolve.invoke(null, "ngram_ld", tokenizer),
+                            resolve.invoke(null, "ngram_l", tokenizer)),
+                    () -> Assertions.assertEquals(resolve.invoke(null, "edge_custom_ab", tokenizer),
+                            resolve.invoke(null, "edge_custom_bba", tokenizer)),
+                    () -> Assertions.assertEquals(resolve.invoke(null, "group_ab", tokenizer),
+                            resolve.invoke(null, "group_ba", tokenizer)),
+                    () -> Assertions.assertEquals(resolve.invoke(null, "protect_ab", filter),
+                            resolve.invoke(null, "protect_ba", filter)),
+                    () -> Assertions.assertEquals(resolve.invoke(null, "types_ab", filter),
+                            resolve.invoke(null, "types_overridden", filter)),
+                    () -> Assertions.assertNotEquals(resolve.invoke(null, "types_last_alpha", filter),
+                            resolve.invoke(null, "types_last_digit", filter)));
+        }
+    }
+
+    @Test
+    public void testIcuNormalizerModeFollowsSelectedNormalizer() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "nfd_default", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfd"));
+        replayComponent(policyMgr, 2, "nfd_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "NFD", "mode", "decompose"));
+        replayComponent(policyMgr, 3, "nfd_compose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfd", "mode", "compose"));
+        replayComponent(policyMgr, 4, "nfkd_default", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfkd"));
+        replayComponent(policyMgr, 5, "nfkd_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfkd", "mode", "decompose"));
+        replayComponent(policyMgr, 6, "nfc_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfc", "mode", "decompose"));
+        replayComponent(policyMgr, 7, "nfkc_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfkc", "mode", "decompose"));
+        replayComponent(policyMgr, 8, "nfc_default", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfc"));
+        replayComponent(policyMgr, 9, "fold_decompose", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "mode", "decompose"));
+        replayComponent(policyMgr, 10, "fold_default", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            IndexPolicyTypeEnum charFilter = IndexPolicyTypeEnum.CHAR_FILTER;
+            Object nfd = resolve.invoke(null, "nfd_default", charFilter);
+            Object nfkd = resolve.invoke(null, "nfkd_default", charFilter);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(nfd, resolve.invoke(null, "nfd_decompose", charFilter)),
+                    () -> Assertions.assertEquals(nfd, resolve.invoke(null, "nfd_compose", charFilter)),
+                    () -> Assertions.assertEquals(nfd, resolve.invoke(null, "nfc_decompose", charFilter)),
+                    () -> Assertions.assertEquals(nfkd, resolve.invoke(null, "nfkd_decompose", charFilter)),
+                    () -> Assertions.assertEquals(nfkd, resolve.invoke(null, "nfkc_decompose", charFilter)),
+                    () -> Assertions.assertNotEquals(nfd, resolve.invoke(null, "nfc_default", charFilter)),
+                    () -> Assertions.assertNotEquals(resolve.invoke(null, "fold_default", charFilter),
+                            resolve.invoke(null, "fold_decompose", charFilter)));
+        }
+    }
+
+    private static void replayComponent(IndexPolicyMgr policyMgr, long id, String name,
+            IndexPolicyTypeEnum type, Map<String, String> properties) {
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(id, name, type, properties));
+    }
+
+    @Test
     public void testExplicitComponentDefaultsMatchBuiltinIdentity() throws Exception {
         IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(policyMgr.getPolicyByName("asciifolding_defaults")).thenReturn(new IndexPolicy(

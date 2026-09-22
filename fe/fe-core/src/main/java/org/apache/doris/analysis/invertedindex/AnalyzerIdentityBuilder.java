@@ -23,16 +23,27 @@ import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.ibm.icu.text.UnicodeSet;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 public final class AnalyzerIdentityBuilder {
     private static final String PROP_MAX_NGRAM_DIFF = "max_ngram_diff";
+    // Same separator BE uses between bracketed list entries.
+    private static final Pattern ENTRY_SEPARATOR = Pattern.compile("(?<=\\])\\s*,\\s*(?=\\[)");
+    private static final Set<String> WORD_DELIMITER_TYPES = ImmutableSet.of(
+            "LOWER", "UPPER", "ALPHA", "DIGIT", "ALPHANUM", "SUBWORD_DELIM");
 
     private AnalyzerIdentityBuilder() {
     }
@@ -295,6 +306,8 @@ public final class AnalyzerIdentityBuilder {
                         "split_on_case_change", "split_on_numerics", "stem_english_possessive");
                 removeBooleanDefaults(properties, false, "catenate_words", "catenate_numbers",
                         "catenate_all", "preserve_original");
+                canonicalizeWordSet(properties, "protected_words");
+                canonicalizeTypeTable(properties);
             } else if ("icu_normalizer".equals(type)) {
                 canonicalizeIcuNormalizerDefaults(properties, false);
             }
@@ -313,16 +326,18 @@ public final class AnalyzerIdentityBuilder {
         }
         switch (type) {
             case "ngram":
-                removeIntegerDefault(properties, "min_gram", 1);
-                removeIntegerDefault(properties, "max_gram", 2);
-                break;
             case "edge_ngram":
                 removeIntegerDefault(properties, "min_gram", 1);
                 removeIntegerDefault(properties, "max_gram", 2);
+                canonicalizeWordSet(properties, "token_chars");
+                canonicalizeCustomTokenChars(properties);
                 break;
             case "standard":
+                removeIntegerDefault(properties, "max_token_length", 255);
+                break;
             case "char_group":
                 removeIntegerDefault(properties, "max_token_length", 255);
+                canonicalizeTokenizeOnChars(properties);
                 break;
             case "keyword":
                 removeIntegerDefault(properties, "buffer_size", 256);
@@ -394,8 +409,147 @@ public final class AnalyzerIdentityBuilder {
             }
         }
         if (hasMode) {
-            removeStringDefault(properties, "mode", "compose");
+            canonicalizeIcuNormalizerMode(properties);
         }
+    }
+
+    private static void canonicalizeIcuNormalizerMode(TreeMap<String, String> properties) {
+        removeStringDefault(properties, "mode", "compose");
+        if (!"decompose".equals(properties.get("mode"))) {
+            return;
+        }
+        // BE ignores mode for nfd/nfkd, and nfc/nfkc in decompose mode are the same ICU instances.
+        String name = properties.get("name");
+        if ("nfc".equals(name) || "nfd".equals(name)) {
+            properties.put("name", "nfd");
+            properties.remove("mode");
+        } else if ("nfkc".equals(name) || "nfkd".equals(name)) {
+            properties.put("name", "nfkd");
+            properties.remove("mode");
+        }
+    }
+
+    // BE reads these settings as unordered sets of trimmed, non-empty words.
+    private static void canonicalizeWordSet(TreeMap<String, String> properties, String key) {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        TreeSet<String> words = new TreeSet<>();
+        for (String word : value.split(",")) {
+            String trimmed = trimAsciiWhitespace(word);
+            if (!trimmed.isEmpty()) {
+                words.add(trimmed);
+            }
+        }
+        if (words.isEmpty()) {
+            properties.remove(key);
+        } else {
+            properties.put(key, String.join(",", words));
+        }
+    }
+
+    // BE matches custom token characters as a code point set.
+    private static void canonicalizeCustomTokenChars(TreeMap<String, String> properties) {
+        String value = properties.get("custom_token_chars");
+        if (value == null) {
+            return;
+        }
+        StringBuilder canonical = new StringBuilder();
+        value.codePoints().distinct().sorted().forEach(canonical::appendCodePoint);
+        properties.put("custom_token_chars", canonical.toString());
+    }
+
+    // BE collects tokenize_on_chars entries into sets, so order and repeats do not matter.
+    private static void canonicalizeTokenizeOnChars(TreeMap<String, String> properties) {
+        List<String> entries = parseEntryList(properties.get("tokenize_on_chars"));
+        if (entries == null) {
+            return;
+        }
+        putEntryList(properties, "tokenize_on_chars", new TreeSet<>(entries));
+    }
+
+    // BE builds a per-character type map where a later rule for the same character wins.
+    private static void canonicalizeTypeTable(TreeMap<String, String> properties) {
+        List<String> rules = parseEntryList(properties.get("type_table"));
+        if (rules == null) {
+            return;
+        }
+        TreeMap<Integer, String> types = new TreeMap<>();
+        for (String rule : rules) {
+            int arrow = rule.lastIndexOf("=>");
+            if (arrow < 0 || rule.indexOf('\n') >= 0 || rule.indexOf('\r') >= 0) {
+                return;
+            }
+            String character = trimAsciiWhitespace(rule.substring(0, arrow));
+            String type = trimAsciiWhitespace(rule.substring(arrow + 2));
+            // Escaped characters keep the original identity rather than reproducing BE unescaping.
+            if (character.indexOf('\\') >= 0 || character.codePointCount(0, character.length()) != 1
+                    || !WORD_DELIMITER_TYPES.contains(type)) {
+                return;
+            }
+            types.put(character.codePointAt(0), type);
+        }
+        List<String> canonicalRules = new ArrayList<>();
+        for (Map.Entry<Integer, String> entry : types.entrySet()) {
+            canonicalRules.add(new String(Character.toChars(entry.getKey())) + "=>" + entry.getValue());
+        }
+        putEntryList(properties, "type_table", canonicalRules);
+    }
+
+    /** Parse a bracketed entry list as BE does, or return null for a malformed list. */
+    private static List<String> parseEntryList(String value) {
+        if (value == null) {
+            return null;
+        }
+        List<String> entries = new ArrayList<>();
+        String trimmed = trimAsciiWhitespace(value);
+        if (trimmed.isEmpty()) {
+            return entries;
+        }
+        for (String item : ENTRY_SEPARATOR.split(trimmed)) {
+            String entry = trimAsciiWhitespace(item);
+            if (entry.length() < 2 || entry.charAt(0) != '[' || entry.charAt(entry.length() - 1) != ']') {
+                return null;
+            }
+            String content = entry.substring(1, entry.length() - 1);
+            if (!content.isEmpty()) {
+                entries.add(content);
+            }
+        }
+        return entries;
+    }
+
+    private static void putEntryList(TreeMap<String, String> properties, String key, Collection<String> entries) {
+        if (entries.isEmpty()) {
+            properties.remove(key);
+            return;
+        }
+        StringBuilder canonical = new StringBuilder();
+        for (String entry : entries) {
+            if (canonical.length() > 0) {
+                canonical.append(",");
+            }
+            canonical.append("[").append(entry).append("]");
+        }
+        properties.put(key, canonical.toString());
+    }
+
+    // Trim the same ASCII whitespace that BE trims.
+    private static String trimAsciiWhitespace(String value) {
+        int begin = 0;
+        int end = value.length();
+        while (begin < end && isAsciiWhitespace(value.charAt(begin))) {
+            ++begin;
+        }
+        while (end > begin && isAsciiWhitespace(value.charAt(end - 1))) {
+            --end;
+        }
+        return value.substring(begin, end);
+    }
+
+    private static boolean isAsciiWhitespace(char value) {
+        return value == ' ' || (value >= '\t' && value <= '\r');
     }
 
     private static void canonicalizeBasicExtraChars(TreeMap<String, String> properties) {
