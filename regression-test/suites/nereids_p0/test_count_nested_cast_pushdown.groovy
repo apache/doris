@@ -48,6 +48,21 @@ suite("test_count_nested_cast_pushdown", "p0") {
                 exception "parse number fail"
             }
         }
+
+        sql "set enable_strict_cast=false"
+        def nonStrictQueries = [
+            "select assert_true(count(cast(a as array<int>)) = 2, 'wrong direct count') " +
+                    "from test_count_nested_cast_pushdown",
+            "select assert_true(count(cast_value) = 2, 'wrong projected count') from " +
+                    "(select cast(a as array<int>) as cast_value from test_count_nested_cast_pushdown) projected"
+        ]
+        nonStrictQueries.each { query ->
+            explain {
+                sql(query)
+                contains "pushAggOp=COUNT"
+            }
+            sql(query)
+        }
     } finally {
         originalSettings.each { name, value -> sql "set ${name}=${value}" }
     }

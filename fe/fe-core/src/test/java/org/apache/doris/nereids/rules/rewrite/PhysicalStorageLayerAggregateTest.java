@@ -57,7 +57,10 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -557,11 +560,24 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
 
     @Test
     public void testNestedCountCastPushdown() {
-        for (boolean failingConversion : new boolean[] {false, true}) {
-            DataType sourceType = ArrayType.of(failingConversion ? StringType.INSTANCE : IntegerType.INSTANCE);
-            DataType targetType = ArrayType.of(failingConversion ? IntegerType.INSTANCE : BigIntType.INSTANCE);
-            LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(
-                    failingConversion ? 6 : 7, "nested_cast_count", 0);
+        List<DataType> sourceTypes = ImmutableList.of(
+                ArrayType.of(IntegerType.INSTANCE),
+                ArrayType.of(StringType.INSTANCE),
+                MapType.of(StringType.INSTANCE, IntegerType.INSTANCE),
+                new StructType(ImmutableList.of(new StructField("value", StringType.INSTANCE, true, ""))),
+                StringType.INSTANCE);
+        List<DataType> targetTypes = ImmutableList.of(
+                ArrayType.of(BigIntType.INSTANCE),
+                ArrayType.of(IntegerType.INSTANCE),
+                MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE),
+                new StructType(ImmutableList.of(new StructField("value", IntegerType.INSTANCE, true, ""))),
+                IntegerType.INSTANCE);
+        for (int i = 0; i < sourceTypes.size(); i++) {
+            DataType sourceType = sourceTypes.get(i);
+            DataType targetType = targetTypes.get(i);
+            boolean failureFree = i == 0;
+            boolean nestedConversion = i > 0 && i < 4;
+            LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(6 + i, "nested_cast_count", 0);
             olapScan.getTable().getFullSchema().get(0).setType(sourceType.toCatalogDataType());
             olapScan.getTable().getFullSchema().get(0).setIsAllowNull(false);
             LogicalFileScan fileScan = newFileScan(sourceType.toCatalogDataType(), false);
@@ -569,19 +585,21 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
             for (LogicalRelation scan : ImmutableList.of(olapScan, fileScan)) {
                 for (boolean projected : new boolean[] {false, true}) {
                     for (boolean strict : new boolean[] {false, true}) {
-                        checkNestedCountCast(scan, targetType, false, projected, strict, !failingConversion);
-                        checkNestedCountCast(scan, targetType, true, projected, strict, !failingConversion);
+                        checkNestedCountCast(scan, targetType, false, projected, strict, false,
+                                failureFree || (nestedConversion && !strict));
+                        checkNestedCountCast(scan, targetType, true, projected, strict, false, failureFree);
                     }
+                    checkNestedCountCast(scan, targetType, false, projected, false, true, failureFree);
                 }
             }
         }
     }
 
     private void checkNestedCountCast(LogicalRelation scan, DataType targetType, boolean tryCast,
-            boolean projected, boolean strict, boolean expectedPushdown) {
+            boolean projected, boolean strict, boolean forceStrict, boolean expectedPushdown) {
         Expression argument = tryCast
                 ? new TryCast(scan.getOutput().get(0), targetType)
-                : new Cast(scan.getOutput().get(0), targetType);
+                : new Cast(scan.getOutput().get(0), targetType, true, forceStrict);
         Plan child = scan;
         RuleType ruleType = scan instanceof LogicalFileScan
                 ? RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN

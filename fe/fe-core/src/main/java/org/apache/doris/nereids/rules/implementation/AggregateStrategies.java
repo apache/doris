@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -563,6 +565,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (!groupByExpressions.isEmpty() || !aggregate.getDistinctArguments().isEmpty()) {
             return canNotPush;
         }
+        boolean strictCast = cascadesContext.getConnectContext() == null
+                || cascadesContext.getConnectContext().getSessionVariable().enableStrictCast;
 
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
         // Use for loop to replace Stream API
@@ -593,7 +597,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     if (arg0 instanceof SlotReference) {
                         checkNullSlots.add((SlotReference) arg0);
                         expressionAfterProject.add(arg0);
-                    } else if (isFailureFreeCastOverSlot(arg0)) {
+                    } else if (isCountPreservingCastOverSlot(arg0, strictCast)) {
                         checkNullSlots.add((SlotReference) arg0.child(0));
                         expressionAfterProject.add(arg0);
                     }
@@ -617,11 +621,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
 
-        // Storage-layer aggregation operates on source column values. A skipped cast must neither
-        // introduce NULL nor report a conversion error. MIN/MAX also requires order preservation.
+        // Storage-layer aggregation operates on source column values. A skipped cast must preserve
+        // COUNT's outer NULLs and any strict conversion error. MIN/MAX also requires order preservation.
         boolean onlyContainsSupportedArgument = aggregateFunctions.stream()
                 .allMatch(function -> function.getArguments().stream()
-                        .allMatch(argument -> isSupportedStorageLayerAggregateArgument(function, argument)));
+                        .allMatch(argument -> isSupportedStorageLayerAggregateArgument(
+                                function, argument, strictCast)));
         if (!onlyContainsSupportedArgument) {
             return canNotPush;
         }
@@ -653,7 +658,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         checkNullSlots.add((SlotReference) argument);
                     }
                 } else if (isSupportedStorageLayerAggregateArgument(
-                        aggregateFunctionsWithArguments.get(i), argument)) {
+                        aggregateFunctionsWithArguments.get(i), argument, strictCast)) {
                     if (needCheckSlotNull) {
                         checkNullSlots.add((SlotReference) argument.child(0));
                     }
@@ -778,17 +783,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private boolean isSupportedStorageLayerAggregateArgument(
-            AggregateFunction aggregateFunction, Expression argument) {
+            AggregateFunction aggregateFunction, Expression argument, boolean strictCast) {
         if (argument instanceof SlotReference) {
             return true;
         }
+        if (aggregateFunction instanceof Count) {
+            return isCountPreservingCastOverSlot(argument, strictCast);
+        }
         if (!isFailureFreeCastOverSlot(argument)) {
             return false;
-        }
-        // TRY_CAST is always nullable at the expression level, but a failure-free conversion only
-        // propagates input NULL. The source-slot nullability is checked separately below.
-        if (aggregateFunction instanceof Count) {
-            return true;
         }
         // Failure freedom is insufficient for MIN/MAX. For example, INT to STRING changes the
         // ordering. Keep the existing numeric-to-numeric domain and the floating guards above.
@@ -796,13 +799,32 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 && argument.child(0).getDataType().isNumericType();
     }
 
+    private boolean isCountPreservingCastOverSlot(Expression argument, boolean strictCast) {
+        if (isFailureFreeCastOverSlot(argument)) {
+            return true;
+        }
+        if (!(argument instanceof Cast) || !(argument.child(0) instanceof SlotReference)) {
+            return false;
+        }
+        Cast cast = (Cast) argument;
+        if (strictCast || cast.isStrict() || cast instanceof TryCast) {
+            return false;
+        }
+        DataType sourceType = cast.child().getDataType();
+        DataType targetType = cast.getDataType();
+        // BE's non-strict ARRAY, MAP and STRUCT wrappers retain the outer value when a nested
+        // conversion produces NULL. Restrict this path to matching complex shapes: scalar
+        // castNullable alone is not a proof that a conversion cannot fail.
+        boolean matchingComplexTypes = (sourceType.isArrayType() && targetType.isArrayType())
+                || (sourceType.isMapType() && targetType.isMapType())
+                || (sourceType.isStructType() && targetType.isStructType());
+        return matchingComplexTypes && !Cast.castNullable(false, sourceType, targetType);
+    }
+
     private boolean isFailureFreeCastOverSlot(Expression argument) {
         if (!(argument instanceof Cast) || !(argument.child(0) instanceof SlotReference)) {
             return false;
         }
-        // A non-strict nested cast may only null an element, so COUNT could sometimes be pushed
-        // down in that mode. Reject possibly failing conversions conservatively: strict CAST may
-        // report an error and TRY_CAST may turn it into a top-level NULL.
         return !((Cast) argument).mayFailOnNonNullInput();
     }
 
