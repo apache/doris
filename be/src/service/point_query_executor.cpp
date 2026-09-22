@@ -215,6 +215,12 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
     get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids, has_delete_sign,
                                  _missing_col_uids, _include_col_uids);
+    _column_store_col_uids = _missing_col_uids;
+    for (const auto& [column_uid, position] : _read_time_hidden_columns) {
+        if (row_store_value_may_be_stale(get_read_time_hidden_column_type(schema, column_uid))) {
+            _column_store_col_uids.insert(column_uid);
+        }
+    }
 
     return Status::OK();
 }
@@ -559,6 +565,7 @@ Status PointQueryExecutor::_lookup_row_key() {
 Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
+    const auto missing_col_uids = _reusable->missing_col_uids();
     {
         auto result_columns_guard = _result_block->mutate_columns_scoped();
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
@@ -595,10 +602,11 @@ Status PointQueryExecutor::_lookup_row_data() {
                         _reusable->get_col_uid_to_idx(), result_columns,
                         _reusable->get_col_default_values(), _reusable->include_col_uids()));
             }
-            if (!_reusable->missing_col_uids().empty()) {
-                if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
+            if (!_reusable->column_store_col_uids().empty()) {
+                if (!missing_col_uids.empty() &&
+                    !_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                     std::string missing_columns;
-                    for (int cid : _reusable->missing_col_uids()) {
+                    for (int cid : missing_col_uids) {
                         // Named from the query, not the tablet schema: a column a light schema
                         // change just added is not in the tablet schema yet, and column_by_uid
                         // throws on a uid it does not hold.
@@ -610,7 +618,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                             "row_store_columns in table properties, missing columns: " +
                             missing_columns + " should be added to row store");
                 }
-                // fill missing columns by column store
+                // Fill missing columns and refresh read-time hidden columns from column storage.
                 RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
                 SegmentCacheHandle segment_cache;
                 io::IOContext io_ctx;
@@ -630,11 +638,17 @@ Status PointQueryExecutor::_lookup_row_data() {
                                        });
                 const auto& segment = *it;
                 const auto tablet_schema = _tablet->tablet_schema();
-                for (int cid : _reusable->missing_col_uids()) {
+                for (int cid : _reusable->column_store_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
                     std::vector<segment_v2::rowid_t> row_ids {
                             static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                     auto& column = result_columns[pos];
+                    if (!missing_col_uids.contains(cid)) {
+                        // The row-store JSONB already filled this row with a stale placeholder,
+                        // see row_store_value_may_be_stale().
+                        DCHECK_GE(column->size(), 1);
+                        column->pop_back(1);
+                    }
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
                     int32_t index = slot->col_unique_id() >= 0

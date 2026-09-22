@@ -180,6 +180,31 @@ struct SegItem {
     SegmentSharedPtr segment;
 };
 
+// Appends the values of `read_column` at `row_ids` to `column`, reading them straight from
+// `segment`. The column iterator and its read options live in `iterator_map` per slot.
+static Status read_slot_column_by_rowid(
+        const SegKey& seg_key, const SegmentSharedPtr& segment, SlotDescriptor& slot,
+        const TabletColumn& read_column, const std::vector<uint32_t>& row_ids,
+        OlapReaderStatistics& stats, io::FileCacheMissPolicy file_cache_miss_policy,
+        std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
+        MutableColumnPtr& column) {
+    IteratorKey iterator_key {.tablet_id = seg_key.tablet_id,
+                              .rowset_id = seg_key.rowset_id,
+                              .segment_id = seg_key.segment_id,
+                              .slot_id = slot.id()};
+    IteratorItem& iterator_item = iterator_map[iterator_key];
+    if (iterator_item.segment == nullptr) {
+        iterator_item.segment = segment;
+        iterator_item.storage_read_options.stats = &stats;
+        iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        iterator_item.storage_read_options.io_ctx.file_cache_miss_policy = file_cache_miss_policy;
+    }
+    set_slot_access_paths(slot, read_column, iterator_item.storage_read_options);
+    return segment->seek_and_read_by_rowid(read_column, &slot, row_ids, column,
+                                           iterator_item.storage_read_options,
+                                           iterator_item.iterator);
+}
+
 // Groups all row_ids belonging to the same segment for batched reading.
 // Position index tracks where each row_id originated in the original request,
 // so results can be scattered back to the correct output positions.
@@ -1012,61 +1037,65 @@ Status RowIdStorageReader::read_doris_format_row(
         segment = seg_item.segment;
     }
 
+    if (fetch_columns.size() < slots.size()) {
+        return Status::InternalError(
+                "fetch request carries {} column descs for {} slots, slot {} has none",
+                fetch_columns.size(), slots.size(), slots[fetch_columns.size()].col_name());
+    }
+
     // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
         if (!tablet->tablet_schema()->has_row_store_for_all_columns()) {
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
-        auto result_columns_guard = result_block.mutate_columns_scoped();
-        MutableColumns& result_columns = result_columns_guard.mutable_columns();
-        io::IOContext io_ctx;
-        io_ctx.reader_type = ReaderType::READER_QUERY;
-        io_ctx.file_cache_stats = &stats.file_cache_stats;
-        io_ctx.file_cache_miss_policy = file_cache_miss_policy;
-        for (auto row_id : row_ids) {
-            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
-            row_store_read_struct.row_store_buffer.clear();
-            RETURN_IF_ERROR(scope_timer_run(
-                    [&]() {
-                        return tablet->lookup_row_data({}, loc, rowset, stats,
-                                                       row_store_read_struct.row_store_buffer,
-                                                       false, &io_ctx);
-                    },
-                    lookup_row_data_ms));
+        {
+            auto result_columns_guard = result_block.mutate_columns_scoped();
+            MutableColumns& result_columns = result_columns_guard.mutable_columns();
+            io::IOContext io_ctx;
+            io_ctx.reader_type = ReaderType::READER_QUERY;
+            io_ctx.file_cache_stats = &stats.file_cache_stats;
+            io_ctx.file_cache_miss_policy = file_cache_miss_policy;
+            for (auto row_id : row_ids) {
+                RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
+                row_store_read_struct.row_store_buffer.clear();
+                RETURN_IF_ERROR(scope_timer_run(
+                        [&]() {
+                            return tablet->lookup_row_data({}, loc, rowset, stats,
+                                                           row_store_read_struct.row_store_buffer,
+                                                           false, &io_ctx);
+                        },
+                        lookup_row_data_ms));
 
-            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
-                    row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
-                    row_store_read_struct.row_store_buffer.size(),
-                    row_store_read_struct.col_uid_to_idx, result_columns,
-                    row_store_read_struct.default_values, {}));
+                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
+                        row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
+                        row_store_read_struct.row_store_buffer.size(),
+                        row_store_read_struct.col_uid_to_idx, result_columns,
+                        row_store_read_struct.default_values, {}));
+            }
+        }
+        // The JSONB filled every slot for this batch; replace the stale hidden-column values
+        // with their per-row values from column storage, see row_store_value_may_be_stale().
+        for (int x = 0; x < slots.size(); ++x) {
+            const TabletColumn& read_column = fetch_columns[x];
+            if (!row_store_value_may_be_stale(get_read_time_hidden_column_type(read_column))) {
+                continue;
+            }
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
+            DCHECK_GE(column->size(), row_ids.size());
+            column->pop_back(row_ids.size());
+            RETURN_IF_ERROR(read_slot_column_by_rowid(seg_key, segment, slots[x], read_column,
+                                                      row_ids, stats, file_cache_miss_policy,
+                                                      iterator_map, column));
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             auto column_guard = result_block.mutate_column_scoped(x);
             MutableColumnPtr& column = column_guard.mutable_column();
-            IteratorKey iterator_key {.tablet_id = tablet_id,
-                                      .rowset_id = rowset_id,
-                                      .segment_id = segment_id,
-                                      .slot_id = slots[x].id()};
-            IteratorItem& iterator_item = iterator_map[iterator_key];
-            if (iterator_item.segment == nullptr) {
-                iterator_map[iterator_key].segment = segment;
-                iterator_item.storage_read_options.stats = &stats;
-                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-                iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
-                        file_cache_miss_policy;
-            }
-            if (x >= fetch_columns.size()) {
-                return Status::InternalError(
-                        "fetch request carries {} column descs for {} slots, slot {} has none",
-                        fetch_columns.size(), slots.size(), slots[x].col_name());
-            }
-            const TabletColumn& read_column = fetch_columns[x];
-            set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(read_column, &slots[x], row_ids, column,
-                                                            iterator_item.storage_read_options,
-                                                            iterator_item.iterator));
+            RETURN_IF_ERROR(read_slot_column_by_rowid(seg_key, segment, slots[x], fetch_columns[x],
+                                                      row_ids, stats, file_cache_miss_policy,
+                                                      iterator_map, column));
         }
     }
     replace_rowid_read_time_hidden_columns(fetch_columns, *rowset, row_ids.size(), result_block);

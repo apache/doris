@@ -37,6 +37,14 @@ ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletColumn& co
 ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& schema,
                                                           int32_t column_unique_id);
 
+// Loads write VERSION and COMMIT_TSO as placeholders into both column storage and the row-store
+// JSONB. Compaction materializes the per-row values in column storage but copies the JSONB
+// unchanged, so a direct row-store read must take these two columns from column storage.
+inline bool row_store_value_may_be_stale(ReadTimeHiddenColumnType column_type) {
+    return column_type == ReadTimeHiddenColumnType::VERSION ||
+           column_type == ReadTimeHiddenColumnType::COMMIT_TSO;
+}
+
 std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
                                                        const Version& version,
                                                        const TsoRange& commit_tso,
