@@ -37,6 +37,7 @@ import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 
+import java.io.Closeable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -67,6 +68,14 @@ public class IcebergSnapshotCacheValue {
     private transient volatile IcebergRuntimeContext runtimeContext;
     private transient volatile boolean enableMappingVarbinary;
     private transient volatile boolean enableMappingTimestampTz;
+    /**
+     * The exact table generation whose frozen operations, FileIO and planning executor back this
+     * projection. A statement that pins this projection (for example an MTMV refresh reusing its
+     * outer task's snapshot) can retain that generation, so asynchronous split planning keeps it
+     * alive even after the generation's original owner closes.
+     */
+    @Nullable
+    private transient volatile IcebergTableCacheValue sourceGeneration;
 
     public IcebergSnapshotCacheValue(IcebergPartitionInfo partitionInfo, IcebergSnapshot snapshot) {
         this(partitionInfo, snapshot, Optional.empty(), Optional.empty(), null, false);
@@ -143,6 +152,28 @@ public class IcebergSnapshotCacheValue {
     public IcebergSnapshotCacheValue bindRuntimeContext(@Nullable IcebergRuntimeContext runtimeContext) {
         this.runtimeContext = runtimeContext;
         return this;
+    }
+
+    /**
+     * Bind the exact table generation this projection was derived from. Callers that pin the
+     * projection to another statement's statement scope (an MTMV refresh reusing its outer task's
+     * snapshot) retain it through {@link #retainSourceGeneration()} so asynchronous split planning
+     * cannot outlive the generation's original owner.
+     */
+    public IcebergSnapshotCacheValue bindSourceGeneration(@Nullable IcebergTableCacheValue generation) {
+        this.sourceGeneration = generation;
+        return this;
+    }
+
+    /**
+     * Retain the table generation behind this projection, or {@code null} when it does not retain
+     * one or that generation is already retired. The returned lease must be released after the
+     * asynchronous planner has actually terminated.
+     */
+    @Nullable
+    Closeable retainSourceGeneration() {
+        IcebergTableCacheValue generation = sourceGeneration;
+        return generation == null ? null : generation.tryAcquire();
     }
 
     public IcebergSnapshotCacheValue bindSchemaMappingOptions(

@@ -52,6 +52,7 @@ import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergTableCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -117,6 +118,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -3360,6 +3362,36 @@ public class IcebergScanNodeTest {
         Assert.assertSame(frozenTable, useFrozenTableGeneration(node, refreshedTable));
         Assert.assertTrue(node.getEnableMappingVarbinary());
         Assert.assertFalse(node.getEnableMappingTimestampTz());
+    }
+
+    @Test
+    public void testFrozenGenerationIsCapturedForAsyncPlanning() throws Exception {
+        Table frozenTable = Mockito.mock(Table.class);
+        Table currentTable = Mockito.mock(Table.class);
+        IcebergTableCacheValue frozenGeneration = new IcebergTableCacheValue(frozenTable);
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                new IcebergPartitionInfo(Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap()),
+                new IcebergSnapshot(-1L, 20L), Optional.empty(), frozenTable)
+                .bindSourceGeneration(frozenGeneration);
+
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(IcebergExternalTable.class));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, currentTable);
+        setIcebergSource(node, source);
+        node.setRelationSnapshot(Optional.of(new IcebergMvccSnapshot(snapshotValue)));
+
+        Assert.assertSame(frozenTable, useFrozenTableGeneration(node, currentTable));
+
+        Field frozenSourceField = IcebergScanNode.class.getDeclaredField("frozenGenerationSource");
+        frozenSourceField.setAccessible(true);
+        Assert.assertSame("asynchronous planning must retain the frozen generation",
+                snapshotValue, frozenSourceField.get(node));
+
+        Closeable lease = IcebergUtils.retainTableGenerationForAsyncPlanning(
+                source.getTargetTable(), (IcebergSnapshotCacheValue) frozenSourceField.get(node));
+        Assert.assertNotNull(lease);
+        lease.close();
     }
 
     @Test

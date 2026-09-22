@@ -392,6 +392,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             tableValue.isEnableMappingTimestampTz())
                             .bindCapturedAuthenticator(authenticator)
                             .bindRuntimeContext(tableValue.getRuntimeContext())
+                            .bindSourceGeneration(tableValue)
                             .bindSchemaMappingOptions(tableValue.isEnableMappingVarbinary(),
                                     tableValue.isEnableMappingTimestampTz()));
         }
@@ -412,6 +413,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             tableValue.isEnableMappingTimestampTz())
                             .bindCapturedAuthenticator(authenticator)
                             .bindRuntimeContext(tableValue.getRuntimeContext())
+                            .bindSourceGeneration(tableValue)
                             .bindSchemaMappingOptions(tableValue.isEnableMappingVarbinary(),
                                     tableValue.isEnableMappingTimestampTz());
                     if (entry.isWeightAccounting()) {

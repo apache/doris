@@ -204,6 +204,9 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergRuntimeContext runtimeContext;
     private Boolean frozenEnableMappingVarbinary;
     private Boolean frozenEnableMappingTimestampTz;
+    // The exact generation behind the pinned frozen snapshot this node plans and scans, retained
+    // so asynchronous split planning outlives a generation owned by another statement.
+    private IcebergSnapshotCacheValue frozenGenerationSource;
     private TableScan icebergTableScan;
     private Schema querySchema;
     // Store PropertiesMap, including vended credentials or static credentials
@@ -1691,8 +1694,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
         ExecutorService executor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
-        Closeable generationLease = IcebergUtils.retainStatementTableGenerationForAsyncPlanning(
-                source.getTargetTable());
+        Closeable generationLease = IcebergUtils.retainTableGenerationForAsyncPlanning(
+                source.getTargetTable(), frozenGenerationSource);
         AsyncPlanningTask planningTask = new AsyncPlanningTask(executor, splitAssignment, generationLease, () -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
@@ -1900,6 +1903,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private Table useFrozenTableGeneration(Table currentTable) {
+        frozenGenerationSource = null;
         Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
         if (snapshot.filter(IcebergMvccSnapshot.class::isInstance).isPresent()) {
             IcebergSnapshotCacheValue cacheValue =
@@ -1918,12 +1922,16 @@ public class IcebergScanNode extends FileQueryScanNode {
                                 "Unknown Iceberg system table type: %s", systemTable.getSysTableType());
                         // Snapshot-selectable metadata tables must derive their scans and schemas
                         // from the same frozen base generation as the relation's snapshot fence.
+                        frozenGenerationSource = cacheValue;
                         return MetadataTableUtils.createMetadataTableInstance(frozenBaseTable, tableType);
                     }
+                    // This scan falls back to the current generation, so its asynchronous planner
+                    // must retain that generation rather than the pinned one.
                     return currentTable;
                 }
                 // Snapshot selection fences data files, but spec, properties, expiration state,
                 // and schema lookup still come from Table; keep them on the bound generation too.
+                frozenGenerationSource = cacheValue;
                 return frozenBaseTable;
             }
         }

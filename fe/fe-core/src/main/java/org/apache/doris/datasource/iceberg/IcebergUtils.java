@@ -1230,6 +1230,24 @@ public class IcebergUtils {
                 .retainStatementTableGenerationForAsyncPlanning(ownerTable);
     }
 
+    /**
+     * Retain the exact table generation asynchronous split planning will read. When the scan is
+     * bound to a pinned frozen snapshot (for example an MTMV refresh executing its outer task's
+     * snapshot in a fresh statement), that frozen generation is retained instead of the
+     * statement's current generation; the two can differ after a catalog reset, and retaining the
+     * current generation leaves the frozen one free to retire underneath a still-running planner.
+     */
+    public static Closeable retainTableGenerationForAsyncPlanning(
+            TableIf table, IcebergSnapshotCacheValue frozenGenerationSource) {
+        if (frozenGenerationSource != null) {
+            Closeable frozenLease = frozenGenerationSource.retainSourceGeneration();
+            if (frozenLease != null) {
+                return frozenLease;
+            }
+        }
+        return retainStatementTableGenerationForAsyncPlanning(table);
+    }
+
     /** The action must return derived metadata rather than retain the supplied table. */
     public static <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
         return icebergExternalMetaCache(dorisTable).withIcebergTable(dorisTable, action);
@@ -2412,7 +2430,8 @@ public class IcebergUtils {
                 .bindCapturedAuthenticator(generation.getAuthenticator())
                 .bindRuntimeContext(generation.getRuntimeContext())
                 .bindSchemaMappingOptions(generation.isEnableMappingVarbinary(),
-                        generation.isEnableMappingTimestampTz());
+                        generation.isEnableMappingTimestampTz())
+                .bindSourceGeneration(generation);
     }
 
     public static List<Column> getIcebergSchema(ExternalTable dorisTable) {

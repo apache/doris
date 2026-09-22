@@ -30,11 +30,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.io.Closeable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -155,6 +157,61 @@ class IcebergTableCacheValueTest {
         Assertions.assertEquals(0, cleanupCount.get());
 
         asyncLease.close();
+        Assertions.assertEquals(1, cleanupCount.get());
+    }
+
+    @Test
+    void frozenSnapshotRetainsItsGenerationAcrossOwnerClose() throws Exception {
+        AtomicInteger cleanupCount = new AtomicInteger();
+        IcebergTableCacheValue frozenGeneration = newValue(cleanupCount);
+        IcebergSnapshotCacheValue projection = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
+                Optional.empty(), frozenGeneration.getRetainedIcebergTable())
+                .bindSourceGeneration(frozenGeneration);
+
+        // The outer MTMV task still owns the pinned generation while the fresh execution
+        // statement registers the replacement (current) generation elsewhere.
+        IcebergTableCacheValue.Lease outerOwner = frozenGeneration.tryAcquire();
+        Assertions.assertNotNull(outerOwner);
+        frozenGeneration.releaseLoaderReference();
+        frozenGeneration.releaseCacheReference();
+
+        // Asynchronous planning retains the exact frozen generation, not the replacement.
+        Closeable asyncLease = projection.retainSourceGeneration();
+        Assertions.assertNotNull(asyncLease);
+
+        // Cancellation returns the outer task and closes its owner while the planner still runs.
+        outerOwner.close();
+        Assertions.assertEquals(0, cleanupCount.get());
+
+        // The planner finally exits and releases the pinned generation exactly once.
+        asyncLease.close();
+        Assertions.assertEquals(1, cleanupCount.get());
+        Assertions.assertNull(projection.retainSourceGeneration());
+    }
+
+    @Test
+    void asyncPlanningPrefersFrozenGenerationOverStatementGeneration() throws Exception {
+        AtomicInteger cleanupCount = new AtomicInteger();
+        IcebergTableCacheValue frozenGeneration = newValue(cleanupCount);
+        IcebergSnapshotCacheValue projection = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
+                Optional.empty(), frozenGeneration.getRetainedIcebergTable())
+                .bindSourceGeneration(frozenGeneration);
+        IcebergTableCacheValue.Lease outerOwner = frozenGeneration.tryAcquire();
+        Assertions.assertNotNull(outerOwner);
+        frozenGeneration.releaseLoaderReference();
+        frozenGeneration.releaseCacheReference();
+
+        // No statement scope is needed: the pinned frozen generation is retained directly.
+        Closeable lease = IcebergUtils.retainTableGenerationForAsyncPlanning(
+                Mockito.mock(IcebergExternalTable.class), projection);
+        Assertions.assertNotNull(lease);
+        Assertions.assertEquals(0, cleanupCount.get());
+
+        outerOwner.close();
+        Assertions.assertEquals(0, cleanupCount.get());
+        lease.close();
         Assertions.assertEquals(1, cleanupCount.get());
     }
 
