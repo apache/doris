@@ -191,7 +191,7 @@ public final class AnalyzerIdentityBuilder {
         TreeMap<String, String> sortedProps = new TreeMap<>(properties);
         String tokenizerIdentity = resolveComponentIdentity(
                 properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
-        boolean lowercaseDownstream = foldsAsciiCaseAfterCharFilters(properties, tokenizerIdentity);
+        boolean lowercaseDownstream = foldsAsciiCaseAfterCharFilters(type, properties, tokenizerIdentity);
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.name()).append(":");
@@ -303,7 +303,7 @@ public final class AnalyzerIdentityBuilder {
                     "keep_none_chinese_in_joined_full_pinyin", "remove_duplicated_term",
                     "fixed_pinyin_offset", "keep_separate_chinese");
             removeIntegerDefault(properties, "limit_first_letter_length", 16);
-            canonicalizePinyinDependencies(properties);
+            canonicalizePinyinDependencies(properties, expectedType);
             return;
         }
 
@@ -406,7 +406,10 @@ public final class AnalyzerIdentityBuilder {
             }
         }
         String filter = properties.get("unicode_set_filter");
-        if (filter != null) {
+        if (filter != null && filter.isEmpty()) {
+            // BE treats an explicit empty string like an absent filter.
+            properties.remove("unicode_set_filter");
+        } else if (filter != null) {
             try {
                 UnicodeSet unicodeSet = new UnicodeSet(filter);
                 if (unicodeSet.isEmpty()) {
@@ -588,27 +591,47 @@ public final class AnalyzerIdentityBuilder {
         }
     }
 
-    private static void canonicalizePinyinDependencies(TreeMap<String, String> properties) {
+    private static void canonicalizePinyinDependencies(
+            TreeMap<String, String> properties, IndexPolicyTypeEnum expectedType) {
         Boolean keepFirstLetter = effectiveBoolean(properties, "keep_first_letter", true);
+        Boolean keepNoneChinese = effectiveBoolean(properties, "keep_none_chinese", true);
+        Boolean keepNoneChineseTogether = effectiveBoolean(properties, "keep_none_chinese_together", true);
+        Boolean noneChinesePinyinTokenize = effectiveBoolean(properties, "none_chinese_pinyin_tokenize", true);
+        Boolean ignorePinyinOffset = effectiveBoolean(properties, "ignore_pinyin_offset", true);
+        Boolean keepJoinedFullPinyin = effectiveBoolean(properties, "keep_joined_full_pinyin", false);
+        // Only the pinyin tokenizer also consults keep_none_chinese_in_joined_full_pinyin, when no
+        // other setting settles whether it emits an untokenized ASCII buffer.
+        boolean tokenizerReadsJoinedSetting = expectedType == IndexPolicyTypeEnum.TOKENIZER
+                && !Boolean.FALSE.equals(keepNoneChinese)
+                && !Boolean.FALSE.equals(keepNoneChineseTogether)
+                && !Boolean.TRUE.equals(noneChinesePinyinTokenize)
+                && !Boolean.TRUE.equals(keepFirstLetter)
+                && !Boolean.TRUE.equals(effectiveBoolean(properties, "keep_separate_first_letter", false))
+                && !Boolean.TRUE.equals(effectiveBoolean(properties, "keep_full_pinyin", true));
+
         if (Boolean.FALSE.equals(keepFirstLetter)) {
             properties.remove("limit_first_letter_length");
             properties.remove("keep_none_chinese_in_first_letter");
         }
 
-        Boolean keepNoneChinese = effectiveBoolean(properties, "keep_none_chinese", true);
-        Boolean keepNoneChineseTogether = effectiveBoolean(properties, "keep_none_chinese_together", true);
-        Boolean noneChinesePinyinTokenize = effectiveBoolean(properties, "none_chinese_pinyin_tokenize", true);
         if (Boolean.FALSE.equals(keepNoneChinese)) {
             properties.remove("keep_none_chinese_together");
             properties.remove("none_chinese_pinyin_tokenize");
+        } else if (Boolean.TRUE.equals(keepNoneChinese) && Boolean.FALSE.equals(keepNoneChineseTogether)) {
+            // BE emits each ASCII letter on its own here and never tokenizes an ASCII buffer.
+            properties.remove("none_chinese_pinyin_tokenize");
         }
 
-        Boolean ignorePinyinOffset = effectiveBoolean(properties, "ignore_pinyin_offset", true);
         if (Boolean.TRUE.equals(ignorePinyinOffset)
                 || Boolean.FALSE.equals(keepNoneChinese)
                 || Boolean.FALSE.equals(keepNoneChineseTogether)
                 || Boolean.FALSE.equals(noneChinesePinyinTokenize)) {
             properties.remove("fixed_pinyin_offset");
+        }
+
+        // The joined full pinyin buffer is only emitted behind keep_joined_full_pinyin.
+        if (Boolean.FALSE.equals(keepJoinedFullPinyin) && !tokenizerReadsJoinedSetting) {
+            properties.remove("keep_none_chinese_in_joined_full_pinyin");
         }
     }
 
@@ -797,11 +820,7 @@ public final class AnalyzerIdentityBuilder {
                     if (properties != null && !properties.isEmpty()) {
                         String type = normalizeBuiltinComponentName(
                                 properties.get(IndexPolicy.PROP_TYPE), IndexPolicyTypeEnum.CHAR_FILTER);
-                        String normalizer = properties.getOrDefault("name", "nfkc_cf").trim();
-                        String unicodeSet = properties.getOrDefault("unicode_set_filter", "").trim();
-                        return "icu_normalizer".equals(type)
-                                && "nfkc_cf".equalsIgnoreCase(normalizer)
-                                && unicodeSet.isEmpty();
+                        return "icu_normalizer".equals(type) && isCaseFoldingIcuNormalizer(properties);
                     }
                 }
             }
@@ -811,6 +830,34 @@ public final class AnalyzerIdentityBuilder {
 
         return "icu_normalizer".equals(
                 normalizeBuiltinComponentName(name, IndexPolicyTypeEnum.CHAR_FILTER));
+    }
+
+    /** Whether an icu_normalizer component folds case: the default nfkc_cf form over every code point. */
+    private static boolean isCaseFoldingIcuNormalizer(Map<String, String> properties) {
+        return "nfkc_cf".equals(icuNormalizerName(properties)) && isUnfilteredIcuNormalizer(properties);
+    }
+
+    /** Whether an icu_normalizer component leaves ASCII letters as they are. */
+    private static boolean isAsciiCaseTransparentIcuNormalizer(Map<String, String> properties) {
+        String name = icuNormalizerName(properties);
+        return "nfc".equals(name) || "nfd".equals(name) || "nfkc".equals(name) || "nfkd".equals(name);
+    }
+
+    private static String icuNormalizerName(Map<String, String> properties) {
+        return properties.getOrDefault("name", "nfkc_cf").trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** BE runs the unfiltered normalizer without a unicode_set_filter or with one that parses to an empty set. */
+    private static boolean isUnfilteredIcuNormalizer(Map<String, String> properties) {
+        String filter = properties.get("unicode_set_filter");
+        if (filter == null || filter.isEmpty()) {
+            return true;
+        }
+        try {
+            return new UnicodeSet(filter).isEmpty();
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     /** The outer char filter runs before everything else, so it takes the analyzer's fold context. */
@@ -877,8 +924,8 @@ public final class AnalyzerIdentityBuilder {
     }
 
     /**
-     * Fold context for the outer char filter of a custom analyzer, which BE applies before the
-     * analyzer's own char filters. Unknown or unresolvable analyzers get no context.
+     * Fold context for the outer char filter of a custom analyzer or normalizer, which BE applies
+     * before the policy's own char filters. Unknown or unresolvable policies get no context.
      */
     private static boolean[] customAnalyzerFoldContext(String analyzerName) {
         if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)
@@ -886,6 +933,9 @@ public final class AnalyzerIdentityBuilder {
             return null;
         }
         IndexPolicy policy = findPolicy(analyzerName, IndexPolicyTypeEnum.ANALYZER);
+        if (policy == null) {
+            policy = findPolicy(analyzerName, IndexPolicyTypeEnum.NORMALIZER);
+        }
         if (policy == null || policy.isInvalid() || policy.getProperties() == null
                 || policy.getProperties().isEmpty()) {
             return null;
@@ -895,7 +945,8 @@ public final class AnalyzerIdentityBuilder {
             String tokenizerIdentity = resolveComponentIdentity(
                     properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
             return walkCharFilters(properties.get(IndexPolicy.PROP_CHAR_FILTER),
-                    foldsAsciiCaseAfterCharFilters(properties, tokenizerIdentity), new ArrayDeque<>());
+                    foldsAsciiCaseAfterCharFilters(policy.getType(), properties, tokenizerIdentity),
+                    new ArrayDeque<>());
         } catch (RuntimeException e) {
             return null;
         }
@@ -906,18 +957,21 @@ public final class AnalyzerIdentityBuilder {
      * case, so a char filter that only lowercases such a letter cannot change the output.
      */
     private static boolean foldsAsciiCaseAfterCharFilters(
-            Map<String, String> properties, String tokenizerIdentity) {
+            IndexPolicyTypeEnum type, Map<String, String> properties, String tokenizerIdentity) {
+        if (type == IndexPolicyTypeEnum.NORMALIZER) {
+            // A normalizer always tokenizes with keyword, which is case transparent.
+            return tokenFiltersFoldAsciiCase(properties.get(IndexPolicy.PROP_TOKEN_FILTER));
+        }
         if ("ik_smart".equals(tokenizerIdentity) || "ik_max_word".equals(tokenizerIdentity)) {
             return true;
         }
         return isCaseTransparentTokenizer(properties.get(IndexPolicy.PROP_TOKENIZER))
-                && "lowercase".equals(
-                        firstEffectiveTokenFilterIdentity(properties.get(IndexPolicy.PROP_TOKEN_FILTER)));
+                && tokenFiltersFoldAsciiCase(properties.get(IndexPolicy.PROP_TOKEN_FILTER));
     }
 
     /** Whether the tokenizer splits and emits ASCII letters the same way regardless of their case. */
     private static boolean isCaseTransparentTokenizer(String name) {
-        TreeMap<String, String> settings = resolveTokenizerSettings(name);
+        TreeMap<String, String> settings = resolveComponentSettings(name, IndexPolicyTypeEnum.TOKENIZER);
         if (settings == null) {
             return false;
         }
@@ -937,13 +991,13 @@ public final class AnalyzerIdentityBuilder {
         }
     }
 
-    /** Settings of a named or built-in tokenizer with a canonical type, or null when unknown. */
-    private static TreeMap<String, String> resolveTokenizerSettings(String name) {
+    /** Settings of a named or built-in component with a canonical type, or null when unknown. */
+    private static TreeMap<String, String> resolveComponentSettings(String name, IndexPolicyTypeEnum expectedType) {
         if (Strings.isNullOrEmpty(name)) {
             return null;
         }
         TreeMap<String, String> settings = new TreeMap<>();
-        IndexPolicy policy = findPolicy(name, IndexPolicyTypeEnum.TOKENIZER);
+        IndexPolicy policy = findPolicy(name, expectedType);
         if (policy != null) {
             if (policy.isInvalid()) {
                 return null;
@@ -953,7 +1007,7 @@ public final class AnalyzerIdentityBuilder {
             }
         }
         String type = normalizeBuiltinComponentName(
-                settings.isEmpty() ? name : settings.get(IndexPolicy.PROP_TYPE), IndexPolicyTypeEnum.TOKENIZER);
+                settings.isEmpty() ? name : settings.get(IndexPolicy.PROP_TYPE), expectedType);
         if (type == null) {
             return null;
         }
@@ -985,17 +1039,39 @@ public final class AnalyzerIdentityBuilder {
         return true;
     }
 
-    /** Identity of the first token filter that is not a no-op, or "" when there is none. */
-    private static String firstEffectiveTokenFilterIdentity(String filterList) {
+    /**
+     * Whether the token filters lowercase ASCII letters before any filter that could tell an
+     * upper-case letter from its lower-case form.
+     */
+    private static boolean tokenFiltersFoldAsciiCase(String filterList) {
         if (Strings.isNullOrEmpty(filterList)) {
-            return "";
+            return false;
         }
         for (String filterName : filterList.split(",\\s*")) {
-            String filter = resolveComponentIdentity(filterName.trim(), IndexPolicyTypeEnum.TOKEN_FILTER);
-            if (!Strings.isNullOrEmpty(filter)) {
-                return filter;
+            TreeMap<String, String> settings = resolveComponentSettings(
+                    filterName.trim(), IndexPolicyTypeEnum.TOKEN_FILTER);
+            if (settings == null) {
+                return false;
+            }
+            switch (settings.get(IndexPolicy.PROP_TYPE)) {
+                case "lowercase":
+                    return true;
+                case "empty":
+                case "asciifolding":
+                    // ASCII bytes pass through ASCII folding unchanged.
+                    continue;
+                case "icu_normalizer":
+                    if (isCaseFoldingIcuNormalizer(settings)) {
+                        return true;
+                    }
+                    if (isAsciiCaseTransparentIcuNormalizer(settings)) {
+                        continue;
+                    }
+                    return false;
+                default:
+                    return false;
             }
         }
-        return "";
+        return false;
     }
 }

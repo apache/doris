@@ -274,6 +274,196 @@ public class InvertedIndexPropertiesTest {
         }
     }
 
+    private static IndexDefinition normalizerIndexDefinition(String name, String normalizer) {
+        return new IndexDefinition(name, false, List.of("content"), "INVERTED",
+                Map.of("normalizer", normalizer), "");
+    }
+
+    private static IndexDefinition normalizerIndexDefinitionWithOuterLowerA(String name, String normalizer) {
+        return new IndexDefinition(name, false, List.of("content"), "INVERTED",
+                Map.of("normalizer", normalizer, "char_filter_type", "char_replace",
+                        "char_filter_pattern", "A", "char_filter_replacement", "a"), "");
+    }
+
+    @Test
+    public void testCreateTableRejectsPinyinSettingsBehindDisabledGates() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "pinyin_tf_plain", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "pinyin_tf_ascii_in_joined",
+                IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_in_joined_full_pinyin", "true")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "pinyin_tf_separate", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "pinyin_tf_separate_untokenized",
+                IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false",
+                        "none_chinese_pinyin_tokenize", "false")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "pinyin_tk_plain", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "pinyin_tk_ascii_in_joined",
+                IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_in_joined_full_pinyin", "true")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(7, "pinyin_tk_separate", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(8, "pinyin_tk_separate_untokenized",
+                IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false",
+                        "none_chinese_pinyin_tokenize", "false")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(9, "pinyin_tk_buffer_only", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_first_letter", "false", "keep_full_pinyin", "false",
+                        "none_chinese_pinyin_tokenize", "false")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(10, "pinyin_tk_buffer_only_ascii",
+                IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_first_letter", "false", "keep_full_pinyin", "false",
+                        "none_chinese_pinyin_tokenize", "false",
+                        "keep_none_chinese_in_joined_full_pinyin", "true")));
+        long id = 20;
+        for (String filter : new String[] {"pinyin_tf_plain", "pinyin_tf_ascii_in_joined",
+                "pinyin_tf_separate", "pinyin_tf_separate_untokenized"}) {
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(id++, filter + "_analyzer",
+                    IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword", "token_filter", filter)));
+        }
+        for (String tokenizer : new String[] {"pinyin_tk_plain", "pinyin_tk_ascii_in_joined",
+                "pinyin_tk_separate", "pinyin_tk_separate_untokenized", "pinyin_tk_buffer_only",
+                "pinyin_tk_buffer_only_ascii"}) {
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(id++, tokenizer + "_analyzer",
+                    IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", tokenizer)));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_tf_plain", "pinyin_tf_plain_analyzer"),
+                                    invertedIndexDefinition("idx_tf_ascii", "pinyin_tf_ascii_in_joined_analyzer")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_tf_separate", "pinyin_tf_separate_analyzer"),
+                                    invertedIndexDefinition("idx_tf_separate_untokenized",
+                                            "pinyin_tf_separate_untokenized_analyzer")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_tk_plain", "pinyin_tk_plain_analyzer"),
+                                    invertedIndexDefinition("idx_tk_ascii", "pinyin_tk_ascii_in_joined_analyzer")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_tk_separate", "pinyin_tk_separate_analyzer"),
+                                    invertedIndexDefinition("idx_tk_separate_untokenized",
+                                            "pinyin_tk_separate_untokenized_analyzer")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_tk_buffer_only", "pinyin_tk_buffer_only_analyzer"),
+                                    invertedIndexDefinition("idx_tk_buffer_only_ascii",
+                                            "pinyin_tk_buffer_only_ascii_analyzer")))));
+        }
+    }
+
+    @Test
+    public void testCreateTableRejectsEmptyUnicodeSetFoldAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "fold_empty", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[]")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "fold_b", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[b]")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "fold_empty_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "fold_empty")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "lower_fold_empty", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "lower_a,fold_empty")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "fold_b_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "fold_b")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(7, "lower_fold_b", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "lower_a,fold_b")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_fold_empty", "fold_empty_only"),
+                                    invertedIndexDefinition("idx_lower_fold_empty", "lower_fold_empty")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_fold_b", "fold_b_only"),
+                                    invertedIndexDefinition("idx_lower_fold_b", "lower_fold_b")))));
+        }
+    }
+
+    @Test
+    public void testCreateTableRejectsOuterCaseFoldAbsorbedByNormalizerAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "norm_lower_1", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "norm_lower_2", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "norm_lower_a_then_lowercase",
+                IndexPolicyTypeEnum.NORMALIZER, Map.of("char_filter", "lower_a", "token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "norm_ascii_1", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "norm_ascii_2", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    normalizerIndexDefinitionWithOuterLowerA("idx_outer_norm_lower", "norm_lower_1"),
+                                    normalizerIndexDefinition("idx_norm_lower", "norm_lower_2")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    normalizerIndexDefinition("idx_norm_lower_a", "norm_lower_a_then_lowercase"),
+                                    normalizerIndexDefinition("idx_norm_lower", "norm_lower_2")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    normalizerIndexDefinitionWithOuterLowerA("idx_outer_norm_ascii", "norm_ascii_1"),
+                                    normalizerIndexDefinition("idx_norm_ascii", "norm_ascii_2")))));
+        }
+    }
+
+    @Test
+    public void testCreateTableRejectsOuterCaseFoldThroughAsciiTransparentFilters() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "ascii", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "wd", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "ascii_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "ascii,lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "ascii_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "ascii,lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "wd_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "wd,lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "wd_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "wd,lowercase")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithOuterLowerA("idx_outer_ascii_lower", "ascii_lower_1"),
+                                    invertedIndexDefinition("idx_ascii_lower", "ascii_lower_2")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithOuterLowerA("idx_outer_wd_lower", "wd_lower_1"),
+                                    invertedIndexDefinition("idx_wd_lower", "wd_lower_2")))));
+        }
+    }
+
     @Test
     public void testRejectsAmbiguousOuterCharFiltersForSameAnalyzer() {
         IndexDefinition replaceA = new IndexDefinition("idx_replace_a", false, List.of("content"),

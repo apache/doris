@@ -1334,6 +1334,96 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "properties(\"analyzer\"=\"alter_keyword_lower_2\")", "already exists");
     }
 
+    @Test
+    public void testAddInvertedIndexRejectsPinyinSettingsBehindDisabledGates() throws Exception {
+        createAnalyzerAliasTable("sc_pinyin_gate_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_py_tf_plain", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin"));
+        replayAliasPolicy(policyMgr, "alter_py_tf_ascii_in_joined", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_in_joined_full_pinyin", "true"));
+        replayAliasPolicy(policyMgr, "alter_py_tf_separate", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false"));
+        replayAliasPolicy(policyMgr, "alter_py_tf_separate_untokenized", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false",
+                        "none_chinese_pinyin_tokenize", "false"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_plain", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_ascii_in_joined", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_in_joined_full_pinyin", "true"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_separate", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false"));
+        replayAliasPolicy(policyMgr, "alter_py_tk_separate_untokenized", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "pinyin", "keep_none_chinese_together", "false",
+                        "none_chinese_pinyin_tokenize", "false"));
+        for (String filter : new String[] {"alter_py_tf_plain", "alter_py_tf_ascii_in_joined",
+                "alter_py_tf_separate", "alter_py_tf_separate_untokenized"}) {
+            replayAliasPolicy(policyMgr, filter + "_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "token_filter", filter));
+        }
+        for (String tokenizer : new String[] {"alter_py_tk_plain", "alter_py_tk_ascii_in_joined",
+                "alter_py_tk_separate", "alter_py_tk_separate_untokenized"}) {
+            replayAliasPolicy(policyMgr, tokenizer + "_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", tokenizer));
+        }
+
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tf_plain(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tf_plain_analyzer\"), add index idx_tf_ascii(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_py_tf_ascii_in_joined_analyzer\")",
+                "already exists");
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tf_separate(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tf_separate_analyzer\"), "
+                + "add index idx_tf_separate_untokenized(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tf_separate_untokenized_analyzer\")", "already exists");
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tk_plain(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tk_plain_analyzer\"), add index idx_tk_ascii(c2) "
+                + "using inverted properties(\"analyzer\"=\"alter_py_tk_ascii_in_joined_analyzer\")",
+                "already exists");
+        expectException("alter table test.sc_pinyin_gate_alias add index idx_tk_separate(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tk_separate_analyzer\"), "
+                + "add index idx_tk_separate_untokenized(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_py_tk_separate_untokenized_analyzer\")", "already exists");
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsFoldAliasesThroughEmptySetNormalizerAndTransparentFilters()
+            throws Exception {
+        createAnalyzerAliasTable("sc_fold2_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_fold2_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        replayAliasPolicy(policyMgr, "alter_fold2_empty_set", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[]"));
+        replayAliasPolicy(policyMgr, "alter_fold2_empty_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold2_empty_set"));
+        replayAliasPolicy(policyMgr, "alter_fold2_lower_empty", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "alter_fold2_lower_a,alter_fold2_empty_set"));
+        replayAliasPolicy(policyMgr, "alter_fold2_norm_lower_1", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_fold2_norm_lower_2", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_fold2_ascii", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "asciifolding"));
+        replayAliasPolicy(policyMgr, "alter_fold2_ascii_lower_1", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold2_ascii,lowercase"));
+        replayAliasPolicy(policyMgr, "alter_fold2_ascii_lower_2", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "alter_fold2_ascii,lowercase"));
+
+        expectException("alter table test.sc_fold2_alias add index idx_empty_only(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold2_empty_only\"), add index idx_lower_empty(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_fold2_lower_empty\")", "already exists");
+        expectException("alter table test.sc_fold2_alias add index idx_outer_norm_lower(c1) using inverted "
+                + "properties(\"normalizer\"=\"alter_fold2_norm_lower_1\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_norm_lower(c1) using inverted "
+                + "properties(\"normalizer\"=\"alter_fold2_norm_lower_2\")", "already exists");
+        expectException("alter table test.sc_fold2_alias add index idx_outer_ascii_lower(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold2_ascii_lower_1\", \"char_filter_type\"=\"char_replace\", "
+                + "\"char_filter_pattern\"=\"A\", \"char_filter_replacement\"=\"a\"), "
+                + "add index idx_ascii_lower(c2) using inverted "
+                + "properties(\"analyzer\"=\"alter_fold2_ascii_lower_2\")", "already exists");
+    }
+
     private void createAnalyzerAliasTable(String tableName) throws Exception {
         createTable("CREATE TABLE IF NOT EXISTS test." + tableName
                 + " (k INT, c1 VARCHAR(100), c2 VARCHAR(100))\n"
