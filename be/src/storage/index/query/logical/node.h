@@ -103,8 +103,11 @@ struct Empty {
     FieldRef field;
 };
 
-// The field has no usable index in this segment: UNKNOWN for every document.
-struct Unknown {};
+// UNKNOWN for every document: the field has no usable index in this segment
+// (`field.binding` is empty) or its index cannot answer the clause.
+struct Unknown {
+    FieldRef field;
+};
 
 // Every document.
 struct All {};
@@ -132,7 +135,7 @@ struct Node {
         return std::get_if<T>(&value);
     }
 
-    // The bound field of a leaf; nullptr for Bool, All and Unknown.
+    // The field of a leaf; nullptr for Bool and All.
     const FieldRef* field() const {
         return std::visit(
                 [](const auto& leaf) -> const FieldRef* {

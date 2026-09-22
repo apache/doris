@@ -38,6 +38,9 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/function/clucene_leaf_compiler.h"
+#include "exprs/function/native_leaf_compiler.h"
+#include "exprs/function/scalar_leaf_compiler.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/index_file_reader.h"
@@ -227,11 +230,12 @@ public:
         return Status::OK();
     }
 
+    // The raw entry analyzes the value itself; SEARCH no longer uses it.
     Status query(const segment_v2::IndexQueryContextPtr& context, const std::string& column_name,
                  const Field& query_value, segment_v2::InvertedIndexQueryType query_type,
                  std::shared_ptr<roaring::Roaring>& bit_map,
                  const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override {
-        ++query_calls;
+        ++raw_query_calls;
         last_column_name = column_name;
         last_query_type = query_type;
         last_query_value_type = query_value.get_type();
@@ -239,7 +243,42 @@ public:
         if (last_query_value_type == TYPE_STRING) {
             last_query_value = query_value.get<TYPE_STRING>();
         }
+        return answer(context, bit_map);
+    }
 
+    // Results and scores are keyed by the terms joined with spaces (alternatives of one slot
+    // with '|'), so a test states what the reader would answer for a given term list.
+    Status query_analyzed(const segment_v2::IndexQueryContextPtr& context,
+                          const std::string& column_name,
+                          segment_v2::InvertedIndexQueryType query_type,
+                          const segment_v2::InvertedIndexQueryInfo& query_info,
+                          std::shared_ptr<roaring::Roaring>& bit_map,
+                          segment_v2::InvertedIndexQueryCacheHandle* /*null_bitmap_cache_handle*/ =
+                                  nullptr) override {
+        ++query_calls;
+        last_column_name = column_name;
+        last_query_type = query_type;
+        last_query_info = query_info;
+        last_query_value_type = TYPE_STRING;
+        last_query_value.clear();
+        for (const auto& term_info : query_info.term_infos) {
+            if (!last_query_value.empty()) {
+                last_query_value += ' ';
+            }
+            if (term_info.is_single_term()) {
+                last_query_value += term_info.get_single_term();
+                continue;
+            }
+            const auto& alternatives = term_info.get_multi_terms();
+            for (size_t i = 0; i < alternatives.size(); ++i) {
+                last_query_value += (i == 0 ? "" : "|") + alternatives[i];
+            }
+        }
+        return answer(context, bit_map);
+    }
+
+    Status answer(const segment_v2::IndexQueryContextPtr& context,
+                  std::shared_ptr<roaring::Roaring>& bit_map) {
         bit_map = std::make_shared<roaring::Roaring>();
         auto result_it = query_results.find(last_query_value);
         if (result_it != query_results.end()) {
@@ -293,9 +332,11 @@ public:
     }
 
     int query_calls = 0;
+    int raw_query_calls = 0;
     int null_bitmap_calls = 0;
     std::string last_column_name;
     std::string last_query_value;
+    segment_v2::InvertedIndexQueryInfo last_query_info;
     PrimitiveType last_query_value_type = PrimitiveType::TYPE_NULL;
     segment_v2::InvertedIndexQueryType last_query_type =
             segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
@@ -429,123 +470,6 @@ TEST_F(FunctionSearchTest, TestGetName) {
     EXPECT_EQ("search", function_search->get_name());
 }
 
-TEST_F(FunctionSearchTest, TestClauseTypeCategory) {
-    // Test NON_TOKENIZED types
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("TERM"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("PREFIX"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("WILDCARD"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("REGEXP"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("RANGE"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("LIST"));
-
-    // Test TOKENIZED types
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::TOKENIZED,
-              function_search->get_clause_type_category("PHRASE"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::TOKENIZED,
-              function_search->get_clause_type_category("MATCH"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::TOKENIZED,
-              function_search->get_clause_type_category("ANY"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::TOKENIZED,
-              function_search->get_clause_type_category("ALL"));
-
-    // Test COMPOUND types
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
-              function_search->get_clause_type_category("AND"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
-              function_search->get_clause_type_category("OR"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
-              function_search->get_clause_type_category("NOT"));
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
-              function_search->get_clause_type_category("NESTED"));
-
-    // Test unknown type - should default to NON_TOKENIZED
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED,
-              function_search->get_clause_type_category("UNKNOWN"));
-}
-
-TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryTypeSimpleLeaf) {
-    // Test TERM query
-    TSearchClause termClause;
-    termClause.clause_type = "TERM";
-    termClause.field_name = "title";
-    termClause.value = "hello";
-
-    auto query_type = function_search->analyze_field_query_type("title", termClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
-
-    // Test PHRASE query
-    TSearchClause phraseClause;
-    phraseClause.clause_type = "PHRASE";
-    phraseClause.field_name = "content";
-    phraseClause.value = "machine learning";
-
-    query_type = function_search->analyze_field_query_type("content", phraseClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_type);
-
-    // Test PREFIX query
-    TSearchClause prefixClause;
-    prefixClause.clause_type = "PREFIX";
-    prefixClause.field_name = "title";
-    prefixClause.value = "hello*";
-
-    query_type = function_search->analyze_field_query_type("title", prefixClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, query_type);
-}
-
-TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryTypeCompound) {
-    // Test AND query with mixed children
-    TSearchClause termChild;
-    termChild.clause_type = "TERM";
-    termChild.field_name = "title";
-    termChild.value = "hello";
-
-    TSearchClause phraseChild;
-    phraseChild.clause_type = "PHRASE";
-    phraseChild.field_name = "content";
-    phraseChild.value = "machine learning";
-
-    TSearchClause andClause;
-    andClause.clause_type = "AND";
-    andClause.children = {termChild, phraseChild};
-
-    // Test field-specific query type analysis
-    auto title_query_type = function_search->analyze_field_query_type("title", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    auto content_query_type = function_search->analyze_field_query_type("content", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryTypeCompoundNonTokenized) {
-    // Test AND query with only non-tokenized children
-    TSearchClause termChild1;
-    termChild1.clause_type = "TERM";
-    termChild1.field_name = "title";
-    termChild1.value = "hello";
-
-    TSearchClause termChild2;
-    termChild2.clause_type = "TERM";
-    termChild2.field_name = "category";
-    termChild2.value = "tech";
-
-    TSearchClause andClause;
-    andClause.clause_type = "AND";
-    andClause.children = {termChild1, termChild2};
-
-    // Test field-specific query type analysis
-    auto title_query_type = function_search->analyze_field_query_type("title", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    auto category_query_type = function_search->analyze_field_query_type("category", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, category_query_type);
-}
-
 TEST_F(FunctionSearchTest, TestBuildSearchParam) {
     // Create test search param
     TSearchParam searchParam;
@@ -616,181 +540,6 @@ TEST_F(FunctionSearchTest, TestComplexSearchParam) {
     EXPECT_EQ("content", searchParam.root.children[1].field_name);
     EXPECT_EQ("world", searchParam.root.children[1].value);
     EXPECT_EQ(2, searchParam.field_bindings.size());
-}
-
-TEST_F(FunctionSearchTest, TestPhraseClause) {
-    TSearchParam searchParam;
-    searchParam.original_dsl = "content:\"machine learning\"";
-
-    TSearchClause rootClause;
-    rootClause.clause_type = "PHRASE";
-    rootClause.field_name = "content";
-    rootClause.value = "machine learning";
-    searchParam.root = rootClause;
-
-    TSearchFieldBinding binding;
-    binding.field_name = "content";
-    binding.slot_index = 0;
-    searchParam.field_bindings = {binding};
-
-    // Verify phrase handling
-    EXPECT_EQ("PHRASE", searchParam.root.clause_type);
-    EXPECT_EQ("content", searchParam.root.field_name);
-    EXPECT_EQ("machine learning", searchParam.root.value);
-
-    auto query_type = function_search->analyze_field_query_type("content", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_type);
-}
-
-TEST_F(FunctionSearchTest, TestRegexpClause) {
-    TSearchParam searchParam;
-    searchParam.original_dsl = "title:/[a-z]+/";
-
-    TSearchClause rootClause;
-    rootClause.clause_type = "REGEXP";
-    rootClause.field_name = "title";
-    rootClause.value = "[a-z]+"; // slashes should be removed by parser
-    searchParam.root = rootClause;
-
-    TSearchFieldBinding binding;
-    binding.field_name = "title";
-    binding.slot_index = 0;
-    searchParam.field_bindings = {binding};
-
-    // Verify regexp handling
-    EXPECT_EQ("REGEXP", searchParam.root.clause_type);
-    EXPECT_EQ("title", searchParam.root.field_name);
-    EXPECT_EQ("[a-z]+", searchParam.root.value);
-
-    auto query_type = function_search->analyze_field_query_type("title", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY, query_type);
-}
-
-TEST_F(FunctionSearchTest, TestRangeClause) {
-    TSearchParam searchParam;
-    searchParam.original_dsl = "age:[18 TO 65]";
-
-    TSearchClause rootClause;
-    rootClause.clause_type = "RANGE";
-    rootClause.field_name = "age";
-    rootClause.value = "[18 TO 65]";
-    searchParam.root = rootClause;
-
-    TSearchFieldBinding binding;
-    binding.field_name = "age";
-    binding.slot_index = 0;
-    searchParam.field_bindings = {binding};
-
-    // Verify range handling
-    EXPECT_EQ("RANGE", searchParam.root.clause_type);
-    EXPECT_EQ("age", searchParam.root.field_name);
-    EXPECT_EQ("[18 TO 65]", searchParam.root.value);
-
-    auto query_type = function_search->analyze_field_query_type("age", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::RANGE_QUERY, query_type);
-}
-
-TEST_F(FunctionSearchTest, TestAnyAllClauses) {
-    // Test ANY clause
-    TSearchParam anyParam;
-    anyParam.original_dsl = "tags:ANY(java python)";
-
-    TSearchClause anyClause;
-    anyClause.clause_type = "ANY";
-    anyClause.field_name = "tags";
-    anyClause.value = "java python";
-    anyParam.root = anyClause;
-
-    auto query_type = function_search->analyze_field_query_type("tags", anyParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, query_type);
-
-    // Test ALL clause
-    TSearchParam allParam;
-    allParam.original_dsl = "tags:ALL(programming language)";
-
-    TSearchClause allClause;
-    allClause.clause_type = "ALL";
-    allClause.field_name = "tags";
-    allClause.value = "programming language";
-    allParam.root = allClause;
-
-    query_type = function_search->analyze_field_query_type("tags", allParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, query_type);
-}
-
-TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryType) {
-    // Test compound query with different field types
-    TSearchClause termChild;
-    termChild.clause_type = "TERM";
-    termChild.field_name = "title";
-    termChild.value = "hello";
-
-    TSearchClause phraseChild;
-    phraseChild.clause_type = "PHRASE";
-    phraseChild.field_name = "content";
-    phraseChild.value = "machine learning";
-
-    TSearchClause andClause;
-    andClause.clause_type = "AND";
-    andClause.children = {termChild, phraseChild};
-
-    // Test field-specific query type analysis
-    auto title_query_type = function_search->analyze_field_query_type("title", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    auto content_query_type = function_search->analyze_field_query_type("content", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
-
-    // Test field not in query
-    auto other_query_type = function_search->analyze_field_query_type("other_field", andClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, other_query_type);
-
-    // Test single field query
-    auto single_field_type = function_search->analyze_field_query_type("title", termChild);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, single_field_type);
-
-    auto single_phrase_type = function_search->analyze_field_query_type("content", phraseChild);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, single_phrase_type);
-}
-
-TEST_F(FunctionSearchTest, TestClauseTypeToQueryType) {
-    // Test non-tokenized queries
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
-              function_search->clause_type_to_query_type("TERM"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
-              function_search->clause_type_to_query_type("PREFIX"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::WILDCARD_QUERY,
-              function_search->clause_type_to_query_type("WILDCARD"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-              function_search->clause_type_to_query_type("REGEXP"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::RANGE_QUERY,
-              function_search->clause_type_to_query_type("RANGE"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::LIST_QUERY,
-              function_search->clause_type_to_query_type("LIST"));
-
-    // Test tokenized queries
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-              function_search->clause_type_to_query_type("PHRASE"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
-              function_search->clause_type_to_query_type("MATCH"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
-              function_search->clause_type_to_query_type("ANY"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY,
-              function_search->clause_type_to_query_type("ALL"));
-
-    // Test boolean operations
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
-              function_search->clause_type_to_query_type("AND"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
-              function_search->clause_type_to_query_type("OR"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
-              function_search->clause_type_to_query_type("NOT"));
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
-              function_search->clause_type_to_query_type("NESTED"));
-
-    // Test unknown clause type
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
-              function_search->clause_type_to_query_type("UNKNOWN"));
 }
 
 TEST_F(FunctionSearchTest, TestExecuteImpl) {
@@ -867,280 +616,6 @@ TEST_F(FunctionSearchTest, TestEvaluateInvertedIndexWithSearchParamEmptyInputs) 
     status = function_search->evaluate_inverted_index_with_search_param(
             search_param, empty_data_types, non_empty_iterators, num_rows, bitmap_result);
     EXPECT_TRUE(status.ok()); // Should return OK due to empty data_types check
-}
-
-// NESTED clause tests moved to function_search_nested_test.cpp
-
-TEST_F(FunctionSearchTest, TestNestedBooleanQueries) {
-    // Test deeply nested boolean queries
-    TSearchParam searchParam;
-    searchParam.original_dsl =
-            "((title:hello OR content:world) AND category:tech) OR (author:john AND "
-            "status:published)";
-
-    // Create nested structure: OR -> AND -> OR, AND
-    TSearchClause titleClause;
-    titleClause.clause_type = "TERM";
-    titleClause.field_name = "title";
-    titleClause.value = "hello";
-
-    TSearchClause contentClause;
-    contentClause.clause_type = "TERM";
-    contentClause.field_name = "content";
-    contentClause.value = "world";
-
-    TSearchClause categoryClause;
-    categoryClause.clause_type = "TERM";
-    categoryClause.field_name = "category";
-    categoryClause.value = "tech";
-
-    TSearchClause authorClause;
-    authorClause.clause_type = "TERM";
-    authorClause.field_name = "author";
-    authorClause.value = "john";
-
-    TSearchClause statusClause;
-    statusClause.clause_type = "TERM";
-    statusClause.field_name = "status";
-    statusClause.value = "published";
-
-    // Build nested structure
-    TSearchClause innerOrClause;
-    innerOrClause.clause_type = "OR";
-    innerOrClause.children = {titleClause, contentClause};
-
-    TSearchClause leftAndClause;
-    leftAndClause.clause_type = "AND";
-    leftAndClause.children = {innerOrClause, categoryClause};
-
-    TSearchClause rightAndClause;
-    rightAndClause.clause_type = "AND";
-    rightAndClause.children = {authorClause, statusClause};
-
-    TSearchClause rootOrClause;
-    rootOrClause.clause_type = "OR";
-    rootOrClause.children = {leftAndClause, rightAndClause};
-    searchParam.root = rootOrClause;
-
-    // Test field-specific query type analysis for nested queries
-    auto title_query_type = function_search->analyze_field_query_type("title", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    auto content_query_type =
-            function_search->analyze_field_query_type("content", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, content_query_type);
-
-    auto author_query_type = function_search->analyze_field_query_type("author", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, author_query_type);
-
-    // Test field not in query
-    auto missing_query_type =
-            function_search->analyze_field_query_type("missing_field", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, missing_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestMixedTokenizedAndNonTokenizedQueries) {
-    // Test queries mixing tokenized and non-tokenized clause types
-    TSearchParam searchParam;
-    searchParam.original_dsl =
-            "title:TERM(hello) AND content:PHRASE(\"machine learning\") AND tags:ANY(java python)";
-
-    TSearchClause termClause;
-    termClause.clause_type = "TERM";
-    termClause.field_name = "title";
-    termClause.value = "hello";
-
-    TSearchClause phraseClause;
-    phraseClause.clause_type = "PHRASE";
-    phraseClause.field_name = "content";
-    phraseClause.value = "machine learning";
-
-    TSearchClause anyClause;
-    anyClause.clause_type = "ANY";
-    anyClause.field_name = "tags";
-    anyClause.value = "java python";
-
-    TSearchClause rootAndClause;
-    rootAndClause.clause_type = "AND";
-    rootAndClause.children = {termClause, phraseClause, anyClause};
-    searchParam.root = rootAndClause;
-
-    // Test field-specific query type analysis
-    auto title_query_type = function_search->analyze_field_query_type("title", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    auto content_query_type =
-            function_search->analyze_field_query_type("content", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
-
-    auto tags_query_type = function_search->analyze_field_query_type("tags", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, tags_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestNotOperatorQueries) {
-    // Test NOT operator with various clause types
-    TSearchParam searchParam;
-    searchParam.original_dsl = "NOT (title:hello OR content:world)";
-
-    TSearchClause titleClause;
-    titleClause.clause_type = "TERM";
-    titleClause.field_name = "title";
-    titleClause.value = "hello";
-
-    TSearchClause contentClause;
-    contentClause.clause_type = "TERM";
-    contentClause.field_name = "content";
-    contentClause.value = "world";
-
-    TSearchClause orClause;
-    orClause.clause_type = "OR";
-    orClause.children = {titleClause, contentClause};
-
-    TSearchClause notClause;
-    notClause.clause_type = "NOT";
-    notClause.children = {orClause};
-    searchParam.root = notClause;
-
-    // Test field-specific query type analysis for NOT queries
-    auto title_query_type = function_search->analyze_field_query_type("title", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    auto content_query_type =
-            function_search->analyze_field_query_type("content", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, content_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestWildcardAndPrefixQueries) {
-    // Test WILDCARD queries
-    TSearchParam wildcardParam;
-    wildcardParam.original_dsl = "title:hello*";
-
-    TSearchClause wildcardClause;
-    wildcardClause.clause_type = "WILDCARD";
-    wildcardClause.field_name = "title";
-    wildcardClause.value = "hello*";
-    wildcardParam.root = wildcardClause;
-
-    auto wildcard_query_type =
-            function_search->analyze_field_query_type("title", wildcardParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::WILDCARD_QUERY, wildcard_query_type);
-
-    // Test PREFIX queries
-    TSearchParam prefixParam;
-    prefixParam.original_dsl = "title:hello*";
-
-    TSearchClause prefixClause;
-    prefixClause.clause_type = "PREFIX";
-    prefixClause.field_name = "title";
-    prefixClause.value = "hello";
-    prefixParam.root = prefixClause;
-
-    auto prefix_query_type = function_search->analyze_field_query_type("title", prefixParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, prefix_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestListQueries) {
-    // Test LIST queries
-    TSearchParam listParam;
-    listParam.original_dsl = "category:LIST(tech, science, programming)";
-
-    TSearchClause listClause;
-    listClause.clause_type = "LIST";
-    listClause.field_name = "category";
-    listClause.value = "tech,science,programming";
-    listParam.root = listClause;
-
-    auto list_query_type = function_search->analyze_field_query_type("category", listParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::LIST_QUERY, list_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestMatchQueries) {
-    // Test MATCH queries (full-text search)
-    TSearchParam matchParam;
-    matchParam.original_dsl = "content:MATCH(machine learning algorithms)";
-
-    TSearchClause matchClause;
-    matchClause.clause_type = "MATCH";
-    matchClause.field_name = "content";
-    matchClause.value = "machine learning algorithms";
-    matchParam.root = matchClause;
-
-    auto match_query_type = function_search->analyze_field_query_type("content", matchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, match_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestEmptyAndNullQueries) {
-    // Test empty clause type
-    TSearchClause emptyClause;
-    emptyClause.clause_type = "";
-    emptyClause.field_name = "title";
-    emptyClause.value = "hello";
-
-    auto empty_query_type = function_search->analyze_field_query_type("title", emptyClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
-              empty_query_type); // Should default to EQUAL_QUERY
-
-    // Test clause with empty field name
-    TSearchClause noFieldClause;
-    noFieldClause.clause_type = "TERM";
-    noFieldClause.field_name = "";
-    noFieldClause.value = "hello";
-
-    auto no_field_query_type = function_search->analyze_field_query_type("title", noFieldClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, no_field_query_type);
-
-    // Test clause with empty value
-    TSearchClause emptyValueClause;
-    emptyValueClause.clause_type = "TERM";
-    emptyValueClause.field_name = "title";
-    emptyValueClause.value = "";
-
-    auto empty_value_query_type =
-            function_search->analyze_field_query_type("title", emptyValueClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, empty_value_query_type);
-}
-
-// Error handling and edge case tests
-TEST_F(FunctionSearchTest, TestInvalidClauseTypes) {
-    // Test completely invalid clause types
-    std::vector<std::string> invalid_types = {"INVALID", "UNKNOWN_TYPE", "BAD_CLAUSE", "", " "};
-
-    for (const auto& invalid_type : invalid_types) {
-        auto category = function_search->get_clause_type_category(invalid_type);
-        EXPECT_EQ(FunctionSearch::ClauseTypeCategory::NON_TOKENIZED, category);
-
-        auto query_type = function_search->clause_type_to_query_type(invalid_type);
-        EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
-    }
-}
-
-TEST_F(FunctionSearchTest, TestMalformedSearchClauses) {
-    // Test clause without field_name
-    TSearchClause malformed_clause1;
-    malformed_clause1.clause_type = "TERM";
-    // malformed_clause1.field_name is not set
-    malformed_clause1.value = "hello";
-
-    auto query_type1 = function_search->analyze_field_query_type("any_field", malformed_clause1);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, query_type1);
-
-    // Test clause without value
-    TSearchClause malformed_clause2;
-    malformed_clause2.clause_type = "TERM";
-    malformed_clause2.field_name = "title";
-    // malformed_clause2.value is not set
-
-    auto query_type2 = function_search->analyze_field_query_type("title", malformed_clause2);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type2);
-
-    // Test clause without clause_type
-    TSearchClause malformed_clause3;
-    // malformed_clause3.clause_type is not set
-    malformed_clause3.field_name = "title";
-    malformed_clause3.value = "hello";
-
-    auto query_type3 = function_search->analyze_field_query_type("title", malformed_clause3);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type3);
 }
 
 TEST_F(FunctionSearchTest, TestEmptySearchParam) {
@@ -1223,102 +698,6 @@ TEST_F(FunctionSearchTest, TestMismatchedFieldNames) {
                 std::string::npos);
 }
 
-TEST_F(FunctionSearchTest, TestBooleanClauseWithoutChildren) {
-    // Test AND clause with no children
-    TSearchClause and_clause_no_children;
-    and_clause_no_children.clause_type = "AND";
-    // No children set
-
-    auto query_type =
-            function_search->analyze_field_query_type("any_field", and_clause_no_children);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, query_type);
-
-    // Test OR clause with no children
-    TSearchClause or_clause_no_children;
-    or_clause_no_children.clause_type = "OR";
-    // No children set
-
-    query_type = function_search->analyze_field_query_type("any_field", or_clause_no_children);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, query_type);
-
-    // Test NOT clause with no children
-    TSearchClause not_clause_no_children;
-    not_clause_no_children.clause_type = "NOT";
-    // No children set
-
-    query_type = function_search->analyze_field_query_type("any_field", not_clause_no_children);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, query_type);
-}
-
-TEST_F(FunctionSearchTest, TestSpecialCharactersInValues) {
-    // Test special characters in field values
-    std::vector<std::string> special_values = {
-            "",   " ",    "\n",    "\t",        "\\",  "\"",
-            "'",  "null", "NULL",  "undefined", "NaN", "0",
-            "-1", "true", "false", "你好",      "🔍",  std::string(1000, 'a')};
-
-    for (const auto& special_value : special_values) {
-        TSearchClause special_clause;
-        special_clause.clause_type = "TERM";
-        special_clause.field_name = "title";
-        special_clause.value = special_value;
-
-        auto query_type = function_search->analyze_field_query_type("title", special_clause);
-        EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
-    }
-}
-
-TEST_F(FunctionSearchTest, TestSpecialCharactersInFieldNames) {
-    // Test special characters in field names
-    std::vector<std::string> special_field_names = {"",
-                                                    " ",
-                                                    "field with spaces",
-                                                    "field-with-dashes",
-                                                    "field_with_underscores",
-                                                    "field.with.dots",
-                                                    "field@with@symbols",
-                                                    "字段名",
-                                                    "🔍field",
-                                                    "123field"};
-
-    for (const auto& special_field_name : special_field_names) {
-        TSearchClause special_clause;
-        special_clause.clause_type = "TERM";
-        special_clause.field_name = special_field_name;
-        special_clause.value = "hello";
-
-        // Test with matching field name
-        auto query_type1 =
-                function_search->analyze_field_query_type(special_field_name, special_clause);
-        EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type1);
-
-        // Test with non-matching field name
-        auto query_type2 =
-                function_search->analyze_field_query_type("different_field", special_clause);
-        EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, query_type2);
-    }
-}
-
-TEST_F(FunctionSearchTest, TestCaseSensitivityInClauseTypes) {
-    // Test case sensitivity for clause types
-    std::vector<std::pair<std::string, segment_v2::InvertedIndexQueryType>> case_variations = {
-            {"term", segment_v2::InvertedIndexQueryType::EQUAL_QUERY},  // lowercase
-            {"TERM", segment_v2::InvertedIndexQueryType::EQUAL_QUERY},  // uppercase
-            {"AND", segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY}, // uppercase
-            {"and", segment_v2::InvertedIndexQueryType::
-                            EQUAL_QUERY}, // lowercase (unknown, defaults to EQUAL)
-            {"PHRASE", segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY}, // uppercase
-            {"phrase", segment_v2::InvertedIndexQueryType::
-                               EQUAL_QUERY}, // lowercase (unknown, defaults to EQUAL)
-    };
-
-    for (const auto& [clause_type, expected_query_type] : case_variations) {
-        auto actual_query_type = function_search->clause_type_to_query_type(clause_type);
-        EXPECT_EQ(expected_query_type, actual_query_type)
-                << "Failed for clause_type: " << clause_type;
-    }
-}
-
 TEST_F(FunctionSearchTest, TestZeroRowsScenario) {
     // Test with zero rows but empty iterators/data_types (realistic scenario)
     TSearchParam search_param;
@@ -1365,84 +744,6 @@ TEST_F(FunctionSearchTest, TestVeryLargeRowCount) {
     EXPECT_TRUE(status.ok()); // Should handle large row counts gracefully and return empty result
 }
 
-// Integration tests with VSearchExpr
-TEST_F(FunctionSearchTest, TestFunctionSearchAndVSearchExprIntegration) {
-    // Test that both components handle the same clause types consistently
-    std::vector<std::string> clause_types = {"TERM",  "PHRASE", "WILDCARD", "REGEXP",
-                                             "RANGE", "LIST",   "ANY",      "ALL",
-                                             "AND",   "OR",     "NOT"};
-
-    for (const auto& clause_type : clause_types) {
-        auto category = function_search->get_clause_type_category(clause_type);
-        auto query_type = function_search->clause_type_to_query_type(clause_type);
-
-        // Verify that the mapping is consistent
-        if (category == FunctionSearch::ClauseTypeCategory::COMPOUND) {
-            EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY, query_type);
-        } else {
-            EXPECT_NE(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY, query_type);
-        }
-    }
-}
-
-TEST_F(FunctionSearchTest, TestTokenizedVsNonTokenizedConsistency) {
-    // Test that both components agree on tokenized vs non-tokenized classification
-    std::map<std::string, FunctionSearch::ClauseTypeCategory> expected_categories = {
-            {"TERM", FunctionSearch::ClauseTypeCategory::NON_TOKENIZED},
-            {"PREFIX", FunctionSearch::ClauseTypeCategory::NON_TOKENIZED},
-            {"WILDCARD", FunctionSearch::ClauseTypeCategory::NON_TOKENIZED},
-            {"REGEXP", FunctionSearch::ClauseTypeCategory::NON_TOKENIZED},
-            {"RANGE", FunctionSearch::ClauseTypeCategory::NON_TOKENIZED},
-            {"LIST", FunctionSearch::ClauseTypeCategory::NON_TOKENIZED},
-            {"PHRASE", FunctionSearch::ClauseTypeCategory::TOKENIZED},
-            {"MATCH", FunctionSearch::ClauseTypeCategory::TOKENIZED},
-            {"ANY", FunctionSearch::ClauseTypeCategory::TOKENIZED},
-            {"ALL", FunctionSearch::ClauseTypeCategory::TOKENIZED},
-            {"AND", FunctionSearch::ClauseTypeCategory::COMPOUND},
-            {"OR", FunctionSearch::ClauseTypeCategory::COMPOUND},
-            {"NOT", FunctionSearch::ClauseTypeCategory::COMPOUND}};
-
-    for (const auto& [clause_type, expected_category] : expected_categories) {
-        auto actual_category = function_search->get_clause_type_category(clause_type);
-        EXPECT_EQ(expected_category, actual_category) << "Failed for clause_type: " << clause_type;
-    }
-}
-
-TEST_F(FunctionSearchTest, TestPerformanceWithLargeQueries) {
-    // Test performance with large query structures
-    std::vector<TSearchClause> clauses;
-
-    // Generate many field clauses
-    for (int i = 0; i < 100; ++i) {
-        TSearchClause clause;
-        clause.clause_type = "TERM";
-        clause.field_name = "field" + std::to_string(i);
-        clause.value = "value" + std::to_string(i);
-        clauses.push_back(clause);
-    }
-
-    // Create large OR clause
-    TSearchClause largeOr;
-    largeOr.clause_type = "OR";
-    largeOr.children = clauses;
-
-    // Test that analysis completes in reasonable time
-    auto start = std::chrono::high_resolution_clock::now();
-
-    for (int i = 0; i < 100; ++i) {
-        std::string field_name = "field" + std::to_string(i);
-        auto query_type = function_search->analyze_field_query_type(field_name, largeOr);
-        EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    // Should complete within reasonable time (less than 1 second for 100 fields)
-    EXPECT_LT(duration.count(), 1000)
-            << "Query analysis took too long: " << duration.count() << "ms";
-}
-
 // Tests for FieldReaderResolver::resolve function coverage (lines 74+)
 TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) {
     // Exercise the branch where the iterator exists but is not an InvertedIndexIterator
@@ -1477,7 +778,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverWithNonInvertedIndexIterator) 
 
 TEST_F(FunctionSearchTest, TestFieldReaderResolverWithValidIterator) {
     // Test the path where we have a valid iterator but no real InvertedIndexIterator
-    // This will test the early return in build_leaf_query when resolver.resolve fails
+    // This will test the early return in build_query_recursive when resolver.resolve fails
     TSearchParam search_param;
     search_param.original_dsl = "title:hello";
 
@@ -1975,7 +1276,9 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
     binding.stored_field_wstr = L"content";
     binding.index_properties["parser"] = "unicode";
     binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
-    binding.execution_mode = SearchFieldExecutionMode::CLUCENE;
+    binding.leaf_compiler = std::make_shared<CluceneLeafCompiler>(
+            L"content",
+            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY));
 
     auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
     binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
@@ -1988,8 +1291,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
 
     inverted_index::query_v2::QueryPtr out;
     std::string out_binding_key;
-    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
-                                                  "OR", 0);
+    Status st = function_search->build_query_recursive(clause, context, resolver, &out,
+                                                       &out_binding_key, "OR", 0);
     EXPECT_TRUE(st.ok());
 
     auto phrase_query = std::dynamic_pointer_cast<inverted_index::query_v2::PhraseQuery>(out);
@@ -2040,7 +1343,9 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     binding.stored_field_wstr = L"content";
     binding.index_properties["analyzer"] = analyzer.name;
     binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
-    binding.execution_mode = SearchFieldExecutionMode::CLUCENE;
+    binding.leaf_compiler = std::make_shared<CluceneLeafCompiler>(
+            L"content",
+            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY));
     auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
     binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
             dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
@@ -2051,7 +1356,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
     ASSERT_TRUE(function_search
-                        ->build_leaf_query(clause, context, resolver, &query, &binding_key, "OR", 0)
+                        ->build_query_recursive(clause, context, resolver, &query, &binding_key,
+                                                "OR", 0)
                         .ok());
 
     auto phrase = std::dynamic_pointer_cast<inverted_index::query_v2::PhraseQuery>(query);
@@ -2095,8 +1401,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantMissingFieldReturnsUnknown) 
 
     inverted_index::query_v2::QueryPtr out;
     std::string out_binding_key;
-    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
-                                                  "OR", 0, 5);
+    Status st = function_search->build_query_recursive(clause, context, resolver, &out,
+                                                       &out_binding_key, "OR", 0, 5);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(out, nullptr);
     EXPECT_TRUE(mapper_called);
@@ -2288,7 +1594,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantBkdDirectReader) {
             resolver.resolve("var.items.level", InvertedIndexQueryType::EQUAL_QUERY, &binding);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_TRUE(binding.use_direct_index_reader());
+    EXPECT_NE(nullptr, dynamic_cast<ScalarLeafCompiler*>(binding.leaf_compiler.get()));
     EXPECT_EQ(reader, binding.inverted_reader);
     EXPECT_EQ("var.items.level", binding.logical_field_name);
     EXPECT_EQ("1.var.items.level", binding.stored_field_name);
@@ -2296,7 +1602,8 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverVariantBkdDirectReader) {
 
     const auto& cache = resolver.binding_cache();
     ASSERT_EQ(1u, cache.size());
-    EXPECT_TRUE(cache.begin()->second.use_direct_index_reader());
+    EXPECT_NE(nullptr,
+              dynamic_cast<ScalarLeafCompiler*>(cache.begin()->second.leaf_compiler.get()));
 }
 
 TEST_F(FunctionSearchTest, TestFieldReaderResolverBindsSniiWithoutOpeningClucene) {
@@ -2330,9 +1637,7 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverBindsSniiWithoutOpeningClucene
     EXPECT_EQ(0, index_file_reader->open_calls);
     EXPECT_EQ(reader, binding.inverted_reader);
     EXPECT_EQ(nullptr, binding.lucene_reader);
-    EXPECT_TRUE(binding.use_snii_native_reader());
-    EXPECT_FALSE(binding.use_direct_index_reader());
-    EXPECT_EQ(SearchFieldExecutionMode::SNII_NATIVE, binding.execution_mode);
+    EXPECT_NE(nullptr, dynamic_cast<NativeLeafCompiler*>(binding.leaf_compiler.get()));
 }
 
 TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader) {
@@ -2376,8 +1681,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
     auto clause = make_leaf_clause("WILDCARD", "*LPHA");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 0, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
@@ -2387,7 +1692,7 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
     EXPECT_EQ(TYPE_STRING, selected_reader->last_query_value_type);
     EXPECT_EQ("*lpha", selected_reader->last_query_value);
     EXPECT_EQ(InvertedIndexQueryType::WILDCARD_QUERY, selected_reader->last_query_type);
-    EXPECT_EQ(nullptr, selected_reader->last_analyzer_ctx);
+    EXPECT_EQ(0, selected_reader->raw_query_calls);
     EXPECT_EQ(0, decoy_file_reader->open_calls);
     EXPECT_EQ(0, selected_file_reader->open_calls);
     EXPECT_EQ(0, decoy_reader->null_bitmap_calls);
@@ -2476,11 +1781,10 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
     EXPECT_EQ(3, reader->query_calls);
 }
 
-// SNII native SEARCH forwards every clause type to the reader as a query type (see
-// FunctionSearch::build_leaf_query's SNII branch); it no longer refuses non-WILDCARD clauses.
-// A TERM clause maps to EQUAL_QUERY via clause_type_to_query_type and is forwarded unmodified
-// (no normalize_wildcard_pattern -- that only applies to WILDCARD).
-TEST_F(FunctionSearchTest, TestSniiNativeForwardsTermClauseAsEqualQuery) {
+// A TERM clause on an analyzed SNII field reaches the reader as the analyzed terms of a
+// MATCH_ANY_QUERY, so it is scored the way the CLucene path scores its TermQuery. The raw
+// entry, which would analyze the value again, is never used.
+TEST_F(FunctionSearchTest, TestSniiNativeTermOnAnalyzedFieldIsAMatchAnyQuery) {
     OlapReaderStatistics stats;
     auto context = std::make_shared<IndexQueryContext>();
     context->stats = &stats;
@@ -2504,17 +1808,18 @@ TEST_F(FunctionSearchTest, TestSniiNativeForwardsTermClauseAsEqualQuery) {
     field_binding.__isset.index_properties = true;
     FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
 
-    auto clause = make_leaf_clause("TERM", "alpha");
+    auto clause = make_leaf_clause("TERM", "Alpha");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 0, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
     EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, reader->last_query_type);
-    EXPECT_EQ("alpha", reader->last_query_value);
+    EXPECT_EQ(0, reader->raw_query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, reader->last_query_type);
+    EXPECT_EQ("alpha", reader->last_query_value) << "analyzed once, with the index's lowercase";
     EXPECT_EQ(0, index_file_reader->open_calls);
 
     auto weight = query->weight(false);
@@ -2526,7 +1831,51 @@ TEST_F(FunctionSearchTest, TestSniiNativeForwardsTermClauseAsEqualQuery) {
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
 
-TEST_F(FunctionSearchTest, TestSniiNativePassesSelectedAnalyzerContext) {
+// On an untokenized SNII field the value is one dictionary term and stays an EQUAL_QUERY.
+TEST_F(FunctionSearchTest, TestSniiNativeTermOnKeywordFieldIsAnEqualQuery) {
+    auto context = std::make_shared<IndexQueryContext>();
+    auto index_meta = make_test_inverted_index(46);
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->set_query_result("Alpha Beta", make_bitmap({1}));
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status =
+            function_search->build_query_recursive(make_leaf_clause("TERM", "Alpha Beta"), context,
+                                                   resolver, &query, &binding_key, "OR", 0, 4);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, reader->last_query_type);
+    EXPECT_EQ("Alpha Beta", reader->last_query_value);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    inverted_index::query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 4;
+    auto scorer = weight->scorer(exec_ctx, binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1});
+}
+
+// The terms a native reader receives come from the analyzer of the index the field was bound
+// to, here a custom analyzer that splits on whitespace and lowercases; the reader itself is
+// never asked to analyze.
+TEST_F(FunctionSearchTest, TestSniiNativeReceivesTermsFromTheSelectedAnalyzer) {
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_policy_mgr = exec_env->index_policy_mgr();
     IndexPolicyMgr scoped_policy_mgr;
@@ -2573,17 +1922,21 @@ TEST_F(FunctionSearchTest, TestSniiNativePassesSelectedAnalyzerContext) {
 
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status =
-            function_search->build_leaf_query(make_leaf_clause("MATCH", "running quickly"), context,
-                                              resolver, &query, &binding_key, "OR", 0, 3);
+    auto status = function_search->build_query_recursive(
+            make_leaf_clause("MATCH", "Running QUICKLY"), context, resolver, &query, &binding_key,
+            "OR", 0, 3);
 
     ASSERT_TRUE(status.ok()) << status;
-    ASSERT_NE(reader->last_analyzer_ctx, nullptr);
-    EXPECT_EQ(reader->last_analyzer_ctx->analyzer_key, analyzer.name);
-    EXPECT_EQ(reader->last_analyzer_ctx->analyzer_name, analyzer.name);
-    EXPECT_EQ(reader->last_analyzer_ctx->parser_type, InvertedIndexParserType::PARSER_NONE);
-    EXPECT_TRUE(reader->last_analyzer_ctx->requires_analysis());
-    ASSERT_NE(reader->last_analyzer_ctx->analyzer_provider, nullptr);
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(0, reader->raw_query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, reader->last_query_type);
+    EXPECT_EQ("running quickly", reader->last_query_value);
+    ASSERT_EQ(2U, reader->last_query_info.term_infos.size());
+    const auto& bindings = resolver.binding_cache();
+    ASSERT_EQ(1U, bindings.size());
+    ASSERT_NE(nullptr, bindings.begin()->second.analyzer_context);
+    EXPECT_EQ(analyzer.name, bindings.begin()->second.analyzer_context->analyzer_name);
+    scoped_policy_mgr.apply_policy_changes({}, {tokenizer.id, analyzer.id});
 }
 
 // default_operator "and" maps a multi-token TERM clause onto MATCH_ALL_QUERY instead of the
@@ -2615,8 +1968,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermDefaultOperatorAndMapsToMatchAllQue
     auto clause = make_leaf_clause("TERM", "alpha beta");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "and", 0, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "and", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(1, reader->query_calls);
@@ -2651,8 +2004,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermRejectsMinimumShouldMatch) {
     auto clause = make_leaf_clause("TERM", "alpha beta");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 2, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 2, 4);
 
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(ErrorCode::NOT_IMPLEMENTED_ERROR, status.code());
@@ -2662,10 +2015,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermRejectsMinimumShouldMatch) {
 }
 
 // A single-token TERM value has nothing for minimum_should_match to select "at least N of"
-// among -- there is only one term. The CLucene path (function_search.cpp, `term_infos.size() ==
-// 1` branch) never even looks at minimum_should_match in that case and answers a plain
-// TermQuery; SNII must do the same instead of hard-refusing every analysed TERM clause the
-// instant msm is set, regardless of how many tokens the value actually produces.
+// among -- there is only one term. Lowering drops the threshold for one token, so the
+// reader sees a plain one-term MATCH_ANY_QUERY instead of a refusal.
 TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch) {
     auto context = std::make_shared<IndexQueryContext>();
     auto index_meta = make_test_inverted_index(
@@ -2691,13 +2042,13 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch
     auto clause = make_leaf_clause("TERM", "alpha");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 1, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 1, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
     EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, reader->last_query_type);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, reader->last_query_type);
     EXPECT_EQ("alpha", reader->last_query_value);
 
     auto weight = query->weight(false);
@@ -2739,8 +2090,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsE
     auto clause = make_leaf_clause("TERM", "");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 1, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 1, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
@@ -2758,7 +2109,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsE
 // On a NON-analysed (keyword) field, PREFIX cannot map to MATCH_PHRASE_PREFIX_QUERY: FE keeps
 // the trailing '*' in the value (SearchDslParser.java), and on a keyword field the whole string
 // -- '*' included -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so
-// MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. build_leaf_query's SNII
+// MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. build_query_recursive's SNII
 // branch (function_search.cpp:819-832) special-cases this by checking
 // !InvertedIndexAnalyzer::should_analyzer(binding.index_properties) and routing to WILDCARD_QUERY
 // instead, exactly like the CLucene path's WildcardQuery(value) for PREFIX. index_meta below omits
@@ -2790,8 +2141,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
     auto clause = make_leaf_clause("PREFIX", "al*");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 0, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
@@ -2863,8 +2214,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBefor
     auto clause = make_leaf_clause("PREFIX", "fail*");
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(clause, context, resolver, &query, &binding_key,
-                                                    "OR", 0, 4);
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
@@ -2884,7 +2235,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBefor
 }
 
 // Shared wiring for the SNII native SEARCH scoring tests: one fake SNII reader bound to field
-// "body" behind a standard analyzer, plus the resolver build_leaf_query needs. The resolver keeps
+// "body" behind a standard analyzer, plus the resolver build_query_recursive needs. The resolver keeps
 // references to the maps, so they must be owned by something that outlives it.
 class SniiScoringFixture {
 public:
@@ -2973,9 +2324,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeTopKRanksByReaderBm25Scores) {
 
         inverted_index::query_v2::QueryPtr query;
         std::string binding_key;
-        auto status = function_search->build_leaf_query(make_leaf_clause("MATCH", "alpha"),
-                                                        fixture.context, *fixture.resolver, &query,
-                                                        &binding_key, "OR", 0, fixture.num_rows);
+        auto status = function_search->build_query_recursive(
+                make_leaf_clause("MATCH", "alpha"), fixture.context, *fixture.resolver, &query,
+                &binding_key, "OR", 0, fixture.num_rows);
         ASSERT_TRUE(status.ok()) << status.to_string();
         ASSERT_NE(nullptr, query);
 
@@ -3005,9 +2356,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeDocSetCollectionScoresEachDocumentOnce)
 
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(make_leaf_clause("MATCH", "alpha"),
-                                                    fixture.context, *fixture.resolver, &query,
-                                                    &binding_key, "OR", 0, fixture.num_rows);
+    auto status = function_search->build_query_recursive(make_leaf_clause("MATCH", "alpha"),
+                                                         fixture.context, *fixture.resolver, &query,
+                                                         &binding_key, "OR", 0, fixture.num_rows);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
     // The reader must have been handed a private sink, never the similarity the collector fills.
@@ -3040,9 +2391,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeLeafWithoutPublishedScoresKeepsConstant
 
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(make_leaf_clause("WILDCARD", "alpha*"),
-                                                    fixture.context, *fixture.resolver, &query,
-                                                    &binding_key, "OR", 0, fixture.num_rows);
+    auto status = function_search->build_query_recursive(make_leaf_clause("WILDCARD", "alpha*"),
+                                                         fixture.context, *fixture.resolver, &query,
+                                                         &binding_key, "OR", 0, fixture.num_rows);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
 
@@ -3065,9 +2416,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeScoredQueryFallsBackToConstantScorerWit
 
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
-    auto status = function_search->build_leaf_query(make_leaf_clause("MATCH", "alpha"),
-                                                    fixture.context, *fixture.resolver, &query,
-                                                    &binding_key, "OR", 0, fixture.num_rows);
+    auto status = function_search->build_query_recursive(make_leaf_clause("MATCH", "alpha"),
+                                                         fixture.context, *fixture.resolver, &query,
+                                                         &binding_key, "OR", 0, fixture.num_rows);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
 
@@ -3238,7 +2589,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryDirectUnknownClauseUsesLeafMapper) 
     binding.column_type = bool_type;
     binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
     binding.state = SearchFieldBindingState::BOUND;
-    binding.execution_mode = SearchFieldExecutionMode::DIRECT_INDEX;
+    binding.leaf_compiler =
+            std::make_shared<ScalarLeafCompiler>(&iterator, bool_type, "1.var.items.active");
     TabletIndex index_meta;
     binding.inverted_reader = std::make_shared<DummyInvertedIndexReader>(&index_meta);
 
@@ -3259,8 +2611,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryDirectUnknownClauseUsesLeafMapper) 
 
     inverted_index::query_v2::QueryPtr out;
     std::string out_binding_key;
-    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
-                                                  "OR", 0, 4);
+    Status st = function_search->build_query_recursive(clause, context, resolver, &out,
+                                                       &out_binding_key, "OR", 0, 4);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(out, nullptr);
     EXPECT_TRUE(mapper_called);
@@ -3309,7 +2661,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantBoolUsesDirectIndexReader) {
     binding.column_type = bool_type;
     binding.query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
     binding.state = SearchFieldBindingState::BOUND;
-    binding.execution_mode = SearchFieldExecutionMode::DIRECT_INDEX;
+    binding.leaf_compiler =
+            std::make_shared<ScalarLeafCompiler>(&iterator, bool_type, "1.var.items.active");
     TabletIndex index_meta;
     binding.inverted_reader = std::make_shared<DummyInvertedIndexReader>(&index_meta);
 
@@ -3320,8 +2673,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantBoolUsesDirectIndexReader) {
 
     inverted_index::query_v2::QueryPtr out;
     std::string out_binding_key;
-    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
-                                                  "OR", 0, 10);
+    Status st = function_search->build_query_recursive(clause, context, resolver, &out,
+                                                       &out_binding_key, "OR", 0, 10);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(out, nullptr);
     EXPECT_EQ(key, out_binding_key);
@@ -3369,7 +2722,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantNestedIntUsesDirectIndexRead
     binding.column_type = int_type;
     binding.query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
     binding.state = SearchFieldBindingState::BOUND;
-    binding.execution_mode = SearchFieldExecutionMode::DIRECT_INDEX;
+    binding.leaf_compiler =
+            std::make_shared<ScalarLeafCompiler>(&iterator, int_type, "1.var.items.flags.level");
     TabletIndex index_meta;
     binding.inverted_reader = std::make_shared<DummyInvertedIndexReader>(&index_meta);
 
@@ -3380,8 +2734,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryVariantNestedIntUsesDirectIndexRead
 
     inverted_index::query_v2::QueryPtr out;
     std::string out_binding_key;
-    Status st = function_search->build_leaf_query(clause, context, resolver, &out, &out_binding_key,
-                                                  "OR", 0, 10);
+    Status st = function_search->build_query_recursive(clause, context, resolver, &out,
+                                                       &out_binding_key, "OR", 0, 10);
     ASSERT_TRUE(st.ok());
     ASSERT_NE(out, nullptr);
     EXPECT_EQ(key, out_binding_key);
@@ -3426,20 +2780,6 @@ TEST_F(FunctionSearchTest, TestMultiPhraseQueryCase) {
     auto multi_phrase_weight = std::dynamic_pointer_cast<
             doris::segment_v2::inverted_index::query_v2::MultiPhraseWeight>(weight);
     ASSERT_NE(multi_phrase_weight, nullptr);
-}
-
-// ============== Lucene Mode (OCCUR_BOOLEAN) Tests ==============
-
-TEST_F(FunctionSearchTest, TestOccurBooleanClauseTypeCategory) {
-    // Test that OCCUR_BOOLEAN is classified as COMPOUND
-    EXPECT_EQ(FunctionSearch::ClauseTypeCategory::COMPOUND,
-              function_search->get_clause_type_category("OCCUR_BOOLEAN"));
-}
-
-TEST_F(FunctionSearchTest, TestOccurBooleanQueryType) {
-    // Test that OCCUR_BOOLEAN maps to BOOLEAN_QUERY
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
-              function_search->clause_type_to_query_type("OCCUR_BOOLEAN"));
 }
 
 TEST_F(FunctionSearchTest, TestOccurBooleanSearchParam) {
@@ -3693,75 +3033,6 @@ TEST_F(FunctionSearchTest, TestOccurBooleanMinimumShouldMatchOne) {
     EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
     EXPECT_EQ(3, searchParam.root.children.size());
     EXPECT_EQ(1, searchParam.root.minimum_should_match);
-}
-
-TEST_F(FunctionSearchTest, TestOccurBooleanAnalyzeFieldQueryType) {
-    // Test field query type analysis for OCCUR_BOOLEAN
-    TSearchClause mustClause;
-    mustClause.clause_type = "TERM";
-    mustClause.field_name = "title";
-    mustClause.value = "hello";
-    mustClause.__isset.field_name = true;
-    mustClause.__isset.value = true;
-    mustClause.occur = TSearchOccur::MUST;
-    mustClause.__isset.occur = true;
-
-    TSearchClause rootClause;
-    rootClause.clause_type = "OCCUR_BOOLEAN";
-    rootClause.children = {mustClause};
-    rootClause.__isset.children = true;
-
-    // Test field-specific query type analysis
-    auto title_query_type = function_search->analyze_field_query_type("title", rootClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
-
-    // Test field not in query
-    auto other_query_type = function_search->analyze_field_query_type("other_field", rootClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, other_query_type);
-}
-
-TEST_F(FunctionSearchTest, TestOccurBooleanWithPhraseQuery) {
-    // Test OCCUR_BOOLEAN with PHRASE child clause
-    TSearchParam searchParam;
-    searchParam.original_dsl = "content:\"machine learning\" AND title:hello";
-
-    TSearchClause phraseClause;
-    phraseClause.clause_type = "PHRASE";
-    phraseClause.field_name = "content";
-    phraseClause.value = "machine learning";
-    phraseClause.__isset.field_name = true;
-    phraseClause.__isset.value = true;
-    phraseClause.occur = TSearchOccur::MUST;
-    phraseClause.__isset.occur = true;
-
-    TSearchClause termClause;
-    termClause.clause_type = "TERM";
-    termClause.field_name = "title";
-    termClause.value = "hello";
-    termClause.__isset.field_name = true;
-    termClause.__isset.value = true;
-    termClause.occur = TSearchOccur::MUST;
-    termClause.__isset.occur = true;
-
-    TSearchClause rootClause;
-    rootClause.clause_type = "OCCUR_BOOLEAN";
-    rootClause.children = {phraseClause, termClause};
-    rootClause.__isset.children = true;
-    searchParam.root = rootClause;
-
-    // Verify structure
-    EXPECT_EQ("OCCUR_BOOLEAN", searchParam.root.clause_type);
-    EXPECT_EQ(2, searchParam.root.children.size());
-    EXPECT_EQ("PHRASE", searchParam.root.children[0].clause_type);
-    EXPECT_EQ("TERM", searchParam.root.children[1].clause_type);
-
-    // Test field-specific query type analysis
-    auto content_query_type =
-            function_search->analyze_field_query_type("content", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
-
-    auto title_query_type = function_search->analyze_field_query_type("title", searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
 }
 
 TEST_F(FunctionSearchTest, TestOccurBooleanNestedQuery) {

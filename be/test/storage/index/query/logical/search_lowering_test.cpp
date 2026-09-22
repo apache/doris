@@ -179,7 +179,9 @@ TEST(SearchLoweringTest, UnboundFieldLowersToUnknown) {
     FakeCatalog catalog;
     auto node = lower(leaf("TERM", kUnbound, "x"), catalog);
     EXPECT_NE(node->as<Unknown>(), nullptr);
-    EXPECT_EQ(node->field(), nullptr);
+    ASSERT_NE(node->field(), nullptr);
+    EXPECT_EQ(node->field()->name, kUnbound);
+    EXPECT_TRUE(node->field()->binding.empty());
     EXPECT_TRUE(catalog.analyzed_values.empty());
 }
 

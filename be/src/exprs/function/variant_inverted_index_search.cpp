@@ -18,6 +18,11 @@
 #include "exprs/function/variant_inverted_index_search.h"
 
 #include <CLucene/config/repl_wchar.h>
+// clang-format off
+#include "exprs/function/clucene_leaf_compiler.h"
+#include "exprs/function/native_leaf_compiler.h"
+#include "exprs/function/scalar_leaf_compiler.h"
+// clang-format on
 #include <fmt/format.h>
 #include <glog/logging.h>
 
@@ -244,7 +249,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
 
     if (inverted_reader->type() == InvertedIndexReaderType::BKD) {
-        resolved.execution_mode = SearchFieldExecutionMode::DIRECT_INDEX;
+        resolved.leaf_compiler = std::make_shared<ScalarLeafCompiler>(
+                inverted_iterator, column_type, stored_field_name);
         _cache.emplace(binding_key, resolved);
         if (is_variant_sub) {
             bool index_file_exists = false;
@@ -270,7 +276,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
 
     if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
-        resolved.execution_mode = SearchFieldExecutionMode::SNII_NATIVE;
+        resolved.leaf_compiler =
+                std::make_shared<NativeLeafCompiler>(inverted_reader, stored_field_name);
         _cache.emplace(binding_key, resolved);
         if (is_variant_sub) {
             add_search_binding_diagnostic(
@@ -376,7 +383,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     _searcher_cache_handles.push_back(std::move(searcher_cache_handle));
 
     resolved.lucene_reader = reader_holder;
-    resolved.execution_mode = SearchFieldExecutionMode::CLUCENE;
+    resolved.leaf_compiler =
+            std::make_shared<CluceneLeafCompiler>(resolved.stored_field_wstr, binding_key);
     _binding_readers[binding_key] = reader_holder;
     _field_readers[resolved.stored_field_wstr] = reader_holder;
     _readers.emplace_back(reader_holder);
@@ -407,17 +415,19 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     return Status::OK();
 }
 
-Status FieldReaderResolver::resolve_with_analyzer_context(const std::string& field_name,
-                                                          InvertedIndexQueryType query_type,
-                                                          FieldReaderBinding* binding) {
-    RETURN_IF_ERROR(resolve(field_name, query_type, binding));
-    if (!binding->use_snii_native_reader() || binding->analyzer_context != nullptr) {
-        return Status::OK();
+Status FieldReaderResolver::analyzer_context_for(const std::string& binding_key,
+                                                 InvertedIndexAnalyzerCtxSPtr* out) {
+    auto it = _cache.find(binding_key);
+    if (it == _cache.end()) {
+        return Status::InternalError("search: no binding '{}' to build an analyzer for",
+                                     binding_key);
     }
-
-    binding->analyzer_context =
-            build_analyzer_context(binding->index_properties, binding->analyzer_key);
-    _cache.at(binding->binding_key).analyzer_context = binding->analyzer_context;
+    FieldReaderBinding& binding = it->second;
+    if (binding.analyzer_context == nullptr) {
+        binding.analyzer_context =
+                build_analyzer_context(binding.index_properties, binding.analyzer_key);
+    }
+    *out = binding.analyzer_context;
     return Status::OK();
 }
 

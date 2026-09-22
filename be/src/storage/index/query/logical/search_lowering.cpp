@@ -106,7 +106,7 @@ NodePtr lower_direct_index_leaf(const std::string& clause_type, FieldRef field,
         return make_node(
                 Compare {.field = std::move(field), .op = CompareOp::kEqual, .value = value});
     }
-    return make_node(Unknown {});
+    return make_node(Unknown {.field = std::move(field)});
 }
 
 // WILDCARD, REGEXP and PREFIX match dictionary terms against a pattern.
@@ -195,11 +195,11 @@ Status lower_leaf(const TSearchClause& clause, const LoweringOptions& options,
     FieldProps props;
     RETURN_IF_ERROR(
             catalog.resolve(clause.field_name, search_clause_query_type(clause_type), &props));
+    FieldRef field {.name = clause.field_name, .binding = props.binding};
     if (!props.bound) {
-        *out = make_node(Unknown {});
+        *out = make_node(Unknown {.field = std::move(field)});
         return Status::OK();
     }
-    FieldRef field {.name = clause.field_name, .binding = props.binding};
     if (props.direct_index) {
         *out = lower_direct_index_leaf(clause_type, std::move(field), value);
         return Status::OK();

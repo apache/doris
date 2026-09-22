@@ -59,6 +59,7 @@ using namespace doris::segment_v2;
 
 class FunctionSearch;
 class IndexExecContext;
+class SearchLeafCompiler;
 
 using SearchLeafQueryMapper = std::function<Status(
         const std::string&, std::shared_ptr<segment_v2::inverted_index::query_v2::Query>*)>;
@@ -66,13 +67,6 @@ using SearchLeafQueryMapper = std::function<Status(
 enum class SearchFieldBindingState {
     BOUND,
     MISSING_IN_SEGMENT,
-};
-
-enum class SearchFieldExecutionMode {
-    UNBOUND,
-    CLUCENE,
-    DIRECT_INDEX,
-    SNII_NATIVE,
 };
 
 struct FieldReaderBinding {
@@ -88,17 +82,12 @@ struct FieldReaderBinding {
     std::string analyzer_key;
     InvertedIndexAnalyzerCtxSPtr analyzer_context;
     SearchFieldBindingState state = SearchFieldBindingState::MISSING_IN_SEGMENT;
-    SearchFieldExecutionMode execution_mode = SearchFieldExecutionMode::UNBOUND;
+    // Compiles a lowered leaf on the index this binding selected; null when unbound.
+    std::shared_ptr<SearchLeafCompiler> leaf_compiler;
 
     bool is_bound() const {
         return state == SearchFieldBindingState::BOUND || inverted_reader != nullptr ||
                lucene_reader != nullptr;
-    }
-    bool use_direct_index_reader() const {
-        return is_bound() && execution_mode == SearchFieldExecutionMode::DIRECT_INDEX;
-    }
-    bool use_snii_native_reader() const {
-        return is_bound() && execution_mode == SearchFieldExecutionMode::SNII_NATIVE;
     }
 };
 
@@ -113,9 +102,9 @@ public:
     Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
                    FieldReaderBinding* binding);
 
-    Status resolve_with_analyzer_context(const std::string& field_name,
-                                         InvertedIndexQueryType query_type,
-                                         FieldReaderBinding* binding);
+    // The analyzer context of a bound field, built on first use so a field that is
+    // only pattern-matched never builds one.
+    Status analyzer_context_for(const std::string& binding_key, InvertedIndexAnalyzerCtxSPtr* out);
 
     bool is_variant_subcolumn(const std::string& field_name) const {
         return _variant_subcolumn_fields.count(field_name) > 0;
@@ -137,6 +126,12 @@ public:
 
     const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
         return _cache;
+    }
+
+    // The binding a resolve() call produced for `binding_key`; nullptr if none did.
+    const FieldReaderBinding* find_binding(const std::string& binding_key) const {
+        auto it = _cache.find(binding_key);
+        return it == _cache.end() ? nullptr : &it->second;
     }
 
     IndexIterator* get_iterator(const std::string& field_name) const {
