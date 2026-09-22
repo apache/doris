@@ -105,14 +105,41 @@ def read_events(path):
     return events
 
 
-def failure(events, status, stderr_path):
-    for event_type in ("turn.failed", "error"):
-        for event in reversed(events):
-            if event.get("type") == event_type:
-                error = event.get("error") or event
-                return error.get("message") or f"Codex exited with status {status}"
+def attempt_result(events, status, stderr_path):
+    """Use the latest turn in this attempt, never a previous attempt's failure."""
+    terminal = next(
+        (
+            event
+            for event in reversed(events)
+            if event.get("type")
+            in ("turn.started", "turn.completed", "turn.failed", "error")
+        ),
+        {},
+    )
+    event_type = terminal.get("type", "missing")
+    if event_type == "turn.completed":
+        message = (
+            None
+            if status == 0
+            else f"Codex exited with status {status} after turn.completed"
+        )
+        return event_type, message
+    if event_type in ("turn.failed", "error"):
+        error = terminal.get("error") or terminal
+        message = (
+            error.get("message")
+            or f"Codex reported {event_type} (exit status {status})"
+        )
+        return event_type, message
+    # A zero exit after only thread.started (or an unfinished new turn) does
+    # not prove recovery. Do not reuse an older capacity event to retry it.
+    if status == 0:
+        return (
+            event_type,
+            "Codex exited with status 0 without a terminal turn event; review is incomplete",
+        )
     lines = stderr_path.read_text(errors="replace").splitlines()
-    return next(
+    return event_type, next(
         (line for line in reversed(lines) if line.strip()),
         f"Codex exited with status {status}",
     )
@@ -388,8 +415,14 @@ def run_review(args, reaper=None):
                 return fail(
                     f"Codex was interrupted or timed out (status {status}); not resuming"
                 )
-            message = failure(events, status, stderr_path)
-            if status != 0 and (
+            terminal, message = attempt_result(events, status, stderr_path)
+            print(
+                f"Finished Codex review attempt {attempt + 1}/4 "
+                f"(exit_status={status}, terminal_event={terminal}, events={len(events)})",
+                file=sys.stderr,
+                flush=True,
+            )
+            if message is not None and (
                 message != CAPACITY_MESSAGE or attempt == len(RETRY_DELAYS)
             ):
                 return fail(message)
@@ -399,7 +432,7 @@ def run_review(args, reaper=None):
                     "Codex resumed a different session; refusing further attempts"
                 )
             thread_id = current_id
-            if status == 0:
+            if message is None:
                 return 0
             require_rollout(Path(os.environ["CODEX_HOME"]), thread_id, args.cwd)
             # Check parser support without authenticating or starting a model request.

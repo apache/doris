@@ -188,6 +188,149 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual("done", (self.context / "codex-final-message.txt").read_text())
         self.target_check.assert_called_once()
 
+    def test_zero_exit_capacity_on_resume_still_retries(self):
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event(), failed()], "status": 0},
+                    {"events": [thread_event(), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(3, len(self.commands))
+        self.assertEqual([30, 60], self.sleeps)
+        self.assertEqual(2, self.target_check.call_count)
+        self.assertEqual("completed", exporter.latest_turn_result(self.events())[0])
+
+    def test_zero_exit_capacity_stops_at_the_retry_limit(self):
+        self.assertEqual(
+            1, self.execute([{"events": [thread_event(), failed()], "status": 0}] * 4)
+        )
+        self.assertEqual([30, 60, 120], self.sleeps)
+        self.assertEqual(4, len(self.commands))
+        self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
+
+    def test_zero_exit_error_event_can_identify_capacity(self):
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "error", "message": runner.CAPACITY_MESSAGE},
+                        ],
+                        "status": 0,
+                    },
+                    {"events": [thread_event(), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual([30], self.sleeps)
+
+    def test_zero_exit_auth_usage_and_generic_failures_do_not_retry(self):
+        for message in (
+            "refresh_token_reused",
+            "You've hit your usage limit.",
+            "HTTP 500",
+        ):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                self.args.context_dir = Path(tmp)
+                (self.args.context_dir / "codex_goal_prompt.txt").write_text("review")
+                self.assertEqual(
+                    1,
+                    self.execute(
+                        [{"events": [thread_event(), failed(message)], "status": 0}]
+                    ),
+                )
+                events = runner.read_events(
+                    self.args.context_dir / "codex-events.jsonl"
+                )
+                self.assertEqual(message, events[-1]["error"]["message"])
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_not_called()
+
+    def test_zero_exit_without_terminal_event_fails_closed(self):
+        self.assertEqual(1, self.execute([{"events": [thread_event()], "status": 0}]))
+        self.assertIn("without a terminal turn event", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_empty_resume_does_not_reuse_the_previous_capacity_error(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual([30], self.sleeps)
+        self.assertIn("without a terminal turn event", self.last_error())
+        self.assertNotEqual(runner.CAPACITY_MESSAGE, self.last_error())
+
+    def test_later_completion_supersedes_earlier_error_in_the_same_attempt(self):
+        self.assertEqual(
+            0,
+            self.execute(
+                [{"events": [thread_event(), failed(), completed()], "status": 0}]
+            ),
+        )
+        self.assertEqual([], self.sleeps)
+
+    def test_later_failure_supersedes_earlier_completion(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [thread_event(), completed(), failed("auth failed")],
+                        "status": 0,
+                    }
+                ]
+            ),
+        )
+        self.assertEqual("auth failed", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_unfinished_new_turn_does_not_reuse_an_earlier_completion(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            completed(),
+                            {"type": "turn.started"},
+                        ],
+                        "status": 0,
+                    }
+                ]
+            ),
+        )
+        self.assertIn("without a terminal turn event", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_completion_with_nonzero_exit_does_not_retry_old_stderr_capacity(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [thread_event(), completed()],
+                        "status": 1,
+                        "stderr": runner.CAPACITY_MESSAGE,
+                    }
+                ]
+            ),
+        )
+        self.assertIn("status 1 after turn.completed", self.last_error())
+        self.assertEqual([], self.sleeps)
+
     def test_retry_count_is_bounded(self):
         self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 4))
         self.assertEqual([30, 60, 120], self.sleeps)
