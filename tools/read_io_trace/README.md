@@ -95,6 +95,8 @@ Use the same capture command for both delay settings, keeping pending capacity a
 
 Scan start/end timestamps are captured while holding the manager mutex. The scan summary is serialized only after releasing it, possibly after the existing deadline wait wakes; its recorded duration excludes that wait and condition-variable mutex reacquisition. One event describes the whole scan, so there is no per-entry logging. Detailed timing still reads clocks per checked entry and can perturb scheduling. Submission completion events likewise serialize after manager/fragment locks have been released; their own serialization is outside their recorded duration, but remains inside the enclosing foreground call/Profile timer.
 
+Workers examine tasks in admission order and stop at the first unexpired merge deadline. When the entire queue is delayed, each scan reports `scanned=1`, `delayed=1`, and zero discard/capacity check time, regardless of `queue_size`. These counts describe visited entries, not the total delayed backlog. Due tasks blocked by one cache writer's capacity can still be bypassed to serve another writer.
+
 With `--query-id`, process diagnostics retain scans intersecting that query's observed event time envelope, including its recorded asynchronous tail. They include other queries using the same manager and are not attributed to the selected query. Compare the slowest submissions' timestamps with scan timestamps, queue lengths and check costs before attributing high lock wait to scanning. The analysis reports overlapping scans in full rather than clipping their individual timing fields. Capture isolated queries and include drained tails for the cleanest comparison.
 
 ## Tests

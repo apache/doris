@@ -192,8 +192,9 @@ private:
     /// Keep tasks queued and mergeable until their delay expires and their writer has capacity.
     /// Wait until the earliest pending deadline or the next cache-writer capacity retry.
     TaskPtr _take_task(const Worker& worker);
-    /// Under `_mutex`, discard stale/deduplicated entries and activate one eligible task. If none
-    /// is runnable, return the next deadline or capacity retry time in `next_wakeup`.
+    /// Under `_mutex`, scan due entries, discard stale/deduplicated ones, and activate one eligible
+    /// task. Stop at the first future deadline; a capacity-blocked writer may be bypassed by another
+    /// due task. If none is runnable, return the next deadline or capacity retry in `next_wakeup`.
     TaskPtr _take_runnable_task_locked(Queue* discarded_tasks,
                                        std::chrono::steady_clock::time_point* next_wakeup,
                                        QueueScanTrace* trace = nullptr);
@@ -207,7 +208,8 @@ private:
 
     const PartialBlockWritebackOptions _options;
     const size_t _max_pending_tasks;
-    // `_tasks` owns every queued or active block; `_queue` orders only queued blocks.
+    // `_tasks` owns every queued or active block. `_queue` is ordered by enqueued_at, including
+    // replacement of stale tasks; the shared `_merge_delay` preserves deadline order on updates.
     Queue _queue;
     std::unordered_map<BlockKey, TaskPtr, BlockKeyHash> _tasks;
     // Count active hole-fill tasks against each writer's point-in-time spare capacity. This does
