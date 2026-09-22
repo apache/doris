@@ -111,9 +111,10 @@ class TableStatsMetaTest {
         Assertions.assertEquals(0, meta.updatedTime);
         Assertions.assertEquals(0, meta.lastAnalyzeTime);
         Assertions.assertNull(meta.jobType);
-        // Every index of the emptied table is 0 rows, not unknown.
+        // The base index of the emptied table is known to be empty, the row count of the other indexes is
+        // unknown, the rows loaded after the truncation are only counted for the base index.
         Assertions.assertEquals(0, meta.getRowCount(BASE_INDEX_ID));
-        Assertions.assertEquals(0, meta.getRowCount(10002L));
+        Assertions.assertEquals(-1, meta.getRowCount(10002L));
 
         // The 30 rows loaded after the truncation are the whole row count of the table now.
         meta.updatedRows.set(30);

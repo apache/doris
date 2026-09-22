@@ -166,7 +166,7 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         // included in the collected row count. They are all delta rows.
         updatedRowsBase.set(0);
         partitionUpdateRows.clear();
-        // All the data is removed, so the last collected row count of every index becomes 0.
+        // All the data is removed, so the base index is known to be empty.
         indexesRowCount = buildEmptyIndexRowCount(table);
         // Drop the column statistics baseline: the row count captured by the previous analysis described
         // the removed data, it must not cancel out the rows loaded after the truncation.
@@ -182,10 +182,11 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     }
 
     private static ConcurrentMap<Long, Long> buildEmptyIndexRowCount(OlapTable table) {
+        // Only the base index is known to be empty. The rows loaded after the truncation are only known for
+        // the base index (getBaseIndexDeltaRowCount() returns its delta), the row count of a rollup or an
+        // aggregate index of the table is unknown until the backends report that index.
         ConcurrentMap<Long, Long> indexRowCount = new ConcurrentHashMap<>();
-        for (long indexId : table.getIndexIdList()) {
-            indexRowCount.put(indexId, 0L);
-        }
+        indexRowCount.put(table.getBaseIndexId(), 0L);
         return indexRowCount;
     }
 
