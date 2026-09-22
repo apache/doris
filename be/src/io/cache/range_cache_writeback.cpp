@@ -23,6 +23,7 @@
 #include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/read_ahead_metrics.h"
 #include "io/fs/read_io_trace.h"
+#include "util/time.h"
 
 namespace doris::io {
 
@@ -48,26 +49,55 @@ RangeWritebackDispatchResult RangeCacheWriteback::submit_consumed_range(
         ReadAheadStatistics* statistics, uint64_t trace_id) {
     DORIS_CHECK(write_epoch.key_token != nullptr);
     SCOPED_TIMER(statistics != nullptr ? &statistics->writeback_time : nullptr);
+    const bool trace_enabled = ReadIOTrace::enabled();
+    const auto start_ns = trace_enabled ? MonotonicNanos() : 0;
+    RangeWritebackTiming timing;
+    auto trace_context = _options.io_context.io_context;
+    trace_context.read_trace_source = FileReadTraceSource::READ_AHEAD;
+    Defer trace_done {[&] {
+        if (trace_enabled) {
+            ReadIOTrace::record({.event = "range_writeback_done",
+                                 .context = &trace_context,
+                                 .file = _options.source_reader->path().native(),
+                                 .id = trace_id,
+                                 .offset = range.offset,
+                                 .size = range.size,
+                                 .time_ns = MonotonicNanos(),
+                                 .start_ns = start_ns,
+                                 .writeback_timing = &timing});
+        }
+    }};
     if (!_options.write_manager->accepting()) {
         return {};
     }
-    if (ReadIOTrace::enabled()) {
-        auto trace_context = _options.io_context.io_context;
-        trace_context.read_trace_source = FileReadTraceSource::READ_AHEAD;
+    if (trace_enabled) {
+        const auto trace_start = MonotonicNanos();
         ReadIOTrace::record({.event = "range_writeback",
                              .context = &trace_context,
                              .file = _options.source_reader->path().native(),
                              .id = trace_id,
                              .offset = range.offset,
                              .size = range.size});
+        timing.lifecycle_trace_ns += MonotonicNanos() - trace_start;
     }
     RangeWritebackDispatcher dispatcher(
             _options.file_size, _options.block_size,
             [&](const FileCacheBlockFragment& fragment) {
-                return _submit_complete_block(fragment, write_epoch, statistics);
+                const auto start = trace_enabled ? MonotonicNanos() : 0;
+                const auto result = _submit_complete_block(fragment, write_epoch, statistics);
+                if (trace_enabled) {
+                    timing.complete_submit_ns += MonotonicNanos() - start;
+                }
+                return result;
             },
             [&](const FileCacheBlockFragment& fragment) {
-                return _submit_partial_block(fragment, write_epoch, statistics, trace_id);
+                const auto start = trace_enabled ? MonotonicNanos() : 0;
+                const auto result =
+                        _submit_partial_block(fragment, write_epoch, statistics, trace_id);
+                if (trace_enabled) {
+                    timing.partial_submit_ns += MonotonicNanos() - start;
+                }
+                return result;
             });
     return dispatcher.dispatch(range, data);
 }
@@ -76,6 +106,7 @@ bool RangeCacheWriteback::_submit_complete_block(const FileCacheBlockFragment& f
                                                  const AsyncCacheWriteEpoch& write_epoch,
                                                  ReadAheadStatistics* statistics) {
     DORIS_CHECK(fragment.complete());
+    SCOPED_TIMER(statistics != nullptr ? &statistics->complete_block_submit_time : nullptr);
     const auto result = _options.write_manager->try_submit_block(AsyncCacheWriteBlockRequest {
             .cache_hash = _options.cache_hash,
             .file_offset = fragment.block_offset,
@@ -104,6 +135,7 @@ bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fr
                                                 ReadAheadStatistics* statistics,
                                                 uint64_t trace_id) {
     DORIS_CHECK(!fragment.complete());
+    SCOPED_TIMER(statistics != nullptr ? &statistics->partial_block_submit_time : nullptr);
     auto io_context = _options.io_context;
     io_context.io_context.read_trace_id = trace_id;
     io_context.io_context.read_trace_source = FileReadTraceSource::READ_AHEAD;

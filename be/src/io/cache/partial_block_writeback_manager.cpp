@@ -53,18 +53,110 @@ size_t PartialBlockWritebackManager::BlockKeyHash::operator()(const BlockKey& ke
     return manager_hash ^ (file_hash << 1) ^ (offset_hash << 2);
 }
 
+// Per-call diagnostics only. Keep the request identity alive across moves into a Task and emit
+// once, after every manager/fragment lock has left scope. The disabled path reads no clocks.
+struct PartialBlockWritebackManager::SubmitTrace : HoleSubmitTiming {
+    explicit SubmitTrace(const PartialBlockWritebackRequest& request) {
+        if (ReadIOTrace::enabled()) {
+            start_ns = MonotonicNanos();
+            context = request.io_context;
+            reader = request.source_reader;
+            offset = request.block_offset + request.fragment_offset;
+            size = request.data.size;
+        }
+    }
+
+    ~SubmitTrace() {
+        if (start_ns != 0) {
+            ReadIOTrace::record({.event = "hole_submit",
+                                 .context = &context.io_context,
+                                 .file = reader->path().native(),
+                                 .id = task_id,
+                                 .parent_id = context.io_context.read_trace_id,
+                                 .offset = offset,
+                                 .size = size,
+                                 .time_ns = MonotonicNanos(),
+                                 .start_ns = start_ns,
+                                 .outcome = outcome,
+                                 .hole_submit_timing = this});
+        }
+    }
+
+    int64_t now() const { return start_ns != 0 ? MonotonicNanos() : 0; }
+
+    PartialBlockSubmitResult finish(PartialBlockSubmitResult result) {
+        switch (result) {
+        case PartialBlockSubmitResult::QUEUED:
+            outcome = "queued";
+            break;
+        case PartialBlockSubmitResult::MERGED:
+            outcome = "merged";
+            break;
+        case PartialBlockSubmitResult::ACTIVE_DEDUPLICATED:
+            outcome = "active_deduplicated";
+            break;
+        case PartialBlockSubmitResult::CACHE_BLOCK_PRESENT:
+            outcome = "cache_block_present";
+            break;
+        case PartialBlockSubmitResult::STALE_EPOCH:
+            outcome = "stale_epoch";
+            break;
+        case PartialBlockSubmitResult::BUFFER_ALLOCATION_FAILED:
+            outcome = "allocation_failed";
+            break;
+        case PartialBlockSubmitResult::REJECTED:
+            outcome = "rejected";
+            break;
+        }
+        return result;
+    }
+
+    int64_t start_ns {0};
+    FileRangeReadIOContext context;
+    FileReaderSPtr reader;
+    size_t offset {0};
+    size_t size {0};
+    uint64_t task_id {0};
+    std::string_view outcome;
+};
+
+// One record per locked scan, not per entry. No JSON formatting or trace-writer locking is done
+// under the queue mutex. CV sleep and its mutex reacquisition are excluded from scan time.
+struct PartialBlockWritebackManager::QueueScanTrace : HoleQueueScanStats {
+    int64_t start_ns {0};
+    int64_t end_ns {0};
+
+    void record(bool activated) const {
+        if (start_ns != 0) {
+            ReadIOTrace::record({.event = "hole_queue_scan",
+                                 .time_ns = end_ns,
+                                 .start_ns = start_ns,
+                                 .outcome = activated ? "activated" : "no_runnable_task",
+                                 .queue_scan = this});
+        }
+    }
+};
+
 struct PartialBlockWritebackManager::Task {
     // Allocate one tracked block buffer and copy the first fragment into it.
     static TaskPtr create(PartialBlockWritebackRequest request, const BlockKey& task_key,
-                          size_t block_size);
+                          size_t block_size, SubmitTrace& trace);
 
     // A queued task may merge while the manager lock is free. Once activate() wins, later
     // fragments are deduplicated and the worker obtains their bytes from the source read instead.
     std::optional<PartialBlockSubmitResult> try_merge(size_t fragment_offset, Slice data,
-                                                      const IOContext& fragment_context) {
+                                                      const IOContext& fragment_context,
+                                                      SubmitTrace& trace) {
+        const auto lock_start = trace.now();
         std::lock_guard lock(fragment_mutex);
+        const auto locked_at = trace.now();
+        trace.fragment_lock_wait_ns += locked_at - lock_start;
+        Defer hold_time {[&] { trace.fragment_lock_hold_ns += trace.now() - locked_at; }};
+        trace.task_id = io_context.io_context.read_trace_id;
         if (is_active()) {
+            const auto trace_start = trace.now();
             trace_fragment("fragment_ignored_active", fragment_offset, data.size, fragment_context);
+            trace.lifecycle_trace_ns += trace.now() - trace_start;
             return PartialBlockSubmitResult::ACTIVE_DEDUPLICATED;
         }
         if (!key.write_manager->is_current_write_epoch(write_epoch)) {
@@ -72,10 +164,15 @@ struct PartialBlockWritebackManager::Task {
         }
 
         TEST_SYNC_POINT("PartialBlockWritebackManager::try_submit:before_merge_copy");
+        const auto copy_start = trace.now();
         std::memcpy(buffer->data() + fragment_offset, data.data, data.size);
+        trace.copy_ns += trace.now() - copy_start;
+        trace.copied_bytes += data.size;
         covered_intervals.emplace_back(
                 FileRange {.offset = key.block_offset + fragment_offset, .size = data.size});
+        const auto trace_start = trace.now();
         trace_fragment("fragment_merged", fragment_offset, data.size, fragment_context);
+        trace.lifecycle_trace_ns += trace.now() - trace_start;
         return PartialBlockSubmitResult::MERGED;
     }
 
@@ -264,18 +361,22 @@ Status PartialBlockWritebackManager::_start() {
 
 PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
         PartialBlockWritebackRequest request) {
+    SubmitTrace trace(request);
     request.sanity_check(_options.block_size);
 
     if (!request.write_manager->accepting()) {
-        return PartialBlockSubmitResult::REJECTED;
+        return trace.finish(PartialBlockSubmitResult::REJECTED);
     }
     if (!request.write_manager->check_write_epoch(request.write_epoch)) {
-        return PartialBlockSubmitResult::STALE_EPOCH;
+        return trace.finish(PartialBlockSubmitResult::STALE_EPOCH);
     }
-    if (request.write_manager->should_skip_block_writeback(
-                request.cache_hash, request.block_offset, request.block_valid_size,
-                request.admission_ctx, request.inflight_index)) {
-        return PartialBlockSubmitResult::CACHE_BLOCK_PRESENT;
+    const auto probe_start = trace.now();
+    const bool skip = request.write_manager->should_skip_block_writeback(
+            request.cache_hash, request.block_offset, request.block_valid_size,
+            request.admission_ctx, request.inflight_index);
+    trace.cache_probe_ns += trace.now() - probe_start;
+    if (skip) {
+        return trace.finish(PartialBlockSubmitResult::CACHE_BLOCK_PRESENT);
     }
 
     const BlockKey key {.write_manager = request.write_manager,
@@ -288,35 +389,43 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
 
     TaskPtr existing;
     {
+        const auto lock_start = trace.now();
+        TEST_SYNC_POINT("PartialBlockWritebackManager::try_submit:before_queue_lock");
         std::lock_guard lock(_mutex);
+        const auto locked_at = trace.now();
+        trace.queue_lock_wait_ns += locked_at - lock_start;
+        Defer hold_time {[&] { trace.queue_lock_hold_ns += trace.now() - locked_at; }};
+        trace.queue_size = _queue.size();
         if (!_accepting) {
-            return PartialBlockSubmitResult::REJECTED;
+            return trace.finish(PartialBlockSubmitResult::REJECTED);
         }
         const auto entry = _tasks.find(key);
         if (entry != _tasks.end()) {
             existing = entry->second;
         } else if (_tasks.size() == _max_pending_tasks && _queue.empty()) {
-            return PartialBlockSubmitResult::REJECTED;
+            return trace.finish(PartialBlockSubmitResult::REJECTED);
         }
     }
     if (existing != nullptr) {
         DORIS_CHECK(existing->block_valid_size == request.block_valid_size);
-        if (auto result = existing->try_merge(fragment_offset, fragment, fragment_context);
+        if (auto result = existing->try_merge(fragment_offset, fragment, fragment_context, trace);
             result.has_value()) {
-            return *result;
+            return trace.finish(*result);
         }
     }
 
-    auto candidate = Task::create(std::move(request), key, _options.block_size);
+    auto candidate = Task::create(std::move(request), key, _options.block_size, trace);
     if (candidate == nullptr) {
-        return PartialBlockSubmitResult::BUFFER_ALLOCATION_FAILED;
+        return trace.finish(PartialBlockSubmitResult::BUFFER_ALLOCATION_FAILED);
     }
 
     while (true) {
         existing.reset();
-        switch (_enqueue_or_get_existing(candidate, &existing)) {
+        switch (_enqueue_or_get_existing(candidate, &existing, trace)) {
         case EnqueueResult::QUEUED:
+            trace.task_id = candidate->io_context.io_context.read_trace_id;
             if (ReadIOTrace::enabled()) {
+                const auto trace_start = trace.now();
                 ReadIOTrace::record(
                         {.event = "hole_queued",
                          .context = &fragment_context,
@@ -328,15 +437,17 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
                          .time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                                             candidate->enqueued_at.time_since_epoch())
                                             .count()});
+                trace.lifecycle_trace_ns += trace.now() - trace_start;
             }
-            return PartialBlockSubmitResult::QUEUED;
+            return trace.finish(PartialBlockSubmitResult::QUEUED);
         case EnqueueResult::REJECTED:
-            return PartialBlockSubmitResult::REJECTED;
+            return trace.finish(PartialBlockSubmitResult::REJECTED);
         case EnqueueResult::EXISTING:
             DORIS_CHECK(existing != nullptr);
-            if (auto result = existing->try_merge(fragment_offset, fragment, fragment_context);
+            if (auto result =
+                        existing->try_merge(fragment_offset, fragment, fragment_context, trace);
                 result.has_value()) {
-                return *result;
+                return trace.finish(*result);
             }
             break;
         }
@@ -359,12 +470,19 @@ void PartialBlockWritebackRequest::sanity_check(size_t block_size) const {
 }
 
 PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::Task::create(
-        PartialBlockWritebackRequest request, const BlockKey& task_key, size_t block_size) {
+        PartialBlockWritebackRequest request, const BlockKey& task_key, size_t block_size,
+        SubmitTrace& trace) {
     AsyncCacheWriteBufferPtr buffer;
-    if (!request.write_manager->allocate_tracked_buffer(block_size, &buffer).ok()) {
+    const auto allocate_start = trace.now();
+    const auto status = request.write_manager->allocate_tracked_buffer(block_size, &buffer);
+    trace.allocation_ns += trace.now() - allocate_start;
+    if (!status.ok()) {
         return nullptr;
     }
+    const auto copy_start = trace.now();
     std::memcpy(buffer->data() + request.fragment_offset, request.data.data, request.data.size);
+    trace.copy_ns += trace.now() - copy_start;
+    trace.copied_bytes += request.data.size;
 
     auto task = std::make_shared<Task>();
     task->key = task_key;
@@ -385,7 +503,7 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::Task::create
 }
 
 PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enqueue_or_get_existing(
-        const TaskPtr& candidate, TaskPtr* existing) {
+        const TaskPtr& candidate, TaskPtr* existing, SubmitTrace& trace) {
     DORIS_CHECK(candidate != nullptr);
     DORIS_CHECK(existing != nullptr);
     DORIS_CHECK(!candidate->is_active());
@@ -395,7 +513,12 @@ PartialBlockWritebackManager::EnqueueResult PartialBlockWritebackManager::_enque
     // retained reader can have nontrivial destructors.
     TaskPtr discarded_task;
     {
+        const auto lock_start = trace.now();
         std::lock_guard lock(_mutex);
+        const auto locked_at = trace.now();
+        trace.queue_lock_wait_ns += locked_at - lock_start;
+        Defer hold_time {[&] { trace.queue_lock_hold_ns += trace.now() - locked_at; }};
+        trace.queue_size = _queue.size();
         if (!_accepting) {
             return EnqueueResult::REJECTED;
         }
@@ -593,6 +716,7 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_task(
         // Spliced tasks release their tracked buffers after the manager mutex leaves scope.
         Queue discarded_tasks;
         TaskPtr task;
+        QueueScanTrace scan;
         {
             std::unique_lock lock(_mutex);
             _queue_cv.wait(lock, [this, &worker]() {
@@ -603,13 +727,15 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_task(
             }
 
             auto next_wakeup = std::chrono::steady_clock::time_point::max();
-            task = _take_runnable_task_locked(&discarded_tasks, &next_wakeup);
+            task = _take_runnable_task_locked(&discarded_tasks, &next_wakeup,
+                                              ReadIOTrace::enabled() ? &scan : nullptr);
             if (task == nullptr && discarded_tasks.empty()) {
                 // A queued task must have supplied an aggregation deadline or a capacity retry time.
                 DCHECK(next_wakeup != std::chrono::steady_clock::time_point::max());
                 _queue_cv.wait_until(lock, next_wakeup);
             }
         }
+        scan.record(task != nullptr);
         if (task != nullptr) {
             return task;
         }
@@ -617,13 +743,32 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_task(
 }
 
 PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnable_task_locked(
-        Queue* discarded_tasks, std::chrono::steady_clock::time_point* next_wakeup) {
+        Queue* discarded_tasks, std::chrono::steady_clock::time_point* next_wakeup,
+        QueueScanTrace* trace) {
     DORIS_CHECK(discarded_tasks != nullptr);
+    if (trace != nullptr) {
+        trace->start_ns = MonotonicNanos();
+        trace->queue_size = _queue.size();
+    }
+    Defer scan_time {[&] {
+        if (trace != nullptr) {
+            trace->end_ns = MonotonicNanos();
+        }
+    }};
     const auto now = std::chrono::steady_clock::now();
     for (auto iterator = _queue.begin(); iterator != _queue.end();) {
         const auto& candidate = *iterator;
         DORIS_CHECK(!candidate->is_active());
-        if (candidate->should_discard_before_read()) {
+        const auto check_start = trace != nullptr ? MonotonicNanos() : 0;
+        const bool discard = candidate->should_discard_before_read();
+        if (trace != nullptr) {
+            ++trace->scanned;
+            trace->discard_check_ns += MonotonicNanos() - check_start;
+        }
+        if (discard) {
+            if (trace != nullptr) {
+                ++trace->discarded;
+            }
             const auto discarded = iterator++;
             _discard_queued_task_locked(discarded, discarded_tasks);
             continue;
@@ -631,13 +776,20 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
 
         const auto ready_at = candidate->enqueued_at + _merge_delay;
         if (now < ready_at) {
+            if (trace != nullptr) {
+                ++trace->delayed;
+            }
             *next_wakeup = std::min(*next_wakeup, ready_at);
             ++iterator;
             continue;
         }
 
+        const auto capacity_start = trace != nullptr ? MonotonicNanos() : 0;
         const size_t available_slots =
                 candidate->key.write_manager->available_slots_without_eviction(_options.block_size);
+        if (trace != nullptr) {
+            trace->capacity_check_ns += MonotonicNanos() - capacity_start;
+        }
         const auto active_entry =
                 _active_hole_fill_slots_by_writer.find(candidate->key.write_manager);
         const size_t active_hole_fill_slots =
@@ -649,6 +801,9 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::_take_runnab
             ++_active_hole_fill_slots_by_writer[task->key.write_manager];
             read_ahead_bvars().hole_fill_active_blocks << 1;
             return task;
+        }
+        if (trace != nullptr) {
+            ++trace->capacity_waits;
         }
         *next_wakeup = std::min(*next_wakeup, now + kCapacityRetryInterval);
         ++iterator;

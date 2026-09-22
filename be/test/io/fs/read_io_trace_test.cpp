@@ -233,4 +233,33 @@ TEST(ReadIOTraceTest, EscapesIdentityAndCanBeReenabled) {
     EXPECT_EQ(capture.events("test").size(), 2);
 }
 
+TEST(ReadIOTraceTest, SerializesTypedTimingFields) {
+    ReadIOTraceCapture capture;
+    RangeWritebackTiming writeback {
+            .complete_submit_ns = 100, .partial_submit_ns = 200, .lifecycle_trace_ns = 30};
+    HoleSubmitTiming submit {.queue_lock_wait_ns = 400,
+                             .fragment_lock_hold_ns = 80,
+                             .copy_ns = 20,
+                             .copied_bytes = 4096,
+                             .queue_size = 10};
+    HoleQueueScanStats scan {.queue_size = 10,
+                             .scanned = 10,
+                             .delayed = 9,
+                             .capacity_waits = 1,
+                             .discard_check_ns = 90};
+    ReadIOTrace::record({.event = "range_writeback_done", .writeback_timing = &writeback});
+    ReadIOTrace::record({.event = "hole_submit", .hole_submit_timing = &submit});
+    ReadIOTrace::record({.event = "hole_queue_scan", .queue_scan = &scan});
+    ReadIOTrace::record({.event = "plain"});
+    EXPECT_EQ(capture.events("range_writeback_done")[0]["details"]["partial_submit_ns"].GetInt64(),
+              200);
+    auto submissions = capture.events("hole_submit");
+    ASSERT_EQ(submissions.size(), 1);
+    EXPECT_EQ(submissions[0]["details"]["queue_lock_wait_ns"].GetInt64(), 400);
+    EXPECT_EQ(submissions[0]["details"]["copied_bytes"].GetInt64(), 4096);
+    EXPECT_EQ(submissions[0]["details"]["allocation_ns"].GetInt64(), 0);
+    EXPECT_EQ(capture.events("hole_queue_scan")[0]["details"]["delayed"].GetInt64(), 9);
+    EXPECT_FALSE(capture.events("plain")[0].HasMember("details"));
+}
+
 } // namespace doris::io

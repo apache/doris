@@ -47,11 +47,14 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     COUNTER_UPDATE(&first.fallback_pages, 1);
     COUNTER_UPDATE(&first.fallback_bytes, 8);
     COUNTER_UPDATE(&first.fallback_time, 200);
+    COUNTER_UPDATE(&first.complete_block_submit_time, 300);
+    COUNTER_UPDATE(&first.partial_block_submit_time, 700);
     first.update_profile(&profile);
     first.update_profile(&profile);
     COUNTER_UPDATE(&first.input_bytes, 12);
     COUNTER_UPDATE(&second.input_bytes, 20);
     COUNTER_UPDATE(&second.column_plan_time, 300);
+    COUNTER_UPDATE(&second.partial_block_submit_time, 200);
     first.update_profile(&profile);
     second.update_profile(&profile);
 
@@ -76,6 +79,10 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(profile.get_counter("ReadAheadFallbackPages")->value(), 1);
     EXPECT_EQ(profile.get_counter("ReadAheadFallbackBytes")->value(), 8);
     EXPECT_EQ(profile.get_counter("ReadAheadFallbackTime")->value(), 200);
+    EXPECT_EQ(profile.get_counter("ReadAheadCompleteBlockSubmitTime")->value(), 300);
+    EXPECT_EQ(profile.get_counter("ReadAheadPartialBlockSubmitTime")->value(), 900);
+    EXPECT_EQ(first.complete_block_submit_time.value(), 0);
+    EXPECT_EQ(first.partial_block_submit_time.value(), 0);
     EXPECT_EQ(first.input_bytes.value(), 0);
     EXPECT_EQ(second.input_bytes.value(), 0);
     EXPECT_EQ(first.column_plan_time.value(), 0);
@@ -95,6 +102,8 @@ TEST(ReadAheadMetricsTest, ReportsOnlyNewDeltasAndAggregatesReaders) {
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadCurrentBatchPlanTime"), 1);
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadPageAdvanceTime"), 1);
     EXPECT_EQ(children.at("ReadAheadColumnPlanTime").count("ReadAheadWindowExtendTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadWritebackTime").count("ReadAheadCompleteBlockSubmitTime"), 1);
+    EXPECT_EQ(children.at("ReadAheadWritebackTime").count("ReadAheadPartialBlockSubmitTime"), 1);
 }
 
 TEST(ReadAheadMetricsTest, PreservesConcurrentUpdatesDuringReporting) {
