@@ -25,6 +25,9 @@
 
 #include "common/check.h"
 #include "storage/index/query/docid_set_ops.h"
+#include "storage/index/query/exec/chained_conjunction.h"
+#include "storage/index/query/spi/io_batch.h"
+#include "storage/index/query/spi/memory_budget.h"
 #include "storage/index/snii/format/frq_pod.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/reader/windowed_posting.h"
@@ -96,14 +99,6 @@ std::vector<uint32_t> all_windows(const FrqPreludeReader& prelude) {
     std::vector<uint32_t> ws(prelude.n_windows());
     for (uint32_t i = 0; i < prelude.n_windows(); ++i) ws[i] = i;
     return ws;
-}
-
-std::vector<size_t> ascending_df_order(const std::vector<TermPlan>& plans) {
-    std::vector<size_t> order(plans.size());
-    for (size_t i = 0; i < plans.size(); ++i) order[i] = i;
-    std::sort(order.begin(), order.end(),
-              [&](size_t a, size_t b) { return plans[a].df < plans[b].df; });
-    return order;
 }
 
 Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal, uint32_t* first) {
@@ -566,14 +561,14 @@ Status emit_dense_full_window_docids(const WindowWork& f, const std::vector<uint
     return Status::OK();
 }
 
-Status emit_decoded_window_docids(const WindowWork& f, const io::BatchRangeFetcher& fetcher,
+Status emit_decoded_window_docids(const WindowWork& f, Slice window_bytes,
                                   const std::vector<uint32_t>* candidates,
                                   std::vector<uint32_t>& out, DocidSource* source,
                                   std::vector<uint32_t>& docs,
                                   std::vector<std::vector<uint32_t>>& positions) {
     docs.clear();
     positions.clear();
-    RETURN_IF_ERROR(reader::decode_window_slices(f.meta, fetcher.get(f.handle), Slice(),
+    RETURN_IF_ERROR(reader::decode_window_slices(f.meta, window_bytes, Slice(),
                                                  /*want_positions=*/false, &docs, &positions));
     if (source != nullptr) {
         DocidChunk chunk;
@@ -612,155 +607,200 @@ Status emit_decoded_window_docids(const WindowWork& f, const io::BatchRangeFetch
     return Status::OK();
 }
 
-Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPlan& p,
-                                    const std::vector<uint32_t>& windows,
-                                    const std::vector<uint32_t>* candidates,
-                                    std::vector<uint32_t>* out, DocidSource* source) {
-    io::BatchRangeFetcher fetcher(idx.reader(), reader::kSameTermCoalesceGap);
-    std::vector<WindowWork> work;
-    work.reserve(windows.size());
-    out->reserve(candidates == nullptr ? p.entry.df : candidates->size());
-    size_t candidate_search_begin = 0;
-    for (uint32_t w : windows) {
-        WindowMeta meta;
-        RETURN_IF_ERROR(p.prelude.window(w, &meta));
-        uint32_t first = 0;
-        RETURN_IF_ERROR(first_docid_in_window(meta, w, &first));
-        CandidateRange candidate_range;
-        if (candidates != nullptr) {
-            candidate_range = find_candidate_range(*candidates, &candidate_search_begin, first,
-                                                   meta.last_docid);
-            if (candidate_range.begin == candidate_range.end) {
-                continue;
-            }
-        }
-        bool dense_full = false;
-        RETURN_IF_ERROR(is_dense_full_window(meta, w, &dense_full));
-        if (dense_full) {
-            work.push_back(WindowWork {
-                    .ordinal = w, .meta = meta, .candidates = candidate_range, .dense_full = true});
-            continue;
-        }
+// Lists one planned term for the shared chained conjunction. A windowed term reads
+// only the windows that can hold candidates, merging reads within the same-term
+// gap; full windows need no read. A flat term decodes the posting fetched with the
+// term plans.
+class ChainedTermPostings final : public index_query::ChainedPostings {
+public:
+    ChainedTermPostings(const LogicalIndexReader& idx, const io::BatchRangeFetcher& round1,
+                        const TermPlan& plan, DocidSource* source)
+            : _idx(idx), _round1(round1), _plan(plan), _source(source) {}
 
-        reader::WindowAbsRange range;
-        RETURN_IF_ERROR(reader::windowed_window_range(idx, p.entry, p.frq_base, p.prx_base,
-                                                      p.prelude, w,
-                                                      /*want_positions=*/false, &range));
-        WindowWork f;
-        f.ordinal = w;
-        f.meta = meta;
-        f.candidates = candidate_range;
-        f.handle = fetcher.add(range.dd_off, range.dd_len);
-        work.push_back(f);
-    }
-    if (fetcher.pending() > 0) {
-        RETURN_IF_ERROR(fetcher.fetch());
-    }
+    uint64_t doc_freq() const override { return _plan.df; }
 
-    std::vector<uint32_t> docs;
-    std::vector<std::vector<uint32_t>> positions;
-    for (const WindowWork& f : work) {
-        if (f.dense_full) {
-            RETURN_IF_ERROR(emit_dense_full_window_docids(f, candidates, *out, source));
-            continue;
+    Status start(const std::vector<uint32_t>* candidates) override {
+        _candidates = candidates;
+        _windows.clear();
+        _next_window = 0;
+        _candidate_search_begin = 0;
+        _reserved = false;
+        if (!_plan.windowed) {
+            return Status::OK();
         }
-        RETURN_IF_ERROR(
-                emit_decoded_window_docids(f, fetcher, candidates, *out, source, docs, positions));
-    }
-    return Status::OK();
-}
-
-Status collect_docids_only(const LogicalIndexReader& idx, const io::BatchRangeFetcher& round1,
-                           const TermPlan& p, const std::vector<uint32_t>* candidates,
-                           std::vector<uint32_t>* out, DocidSource* source) {
-    if (p.windowed) {
-        std::vector<uint32_t> windows;
-        if (candidates == nullptr) {
-            windows = all_windows(p.prelude);
-        } else if (should_scan_all_windows(idx, p, candidates->size())) {
+        if (candidates == nullptr || should_scan_all_windows(_idx, _plan, candidates->size())) {
             // Dense candidate sets cover most windows; for near-full terms this also
             // avoids a thousands-to-millions probe covering-window cursor pass with no
             // byte win.
-            windows = all_windows(p.prelude);
+            _windows = all_windows(_plan.prelude);
         } else {
-            p.prelude.select_covering_windows(*candidates, &windows);
+            _plan.prelude.select_covering_windows(*candidates, &_windows);
         }
-        return collect_windowed_docids_only(idx, p, windows, candidates, out, source);
-    }
-
-    std::vector<uint32_t> term_docids;
-    RETURN_IF_ERROR(decode_flat_docids_only(round1, p, &term_docids));
-    if (source != nullptr) {
-        DocidChunk chunk;
-        if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "docid_conjunction: prx doc count exceeds u32");
-        }
-        chunk.prx_doc_count = static_cast<uint32_t>(term_docids.size());
-        if (candidates == nullptr) {
-            chunk.docids = term_docids;
-        } else if (!term_docids.empty()) {
-            const auto begin = std::ranges::lower_bound(*candidates, term_docids.front());
-            const auto end = std::upper_bound(begin, candidates->end(), term_docids.back());
-            RETURN_IF_ERROR(intersect_window_candidate_range_with_ordinals(begin, end, term_docids,
-                                                                           out, &chunk));
-        }
-        if (candidates == nullptr || !chunk.docids.empty()) {
-            source->chunks.push_back(std::move(chunk));
-        }
-    }
-    if (candidates == nullptr) {
-        *out = std::move(term_docids);
         return Status::OK();
     }
-    if (source != nullptr) {
+
+    Status prepare_wave(index_query::IoBatch& batch, bool* done) override {
+        _work.clear();
+        while (_plan.windowed && _next_window < _windows.size()) {
+            bool accepted = false;
+            RETURN_IF_ERROR(_prepare_window(batch, &accepted));
+            if (!accepted) {
+                break;
+            }
+        }
+        *done = !_plan.windowed || _next_window == _windows.size();
         return Status::OK();
     }
-    *out = index_query::intersect_sorted(*candidates, term_docids);
-    return Status::OK();
-}
 
-Status run_docid_only_conjunction_impl(const LogicalIndexReader& idx,
-                                       const io::BatchRangeFetcher& round1,
-                                       const std::vector<TermPlan>& plans,
-                                       const std::vector<uint32_t>* initial_candidates,
-                                       std::vector<uint32_t>* candidates,
-                                       std::vector<DocidSource>* sources) {
+    Status collect_wave(const index_query::IoBatch& batch, std::vector<uint32_t>* out) override {
+        if (!_plan.windowed) {
+            return _collect_flat(out);
+        }
+        if (!_reserved) {
+            out->reserve(out->size() +
+                         (_candidates == nullptr ? _plan.entry.df : _candidates->size()));
+            _reserved = true;
+        }
+        for (const WindowWork& work : _work) {
+            if (work.dense_full) {
+                RETURN_IF_ERROR(emit_dense_full_window_docids(work, _candidates, *out, _source));
+                continue;
+            }
+            const auto bytes = batch.get(work.handle);
+            RETURN_IF_ERROR(emit_decoded_window_docids(work, Slice(bytes.data(), bytes.size()),
+                                                       _candidates, *out, _source, _docs,
+                                                       _positions));
+        }
+        return Status::OK();
+    }
+
+private:
+    // Adds the next selected window to the wave unless the wave cannot take its read.
+    Status _prepare_window(index_query::IoBatch& batch, bool* accepted) {
+        const uint32_t window = _windows[_next_window];
+        WindowMeta meta;
+        RETURN_IF_ERROR(_plan.prelude.window(window, &meta));
+        uint32_t first = 0;
+        RETURN_IF_ERROR(first_docid_in_window(meta, window, &first));
+        CandidateRange candidate_range;
+        size_t search_begin = _candidate_search_begin;
+        if (_candidates != nullptr) {
+            candidate_range =
+                    find_candidate_range(*_candidates, &search_begin, first, meta.last_docid);
+            if (candidate_range.begin == candidate_range.end) {
+                _candidate_search_begin = search_begin;
+                ++_next_window;
+                *accepted = true;
+                return Status::OK();
+            }
+        }
+        WindowWork work {.ordinal = window, .meta = meta, .candidates = candidate_range};
+        RETURN_IF_ERROR(is_dense_full_window(meta, window, &work.dense_full));
+        *accepted = true;
+        if (!work.dense_full) {
+            reader::WindowAbsRange range;
+            RETURN_IF_ERROR(reader::windowed_window_range(_idx, _plan.entry, _plan.frq_base,
+                                                          _plan.prx_base, _plan.prelude, window,
+                                                          /*want_positions=*/false, &range));
+            RETURN_IF_ERROR(batch.try_add(*_idx.reader(), range.dd_off, range.dd_len, accepted,
+                                          &work.handle, batch.pending() == 0));
+            if (!*accepted) {
+                return Status::OK();
+            }
+        }
+        _candidate_search_begin = search_begin;
+        _work.push_back(work);
+        ++_next_window;
+        return Status::OK();
+    }
+
+    Status _collect_flat(std::vector<uint32_t>* out) {
+        std::vector<uint32_t> term_docids;
+        RETURN_IF_ERROR(decode_flat_docids_only(_round1, _plan, &term_docids));
+        if (_source != nullptr) {
+            DocidChunk chunk;
+            if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "docid_conjunction: prx doc count exceeds u32");
+            }
+            chunk.prx_doc_count = static_cast<uint32_t>(term_docids.size());
+            if (_candidates == nullptr) {
+                chunk.docids = term_docids;
+            } else if (!term_docids.empty()) {
+                const auto begin = std::ranges::lower_bound(*_candidates, term_docids.front());
+                const auto end = std::upper_bound(begin, _candidates->end(), term_docids.back());
+                RETURN_IF_ERROR(intersect_window_candidate_range_with_ordinals(
+                        begin, end, term_docids, out, &chunk));
+            }
+            if (_candidates == nullptr || !chunk.docids.empty()) {
+                _source->chunks.push_back(std::move(chunk));
+            }
+        }
+        if (_candidates == nullptr) {
+            append_docids(std::move(term_docids), out);
+            return Status::OK();
+        }
+        if (_source != nullptr) {
+            return Status::OK();
+        }
+        append_docids(index_query::intersect_sorted(*_candidates, term_docids), out);
+        return Status::OK();
+    }
+
+    // Moves `docids` into an empty output instead of copying them.
+    static void append_docids(std::vector<uint32_t>&& docids, std::vector<uint32_t>* out) {
+        if (out->empty()) {
+            *out = std::move(docids);
+        } else {
+            out->insert(out->end(), docids.begin(), docids.end());
+        }
+    }
+
+    const LogicalIndexReader& _idx;
+    const io::BatchRangeFetcher& _round1;
+    const TermPlan& _plan;
+    DocidSource* _source;
+    const std::vector<uint32_t>* _candidates = nullptr;
+    std::vector<uint32_t> _windows;
+    size_t _next_window = 0;
+    size_t _candidate_search_begin = 0;
+    bool _reserved = false;
+    std::vector<WindowWork> _work;
+    std::vector<uint32_t> _docs;
+    std::vector<std::vector<uint32_t>> _positions;
+};
+
+// Runs the shared chained conjunction over the planned terms. `sources`, when
+// given, receives each term's listed documents; the last listed term's source
+// holds the final candidates when every term was listed.
+Status run_chained_conjunction(const LogicalIndexReader& idx, const io::BatchRangeFetcher& round1,
+                               const std::vector<TermPlan>& plans,
+                               const std::vector<uint32_t>* initial_candidates,
+                               std::vector<uint32_t>* candidates,
+                               std::vector<DocidSource>* sources) {
     if (sources != nullptr) {
         sources->assign(plans.size(), DocidSource {});
     }
-    candidates->clear();
-    if (plans.empty()) {
-        // No terms: the result is the initial candidate set verbatim (or empty).
-        if (initial_candidates != nullptr) {
-            *candidates = *initial_candidates;
-        }
-        return Status::OK();
+    std::vector<ChainedTermPostings> terms;
+    terms.reserve(plans.size());
+    for (size_t i = 0; i < plans.size(); ++i) {
+        terms.emplace_back(idx, round1, plans[i], sources == nullptr ? nullptr : &(*sources)[i]);
     }
-    if (initial_candidates != nullptr && initial_candidates->empty()) {
-        return Status::OK();
+    std::vector<index_query::ChainedPostings*> chain;
+    chain.reserve(terms.size());
+    for (ChainedTermPostings& term : terms) {
+        chain.push_back(&term);
     }
-    const std::vector<size_t> order = ascending_df_order(plans);
-    for (size_t k = 0; k < order.size(); ++k) {
-        const size_t ti = order[k];
-        std::vector<uint32_t> next;
-        DocidSource* source = sources == nullptr ? nullptr : &(*sources)[ti];
-        // k == 0 intersects against the (const) initial_candidates DIRECTLY, so
-        // the whole set is never copied once per plan -- the previous code seeded
-        // *candidates = *initial_candidates before the loop, which for a single
-        // plan (e.g. one phrase-prefix tail verified against the leading-term
-        // expected docids) was an O(|initial|) copy per call with no benefit.
-        // k > 0 chains on the previous term's already-whittled result.
-        const std::vector<uint32_t>* input_candidates = k == 0 ? initial_candidates : candidates;
-        RETURN_IF_ERROR(
-                collect_docids_only(idx, round1, plans[ti], input_candidates, &next, source));
-        if (source != nullptr && k + 1 == order.size()) {
-            source->docids_are_final_candidates = true;
-        }
-        *candidates = std::move(next);
-        if (candidates->empty()) {
-            return Status::OK();
-        }
+    // One unbounded wave per term keeps today's reads; the budget only accounts them.
+    index_query::MemoryBudget budget(std::numeric_limits<uint64_t>::max());
+    index_query::IoBatch batch(budget, {.bytes = std::numeric_limits<uint64_t>::max(),
+                                        .ranges = std::numeric_limits<size_t>::max(),
+                                        .coalesce_gap = reader::kSameTermCoalesceGap});
+    std::vector<size_t> visited;
+    RETURN_IF_ERROR(index_query::chained_conjunction(chain, initial_candidates, batch, candidates,
+                                                     sources == nullptr ? nullptr : &visited));
+    if (sources != nullptr && !plans.empty() && visited.size() == plans.size()) {
+        (*sources)[visited.back()].docids_are_final_candidates = true;
     }
     return Status::OK();
 }
@@ -891,7 +931,7 @@ Status build_docid_only_conjunction(const LogicalIndexReader& idx,
                                     const io::BatchRangeFetcher& round1,
                                     const std::vector<TermPlan>& plans,
                                     std::vector<uint32_t>* candidates) {
-    return run_docid_only_conjunction_impl(idx, round1, plans, nullptr, candidates, nullptr);
+    return run_chained_conjunction(idx, round1, plans, nullptr, candidates, nullptr);
 }
 
 Status build_docid_only_conjunction(const LogicalIndexReader& idx,
@@ -899,7 +939,7 @@ Status build_docid_only_conjunction(const LogicalIndexReader& idx,
                                     const std::vector<TermPlan>& plans,
                                     std::vector<uint32_t>* candidates,
                                     std::vector<DocidSource>* sources) {
-    return run_docid_only_conjunction_impl(idx, round1, plans, nullptr, candidates, sources);
+    return run_chained_conjunction(idx, round1, plans, nullptr, candidates, sources);
 }
 
 Status filter_docids_by_conjunction(const LogicalIndexReader& idx,
@@ -908,8 +948,7 @@ Status filter_docids_by_conjunction(const LogicalIndexReader& idx,
                                     const std::vector<uint32_t>& initial_candidates,
                                     std::vector<uint32_t>* candidates,
                                     std::vector<DocidSource>* sources) {
-    return run_docid_only_conjunction_impl(idx, round1, plans, &initial_candidates, candidates,
-                                           sources);
+    return run_chained_conjunction(idx, round1, plans, &initial_candidates, candidates, sources);
 }
 
 } // namespace doris::snii::query::internal
