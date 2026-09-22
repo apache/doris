@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <string>
 #include <vector>
 
 #include "common/signal_handler.h"
@@ -170,10 +171,61 @@ TEST(LoadThreadPoolTest, CancelledBitmapIsNotReportedAsComplete) {
     EXPECT_TRUE(entered.wait_for(5s));
     EXPECT_TRUE(token->submit_func([] { return Status::OK(); }).ok());
     token->cancel();
-    EXPECT_FALSE(token->wait().ok());
+    EXPECT_TRUE(token->wait().is<ErrorCode::CANCELLED>());
     release.count_down();
     pool->shutdown();
     EXPECT_FALSE(token->submit_func([] { return Status::OK(); }).ok());
+}
+
+TEST(LoadThreadPoolTest, BitmapSubmissionFailureSurvivesWait) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_capacity_test")
+                        .set_max_threads(1)
+                        .set_max_queue_size(1)
+                        .build(&pool)
+                        .ok());
+    CalcDeleteBitmapToken token(pool->new_load_token(LoadTaskPriority::MID));
+    SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "bitmap_capacity_test"));
+    CountDownLatch entered(1), release(1);
+    std::atomic<int> completed = 0;
+    Defer unblock = [&] { release.count_down(); };
+    EXPECT_TRUE(pool->submit_func([&] {
+                        entered.count_down();
+                        release.wait();
+                    }).ok());
+    EXPECT_TRUE(entered.wait_for(5s));
+    EXPECT_TRUE(token.submit_func([&] {
+                         ++completed;
+                         return Status::OK();
+                     }).ok());
+    auto rejected = token.submit_func([] {
+        ADD_FAILURE() << "rejected bitmap callback ran";
+        return Status::OK();
+    });
+    EXPECT_TRUE(rejected.is<ErrorCode::SERVICE_UNAVAILABLE>());
+    EXPECT_NE(rejected.to_string().find("at capacity"), std::string::npos);
+    release.count_down();
+    EXPECT_EQ(token.wait().to_string(), rejected.to_string());
+    EXPECT_EQ(completed.load(), 1);
+    // The token remains failed even after the queue has drained.
+    EXPECT_EQ(token.submit_func([] { return Status::OK(); }).to_string(), rejected.to_string());
+}
+
+TEST(LoadThreadPoolTest, BitmapSubmissionAfterShutdownPreservesReason) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_rejected_test").set_max_threads(1).build(&pool).ok());
+    CalcDeleteBitmapToken token(pool->new_load_token(LoadTaskPriority::HIGHEST));
+    SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "bitmap_rejected_test"));
+    pool->shutdown();
+    auto rejected = token.submit_func([] {
+        ADD_FAILURE() << "shutdown pool accepted bitmap callback";
+        return Status::OK();
+    });
+    EXPECT_TRUE(rejected.is<ErrorCode::SERVICE_UNAVAILABLE>());
+    EXPECT_NE(rejected.to_string().find("shut down"), std::string::npos);
+    EXPECT_EQ(token.wait().to_string(), rejected.to_string());
 }
 
 TEST(LoadThreadPoolTest, FlushCleanupCanJoinRunningBitmapLeaves) {

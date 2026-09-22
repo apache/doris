@@ -107,11 +107,20 @@ Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
         ++_finished_tasks;
     };
     if (_thread_token) {
-        return _thread_token->submit_func(
+        auto st = _thread_token->submit_func(
                 [task = std::move(task), resource_ctx = thread_context()->resource_ctx()]() {
                     SCOPED_ATTACH_TASK(resource_ctx);
                     task();
                 });
+        if (!st.ok()) {
+            // Preserve the submission error before wait() checks for callbacks
+            // that did not finish; a rejection is not a generic cancellation.
+            std::lock_guard wlock(_lock);
+            if (_status.ok()) {
+                _status = st;
+            }
+        }
+        return st;
     }
     // Inline children already run in the parent's attached context, including
     // any tablet-specific MemTracker scope. AttachTask cannot be nested.

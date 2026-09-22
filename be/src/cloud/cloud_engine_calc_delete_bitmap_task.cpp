@@ -125,9 +125,18 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             }
         }
     }
-    // wait for all finished
+    // Drain every submitted token before reading _res, which running tablet
+    // callbacks may still update. Keep the recorded tablet/submission error
+    // ahead of a generic cancellation reported by another token's wait().
+    Status wait_status;
     for (auto& token : tokens) {
-        RETURN_IF_ERROR(token->wait());
+        auto st = token->wait();
+        if (wait_status.ok() && !st.ok()) {
+            wait_status = st;
+        }
+    }
+    if (_res.ok()) {
+        _res = wait_status;
     }
 
     LOG(INFO) << "finish to calculate delete bitmap on transaction."

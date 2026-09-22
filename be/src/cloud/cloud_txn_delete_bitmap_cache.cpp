@@ -214,7 +214,11 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
                 std::make_shared<PublishStatus>(PublishStatus::INIT);
         _txn_map[txn_key] = TxnVal(rowset, txn_expiration, std::move(partial_update_info),
                                    std::move(publish_status), attach_row_binlog);
-        _txn_map[txn_key].workload_group = thread_context()->resource_ctx()->workload_group();
+        // Cloud DELETE agent tasks have no attached resource context and use the
+        // default load pool. Only capture a workload group from an attached task.
+        auto* ctx = thread_context();
+        _txn_map[txn_key].workload_group =
+                ctx->is_attach_task() ? ctx->resource_ctx()->workload_group() : nullptr;
         _expiration_txn.emplace(txn_expiration, txn_key);
     }
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
