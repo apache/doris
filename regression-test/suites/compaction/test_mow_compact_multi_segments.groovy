@@ -17,6 +17,7 @@
 
 // when compaction for one rowsets with multiple segments, the delete bitmap can be deleted
 import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.NodeType
 
 suite("test_mow_compact_multi_segments", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllFEs()
@@ -153,6 +154,8 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     def tablet = tablets[0]
     String tablet_id = tablet.TabletId
     def backend_id = tablet.BackendId
+    def backend_ip = backendId_to_backendIP.get(backend_id)
+    def backend_http_port = backendId_to_backendHttpPort.get(backend_id)
 
     // load 1
     streamLoad {
@@ -183,11 +186,13 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     // and this suite runs in both deployments, so pin the input rowsets on both. Without the local
     // one, the storage-compute-coupled BE picks the input rowsets by size/score: [2-2] alone is
     // below both thresholds and is skipped, and the next round merges [2-2] with [3-3].
-    GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+    GetDebugPoint().enableDebugPoint(backend_ip, backend_http_port as int, NodeType.BE,
+            "CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
             [tablet_id: "${tablet.TabletId}", start_version: 2, end_version: 2])
-    GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+    GetDebugPoint().enableDebugPoint(backend_ip, backend_http_port as int, NodeType.BE,
+            "SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
             [tablet_id: "${tablet.TabletId}", start_version: 2, end_version: 2])
-    def (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+    def (code, out, err) = be_run_cumulative_compaction(backend_ip, backend_http_port, tablet_id)
     logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     def compactJson = parseJson(out.trim())
@@ -231,11 +236,13 @@ suite("test_mow_compact_multi_segments", "nonConcurrent") {
     logger.info("local delete bitmap 1: " + local_dm)
 
     // trigger compaction for load 2
-    GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+    GetDebugPoint().enableDebugPoint(backend_ip, backend_http_port as int, NodeType.BE,
+            "CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
             [tablet_id: "${tablet.TabletId}", start_version: 3, end_version: 3])
-    GetDebugPoint().enableDebugPointForAllBEs("SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
+    GetDebugPoint().enableDebugPoint(backend_ip, backend_http_port as int, NodeType.BE,
+            "SizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
             [tablet_id: "${tablet.TabletId}", start_version: 3, end_version: 3])
-    (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+    (code, out, err) = be_run_cumulative_compaction(backend_ip, backend_http_port, tablet_id)
     logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     compactJson = parseJson(out.trim())

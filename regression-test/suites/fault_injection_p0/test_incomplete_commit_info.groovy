@@ -16,66 +16,77 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.Http
 
-suite("test_incomplete_commit_info", "nonConcurrent") {
-    try {
-        def tableName = "test_incomplete_commit_info"
-        sql """ DROP TABLE IF EXISTS ${tableName}; """
-        sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
-                `k0` boolean null comment "",
-                `k1` tinyint(4) null comment "",
-                `k2` smallint(6) null comment "",
-                `k3` int(11) null comment "",
-                `k4` bigint(20) null comment "",
-                `k5` decimal(9, 3) null comment "",
-                `k6` char(5) null comment "",
-                `k10` date null comment "",
-                `k11` datetime null comment "",
-                `k7` varchar(20) null comment "",
-                `k8` double max null comment "",
-                `k9` float sum null comment "",
-                `k12` string replace null comment "",
-                `k13` largeint(40) replace null comment ""
-            ) engine=olap
-            DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
-            """
+suite("test_incomplete_commit_info", "docker") {
+    // Keep the fault-injection target single-replica even when shared regression
+    // clusters force a larger replication number.
+    def options = new ClusterOptions()
+    options.cloudMode = false
+    options.feNum = 1
+    options.beNum = 1
+    options.enableDebugPoints()
 
-        streamLoad {
-            table "${tableName}"
-            db "regression_test_fault_injection_p0"
-            set 'column_separator', ','
-            file "baseall.txt"
-        }
+    docker(options) {
+        try {
+            def tableName = "test_incomplete_commit_info"
+            sql """ DROP TABLE IF EXISTS ${tableName}; """
+            sql """
+                CREATE TABLE IF NOT EXISTS ${tableName} (
+                    `k0` boolean null comment "",
+                    `k1` tinyint(4) null comment "",
+                    `k2` smallint(6) null comment "",
+                    `k3` int(11) null comment "",
+                    `k4` bigint(20) null comment "",
+                    `k5` decimal(9, 3) null comment "",
+                    `k6` char(5) null comment "",
+                    `k10` date null comment "",
+                    `k11` datetime null comment "",
+                    `k7` varchar(20) null comment "",
+                    `k8` double max null comment "",
+                    `k9` float sum null comment "",
+                    `k12` string replace null comment "",
+                    `k13` largeint(40) replace null comment ""
+                ) engine=olap
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
+                """
 
-        def tabletIds = sql_return_maparray("SHOW TABLETS FROM ${tableName}")
-                .collect { it.TabletId }
-                .unique()
-        def tabletId = tabletIds.find {
-            sql("SELECT COUNT(*) FROM ${tableName} TABLET(${it})")[0][0].toLong() > 0
-        }
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "VNodeChannel.add_block_success_callback.incomplete_commit_info",
-                [tablet_id: "${tabletId}"])
-        streamLoad {
-            table "${tableName}"
-            db "regression_test_fault_injection_p0"
-            set 'column_separator', ','
-            file "baseall.txt"
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("Failed to commit txn"))
-                assertTrue(json.Message.contains("succ replica num 0 < load required replica num 1"))
+            streamLoad {
+                table "${tableName}"
+                db "regression_test_fault_injection_p0"
+                set 'column_separator', ','
+                file "baseall.txt"
             }
+
+            def tabletIds = sql_return_maparray("SHOW TABLETS FROM ${tableName}")
+                    .collect { it.TabletId }
+                    .unique()
+            def tabletId = tabletIds.find {
+                sql("SELECT COUNT(*) FROM ${tableName} TABLET(${it})")[0][0].toLong() > 0
+            }
+            GetDebugPoint().enableDebugPointForAllBEs(
+                    "VNodeChannel.add_block_success_callback.incomplete_commit_info",
+                    [tablet_id: "${tabletId}"])
+            streamLoad {
+                table "${tableName}"
+                db "regression_test_fault_injection_p0"
+                set 'column_separator', ','
+                file "baseall.txt"
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("fail", json.Status.toLowerCase())
+                    assertTrue(json.Message.contains("Failed to commit txn"))
+                    assertTrue(json.Message.contains("succ replica num 0 < load required replica num 1"))
+                }
+            }
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.add_block_success_callback.incomplete_commit_info")
         }
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("VNodeChannel.add_block_success_callback.incomplete_commit_info")
     }
 }

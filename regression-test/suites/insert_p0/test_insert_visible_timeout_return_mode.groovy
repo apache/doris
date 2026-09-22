@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
 
@@ -23,17 +24,20 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         return
     }
 
-    def tableName = "test_insert_visible_timeout_return_mode_tbl"
     def debugPoint = "PublishVersionDaemon.stop_publish"
-    // Use the configured FE HTTP endpoint so the case also works when SHOW FRONTENDS exposes loopback addresses.
+    def debugPointTimeoutSeconds = "10"
+    // PublishVersionDaemon runs on the master FE. The pipeline config provides runner-facing
+    // master FE endpoints; do not replace their mapped ports with raw SHOW FRONTENDS values.
     def feHttpAddress = context.config.feHttpAddress
     def feHost = feHttpAddress.split(":")[0]
     def feHttpPort = Integer.parseInt(feHttpAddress.split(":")[1])
+    def masterJdbcUrl = Config.buildUrlWithDb(context.getJdbcUrl(), context.dbName)
+    context.connectTo(masterJdbcUrl, context.config.jdbcUser, context.config.jdbcPassword)
 
     // Prepare a single-replica table so publish blocking deterministically drives the visible timeout path.
-    sql """ DROP TABLE IF EXISTS ${tableName} FORCE """
+    sql """ DROP TABLE IF EXISTS test_insert_visible_timeout_return_mode_tbl FORCE """
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_insert_visible_timeout_return_mode_tbl (
             `k1` INT,
             `k2` INT
         )
@@ -43,34 +47,35 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         )
     """
 
+    def debugPointEnabled = false
     try {
-        // Block FE publish so inserts can commit but remain non-visible until the debug point is removed.
-        DebugPoint.enableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
+        // Bound the debug point lifetime so a cleanup failure cannot leave the master publish daemon blocked.
+        DebugPoint.enableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint,
+                [timeout: debugPointTimeoutSeconds])
+        debugPointEnabled = true
 
         sql """ SET insert_visible_timeout_ms = 1000 """
 
         // Verify the default committed mode returns success after the visible wait times out.
         sql """ SET insert_visible_timeout_return_mode = 'committed' """
-        sql """ INSERT INTO ${tableName} VALUES (1, 10) """
+        sql """ INSERT INTO test_insert_visible_timeout_return_mode_tbl VALUES (1, 10) """
 
         // Verify the error mode returns the publish-timeout error to the client while keeping the txn committed.
         sql """ SET insert_visible_timeout_return_mode = 'error' """
         test {
-            sql """ INSERT INTO ${tableName} VALUES (2, 20) """
+            sql """ INSERT INTO test_insert_visible_timeout_return_mode_tbl VALUES (2, 20) """
             exception "transaction commit successfully, BUT data did not become visible within insert_visible_timeout_ms and will be visible later."
         }
     } finally {
-        try {
+        if (debugPointEnabled) {
             DebugPoint.disableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
-        } catch (Throwable e) {
-            logger.warn("Failed to disable debug point ${debugPoint}", e)
         }
     }
 
     // Wait for FE publish to resume so both committed transactions become visible before checking final data.
     def visible = false
     for (int i = 0; i < 15; i++) {
-        def rowCount = sql """ SELECT COUNT(*) FROM ${tableName} """
+        def rowCount = sql """ SELECT COUNT(*) FROM test_insert_visible_timeout_return_mode_tbl """
         if ((rowCount[0][0] as long) == 2L) {
             visible = true
             break
@@ -79,5 +84,5 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     }
     assertTrue(visible, "Rows should become visible after publish resumes")
 
-    order_qt_final_select """ SELECT * FROM ${tableName} ORDER BY k1 """
+    order_qt_final_select """ SELECT * FROM test_insert_visible_timeout_return_mode_tbl ORDER BY k1 """
 }
