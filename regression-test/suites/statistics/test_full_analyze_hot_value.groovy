@@ -16,6 +16,35 @@
 // under the License.
 
 suite("test_full_analyze_hot_value") {
+    def wait_row_count_reported = { db, table, row, column, expected ->
+        def result = sql """show frontends;"""
+        logger.info("show frontends result origin: " + result)
+        def host
+        def port
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][8] == "true") {
+                host = result[i][1]
+                port = result[i][4]
+            }
+        }
+        def tokens = context.config.jdbcUrl.split('/')
+        def url = tokens[0] + "//" + host + ":" + port
+        logger.info("Master url is " + url)
+        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+            sql """use ${db}"""
+            result = sql """show frontends;"""
+            logger.info("show frontends result master: " + result)
+            for (int i = 0; i < 120; i++) {
+                Thread.sleep(5000)
+                result = sql """SHOW DATA FROM ${table};"""
+                logger.info("result " + result)
+                if (result[row][column] == expected) {
+                    return;
+                }
+            }
+            throw new Exception("Row count report timeout.")
+        }
+    }
 
     sql """drop database if exists test_full_analyze_hot_value"""
     sql """create database test_full_analyze_hot_value"""
@@ -37,6 +66,7 @@ suite("test_full_analyze_hot_value") {
     """
     // Insert 100 rows: value1 has 2 values, "0" and "1", each appearing 50 times
     sql """insert into full_hot_skew select number, number % 2 from numbers("number"="100")"""
+    wait_row_count_reported("test_full_analyze_hot_value", "full_hot_skew", 0, 4, "100")
 
     sql """analyze table full_hot_skew with sync"""
     def result = sql """show column stats full_hot_skew(value1)"""
@@ -94,6 +124,7 @@ suite("test_full_analyze_hot_value") {
         )
     """
     sql """insert into full_hot_special select number, " : ;a" from numbers("number"="100")"""
+    wait_row_count_reported("test_full_analyze_hot_value", "full_hot_special", 0, 4, "100")
 
     sql """analyze table full_hot_special with sync with hot value"""
     result = sql """show column stats full_hot_special(value1)"""
@@ -173,6 +204,7 @@ suite("test_full_analyze_hot_value") {
         )
     """
     sql """insert into full_hot_all_null select number, null from numbers("number"="100")"""
+    wait_row_count_reported("test_full_analyze_hot_value", "full_hot_all_null", 0, 4, "100")
     sql """analyze table full_hot_all_null with sync with hot value"""
     result = sql """show column stats full_hot_all_null(value1)"""
     logger.info("Test9 all-null result: " + result)
