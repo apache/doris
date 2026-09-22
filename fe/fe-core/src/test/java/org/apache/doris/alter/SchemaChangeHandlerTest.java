@@ -33,6 +33,7 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -1472,6 +1473,147 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "properties(\"normalizer\"=\"alter_fold3_norm_lower\")", "already exists");
     }
 
+    @Test
+    public void testMixedCaseBuiltinNormalizerIgnoresNormalizedLegacyPolicyInDdl() throws Exception {
+        createAnalyzerAliasTable("sc_mixed_lowercase");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        IndexPolicy legacy = replayAliasPolicy(policyMgr, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding"));
+        try {
+            alterTable("alter table test.sc_mixed_lowercase add index idx_mixed(c1) using inverted "
+                    + "properties(\"normalizer\"=\"LowerCase\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.assertEquals("lowercase", storedIndexProperty("sc_mixed_lowercase", "idx_mixed", "normalizer"));
+            expectException("alter table test.sc_mixed_lowercase add index idx_builtin(c1) using inverted "
+                    + "properties(\"normalizer\"=\"lowercase\")", "already exists");
+
+            executeNereidsSql("CREATE TABLE test.sc_mixed_lowercase_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_mixed(c1) USING INVERTED PROPERTIES('normalizer' = 'LowerCase'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("lowercase",
+                    storedIndexProperty("sc_mixed_lowercase_create", "idx_mixed", "normalizer"));
+        } finally {
+            policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(legacy.getId()));
+        }
+    }
+
+    @Test
+    public void testCanonicalBuiltinAnalyzerIgnoresExactLegacyPolicyInDdl() throws Exception {
+        createAnalyzerAliasTable("sc_exact_ik_policy");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        IndexPolicy legacy = replayAliasPolicy(policyMgr, "ik", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "keyword"));
+        try {
+            alterTable("alter table test.sc_exact_ik_policy add index idx_ik(c1) using inverted "
+                    + "properties(\"analyzer\"=\"ik\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.assertEquals("ik", storedIndexProperty("sc_exact_ik_policy", "idx_ik", "analyzer"));
+
+            executeNereidsSql("CREATE TABLE test.sc_exact_ik_policy_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_ik(c1) USING INVERTED PROPERTIES('analyzer' = 'ik'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("ik", storedIndexProperty("sc_exact_ik_policy_create", "idx_ik", "analyzer"));
+        } finally {
+            policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(legacy.getId()));
+        }
+    }
+
+    @Test
+    public void testAddInvertedIndexUsesExactLegacyLowercaseNormalizerIdentity() throws Exception {
+        createAnalyzerAliasTable("sc_exact_lowercase");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = List.of(
+                replayAliasPolicy(policyMgr, "lowercase", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")),
+                replayAliasPolicy(policyMgr, "alter_exact_norm_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")));
+        try {
+            expectException("alter table test.sc_exact_lowercase add index idx_legacy_lowercase(c1) "
+                    + "using inverted properties(\"normalizer\"=\"lowercase\"), add index idx_ascii(c1) "
+                    + "using inverted properties(\"normalizer\"=\"alter_exact_norm_ascii\")", "already exists");
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
+    public void testAddInvertedIndexRejectsRedundantTokenCharAndReverseCaseAliases() throws Exception {
+        createAnalyzerAliasTable("sc_fold4_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = Lists.newArrayList(
+                replayAliasPolicy(policyMgr, "alter_fold4_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                        Map.of("type", "char_replace", "pattern", "A", "replacement", "a")),
+                replayAliasPolicy(policyMgr, "alter_fold4_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                        Map.of("type", "char_replace", "pattern", "a", "replacement", "A")),
+                replayAliasPolicy(policyMgr, "alter_fold4_ngram_letter", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "ngram", "token_chars", "letter")),
+                replayAliasPolicy(policyMgr, "alter_fold4_ngram_letter_a", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "ngram", "token_chars", "letter,custom", "custom_token_chars", "A")),
+                replayAliasPolicy(policyMgr, "alter_fold4_group_letter", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "char_group", "tokenize_on_chars", "[letter]")),
+                replayAliasPolicy(policyMgr, "alter_fold4_group_letter_a", IndexPolicyTypeEnum.TOKENIZER,
+                        Map.of("type", "char_group", "tokenize_on_chars", "[letter],[A]")));
+        String[][] analyzers = {
+                {"alter_fold4_ngram_plain", "alter_fold4_ngram_letter", "alter_fold4_lower_a"},
+                {"alter_fold4_ngram_custom_a", "alter_fold4_ngram_letter_a", "alter_fold4_lower_a"},
+                {"alter_fold4_group_plain", "alter_fold4_group_letter", "alter_fold4_lower_a"},
+                {"alter_fold4_group_literal_a", "alter_fold4_group_letter_a", "alter_fold4_lower_a"},
+                {"alter_fold4_keyword_lower", "keyword", null},
+                {"alter_fold4_upper_keyword_lower", "keyword", "alter_fold4_upper_a"}};
+        for (String[] analyzer : analyzers) {
+            Map<String, String> properties = Maps.newHashMap(
+                    Map.of("tokenizer", analyzer[1], "token_filter", "lowercase"));
+            if (analyzer[2] != null) {
+                properties.put("char_filter", analyzer[2]);
+            }
+            replayed.add(replayAliasPolicy(policyMgr, analyzer[0], IndexPolicyTypeEnum.ANALYZER, properties));
+        }
+        try {
+            Assertions.assertAll(
+                    () -> expectException("alter table test.sc_fold4_alias add index idx_ngram_plain(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_ngram_plain\"), "
+                            + "add index idx_ngram_custom_a(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_ngram_custom_a\")",
+                            "already exists"),
+                    () -> expectException("alter table test.sc_fold4_alias add index idx_group_plain(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_group_plain\"), "
+                            + "add index idx_group_literal_a(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_group_literal_a\")",
+                            "already exists"),
+                    () -> expectException("alter table test.sc_fold4_alias add index idx_keyword_lower(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_keyword_lower\"), "
+                            + "add index idx_upper_keyword_lower(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_fold4_upper_keyword_lower\")",
+                            "already exists"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    private static String storedIndexProperty(String tableName, String indexName, String key) throws Exception {
+        OlapTable tbl = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException(tableName, Table.TableType.OLAP);
+        tbl.readLock();
+        try {
+            return tbl.getIndexes().stream()
+                    .filter(index -> index.getIndexName().equals(indexName))
+                    .findFirst()
+                    .orElseThrow()
+                    .getProperties()
+                    .get(key);
+        } finally {
+            tbl.readUnlock();
+        }
+    }
+
     private void createAnalyzerAliasTable(String tableName) throws Exception {
         createTable("CREATE TABLE IF NOT EXISTS test." + tableName
                 + " (k INT, c1 VARCHAR(100), c2 VARCHAR(100))\n"
@@ -1479,9 +1621,11 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                 + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true');");
     }
 
-    private static void replayAliasPolicy(IndexPolicyMgr policyMgr, String name, IndexPolicyTypeEnum type,
+    private static IndexPolicy replayAliasPolicy(IndexPolicyMgr policyMgr, String name, IndexPolicyTypeEnum type,
             Map<String, String> properties) {
-        policyMgr.replayCreateIndexPolicy(new IndexPolicy(Env.getCurrentEnv().getNextId(), name, type, properties));
+        IndexPolicy policy = new IndexPolicy(Env.getCurrentEnv().getNextId(), name, type, properties);
+        policyMgr.replayCreateIndexPolicy(policy);
+        return policy;
     }
 
     private void alterTable(String sql, ConnectContext connectContext) throws Exception {

@@ -17,8 +17,13 @@
 
 package org.apache.doris.indexpolicy;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.Assertions;
@@ -554,6 +559,76 @@ public class PolicyValidatorTests {
             Assertions.assertThrows(DdlException.class, () -> manager.dropIndexPolicy(
                     false, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
         }
+    }
+
+    @Test
+    public void testCanonicalBuiltinAnalyzerWinsValidationOverExactLegacyPolicy() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                30, "ik", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                31, "legacy_grams", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "common_grams")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                32, "standard", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "legacy_grams")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                33, "English", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                34, "lowercase", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword")));
+
+        Assertions.assertAll(
+                () -> Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("ik")),
+                () -> Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("standard")),
+                () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                        () -> manager.validateAnalyzerExists("English")).getMessage()
+                        .contains("is not an analyzer")),
+                () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                        () -> manager.validateNormalizerExists("lowercase")).getMessage()
+                        .contains("is not a normalizer")));
+    }
+
+    @Test
+    public void testDropDependencyFollowsTopLevelBuiltinPrecedence() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy upperIk = new IndexPolicy(
+                40, "IK", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword"));
+        IndexPolicy upperLowercase = new IndexPolicy(
+                41, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding"));
+        IndexPolicy exactLowercase = new IndexPolicy(
+                42, "lowercase", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding"));
+        OlapTable table = new OlapTable();
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getTables()).thenReturn(List.of(table));
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(catalog.getDbs()).thenReturn(List.of(db));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.replayCreateIndexPolicy(upperIk);
+            manager.replayCreateIndexPolicy(upperLowercase);
+            table.setIndexes(List.of(invertedIndex(1, "analyzer", "ik"), invertedIndex(2, "normalizer", "lowercase")));
+            Assertions.assertDoesNotThrow(() -> manager.dropIndexPolicy(false, "IK", IndexPolicyTypeEnum.ANALYZER));
+            Assertions.assertDoesNotThrow(
+                    () -> manager.dropIndexPolicy(false, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER));
+
+            manager.replayCreateIndexPolicy(upperIk);
+            manager.replayCreateIndexPolicy(exactLowercase);
+            table.setIndexes(List.of(invertedIndex(3, "analyzer", "IK"), invertedIndex(4, "normalizer", "lowercase")));
+            Assertions.assertAll(
+                    () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                            () -> manager.dropIndexPolicy(false, "IK", IndexPolicyTypeEnum.ANALYZER))
+                            .getMessage().contains("is used by index")),
+                    () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                            () -> manager.dropIndexPolicy(false, "lowercase", IndexPolicyTypeEnum.NORMALIZER))
+                            .getMessage().contains("is used by index")));
+        }
+    }
+
+    private static Index invertedIndex(long id, String key, String name) {
+        return new Index(id, "idx_" + id, List.of("content"), IndexType.INVERTED, Map.of(key, name), "");
     }
 
     // StandardTokenizerValidator Tests

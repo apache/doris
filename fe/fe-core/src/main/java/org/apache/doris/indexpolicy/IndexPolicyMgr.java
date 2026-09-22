@@ -79,6 +79,43 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         return exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizeKey(name));
     }
 
+    // Callers hold either the read or write lock. BE dispatches a canonical built-in analyzer, then an
+    // exact policy, then a built-in by normalized name; return that built-in, or null for a policy.
+    private String resolveTopLevelBuiltinLocked(String name, Set<String> builtins) {
+        String exactName = exactKey(name);
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(exactName) && builtins.contains(exactName)) {
+            return exactName;
+        }
+        if (exactNameToIndexPolicy.containsKey(exactName)) {
+            return null;
+        }
+        String normalizedName = normalizeKey(name);
+        return builtins.contains(normalizedName) ? normalizedName : null;
+    }
+
+    /**
+     * The built-in from {@code builtins} that an index's analyzer or normalizer name binds, or null
+     * when {@link #getPolicyByName} gives its binding. Validation uses the same order.
+     */
+    public String getTopLevelBuiltin(String name, Set<String> builtins) {
+        readLock();
+        try {
+            return resolveTopLevelBuiltinLocked(name, builtins);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /** The policy with exactly this name, without the case-insensitive fallback. */
+    public IndexPolicy getPolicyByExactName(String name) {
+        readLock();
+        try {
+            return exactNameToIndexPolicy.get(exactKey(name));
+        } finally {
+            readUnlock();
+        }
+    }
+
     private void writeLock() {
         lock.writeLock().lock();
     }
@@ -148,14 +185,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     public void validateAnalyzerExists(String analyzerName) throws DdlException {
-        String normalizedName = normalizeKey(analyzerName);
         readLock();
         try {
-            IndexPolicy exactPolicy = exactNameToIndexPolicy.get(exactKey(analyzerName));
-            if (exactPolicy == null && IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
+            if (resolveTopLevelBuiltinLocked(analyzerName, IndexPolicy.BUILTIN_ANALYZERS) != null) {
                 return;
             }
-            IndexPolicy policy = exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizedName);
+            IndexPolicy policy = getPolicyByNameLocked(analyzerName);
             if (policy == null) {
                 throw new DdlException("Analyzer '" + analyzerName + "' does not exist");
             }
@@ -234,14 +269,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     }
 
     public void validateNormalizerExists(String normalizerName) throws DdlException {
-        String normalizedName = normalizeKey(normalizerName);
         readLock();
         try {
-            IndexPolicy exactPolicy = exactNameToIndexPolicy.get(exactKey(normalizerName));
-            if (exactPolicy == null && IndexPolicy.BUILTIN_NORMALIZERS.contains(normalizedName)) {
+            if (resolveTopLevelBuiltinLocked(normalizerName, IndexPolicy.BUILTIN_NORMALIZERS) != null) {
                 return;
             }
-            IndexPolicy policy = exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizedName);
+            IndexPolicy policy = getPolicyByNameLocked(normalizerName);
             if (policy == null) {
                 throw new DdlException("Normalizer '" + normalizerName + "' does not exist");
             }
@@ -616,7 +649,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         Map<String, String> properties = index.getProperties();
                         String indexAnalyzer = properties == null ? null
                                 : properties.get(IndexPolicy.PROP_ANALYZER);
-                        if (resolvesToPolicyLocked(indexAnalyzer, analyzer)) {
+                        if (indexBindsPolicyLocked(indexAnalyzer, IndexPolicy.BUILTIN_ANALYZERS, analyzer)) {
                             throw new DdlException("the analyzer " + analyzer.getName() + " is used by index: "
                                     + index.getIndexName() + " in table: "
                                     + db.getFullName() + "." + table.getName());
@@ -648,7 +681,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
                         Map<String, String> properties = index.getProperties();
                         String indexNormalizer = properties == null ? null
                                 : properties.get(IndexPolicy.PROP_NORMALIZER);
-                        if (resolvesToPolicyLocked(indexNormalizer, normalizer)) {
+                        if (indexBindsPolicyLocked(indexNormalizer, IndexPolicy.BUILTIN_NORMALIZERS, normalizer)) {
                             throw new DdlException("the normalizer " + normalizer.getName() + " is used by index: "
                                     + index.getIndexName() + " in table: "
                                     + db.getFullName() + "." + table.getName());
@@ -692,6 +725,12 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     private boolean resolvesToPolicyLocked(String policyName, IndexPolicy expectedPolicy) {
         IndexPolicy resolvedPolicy = policyName == null ? null : getPolicyByNameLocked(policyName);
         return resolvedPolicy != null && resolvedPolicy.getId() == expectedPolicy.getId();
+    }
+
+    // An index's analyzer or normalizer name reaches a policy only when no built-in takes precedence.
+    private boolean indexBindsPolicyLocked(String name, Set<String> builtins, IndexPolicy expectedPolicy) {
+        return name != null && resolveTopLevelBuiltinLocked(name, builtins) == null
+                && resolvesToPolicyLocked(name, expectedPolicy);
     }
 
     private void checkFilterReference(IndexPolicy policy, IndexPolicyTypeEnum referencingType,

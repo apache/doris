@@ -38,9 +38,11 @@ import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -646,6 +648,99 @@ public class InvertedIndexPropertiesTest {
             Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "ik"));
             Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "IK"));
         }
+    }
+
+    @Test
+    public void testMixedCaseBuiltinSpellingsStoreBuiltinDespiteNormalizedLegacyPolicies() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                50, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                51, "IK", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        Map<String, String> mixedNormalizer = new HashMap<>(Map.of("normalizer", "LowerCase"));
+        Map<String, String> mixedAnalyzer = new HashMap<>(Map.of("analyzer", "Ik"));
+        Map<String, String> exactNormalizer = new HashMap<>(Map.of("normalizer", "LOWERCASE"));
+
+        withIndexPolicyManager(policyMgr, () -> {
+            for (Map<String, String> properties : List.of(mixedNormalizer, mixedAnalyzer, exactNormalizer)) {
+                Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
+                        PrimitiveType.VARCHAR, properties, TInvertedIndexFileStorageFormat.V3));
+            }
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals("lowercase", mixedNormalizer.get("normalizer")),
+                    () -> Assertions.assertEquals("ik", mixedAnalyzer.get("analyzer")),
+                    () -> Assertions.assertEquals("LOWERCASE", exactNormalizer.get("normalizer")),
+                    () -> Assertions.assertEquals("lowercase", InvertedIndexUtil.resolveAnalyzerName("LowerCase")),
+                    () -> Assertions.assertEquals("ik", InvertedIndexUtil.resolveAnalyzerName("Ik")),
+                    () -> Assertions.assertEquals("LOWERCASE", InvertedIndexUtil.resolveAnalyzerName("LOWERCASE")));
+        });
+    }
+
+    @Test
+    public void testCreateTableUsesExactLegacyLowercaseNormalizerIdentity() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                60, "lowercase", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                61, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                62, "norm_lower", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+
+        withIndexPolicyManager(policyMgr, () -> Assertions.assertAll(
+                () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                        StringType.INSTANCE, List.of(
+                                normalizerIndexDefinition("idx_legacy_lowercase", "lowercase"),
+                                normalizerIndexDefinition("idx_ascii", "norm_ascii")))),
+                () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                        StringType.INSTANCE, List.of(
+                                normalizerIndexDefinition("idx_legacy_lowercase", "lowercase"),
+                                normalizerIndexDefinition("idx_lower", "norm_lower"))))));
+    }
+
+    @Test
+    public void testCreateTableRejectsRedundantTokenCharAndReverseCaseAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(70, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(71, "upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "a", "replacement", "A")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(72, "ngram_letter", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "letter")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(73, "ngram_letter_a", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "ngram", "token_chars", "letter,custom", "custom_token_chars", "A")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(74, "group_letter", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "char_group", "tokenize_on_chars", "[letter]")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(75, "group_letter_a", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "char_group", "tokenize_on_chars", "[letter],[A]")));
+        String[][] analyzers = {
+                {"ngram_plain", "ngram_letter", "lower_a"},
+                {"ngram_custom_a", "ngram_letter_a", "lower_a"},
+                {"group_plain", "group_letter", "lower_a"},
+                {"group_literal_a", "group_letter_a", "lower_a"},
+                {"keyword_lower", "keyword", null},
+                {"upper_keyword_lower", "keyword", "upper_a"}};
+        long id = 80;
+        for (String[] analyzer : analyzers) {
+            Map<String, String> properties = new HashMap<>(
+                    Map.of("tokenizer", analyzer[1], "token_filter", "lowercase"));
+            if (analyzer[2] != null) {
+                properties.put("char_filter", analyzer[2]);
+            }
+            policyMgr.replayCreateIndexPolicy(
+                    new IndexPolicy(id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER, properties));
+        }
+
+        List<Executable> checks = new ArrayList<>();
+        for (int i = 0; i < analyzers.length; i += 2) {
+            String left = analyzers[i][0];
+            String right = analyzers[i + 1][0];
+            checks.add(() -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                    StringType.INSTANCE, List.of(
+                            invertedIndexDefinition("idx_" + left, left),
+                            invertedIndexDefinition("idx_" + right, right))),
+                    left + " and " + right + " must share one analyzer identity"));
+        }
+        withIndexPolicyManager(policyMgr, () -> Assertions.assertAll(checks));
     }
 
     private static void assertCheckCharFilterPropertiesThrows(Map<String, String> props, String expectedMessage) {

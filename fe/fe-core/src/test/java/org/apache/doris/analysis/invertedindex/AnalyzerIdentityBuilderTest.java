@@ -1624,4 +1624,160 @@ public class AnalyzerIdentityBuilderTest {
                             namedNormalizerIdentity("lowercase")));
         }
     }
+
+    @Test
+    public void testExactLegacyLowercaseNormalizerShadowsBuiltinIdentity() {
+        IndexPolicyMgr exactPolicyMgr = new IndexPolicyMgr();
+        replayComponent(exactPolicyMgr, 1, "lowercase", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding"));
+        replayComponent(exactPolicyMgr, 2, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding"));
+        replayComponent(exactPolicyMgr, 3, "norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        Env exactEnv = Mockito.mock(Env.class);
+        Mockito.when(exactEnv.getIndexPolicyMgr()).thenReturn(exactPolicyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(exactEnv);
+            String legacy = namedNormalizerIdentity("lowercase");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedNormalizerIdentity("norm_ascii"), legacy),
+                    () -> Assertions.assertNotEquals(namedNormalizerIdentity("norm_lower"), legacy),
+                    () -> Assertions.assertNotEquals(legacy, namedNormalizerIdentityWithOuterLowerA("lowercase")));
+        }
+
+        // A policy that only matches after normalization does not shadow the built-in normalizer.
+        IndexPolicyMgr normalizedPolicyMgr = new IndexPolicyMgr();
+        replayComponent(normalizedPolicyMgr, 1, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "asciifolding"));
+        replayComponent(normalizedPolicyMgr, 3, "norm_lower", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "lowercase"));
+        Env normalizedEnv = Mockito.mock(Env.class);
+        Mockito.when(normalizedEnv.getIndexPolicyMgr()).thenReturn(normalizedPolicyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(normalizedEnv);
+            String builtin = namedNormalizerIdentity("lowercase");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedNormalizerIdentity("norm_lower"), builtin),
+                    () -> Assertions.assertEquals(builtin, namedNormalizerIdentityWithOuterLowerA("lowercase")));
+        }
+    }
+
+    @Test
+    public void testCaseTransparencyUsesCanonicalTokenizerSettings() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a"));
+        String[][] tokenizers = {
+                {"ngram_letter", "ngram", "token_chars", "letter", null},
+                {"ngram_letter_a", "ngram", "token_chars", "letter,custom", "A"},
+                {"ngram_digit_a", "ngram", "token_chars", "digit,custom", "A"},
+                {"group_letter", "char_group", "tokenize_on_chars", "[letter]", null},
+                {"group_letter_a", "char_group", "tokenize_on_chars", "[letter],[A]", null},
+                {"group_digit_a", "char_group", "tokenize_on_chars", "[digit],[A]", null}};
+        long id = 10;
+        for (String[] tokenizer : tokenizers) {
+            Map<String, String> properties = new HashMap<>(Map.of("type", tokenizer[1], tokenizer[2], tokenizer[3]));
+            if (tokenizer[4] != null) {
+                properties.put("custom_token_chars", tokenizer[4]);
+            }
+            replayComponent(policyMgr, id++, tokenizer[0], IndexPolicyTypeEnum.TOKENIZER, properties);
+            replayComponent(policyMgr, id++, tokenizer[0] + "_lower", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", tokenizer[0], "token_filter", "lowercase"));
+            replayComponent(policyMgr, id++, tokenizer[0] + "_fold_lower", IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", tokenizer[0], "char_filter", "lower_a", "token_filter", "lowercase"));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("ngram_letter_fold_lower"),
+                            namedAnalyzerIdentity("ngram_letter_a_fold_lower")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("ngram_letter_a_lower"),
+                            namedAnalyzerIdentity("ngram_letter_a_fold_lower")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("group_letter_fold_lower"),
+                            namedAnalyzerIdentity("group_letter_a_fold_lower")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("group_letter_a_lower"),
+                            namedAnalyzerIdentity("group_letter_a_fold_lower")),
+                    // A literal the named classes do not cover keeps the tokenizer case sensitive.
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("ngram_digit_a_lower"),
+                            namedAnalyzerIdentity("ngram_digit_a_fold_lower")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("group_digit_a_lower"),
+                            namedAnalyzerIdentity("group_digit_a_fold_lower")));
+        }
+    }
+
+    @Test
+    public void testDownstreamFoldErasesLowerToUpperReplacement() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "a", "replacement", "A"));
+        replayComponent(policyMgr, 2, "upper_a_to_z", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "z"));
+        replayComponent(policyMgr, 3, "lower_a_to_z", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "a", "replacement", "z"));
+        replayComponent(policyMgr, 4, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        replayComponent(policyMgr, 5, "fold_upper_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[A]"));
+        replayComponent(policyMgr, 6, "fold_upper_b", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[B]"));
+        String[][] analyzers = {
+                {"keyword_lower", null, "lowercase"},
+                {"upper_keyword_lower", "upper_a", "lowercase"},
+                {"keyword_plain", null, null},
+                {"upper_keyword_plain", "upper_a", null},
+                {"fold_only", "fold", null},
+                {"upper_fold", "upper_a,fold", null},
+                {"fold_a_only", "fold_upper_a", null},
+                {"upper_fold_a", "upper_a,fold_upper_a", null},
+                {"fold_b_only", "fold_upper_b", null},
+                {"upper_fold_b", "upper_a,fold_upper_b", null},
+                {"az_fold", "upper_a_to_z,fold", null},
+                {"upper_az_fold", "upper_a,upper_a_to_z,fold", null},
+                {"lower_az_fold", "lower_a_to_z,fold", null},
+                {"upper_lower_az_fold", "upper_a,lower_a_to_z,fold", null}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            Map<String, String> properties = new HashMap<>(Map.of("tokenizer", "keyword"));
+            if (analyzer[1] != null) {
+                properties.put("char_filter", analyzer[1]);
+            }
+            if (analyzer[2] != null) {
+                properties.put("token_filter", analyzer[2]);
+            }
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER, properties);
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String outerUpperA = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "keyword_lower", "char_filter_type", "char_replace",
+                            "char_filter_pattern", "a", "char_filter_replacement", "A"),
+                    "keyword_lower", "none", "__default__", "none", null);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("keyword_lower"),
+                            namedAnalyzerIdentity("upper_keyword_lower")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("keyword_lower"), outerUpperA),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("fold_only"),
+                            namedAnalyzerIdentity("upper_fold")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("fold_a_only"),
+                            namedAnalyzerIdentity("upper_fold_a")),
+                    // Without a fold, outside the fold set, or behind a filter that rewrites either
+                    // case of the letter, the replacement changes the output.
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("keyword_plain"),
+                            namedAnalyzerIdentity("upper_keyword_plain")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("fold_b_only"),
+                            namedAnalyzerIdentity("upper_fold_b")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("az_fold"),
+                            namedAnalyzerIdentity("upper_az_fold")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("lower_az_fold"),
+                            namedAnalyzerIdentity("upper_lower_az_fold")));
+        }
+    }
 }

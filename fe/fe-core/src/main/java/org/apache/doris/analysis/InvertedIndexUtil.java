@@ -26,11 +26,13 @@ import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,6 +46,12 @@ import java.util.Set;
 public class InvertedIndexUtil {
 
     private static final Logger LOG = LogManager.getLogger(InvertedIndexUtil.class);
+
+    // A MATCH analyzer name may select an index by its analyzer or its normalizer.
+    private static final Set<String> BUILTIN_TOP_LEVEL_NAMES = ImmutableSet.<String>builder()
+            .addAll(IndexPolicy.BUILTIN_ANALYZERS)
+            .addAll(IndexPolicy.BUILTIN_NORMALIZERS)
+            .build();
 
     public static String INVERTED_INDEX_PARSER_KEY = InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY;
     public static String INVERTED_INDEX_PARSER_KEY_ALIAS = InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS;
@@ -357,27 +365,33 @@ public class InvertedIndexUtil {
 
     /** Store analyzer and normalizer names in the spelling BE dispatches on. */
     public static void resolvePolicyNames(Map<String, String> properties) {
-        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY);
-        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY, IndexPolicy.BUILTIN_ANALYZERS);
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY, IndexPolicy.BUILTIN_NORMALIZERS);
     }
 
-    private static void normalizeResolvedPolicyName(Map<String, String> properties, String key) {
+    private static void normalizeResolvedPolicyName(Map<String, String> properties, String key,
+            Set<String> builtins) {
         String name = properties.get(key);
         if (name == null || name.isEmpty()) {
             return;
         }
-        properties.put(key, resolveAnalyzerName(name));
+        properties.put(key, resolveAnalyzerName(name, builtins));
     }
 
     /** Resolve built-in names and retain the stored spelling of custom policies. */
     public static String resolveAnalyzerName(String name) {
+        return resolveAnalyzerName(name, BUILTIN_TOP_LEVEL_NAMES);
+    }
+
+    // Validation resolves in the same order, so the stored name binds what it accepted.
+    private static String resolveAnalyzerName(String name, Set<String> builtins) {
         String trimmedName = name.trim();
-        // Match the BE writer's case-sensitive built-in dispatch before policy lookup.
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(trimmedName)
-                || IndexPolicy.BUILTIN_NORMALIZERS.contains(trimmedName)) {
-            return trimmedName;
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        String builtin = policyMgr.getTopLevelBuiltin(trimmedName, builtins);
+        if (builtin != null) {
+            return builtin;
         }
-        IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(trimmedName);
+        IndexPolicy policy = policyMgr.getPolicyByName(trimmedName);
         return policy == null ? trimmedName.toLowerCase(Locale.ROOT) : policy.getName();
     }
 

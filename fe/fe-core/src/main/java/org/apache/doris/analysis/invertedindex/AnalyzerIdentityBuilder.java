@@ -175,8 +175,7 @@ public final class AnalyzerIdentityBuilder {
             return analyzerName;
         }
 
-        // Check if it's a built-in normalizer
-        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
+        if (isBuiltinNormalizerBinding(analyzerName)) {
             return builtinNormalizerIdentity(analyzerName);
         }
 
@@ -218,6 +217,20 @@ public final class AnalyzerIdentityBuilder {
                         analyzerName, e.getMessage());
             }
             return analyzerName;
+        }
+    }
+
+    /** Whether BE builds the built-in normalizer for this name; an exact legacy policy shadows it. */
+    private static boolean isBuiltinNormalizerBinding(String name) {
+        if (!IndexPolicy.BUILTIN_NORMALIZERS.contains(name)) {
+            return false;
+        }
+        try {
+            Env env = Env.getCurrentEnv();
+            return env == null || env.getIndexPolicyMgr() == null
+                    || env.getIndexPolicyMgr().getPolicyByExactName(name) == null;
+        } catch (RuntimeException e) {
+            return true;
         }
     }
 
@@ -1060,6 +1073,12 @@ public final class AnalyzerIdentityBuilder {
             if (fold.foldsByte(upperByte, replacementByte)) {
                 replacedBytes[upperByte] = false;
             }
+        } else if (fold != null && replacementByte >= 'A' && replacementByte <= 'Z') {
+            // The downstream fold maps the replacement back to the lower-case byte it replaced.
+            int lowerByte = replacementByte + ('a' - 'A');
+            if (fold.foldsByte(replacementByte, lowerByte)) {
+                replacedBytes[lowerByte] = false;
+            }
         }
 
         StringBuilder canonical = new StringBuilder();
@@ -1088,7 +1107,7 @@ public final class AnalyzerIdentityBuilder {
         if (IndexPolicy.BUILTIN_ANALYZERS.contains(analyzerName)) {
             return null;
         }
-        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(analyzerName)) {
+        if (isBuiltinNormalizerBinding(analyzerName)) {
             // The built-in normalizer lowercases keyword tokens without char filters of its own.
             return FoldContext.unfiltered();
         }
@@ -1135,7 +1154,10 @@ public final class AnalyzerIdentityBuilder {
         if (settings == null) {
             return false;
         }
-        switch (settings.get(IndexPolicy.PROP_TYPE)) {
+        String type = settings.get(IndexPolicy.PROP_TYPE);
+        // Judge the same canonical settings the tokenizer identity is built from.
+        canonicalizeEffectiveComponentProperties(settings, type, IndexPolicyTypeEnum.TOKENIZER);
+        switch (type) {
             case "standard":
             case "keyword":
             case "icu":
