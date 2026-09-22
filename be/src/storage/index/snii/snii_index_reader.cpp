@@ -114,6 +114,12 @@ std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
     return terms;
 }
 
+int32_t max_expansions_of(const IndexQueryContextPtr& context) {
+    return context->runtime_state == nullptr
+                   ? 50
+                   : context->runtime_state->query_options().inverted_index_max_expansions;
+}
+
 bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
                                        const InvertedIndexQueryInfo& query_info) {
     return query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
@@ -558,13 +564,93 @@ Status SniiIndexReader::query_with_null_bitmap(
                   analyzer_ctx);
 }
 
-// Keep the cache, count-only, candidate and single-flight decisions in one linear path.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status SniiIndexReader::query_analyzed(const IndexQueryContextPtr& context,
+                                       const std::string& column_name,
+                                       InvertedIndexQueryType query_type,
+                                       const InvertedIndexQueryInfo& query_info,
+                                       std::shared_ptr<roaring::Roaring>& bit_map,
+                                       InvertedIndexQueryCacheHandle* null_bitmap_cache_handle) {
+    if (query_info.term_infos.empty()) {
+        return Status::InvalidArgument("analyzed SNII query has no terms");
+    }
+    size_t longest_value_bytes = 0;
+    for (const auto& term_info : query_info.term_infos) {
+        if (!term_info.is_single_term()) {
+            return Status::NotSupported("SNII does not run a multi-term slot in an analyzed query");
+        }
+        longest_value_bytes = std::max(longest_value_bytes, term_info.get_single_term().size());
+    }
+    const int32_t max_expansions = max_expansions_of(context);
+    const InvertedIndexAnalyzedQuerySemantic semantic {.term_infos = &query_info.term_infos,
+                                                       .query_type = query_type,
+                                                       .slop = query_info.slop,
+                                                       .ordered = query_info.ordered,
+                                                       .max_expansions = max_expansions};
+    SniiQueryRequest request {
+            .query_type = query_type,
+            .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
+                          .column_name = column_name,
+                          .query_type = query_type,
+                          .value = semantic.encode()},
+            .max_expansions = max_expansions,
+            .longest_value_bytes = longest_value_bytes,
+            .query_info = query_info,
+            // A WILDCARD or REGEXP query carries its pattern as the one term.
+            .search_str = query_info.term_infos.front().get_single_term(),
+            .parse_terms = [&query_info](InvertedIndexQueryInfo* out) {
+                *out = query_info;
+                return Status::OK();
+            }};
+    return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
+}
+
 Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::string& column_name,
                                const Field& query_value, InvertedIndexQueryType query_type,
                                std::shared_ptr<roaring::Roaring>& bit_map,
                                InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                                const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
+    const int32_t max_expansions = max_expansions_of(context);
+    InvertedIndexQueryInfo query_info;
+    std::string plain_analysis_str = search_str;
+    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+        parse_phrase_slop(&plain_analysis_str, &query_info);
+    }
+    // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
+    // is determined by index properties and policies, which are immutable once referenced, so
+    // sharing can be decided before opening the segment.
+    const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
+                                                      .query_type = query_type,
+                                                      .slop = query_info.slop,
+                                                      .ordered = query_info.ordered,
+                                                      .max_expansions = max_expansions};
+    SniiQueryRequest request {
+            .query_type = query_type,
+            .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
+                          .column_name = column_name,
+                          .query_type = query_type,
+                          .value = raw_semantic.encode()},
+            .max_expansions = max_expansions,
+            .longest_value_bytes = search_str.size(),
+            .query_info = query_info,
+            .search_str = search_str,
+            // Analysis runs only for a query the cache does not answer.
+            .parse_terms = [&, this](InvertedIndexQueryInfo* out) {
+                return _parse_query_terms(context, plain_analysis_str, query_type, analyzer_ctx,
+                                          out);
+            }};
+    return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
+}
+
+// Keep the cache, count-only, candidate and single-flight decisions in one linear path.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
+                                 const std::string& column_name, const SniiQueryRequest& request,
+                                 std::shared_ptr<roaring::Roaring>& bit_map,
+                                 InvertedIndexQueryCacheHandle* null_bitmap_cache_handle) {
+    const InvertedIndexQueryType query_type = request.query_type;
+    const std::string_view search_str = request.search_str;
+    const int32_t max_expansions = request.max_expansions;
     const bool track_requested_null_time = null_bitmap_cache_handle != nullptr;
     const int64_t query_ns_before =
             track_requested_null_time ? context->stats->inverted_index_query_timer : 0;
@@ -584,7 +670,6 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     // Fresh per-search reply: only the query about to run decides whether its result is
     // candidate-restricted.
     context->candidate_rows_consumed = false;
-    const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
     const auto finish_query =
             [&](const ::doris::snii::reader::LogicalIndexReader* reader) -> Status {
         if (null_bitmap_cache_handle == nullptr) {
@@ -600,36 +685,19 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
 
     if (int ignore_above =
                 std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
-        _reader_type == InvertedIndexReaderType::STRING_TYPE && search_str.size() > ignore_above) {
+        _reader_type == InvertedIndexReaderType::STRING_TYPE &&
+        std::cmp_greater(request.longest_value_bytes, ignore_above)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
                 "query value is too long, evaluate skipped.");
     }
 
+    // Scoring queries depend on collection statistics and use neither the result cache nor
+    // single-flight coalescing.
     const bool actual_similarity =
             context->collection_similarity &&
             IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
-    const int32_t max_expansions =
-            context->runtime_state == nullptr
-                    ? 50
-                    : context->runtime_state->query_options().inverted_index_max_expansions;
-    InvertedIndexQueryInfo query_info;
-    std::string plain_analysis_str = search_str;
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-        parse_phrase_slop(&plain_analysis_str, &query_info);
-    }
-    // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
-    // is determined by index properties and policies, which are immutable once referenced, so
-    // sharing can be decided before opening the segment. Scoring queries depend on collection
-    // statistics and use neither the result cache nor single-flight coalescing.
     const bool allow_result_cache = !actual_similarity;
-    const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
-                                                      .query_type = query_type,
-                                                      .slop = query_info.slop,
-                                                      .ordered = query_info.ordered,
-                                                      .max_expansions = max_expansions};
-    const auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
-    InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
-                                                 raw_semantic.encode()};
+    const InvertedIndexQueryCache::CacheKey& cache_key = request.cache_key;
     std::string single_flight_key = cache_key.encode();
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
@@ -645,9 +713,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
 
-    InvertedIndexQueryInfo execution_query_info = query_info;
-    RETURN_IF_ERROR(_parse_query_terms(context, plain_analysis_str, query_type, analyzer_ctx,
-                                       &execution_query_info));
+    InvertedIndexQueryInfo execution_query_info = request.query_info;
+    RETURN_IF_ERROR(request.parse_terms(&execution_query_info));
     if (execution_query_info.term_infos.empty()) {
         auto msg = fmt::format("token parser result is empty for SNII query '{}'", search_str);
         if (is_match_query(query_type)) {
@@ -697,7 +764,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool consume_candidates =
             context->candidate_rows != nullptr && consumes_candidates(query_type, terms.size());
     context->candidate_rows_consumed = consume_candidates;
-    const SniiQueryBitmapRequest request {
+    const SniiQueryBitmapRequest bitmap_request {
             .query_type = query_type,
             .query_info = execution_query_info,
             .search_str = search_str,
@@ -719,8 +786,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                     : nullptr;
     Status single_flight_status;
     if (!allow_result_cache || consume_candidates) {
-        single_flight_status =
-                _compute_query_bitmap(context, request, &terms, &result_bitmap, phrase_matches_out);
+        single_flight_status = _compute_query_bitmap(context, bitmap_request, &terms,
+                                                     &result_bitmap, phrase_matches_out);
     } else {
         DORIS_CHECK(phrase_matches_out == nullptr);
         single_flight_status = run_query_single_flight(
@@ -731,7 +798,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                 _single_flight_leader_before_compute_opaque,
 #endif
                 [&](std::shared_ptr<roaring::Roaring>* out) {
-                    auto status = _compute_query_bitmap(context, request, &terms, out, nullptr);
+                    auto status =
+                            _compute_query_bitmap(context, bitmap_request, &terms, out, nullptr);
                     if (status.ok()) {
                         insert_query_cache(context, cache, cache_key, *out, &cache_handler,
                                            allow_result_cache);

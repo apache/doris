@@ -27,6 +27,7 @@
 #include <roaring/roaring.hh>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -36,6 +37,7 @@
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/snii_bkd_searcher.h"
 #include "util/lru_cache.h"
@@ -229,6 +231,23 @@ struct InvertedIndexRawQuerySemantic {
     bool ordered = false;
     int32_t max_expansions = 0;
     uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
+
+    std::string encode() const;
+};
+
+// The analyzed-query layout has its own version word, so its keys never encode
+// like a raw query's.
+inline constexpr uint32_t INVERTED_INDEX_ANALYZED_QUERY_CACHE_SEMANTICS_VERSION = 1002;
+
+// Identity of a query whose terms the caller analyzed: the terms with their
+// positions replace the raw query bytes.
+struct InvertedIndexAnalyzedQuerySemantic {
+    const std::vector<TermInfo>* term_infos = nullptr;
+    InvertedIndexQueryType query_type;
+    int32_t slop = 0;
+    bool ordered = false;
+    int32_t max_expansions = 0;
+    uint32_t cache_semantics_version = INVERTED_INDEX_ANALYZED_QUERY_CACHE_SEMANTICS_VERSION;
 
     std::string encode() const;
 };

@@ -54,6 +54,22 @@ std::string InvertedIndexRawQuerySemantic::encode() const {
     return output;
 }
 
+std::string InvertedIndexAnalyzedQuerySemantic::encode() const {
+    DCHECK(term_infos != nullptr);
+    std::string output;
+    put_fixed32_le(&output, cache_semantics_version);
+    put_fixed32_le(&output, static_cast<uint32_t>(term_infos->size()));
+    for (const auto& term_info : *term_infos) {
+        put_fixed32_le(&output, static_cast<uint32_t>(term_info.position));
+        append_length_prefixed(term_info.get_single_term(), &output);
+    }
+    put_fixed32_le(&output, static_cast<uint32_t>(query_type));
+    put_fixed32_le(&output, static_cast<uint32_t>(slop));
+    output.push_back(static_cast<char>(ordered));
+    put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
+    return output;
+}
+
 std::string InvertedIndexQueryCache::CacheKey::encode() const {
     if (query_type_to_string(query_type).empty()) {
         return {};

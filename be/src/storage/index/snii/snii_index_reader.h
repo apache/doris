@@ -18,12 +18,14 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
@@ -46,6 +48,20 @@ struct SniiQueryBitmapRequest {
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     // Scan candidates a multi-term phrase is restricted to; null for a full-segment query.
     const roaring::Roaring* candidates = nullptr;
+};
+
+// One query once its cache identity is known. `parse_terms` supplies the term
+// infos of a query the cache does not answer; `query_info` carries the rest.
+struct SniiQueryRequest {
+    InvertedIndexQueryType query_type;
+    InvertedIndexQueryCache::CacheKey cache_key;
+    int32_t max_expansions = 0;
+    // The longest value the STRING_TYPE ignore_above limit applies to.
+    size_t longest_value_bytes = 0;
+    InvertedIndexQueryInfo query_info;
+    // The pattern of a WILDCARD or REGEXP query, and the text messages quote.
+    std::string_view search_str;
+    std::function<Status(InvertedIndexQueryInfo*)> parse_terms;
 };
 
 class SniiIndexReader final : public InvertedIndexReader {
@@ -85,6 +101,11 @@ public:
                                   std::shared_ptr<roaring::Roaring>& bit_map,
                                   InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) override;
+    Status query_analyzed(
+            const IndexQueryContextPtr& context, const std::string& column_name,
+            InvertedIndexQueryType query_type, const InvertedIndexQueryInfo& query_info,
+            std::shared_ptr<roaring::Roaring>& bit_map,
+            InvertedIndexQueryCacheHandle* null_bitmap_cache_handle = nullptr) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const Field& query_value, InvertedIndexQueryType query_type,
                      size_t* count) override;
@@ -116,6 +137,11 @@ private:
                   std::shared_ptr<roaring::Roaring>& bit_map,
                   InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                   const InvertedIndexAnalyzerCtx* analyzer_ctx);
+    // Everything after the terms are known: cache, count-only fast path, candidates,
+    // single flight, scoring and the null bitmap.
+    Status _execute(const IndexQueryContextPtr& context, const std::string& column_name,
+                    const SniiQueryRequest& request, std::shared_ptr<roaring::Roaring>& bit_map,
+                    InvertedIndexQueryCacheHandle* null_bitmap_cache_handle);
     Status _parse_query_terms(const IndexQueryContextPtr& context, std::string search_str,
                               InvertedIndexQueryType query_type,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,

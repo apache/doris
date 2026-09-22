@@ -36,6 +36,7 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 
@@ -235,6 +236,19 @@ public:
     virtual Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                              const Field& query_value, InvertedIndexQueryType query_type,
                              size_t* count) = 0;
+
+    // Runs a query whose terms the caller already analyzed: `query_info.term_infos`
+    // are taken verbatim (single terms at their positions; a WILDCARD or REGEXP
+    // query carries its pattern as the one term) and `query_info.slop` and
+    // `ordered` apply to a phrase. Readers that only accept raw values keep the
+    // default.
+    virtual Status query_analyzed(
+            const IndexQueryContextPtr& /*context*/, const std::string& /*column_name*/,
+            InvertedIndexQueryType /*query_type*/, const InvertedIndexQueryInfo& /*query_info*/,
+            std::shared_ptr<roaring::Roaring>& /*bit_map*/,
+            InvertedIndexQueryCacheHandle* /*null_bitmap_cache_handle*/ = nullptr) {
+        return Status::NotSupported("this index reader does not run analyzed queries");
+    }
 
     virtual Status read_null_bitmap(const IndexQueryContextPtr& context,
                                     InvertedIndexQueryCacheHandle* cache_handle,
