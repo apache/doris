@@ -22,11 +22,13 @@ import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
@@ -49,6 +51,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
@@ -69,12 +72,14 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
@@ -377,6 +382,18 @@ public class MTMV extends OlapTable {
             Map<TableNameInfo, Integer> oldWindowLimits = containsPartitionWindowLimit
                     ? MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties)
                     : Maps.newHashMap();
+            // A partition_sync_limit window decides which base partitions the MV maintains. Only a change
+            // that can bring a partition back into that set needs a complete baseline rebuild -- a removed
+            // or wider limit -- because its deltas were skipped while it was outside and nothing
+            // incremental can repair them. That is the same trade as the two properties around it. A
+            // window that starts applying, a narrower one, and one that describes the same set as before
+            // leave the applied deltas intact; the partitions they take out are dropped by partition sync
+            // before the refresh plans, and taking one back in is the widening this answers. Doing it here,
+            // in the critical section that applies the ALTER, is also what keeps a window set and cleared
+            // while an invalidation reads the mapping from making that mapping look unwindowed.
+            boolean containsSyncWindow = MTMVPropertyUtil.containsPartitionSyncWindow(mvProperties);
+            Map<String, String> oldSyncWindow = containsSyncWindow
+                    ? MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties) : null;
             this.mvProperties.putAll(mvProperties);
             // Both excluded_trigger_tables changes and window limit enlargement/removal
             // change the refresh baseline semantics: partitions previously skipped become
@@ -420,6 +437,11 @@ public class MTMV extends OlapTable {
                         break;
                     }
                 }
+            }
+            if (containsSyncWindow && ivmInfo != null && ivmInfo.isEnableIvm()
+                    && MTMVPropertyUtil.partitionSyncWindowWidens(oldSyncWindow,
+                            MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties))) {
+                requireCompleteBaselineRebuild = true;
             }
             if (invalidateRefreshSnapshot || requireCompleteBaselineRebuild) {
                 this.schemaChangeVersion++;
@@ -680,26 +702,43 @@ public class MTMV extends OlapTable {
         editLogItem.await();
     }
 
-    public void invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions) {
+    /**
+     * Mark the MV partitions that may hold rows read from the changed base table partitions as needing a
+     * rebuild. When those partitions cannot be determined, the whole MV is marked instead.
+     */
+    /**
+     * @return whether a barrier was recorded. The caller reports the two outcomes differently: a change
+     *         that no MV partition reads leaves nothing to rebuild and must not be logged as one.
+     */
+    public boolean invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions) {
+        // Computed before the MV lock is taken, not inside it: the mapping reads the partition items of the
+        // MV and of every PCT table, so it takes those tables' locks, and the MV lock has to stay a leaf
+        // (nothing may be acquired under it) the way the rest of this class assumes. The selection does not
+        // need to be atomic with the barrier it produces: the barrier is recorded under the lock below, and
+        // the names it carries are intersected with the live partition names when they are consumed
+        // (MTMVTask).
+        Optional<Set<String>> affectedMvPartitions = selectAffectedMvPartitions(baseTableInfo,
+                changedPartitions);
+        if (affectedMvPartitions.isPresent() && affectedMvPartitions.get().isEmpty()) {
+            // No MV partition reads any of the changed base partitions, so this change cannot leave
+            // anything behind here: there is no barrier to persist, and skipping the version bump
+            // keeps it from discarding the result of a task that is already running.
+            LOG.debug("No MV partition is affected by changed base partitions, mv={}, baseTable={}, "
+                    + "changedPartitions={}", name, baseTableInfo, changedPartitions);
+            return false;
+        }
         EditLogItem editLogItem;
         writeMvLock();
         try {
             if (ivmInfo == null) {
                 ivmInfo = new IvmInfo();
             }
-            if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                    && mvPartitionInfo.getPctInfos().stream()
-                    .anyMatch(pctInfo -> pctInfo.getTableInfo().equals(baseTableInfo))) {
-                Optional<Set<String>> mvPartitionNames = refreshSnapshot.getMvPartitionNames(baseTableInfo,
-                        changedPartitions);
-                if (mvPartitionNames.isPresent()) {
-                    ivmInfo.addPendingBaselineRebuildPartitions(mvPartitionNames.get());
-                } else {
-                    // Without a snapshot for every changed base partition, a PARTITIONS rebuild is unsafe.
-                    ivmInfo.requireCompleteBaselineRebuild();
-                }
-            } else {
+            if (!affectedMvPartitions.isPresent()) {
+                // A narrower rebuild could leave a partition holding rows of the changed base partition
+                // untouched, and those rows cannot be repaired later: the change emitted no row binlog.
                 ivmInfo.requireCompleteBaselineRebuild();
+            } else {
+                ivmInfo.addPendingBaselineRebuildPartitions(affectedMvPartitions.get());
             }
             schemaChangeVersion++;
             editLogItem = submitIvmInfoChange();
@@ -707,6 +746,194 @@ public class MTMV extends OlapTable {
             writeMvUnlock();
         }
         editLogItem.await();
+        return true;
+    }
+
+    /**
+     * Select the MV partitions that may hold rows read from the changed base table partitions.
+     *
+     * <p>This asks which MV partitions read the changed base partitions at all, instead of (as the
+     * refresh snapshot based selection did) which of them had already seen them. The snapshot is a lower
+     * bound that is allowed to lag: a base partition that was added after the snapshot was captured never
+     * appears in it, so it can report "this partition never read the changed base partition" about a
+     * partition that does hold its rows. Missing a partition here is not repaired by a later refresh --
+     * dropping or truncating a base partition emits no row binlog, so the incremental path never learns
+     * about those orphan rows and they stay in the MV forever.
+     *
+     * <p>Three cases have no answer in the mapping, and each of them must rebuild the whole MV instead:
+     * a SELF_MANAGE MV (the mapping API answers nothing for it, although its single partition reads every
+     * base partition); a base table that is not one of the MV's PCT tables (the mapping is seeded from
+     * {@code getPctTables()} and never gains a table later, so a joined partition table that the MV's
+     * partition column does not reach is not described at all); and a changed partition that is not in
+     * the base table's metadata right now, which is how RECOVER PARTITION arrives here -- it marks before
+     * the partition is added back, so at this point the partition is still in the recycle bin.
+     *
+     * <p>Locking is the fourth way to end up rebuilding everything, but it is contention rather than a
+     * property of the MV: the tables whose partition items the mapping reads are locked with a bounded
+     * tryLock, and the MV is rebuilt only while one of them is being written. See the comment at that
+     * loop.
+     *
+     * <p>An empty result is meaningful, on the other hand: the mapping lists every base partition read by
+     * the MV, so a changed base partition that no MV partition maps to is read by none of them.
+     *
+     * @param changedBasePartitions base partition name to partition id, never empty
+     * @return {@link Optional#empty()} when the affected MV partitions cannot be determined, otherwise the
+     *         (possibly empty) set of MV partition names that must be rebuilt
+     */
+    private Optional<Set<String>> selectAffectedMvPartitions(BaseTableInfo baseTableInfo,
+            Map<String, Long> changedBasePartitions) {
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Optional.empty();
+        }
+        MTMVRelatedTableIf pctTable = findPctTable(baseTableInfo);
+        if (pctTable == null) {
+            return Optional.empty();
+        }
+        // Computing the mapping reads the partition items of the MV and of every PCT table, which means
+        // taking their read locks. The caller already holds the changed table's write lock (a partition DDL
+        // marks before it releases it), so these other reads must not block: two partition DDLs on two PCT
+        // tables of this MV would otherwise each hold the write lock the other one needs, and acquiring in
+        // id order cannot break a cycle whose first lock is already held. They are taken with a bounded
+        // tryLock instead, the way the stream cleanup treats a busy table: a busy table means a writer is
+        // involved, and then the whole MV is rebuilt. The list is still sorted by id so that the acquisition
+        // order matches the rest of the code base.
+        List<TableIf> tablesToRead = Lists.newArrayListWithCapacity(mvPartitionInfo.getPctInfos().size() + 1);
+        tablesToRead.add(this);
+        for (BaseColInfo pctInfo : mvPartitionInfo.getPctInfos()) {
+            if (pctInfo.getTableInfo().equals(baseTableInfo)) {
+                continue;
+            }
+            try {
+                tablesToRead.add(MTMVUtil.getTable(pctInfo.getTableInfo()));
+            } catch (Exception e) {
+                LOG.warn("Failed to resolve PCT table {}, rebuild the whole MV. mv={}",
+                        pctInfo.getTableInfo(), name, e);
+                return Optional.empty();
+            }
+        }
+        tablesToRead.sort(Comparator.comparing(TableIf::getId));
+        if (!MetaLockUtils.tryReadLockTables(tablesToRead, Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            LOG.warn("A PCT table is busy, rebuild the whole MV {} instead of selecting part of it", name);
+            return Optional.empty();
+        }
+        try {
+            // A partition that is missing from the metadata here is invisible to the mapping as well, so
+            // an empty answer below would be indistinguishable from "no MV partition reads it". It has to
+            // be the partition the caller described, not merely one carrying the same name: RECOVER
+            // PARTITION reports the recycled partition under its old name, and a partition added after
+            // the drop may be live under that name again, with a different range. Matching on the name
+            // alone would accept that replacement, select the MV partitions of its range, and leave the
+            // recovered range -- whose rows no row binlog can repair -- without a barrier. The lookup is
+            // by exact name, so a name that only differs in case takes the whole-MV path too. Base tables
+            // that do not implement getPartition -- the external ones -- answer null for every name, so a
+            // partition change on them always rebuilds the whole MV. That matches what the
+            // refresh-snapshot selection answered for them, and the mapping has never been exercised for
+            // external tables (IVM does not support them as base tables yet): revisit before taking the
+            // narrow path for them.
+            for (Entry<String, Long> changedBasePartition : changedBasePartitions.entrySet()) {
+                Partition livePartition = pctTable.getPartition(changedBasePartition.getKey());
+                if (livePartition == null || livePartition.getId() != changedBasePartition.getValue()) {
+                    return Optional.empty();
+                }
+            }
+            // Whether a partition_sync_limit is in effect decides whether the mapping built below may be
+            // trusted, and it is read on both sides of that construction. It has to be: the property is
+            // mutable (ALTER MATERIALIZED VIEW ... SET is not generation guarded) and the mapping is built
+            // from it, so a read taken on one side only can be the stale one. Reading it after the mapping
+            // alone misses a limit cleared while the mapping was built -- the mapping is then the windowed
+            // one and would be trusted; reading it before alone misses a limit set in that same window, for
+            // the opposite reason. The two reads bracket exactly the construction, and a limit in effect on
+            // either of them means the mapping that came out of it may carry a window.
+            boolean partitionSyncLimitActiveBeforeMapping =
+                    MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties);
+            Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings =
+                    calculatePartitionMappings(Maps.newHashMap());
+            boolean partitionSyncLimitActiveAfterMapping =
+                    MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties);
+            Set<String> res = Sets.newHashSet();
+            boolean pctTableMapped = false;
+            // Every base partition this table's part of the mapping describes, which is what the selection
+            // below is only allowed to trust when it covers the whole change.
+            Set<String> mappedBasePartitions = Sets.newHashSet();
+            for (Entry<String, Map<MTMVRelatedTableIf, Set<String>>> mapping : partitionMappings.entrySet()) {
+                for (Entry<MTMVRelatedTableIf, Set<String>> tableMapping : mapping.getValue().entrySet()) {
+                    if (!tableMapping.getKey().equals(pctTable)) {
+                        continue;
+                    }
+                    pctTableMapped = true;
+                    mappedBasePartitions.addAll(tableMapping.getValue());
+                    if (!Collections.disjoint(tableMapping.getValue(), changedBasePartitions.keySet())) {
+                        res.add(mapping.getKey());
+                    }
+                }
+            }
+            // The mapping does not describe this base table at all. That contradicts the PCT check above,
+            // so it is safer to rebuild everything than to trust a selection that never saw the table --
+            // unless the MV has no partition of its own yet, which is the one shape where the missing
+            // entries are not a surprise: an MV without partitions holds no rows.
+            if (!pctTableMapped) {
+                if (getPartitionNames().isEmpty()) {
+                    LOG.info("MV has no partition yet, nothing can hold the changed base partitions. "
+                            + "baseTable={}, mv={}", baseTableInfo, name);
+                    return Optional.of(Sets.newHashSet());
+                }
+                LOG.warn("Base table is not described by the partition mapping, rebuild the whole MV. "
+                        + "baseTable={}, mv={}", baseTableInfo, name);
+                return Optional.empty();
+            }
+            // A selection is only trustworthy while the mapping describes every base partition that
+            // changed. With a partition_sync_limit in effect it does not: the window leaves out the
+            // partitions it dropped, and one of those can still have its rows in an MV partition --
+            // shrinking the window does not touch the MV's own partitions, and widening it again makes
+            // partition sync keep them. A name the mapping leaves out cannot be told apart from a
+            // partition no MV partition reads, so the whole MV is rebuilt instead. Requiring the whole
+            // change to be described, rather than only a non-empty selection, is what covers a change
+            // that mixes a partition inside the window with one outside it: the inside half would
+            // otherwise fill the selection and hide the missing half. Without a limit the mapping is
+            // complete, and a partition it leaves out really is one no MV partition reads. Either of the
+            // two reads above counts: a limit that was in effect while the mapping was built leaves it
+            // incomplete even if the limit is gone by now.
+            if ((partitionSyncLimitActiveBeforeMapping || partitionSyncLimitActiveAfterMapping)
+                    && !mappedBasePartitions.containsAll(changedBasePartitions.keySet())) {
+                LOG.info("Changed base partitions are outside the partition_sync_limit window and the MV may "
+                        + "still hold their rows, rebuild the whole MV. baseTable={}, changedPartitions={}, "
+                        + "undescribed={}, mv={}", baseTableInfo, changedBasePartitions.keySet(),
+                        Sets.difference(changedBasePartitions.keySet(), mappedBasePartitions), name);
+                return Optional.empty();
+            }
+            return Optional.of(res);
+        } catch (Exception e) {
+            // The base table change is applied either way, so this must not fail the DDL: warn and take
+            // the safe direction instead.
+            LOG.warn("Failed to map base table partitions to MV partitions, rebuild the whole MV. "
+                    + "baseTable={}, changedPartitions={}, mv={}", baseTableInfo, changedBasePartitions,
+                    name, e);
+            return Optional.empty();
+        } finally {
+            MetaLockUtils.readUnlockTables(tablesToRead);
+        }
+    }
+
+    /**
+     * Resolve the PCT table that {@code baseTableInfo} refers to, or null when the MV has no PCT entry
+     * for it.
+     */
+    private MTMVRelatedTableIf findPctTable(BaseTableInfo baseTableInfo) {
+        for (BaseColInfo pctInfo : mvPartitionInfo.getPctInfos()) {
+            if (!pctInfo.getTableInfo().equals(baseTableInfo)) {
+                continue;
+            }
+            try {
+                TableIf pctTable = MTMVUtil.getTable(pctInfo.getTableInfo());
+                if (pctTable instanceof MTMVRelatedTableIf) {
+                    return (MTMVRelatedTableIf) pctTable;
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to resolve PCT table {}, mv={}", pctInfo.getTableInfo(), name, e);
+            }
+            return null;
+        }
+        return null;
     }
 
     /**

@@ -76,7 +76,7 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
      * @param mvProperties
      * @return
      */
-    public MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
+    public static MTMVPartitionSyncConfig generateMTMVPartitionSyncConfigByProperties(
             Map<String, String> mvProperties) {
         int syncLimit = StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT)) ? -1
                 : Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT));
