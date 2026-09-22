@@ -668,6 +668,11 @@ struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
 
+struct TKinesisChildShardInfo {
+    1: required string shardId
+    2: required set<string> parentShardIds
+}
+
 // Kinesis routine load task progress
 // Maps shard ID to the last committed sequence number
 struct TKinesisRLTaskProgress {
@@ -679,6 +684,8 @@ struct TKinesisRLTaskProgress {
     // Set of shard IDs that have been closed (split/merge) during consumption.
     // FE should remove these shards from tracking.
     3: optional set<string> closedShardIds
+    // Child shard lineage observed when a parent reaches the end of its stream.
+    4: optional list<TKinesisChildShardInfo> childShardInfos
 }
 
 struct TRLTaskTxnCommitAttachment {

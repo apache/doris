@@ -278,7 +278,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         } finally {
             routineLoadJob.writeUnlock();
         }
-        addTaskInQueue(newTask);
+        if (newTask != null) {
+            addTaskInQueue(newTask);
+        }
     }
 
     private void updateBackendSlotIfNecessary() {

@@ -828,7 +828,9 @@ public abstract class RoutineLoadJob
                     // so task can no longer be committed successfully.
                     // the already committed task will not be handled here.
                     RoutineLoadTaskInfo newTask = unprotectRenewTask(routineLoadTaskInfo, false);
-                    Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
+                    if (newTask != null) {
+                        Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newTask);
+                    }
                 }
             }
         } finally {
@@ -892,6 +894,12 @@ public abstract class RoutineLoadJob
     }
 
     // if rate of error data is more than max_filter_ratio, pause job
+    // Sources with transaction visibility barriers need the transaction identity as well as progress.
+    protected void updateProgress(RLTaskTxnCommitAttachment attachment, TransactionState txnState)
+            throws UserException {
+        updateProgress(attachment);
+    }
+
     protected void updateProgress(RLTaskTxnCommitAttachment attachment) throws UserException {
         updateNumOfData(attachment.getTotalRows(), attachment.getFilteredRows(), attachment.getUnselectedRows(),
                 attachment.getReceivedBytes(), attachment.getTaskExecutionTimeMs(), false /* not replay */);
@@ -990,6 +998,10 @@ public abstract class RoutineLoadJob
         this.otherMsg = "";
         this.errorLogUrls.clear();
         this.firstErrorMsg = "";
+    }
+
+    protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment, TransactionState txnState) {
+        replayUpdateProgress(attachment);
     }
 
     protected void replayUpdateProgress(RLTaskTxnCommitAttachment attachment) {
@@ -1206,7 +1218,7 @@ public abstract class RoutineLoadJob
     @Override
     public void replayOnCommitted(TransactionState txnState) {
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
-        replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+        replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(), txnState);
         this.jobStatistic.committedTaskNum++;
         if (LOG.isDebugEnabled()) {
             LOG.debug("replay on committed: {}", txnState);
@@ -1273,7 +1285,9 @@ public abstract class RoutineLoadJob
 
             // create new task
             RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo, false);
-            Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+            if (newRoutineLoadTaskInfo != null) {
+                Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+            }
         } finally {
             writeUnlock();
         }
@@ -1385,7 +1399,7 @@ public abstract class RoutineLoadJob
                 && checkCommitInfo((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(),
                         txnState,
                         TransactionState.TxnStatusChangeReason.fromString(txnState.getReason()))) {
-            replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
+            replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment(), txnState);
         }
         this.jobStatistic.abortedTaskNum++;
         if (LOG.isDebugEnabled()) {
@@ -1412,7 +1426,7 @@ public abstract class RoutineLoadJob
             }
         } else if (checkCommitInfo(rlTaskTxnCommitAttachment, txnState, txnStatusChangeReason)) {
             // step2: update job progress
-            updateProgress(rlTaskTxnCommitAttachment);
+            updateProgress(rlTaskTxnCommitAttachment, txnState);
             routineLoadTaskInfo.handleTaskByTxnCommitAttachment(rlTaskTxnCommitAttachment);
         }
 
@@ -1427,7 +1441,9 @@ public abstract class RoutineLoadJob
         if (state == JobState.RUNNING) {
             if (txnStatus == TransactionStatus.ABORTED) {
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = unprotectRenewTask(routineLoadTaskInfo, true);
-                Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+                if (newRoutineLoadTaskInfo != null) {
+                    Env.getCurrentEnv().getRoutineLoadTaskScheduler().addTaskInQueue(newRoutineLoadTaskInfo);
+                }
             } else if (txnStatus == TransactionStatus.COMMITTED) {
                 // this txn is just COMMITTED, create new task when the this txn is VISIBLE
                 // or if publish version task has some error,
@@ -2048,6 +2064,16 @@ public abstract class RoutineLoadJob
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {
+        TUniqueKeyUpdateMode newMode = uniqueKeyUpdateMode;
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+            newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(
+                    jobProperties.get(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE));
+            // Validate before changing any job properties, including batch and error limits.
+            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                validateFlexiblePartialUpdateForAlter();
+            }
+        }
+
         if (jobProperties.containsKey(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             this.desireTaskConcurrentNum = Integer.parseInt(
                     jobProperties.remove(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
@@ -2080,12 +2106,7 @@ public abstract class RoutineLoadJob
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
-            String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
-            TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
-            // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
-            if (newMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                validateFlexiblePartialUpdateForAlter();
-            }
+            jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             this.uniqueKeyUpdateMode = newMode;
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
