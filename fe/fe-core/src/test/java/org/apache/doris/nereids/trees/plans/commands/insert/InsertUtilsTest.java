@@ -52,6 +52,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -120,7 +121,18 @@ public class InsertUtilsTest {
                 ImmutableList.of(),
                 values);
 
-        Plan normalized = InsertUtils.normalizePlan(sink, table, Optional.empty(), Optional.empty());
+        IcebergWriteSchemaContext writeSchemaContext = IcebergWriteSchemaContext.forSchema(
+                pinnedSchema, 3, true, true);
+        Plan normalized;
+        try (MockedStatic<IcebergWriteSchemaContext> mockedContext = Mockito.mockStatic(
+                IcebergWriteSchemaContext.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedContext.when(() -> IcebergWriteSchemaContext.create(table, Optional.empty()))
+                    .thenAnswer(invocation -> {
+                        Mockito.verify(table).loadSnapshot(Optional.empty(), Optional.empty());
+                        return writeSchemaContext;
+                    });
+            normalized = InsertUtils.normalizePlan(sink, table, Optional.empty(), Optional.empty());
+        }
 
         LogicalInlineTable normalizedValues = (LogicalInlineTable) normalized.child(0);
         List<List<NamedExpression>> rows = normalizedValues.getConstantExprsList();
