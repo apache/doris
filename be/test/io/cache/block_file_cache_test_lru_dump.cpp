@@ -430,43 +430,48 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
 
-    io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
+    // The two caches share one meta store directory, and rocksdb only lets one instance hold
+    // it at a time. Keeping cache1 alive here would leave cache2 without a meta store, so its
+    // async load would find nothing and silently skip the reconciliation under test.
     int i = 0;
-    for (; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        for (; i < 100; i++) {
+            if (cache.get_async_open_success()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ASSERT_TRUE(cache.get_async_open_success());
+
+        io::CacheContext context1;
+        ReadStatistics rstats;
+        context1.stats = &rstats;
+        context1.cache_type = io::FileCacheType::NORMAL;
+        context1.query_id = query_id;
+        auto key1 = io::BlockFileCache::hash("key1");
+
+        int64_t offset = 0;
+
+        for (; offset < 500000; offset += 100000) {
+            auto holder = cache.get_or_set(key1, offset, 100000, context1);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+
+            blocks.clear();
+        }
+
+        std::this_thread::sleep_for(
+                std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
     }
-    ASSERT_TRUE(cache.get_async_open_success());
-
-    io::CacheContext context1;
-    ReadStatistics rstats;
-    context1.stats = &rstats;
-    context1.cache_type = io::FileCacheType::NORMAL;
-    context1.query_id = query_id;
-    auto key1 = io::BlockFileCache::hash("key1");
-
-    int64_t offset = 0;
-
-    for (; offset < 500000; offset += 100000) {
-        auto holder = cache.get_or_set(key1, offset, 100000, context1);
-        auto blocks = fromHolder(holder);
-        ASSERT_EQ(blocks.size(), 1);
-
-        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
-                     io::FileBlock::State::EMPTY);
-        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(blocks[0]);
-        assert_range(2, blocks[0], io::FileBlock::Range(offset, offset + 99999),
-                     io::FileBlock::State::DOWNLOADED);
-
-        blocks.clear();
-    }
-
-    std::this_thread::sleep_for(
-            std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
 
     // now we have NORMAL queue dump, let's copy the dump and name it as TTL to create dup
     std::filesystem::path src = cache_base_path / "lru_dump_normal.tail";
@@ -534,39 +539,45 @@ TEST_F(BlockFileCacheTest, test_ttl_restore_adopts_stored_expiration) {
     // restore parks a block on, nor with a stale value.
     const int64_t expiration_time = UnixSeconds() + 30 * 24 * 60 * 60;
 
-    io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
-    int i = 0;
-    for (; i < 100; i++) {
-        if (cache.get_async_open_success()) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    ASSERT_TRUE(cache.get_async_open_success());
-
-    io::CacheContext context;
-    ReadStatistics rstats;
-    context.stats = &rstats;
-    context.cache_type = io::FileCacheType::TTL;
-    context.query_id = query_id;
-    context.expiration_time = expiration_time;
     auto key1 = io::BlockFileCache::hash("key_ttl_restore");
 
-    for (int64_t offset = 0; offset < 500000; offset += 100000) {
-        auto holder = cache.get_or_set(key1, offset, 100000, context);
-        auto blocks = fromHolder(holder);
-        ASSERT_EQ(blocks.size(), 1);
-        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
-        download(blocks[0]);
-        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
-                     io::FileBlock::State::DOWNLOADED);
-        blocks.clear();
-    }
-    ASSERT_EQ(cache._ttl_queue.get_elements_num_unsafe(), 5);
+    // The two caches share one meta store directory, and rocksdb only lets one instance hold
+    // it at a time. Keeping cache1 alive here would leave cache2 without a meta store, so its
+    // async load would never hand the restored blocks their real expiration time.
+    int i = 0;
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        for (; i < 100; i++) {
+            if (cache.get_async_open_success()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        ASSERT_TRUE(cache.get_async_open_success());
 
-    std::this_thread::sleep_for(
-            std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
+        io::CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
+        context.cache_type = io::FileCacheType::TTL;
+        context.query_id = query_id;
+        context.expiration_time = expiration_time;
+
+        for (int64_t offset = 0; offset < 500000; offset += 100000) {
+            auto holder = cache.get_or_set(key1, offset, 100000, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+            download(blocks[0]);
+            assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+            blocks.clear();
+        }
+        ASSERT_EQ(cache._ttl_queue.get_elements_num_unsafe(), 5);
+
+        std::this_thread::sleep_for(
+                std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
+    }
     ASSERT_TRUE(fs::exists(cache_base_path / "lru_dump_ttl.tail"));
 
     io::BlockFileCache cache2(cache_base_path, settings);
@@ -595,11 +606,18 @@ TEST_F(BlockFileCacheTest, test_ttl_restore_adopts_stored_expiration) {
     }
     EXPECT_EQ(checked, 5);
 
-    // What the manager holds and what storage holds now agree, which is what the
-    // consistency check reports on.
-    std::vector<std::string> inconsistencies;
-    ASSERT_TRUE(cache2.report_file_cache_inconsistency(inconsistencies).ok());
-    EXPECT_TRUE(inconsistencies.empty()) << inconsistencies[0];
+    // The meta store is the source of truth being copied from, so it must come through the
+    // restore untouched: nothing may write the placeholder back into it.
+    auto* storage = dynamic_cast<io::FSFileCacheStorage*>(cache2._storage.get());
+    ASSERT_NE(storage, nullptr);
+    auto* meta_store = storage->get_meta_store();
+    ASSERT_NE(meta_store, nullptr);
+    for (int64_t offset = 0; offset < 500000; offset += 100000) {
+        auto meta = meta_store->get(io::BlockMetaKey(0, key1, offset));
+        ASSERT_TRUE(meta.has_value()) << "offset=" << offset;
+        EXPECT_EQ(meta->ttl, static_cast<uint64_t>(expiration_time)) << "offset=" << offset;
+        EXPECT_EQ(meta->type, io::FileCacheType::TTL) << "offset=" << offset;
+    }
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
