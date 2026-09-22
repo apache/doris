@@ -421,6 +421,36 @@ TEST_F(IndexPolicyMgrTest, ExactCustomNormalizerDoesNotPublishBuiltinAlias) {
     EXPECT_TRUE(legacy_name.empty()) << legacy_name;
 }
 
+TEST_F(IndexPolicyMgrTest, PolicyOnTheCanonicalNameLeavesOtherSpellingsOnTheBuiltin) {
+    IndexPolicyMgr manager;
+
+    // A policy replayed under the canonical name shadows the built-in normalizer for that exact
+    // spelling only. FE relies on this to keep an index bound to the built-in: it persists the
+    // user's spelling when the canonical one is taken.
+    TIndexPolicy shadow;
+    shadow.id = 190;
+    shadow.name = "lowercase";
+    shadow.type = TIndexPolicyType::NORMALIZER;
+    shadow.properties["token_filter"] = "asciifolding";
+    manager.apply_policy_changes({shadow}, {});
+
+    // asciifolding leaves "Ab" alone, so the emitted term tells the two bindings apart.
+    const std::string text = "Ab";
+    auto analyze = [&](const std::string& name) {
+        auto analyzer = manager.get_analyzer_by_name(name);
+        auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+        auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                reader, analyzer.get());
+        EXPECT_EQ(terms.size(), 1) << name;
+        return terms.empty() ? std::string() : terms[0].get_single_term();
+    };
+
+    EXPECT_EQ(analyze("lowercase"), "Ab");
+    EXPECT_EQ(analyze("LowerCase"), "ab");
+    EXPECT_EQ(analyze("LOWERCASE"), "ab");
+}
+
 TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
     TIndexPolicy analyzer;
     analyzer.id = 20;
