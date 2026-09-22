@@ -160,5 +160,105 @@ suite("test_point_query_read_time_hidden_columns") {
         limit 4
     """
 
+    // Reach the default cumulative-compaction minimum of five singleton rowsets without
+    // changing BE configuration. These extra rows sort after the four rows under test.
+    sql "insert into hidden_version_topn_row_store values (5, 5, 'extra-5')"
+    sql "insert into hidden_version_topn_row_store values (6, 6, 'extra-6')"
+    sql "insert into hidden_version_topn_row_store values (7, 7, 'extra-7')"
+    trigger_and_wait_compaction("hidden_version_topn_row_store", "cumulative")
+
+    def backendIdToIp = [:]
+    def backendIdToHttpPort = [:]
+    getBackendIpHttpPort(backendIdToIp, backendIdToHttpPort)
+    for (def tablet : sql_return_maparray("show tablets from hidden_version_topn_row_store")) {
+        String backendId = tablet.BackendId
+        String tabletId = tablet.TabletId
+        def (code, out, err) = be_show_tablet_status(
+                backendIdToIp[backendId], backendIdToHttpPort[backendId], tabletId)
+        assertEquals(0, code)
+        def rowsets = parseJson(out.trim()).rowsets
+        // A successful trigger can still be a no-op. Verify the physical precondition: the
+        // five singleton rowsets from the inserts above, ending at the tablet's visible
+        // version, must have merged into one multi-version rowset.
+        long lastVersion = tablet.Version as long
+        String compactedRowset = "[${lastVersion - 4}-${lastVersion}] "
+        assertTrue(rowsets.any { it.startsWith(compactedRowset) },
+                "Expected compacted ${compactedRowset}: ${rowsets}")
+    }
+
+    qt_compacted_row_store_normal_versions """
+        select /*+ SET_VAR(topn_lazy_materialization_threshold=0) */
+               k, payload, __DORIS_VERSION_COL__
+        from hidden_version_topn_row_store
+        order by sort_key
+        limit 4
+    """
+    explain {
+        sql """
+            select /*+ SET_VAR(enable_short_circuit_query_access_column_store=false) */
+                   k, payload, __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            where k = 1
+        """
+        contains("SHORT-CIRCUIT")
+    }
+    for (int key = 1; key <= 4; ++key) {
+        order_qt_compacted_row_store_point_versions """
+            select k, payload, __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            where k = ${key}
+        """
+        order_qt_compacted_row_store_point_no_column_store_versions """
+            select /*+ SET_VAR(enable_short_circuit_query_access_column_store=false) */
+                   k, payload, __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            where k = ${key}
+        """
+        order_qt_compacted_row_store_point_hidden_only """
+            select __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            where k = ${key}
+        """
+    }
+    explain {
+        sql """
+            shape plan
+            select k, payload, __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            order by sort_key
+            limit 4
+        """
+        contains("PhysicalLazyMaterialize")
+    }
+    qt_compacted_row_store_topn_versions """
+        select k, payload, __DORIS_VERSION_COL__
+        from hidden_version_topn_row_store
+        order by sort_key
+        limit 4
+    """
+
+    qt_compacted_row_store_topn_hidden_first """
+        select __DORIS_VERSION_COL__, k, payload
+        from hidden_version_topn_row_store
+        order by sort_key
+        limit 4
+    """
+    explain {
+        sql """
+            shape plan
+            select __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            order by sort_key
+            limit 4
+        """
+        contains("PhysicalLazyMaterialize")
+    }
+    qt_compacted_row_store_topn_hidden_only """
+        select __DORIS_VERSION_COL__
+        from hidden_version_topn_row_store
+        order by sort_key
+        limit 4
+    """
+
     sql "set show_hidden_columns = false"
 }
