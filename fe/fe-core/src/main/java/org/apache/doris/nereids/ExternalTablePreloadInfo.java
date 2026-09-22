@@ -28,6 +28,7 @@ public class ExternalTablePreloadInfo {
     private final ExternalTable table;
     private boolean hasLatestOnlyRelation;
     private boolean hasNonLatestRelation;
+    private boolean hasUnfilteredLatestRelation;
     /**
      * The scan-path partition view materialized by the pre-lock preload pass, or {@code null} when that pass
      * did not run (or did not warm one). An {@link Optional#empty()} value is meaningful and different from
@@ -52,6 +53,10 @@ public class ExternalTablePreloadInfo {
         hasNonLatestRelation = true;
     }
 
+    public void markUnfilteredLatestRelation() {
+        hasUnfilteredLatestRelation = true;
+    }
+
     public boolean hasLatestOnlyRelation() {
         return hasLatestOnlyRelation;
     }
@@ -63,6 +68,14 @@ public class ExternalTablePreloadInfo {
     public boolean shouldPreloadLatestSnapshot() {
         // A historical alias has independent scan state and must not cancel the latest alias warmup.
         return hasLatestOnlyRelation;
+    }
+
+    /**
+     * Whether at least one latest relation had no initial LogicalFilter. The pre-lock full-view warmup is
+     * only useful for such a scan; a selectively filtered relation must let connector pruning avoid it.
+     */
+    public boolean shouldPreloadUnfilteredScanPartitionView() {
+        return hasUnfilteredLatestRelation;
     }
 
     /** Whether the pre-lock preload pass materialized this table's scan partition view. */

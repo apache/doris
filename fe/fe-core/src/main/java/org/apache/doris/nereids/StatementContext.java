@@ -627,6 +627,15 @@ public class StatementContext implements Closeable {
      */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
+        registerExternalTableForPreload(table, tableSnapshot, scanParams, false);
+    }
+
+    /**
+     * Register an external relation for pre-lock metadata preload. {@code hasInitialFilter} records whether
+     * this relation is below a LogicalFilter in the plan before locks are acquired.
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams, boolean hasInitialFilter) {
         if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
             return;
         }
@@ -642,6 +651,9 @@ public class StatementContext implements Closeable {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
+            if (!hasInitialFilter) {
+                preloadInfo.markUnfilteredLatestRelation();
+            }
         }
     }
 
@@ -1416,11 +1428,13 @@ public class StatementContext implements Closeable {
 
     /**
      * Materializes one table's deferred scan partition view and records it on its preload entry. No-op when the
-     * view is already materialized, or when the table has no LATEST reference: the collector only reuses the
-     * view for a reference without a version selector, so warming any other generation would be unused work.
+     * view is already materialized, when no latest reference is initially unfiltered, or when the connector
+     * does not support deferred partition pruning: a filtered relation must let connector pruning avoid the
+     * full view instead of eagerly enumerating it.
      */
     public void preloadDeferredScanPartitionView(ExternalTablePreloadInfo preloadInfo) {
-        if (preloadInfo.hasScanPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()) {
+        if (preloadInfo.hasScanPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || !preloadInfo.shouldPreloadUnfilteredScanPartitionView()) {
             return;
         }
         ExternalTable table = preloadInfo.getTable();

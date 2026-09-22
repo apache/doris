@@ -22,12 +22,18 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.analysis.CollectRelation;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -647,6 +653,57 @@ public class StatementContextTest {
         } finally {
             statementContext.close();
         }
+    }
+
+    @Test
+    public void testFilteredScanDoesNotWarmUnfilteredPartitionViewBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(28L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            LogicalPlan plan = new NereidsParser().parseSingle(
+                    "select * from hive_catalog.db.hive_table where hive_table.p = 1");
+            UnboundRelation relation = findUnboundRelation(plan);
+            CollectRelation collectRelation = new CollectRelation(false);
+            boolean hasInitialFilter = Deencapsulation.invoke(
+                    collectRelation, "isUnderInitialFilter", plan, relation);
+            org.junit.jupiter.api.Assertions.assertTrue(hasInitialFilter,
+                    "the parsed mixed-plan Hive scan must be recognized as filtered");
+
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty(), hasInitialFilter);
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    statementContext.getExternalTablePreloadInfo(28L).get().hasScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    private static UnboundRelation findUnboundRelation(Plan plan) {
+        if (plan instanceof UnboundRelation) {
+            return (UnboundRelation) plan;
+        }
+        for (Plan child : plan.children()) {
+            UnboundRelation relation = findUnboundRelation(child);
+            if (relation != null) {
+                return relation;
+            }
+        }
+        return null;
     }
 
     @Test
