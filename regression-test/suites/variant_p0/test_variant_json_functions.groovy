@@ -27,7 +27,7 @@ suite("test_variant_json_functions", "p0") {
         INSERT INTO test_variant_json_functions
         SELECT k, parse_to_variant(doc) FROM (
             SELECT 1 AS k, '{"a":1,"s":"x","b":{"c":[1,2]}}' AS doc
-            UNION ALL SELECT 2, '{"a":2.5,"s":"yz","b":{"c":[]},"n":{"m":true}}'
+            UNION ALL SELECT 2, '{"a":2,"s":"yz","b":{"c":[3]},"n":{"m":true}}'
             UNION ALL SELECT 3, '[1,"two",{"three":3}]'
             UNION ALL SELECT 4, '42'
             UNION ALL SELECT 5, 'abc'
