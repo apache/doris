@@ -385,7 +385,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 List<String> allShards = shardTopology.getReadyShardIds();
 
                 currentConcurrentTaskNum = Math.min(currentConcurrentTaskNum, allShards.size());
-                // Divide only ready shards, including children released since the last scan.
+                // Divide only ready shards, including confirmed children whose parents still drain.
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<String, String> taskKinesisProgress = Maps.newHashMap();
                     for (int j = i; j < allShards.size(); j = j + currentConcurrentTaskNum) {

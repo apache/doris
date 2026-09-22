@@ -150,7 +150,7 @@ public class KinesisLatestPositionTest {
     @Test
     public void testUnassignedProgressShardsAreNotScanned() throws Exception {
         try (Fixture f = new Fixture()) {
-            f.progress.addShardPosition(Pair.of("shard-2", "LATEST"));
+            f.progress.addShardPosition(Pair.of("closed-shard", "LATEST"));
             f.progress.addShardPosition(Pair.of("removed-shard", "LATEST"));
             Deencapsulation.setField(f.job, "closedKinesisShards",
                     new ArrayList<>(List.of("closed-shard")));
@@ -167,7 +167,7 @@ public class KinesisLatestPositionTest {
     @Test
     public void testClosedTopologyShardIsResolvedBeforeDrain() throws Exception {
         try (Fixture f = new Fixture()) {
-            f.progress.addShardPosition(Pair.of("closed-shard", "LATEST"));
+            f.progress.addShardPosition(Pair.of("shard-2", "LATEST"));
             KinesisShardTopology topology = new KinesisShardTopology();
             topology.mergeShardInfos(List.of(
                     InternalService.PShardInfo.newBuilder().setShardId("shard-0").build(),

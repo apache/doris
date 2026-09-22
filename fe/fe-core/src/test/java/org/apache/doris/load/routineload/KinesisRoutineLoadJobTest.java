@@ -18,10 +18,12 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kinesis.KinesisUtil;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
@@ -29,12 +31,15 @@ import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisShardTopology;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -46,6 +51,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -93,15 +99,15 @@ public class KinesisRoutineLoadJobTest {
             KinesisShardTopology topology = new KinesisShardTopology();
             topology.mergeShardInfos(List.of(
                     createShardInfo("parent"),
-                    createChildShardInfo("pending-child", "parent"),
+                    createChildShardInfo("child", "parent"),
                     InternalService.PShardInfo.newBuilder().setShardId("closed").setClosed(true).build()),
                     KinesisProgress.POSITION_TRIM_HORIZON, KinesisProgress.POSITION_TRIM_HORIZON);
             Deencapsulation.setField(job, "shardTopology", topology);
             Deencapsulation.setField(job, "desireTaskConcurrentNum", 6);
 
-            // Only parent and the initially closed shard are ready; the child is pending.
-            Assertions.assertEquals(2, topology.getReadyShardIds().size());
-            Assertions.assertEquals(2, job.calculateCurrentConcurrentTaskNum());
+            // Child, parent and the initially closed shard can all consume independently.
+            Assertions.assertEquals(3, topology.getReadyShardIds().size());
+            Assertions.assertEquals(3, job.calculateCurrentConcurrentTaskNum());
 
             Deencapsulation.setField(job, "desireTaskConcurrentNum", 1);
             Assertions.assertEquals(1, job.calculateCurrentConcurrentTaskNum());
@@ -289,7 +295,12 @@ public class KinesisRoutineLoadJobTest {
                 "The specified shard shard-unknown is not in the consumed shards");
 
         job.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, true);
-        try (MockedStatic<KinesisUtil> kinesisUtil = Mockito.mockStatic(KinesisUtil.class)) {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<KinesisUtil> kinesisUtil = Mockito.mockStatic(KinesisUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
             kinesisUtil.when(() -> KinesisUtil.getAllKinesisShardInfos(
                     job.getRegion(), job.getStream(), job.getEndpoint(), job.getConvertedCustomProperties()))
                     .thenReturn(List.of(
@@ -301,7 +312,8 @@ public class KinesisRoutineLoadJobTest {
             kinesisUtil.verify(() -> KinesisUtil.getAllKinesisShardInfos(
                     job.getRegion(), job.getStream(), job.getEndpoint(), job.getConvertedCustomProperties()));
             Assertions.assertTrue((Boolean) Deencapsulation.invoke(job, "isKinesisShardsChanged"));
-            List<String> openShards = Deencapsulation.getField(job, "openKinesisShards");
+            KinesisShardTopology topology = Deencapsulation.getField(job, "shardTopology");
+            List<String> openShards = topology.getOpenShardIds();
             if (explicitShards) {
                 Assertions.assertEquals(List.of("shard-0"), openShards);
             } else {
@@ -430,88 +442,85 @@ public class KinesisRoutineLoadJobTest {
 
     @Test
     public void testShardRefreshShouldMoveRetiredParentToClosedUntilConsumed() throws Exception {
-        KinesisRoutineLoadJob routineLoadJob =
-                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
-                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
-
-        Map<String, String> shardToSeqNum = new HashMap<>();
-        shardToSeqNum.put("shard-parent", "100");
-        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(shardToSeqNum));
-        Deencapsulation.setField(routineLoadJob, "openKinesisShards", Lists.newArrayList("shard-parent"));
-        Deencapsulation.setField(routineLoadJob, "closedKinesisShards", Lists.newArrayList());
-        Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
-                Lists.newArrayList("shard-child-0", "shard-child-1"));
-
-        Assertions.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
-        List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
-        List<String> closedKinesisShards = Deencapsulation.getField(routineLoadJob, "closedKinesisShards");
-        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
-                new HashSet<>(openKinesisShards));
-        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent")),
-                new HashSet<>(closedKinesisShards));
-
-        Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
-        KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
-        Assertions.assertTrue(progress.containsShard("shard-parent"));
-        Assertions.assertTrue(progress.containsShard("shard-child-0"));
-        Assertions.assertTrue(progress.containsShard("shard-child-1"));
-
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
-        routineLoadJob.divideRoutineLoadJob(2);
-        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-parent", "shard-child-0", "shard-child-1")),
-                collectAssignedShards(routineLoadJob));
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        RoutineLoadTaskScheduler scheduler = Mockito.mock(RoutineLoadTaskScheduler.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getRoutineLoadTaskScheduler()).thenReturn(scheduler);
+            KinesisRoutineLoadJob job = createJobBeforeSplit();
+            Deencapsulation.setField(job, "newCurrentKinesisShardInfos", splitShardInfos());
+            Assertions.assertTrue((Boolean) Deencapsulation.invoke(job, "isKinesisShardsChanged"));
+            KinesisShardTopology topology = Deencapsulation.getField(job, "shardTopology");
+            Assertions.assertEquals(List.of("shard-child-0", "shard-child-1"), topology.getOpenShardIds());
+            Assertions.assertEquals(List.of("shard-parent"), topology.getClosedShardIds());
+            KinesisProgress progress = Deencapsulation.getField(job, "progress");
+            Assertions.assertEquals("100", progress.getSequenceNumberByShard("shard-parent"));
+            Assertions.assertEquals("TRIM_HORIZON", progress.getSequenceNumberByShard("shard-child-0"));
+            Assertions.assertEquals("TRIM_HORIZON", progress.getSequenceNumberByShard("shard-child-1"));
+            job.divideRoutineLoadJob(2);
+            Assertions.assertEquals(Set.of("shard-parent", "shard-child-0", "shard-child-1"),
+                    collectAssignedShards(job));
+        }
     }
 
     @Test
     public void testFullyConsumedClosedParentShouldNotReappearOnRefresh() throws Exception {
-        KinesisRoutineLoadJob routineLoadJob =
-                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
-                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        RoutineLoadTaskScheduler scheduler = Mockito.mock(RoutineLoadTaskScheduler.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            Mockito.when(env.getRoutineLoadTaskScheduler()).thenReturn(scheduler);
+            KinesisRoutineLoadJob job = createJobBeforeSplit();
+            Deencapsulation.setField(job, "newCurrentKinesisShardInfos", splitShardInfos());
+            Assertions.assertTrue((Boolean) Deencapsulation.invoke(job, "isKinesisShardsChanged"));
+            Map<String, String> childProgress = Map.of("shard-child-0", "200", "shard-child-1", "300");
+            Map<String, Long> childLag = Map.of("shard-child-0", 0L, "shard-child-1", 100L);
+            RLTaskTxnCommitAttachment attachment = createCommitAttachment(
+                    createProgress(childProgress, childLag, "shard-parent"));
+            TransactionState txn = new TransactionState();
+            txn.setTransactionId(11L);
+            txn.setTxnCommitAttachment(attachment);
+            job.replayOnCommitted(txn);
+            job.replayOnVisible(txn);
+            KinesisProgress progress = Deencapsulation.getField(job, "progress");
+            Assertions.assertEquals(childProgress, progress.getShardIdToSequenceNumber());
+            KinesisShardTopology topology = Deencapsulation.getField(job, "shardTopology");
+            Assertions.assertEquals(List.of("shard-child-0", "shard-child-1"), topology.getOpenShardIds());
+            Assertions.assertTrue(topology.getClosedShardIds().isEmpty());
+            Map<String, Long> cachedLag = Deencapsulation.getField(job, "cachedShardWithMillsBehindLatest");
+            Assertions.assertEquals(childLag, cachedLag);
+            job.divideRoutineLoadJob(2);
 
-        Map<String, String> parentProgress = new HashMap<>();
-        parentProgress.put("shard-parent", "100");
-        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(parentProgress));
-        Deencapsulation.setField(routineLoadJob, "openKinesisShards", Lists.newArrayList("shard-parent"));
-        Deencapsulation.setField(routineLoadJob, "closedKinesisShards", Lists.newArrayList());
-        Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
-                Lists.newArrayList("shard-child-0", "shard-child-1"));
+            // AWS still lists the completed parent; refreshing must not revive it.
+            Deencapsulation.setField(job, "newCurrentKinesisShardInfos", splitShardInfos());
+            Assertions.assertFalse((Boolean) Deencapsulation.invoke(job, "isKinesisShardsChanged"));
+            Assertions.assertFalse(progress.containsShard("shard-parent"));
+            Assertions.assertEquals(Set.of("shard-child-0", "shard-child-1"), collectAssignedShards(job));
+        }
+    }
 
-        Assertions.assertTrue((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
-        Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
+    private KinesisRoutineLoadJob createJobBeforeSplit() {
+        KinesisRoutineLoadJob job = new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        KinesisShardTopology topology = new KinesisShardTopology();
+        topology.mergeShardInfos(List.of(createShardInfo("shard-parent")), "100", "TRIM_HORIZON");
+        Deencapsulation.setField(job, "shardTopology", topology);
+        Deencapsulation.setField(job, "progress", new KinesisProgress(Map.of("shard-parent", "100")));
+        return job;
+    }
 
-        Map<String, String> childProgress = new HashMap<>();
-        childProgress.put("shard-child-0", "200");
-        childProgress.put("shard-child-1", "300");
-        Map<String, Long> oldLag = new HashMap<>();
-        oldLag.put("shard-parent", 60_000L);
-        Deencapsulation.setField(routineLoadJob, "cachedShardWithMillsBehindLatest", oldLag);
-        Map<String, Long> childLag = new HashMap<>();
-        childLag.put("shard-child-0", 0L);
-        childLag.put("shard-child-1", 100L);
-        RLTaskTxnCommitAttachment attachment =
-                createCommitAttachment(createProgress(childProgress, childLag, "shard-parent"));
-        Deencapsulation.invoke(routineLoadJob, "updateProgressAndOffsetsCache", attachment);
-
-        KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
-        Assertions.assertFalse(progress.containsShard("shard-parent"));
-        Assertions.assertTrue(progress.containsShard("shard-child-0"));
-        Assertions.assertTrue(progress.containsShard("shard-child-1"));
-        List<String> openKinesisShards = Deencapsulation.getField(routineLoadJob, "openKinesisShards");
-        Assertions.assertEquals(new HashSet<>(Lists.newArrayList("shard-child-0", "shard-child-1")),
-                new HashSet<>(openKinesisShards));
-        Assertions.assertTrue(((List<String>) Deencapsulation.getField(routineLoadJob, "closedKinesisShards")).isEmpty());
-        Map<String, Long> cachedLag = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
-        Assertions.assertFalse(cachedLag.containsKey("shard-parent"));
-        Assertions.assertEquals(0L, cachedLag.get("shard-child-0").longValue());
-        Assertions.assertEquals(100L, cachedLag.get("shard-child-1").longValue());
-
-        Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
-                Lists.newArrayList("shard-child-0", "shard-child-1"));
-        Assertions.assertFalse((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+    private List<InternalService.PShardInfo> splitShardInfos() {
+        return List.of(InternalService.PShardInfo.newBuilder().setShardId("shard-parent").setClosed(true).build(),
+                createChildShardInfo("shard-child-0", "shard-parent"),
+                createChildShardInfo("shard-child-1", "shard-parent"));
     }
 
     @Test
-    public void testReplayCommittedKeepsChildPendingUntilVisible() {
+    public void testReplayCommittedAllowsChildBeforeParentVisible() throws Exception {
         KinesisRoutineLoadJob job = new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
                 1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
         KinesisShardTopology topology = new KinesisShardTopology();
@@ -530,14 +539,11 @@ public class KinesisRoutineLoadJobTest {
         txn.setTxnCommitAttachment(attachment);
 
         job.replayOnCommitted(txn);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
-                topology.getNodes().get("child").getState());
-        Assertions.assertTrue(topology.getReadyShardIds().isEmpty());
-
-        job.replayOnVisible(txn);
         Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
                 topology.getNodes().get("child").getState());
         Assertions.assertEquals(List.of("child"), topology.getReadyShardIds());
+        Assertions.assertEquals(KinesisShardTopology.ShardState.DRAINING,
+                topology.getNodes().get("parent").getState());
 
         Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         Env env = Mockito.mock(Env.class);
@@ -549,7 +555,10 @@ public class KinesisRoutineLoadJobTest {
             Assertions.assertEquals(Set.of("child"), collectAssignedShards(job));
         }
 
-        // Replaying visibility is idempotent.
+        // Visibility completes only the parent; the child has already been scheduled.
+        job.replayOnVisible(txn);
+        Assertions.assertEquals(KinesisShardTopology.ShardState.COMPLETED,
+                topology.getNodes().get("parent").getState());
         job.replayOnVisible(txn);
         Assertions.assertEquals(List.of("child"), topology.getReadyShardIds());
     }
@@ -588,15 +597,35 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.setField(job, "shardTopology", topology);
         Deencapsulation.setField(job, "progress", new KinesisProgress(Map.of("shard-0", "900")));
 
-        KinesisRoutineLoadJob restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(job),
-                KinesisRoutineLoadJob.class);
-        restored.gsonPostProcess();
-
-        KinesisShardTopology restoredTopology = Deencapsulation.getField(restored, "shardTopology");
-        KinesisProgress restoredProgress = Deencapsulation.getField(restored, "progress");
-        Assertions.assertEquals("900", restoredTopology.getStartPosition("shard-0"));
-        Assertions.assertEquals("900", restoredProgress.getSequenceNumberByShard("shard-0"));
-        Assertions.assertEquals(List.of("shard-0"), restoredTopology.getReadyShardIds());
+        // Base gsonPostProcess restores the load definition before reconciling Kinesis positions.
+        // Supply its catalog/parser dependencies rather than restoring an invalid job with no SQL.
+        String sql = "CREATE ROUTINE LOAD job ON tbl FROM KINESIS";
+        job.setOrigStmt(new OriginStatement(sql, 0));
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getName()).thenReturn("test_db");
+        Mockito.when(db.getId()).thenReturn(1L);
+        InternalCatalog catalog = env.getInternalCatalog();
+        Mockito.when(catalog.getDb(1L)).thenReturn(java.util.Optional.of(db));
+        Mockito.when(catalog.getDb("test_db")).thenReturn(java.util.Optional.of(db));
+        Mockito.when(env.getCatalogMgr().getCatalog(Mockito.anyString())).thenReturn(catalog);
+        CreateRoutineLoadCommand command = Mockito.mock(CreateRoutineLoadCommand.class);
+        CreateRoutineLoadInfo info = Mockito.mock(CreateRoutineLoadInfo.class);
+        Mockito.when(command.getCreateRoutineLoadInfo()).thenReturn(info);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<NereidsParser> parsers = Mockito.mockConstruction(NereidsParser.class,
+                        (parser, context) -> Mockito.when(parser.parseSingle(sql)).thenReturn(command))) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            KinesisRoutineLoadJob restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(job),
+                    KinesisRoutineLoadJob.class);
+            Assertions.assertEquals(1, parsers.constructed().size());
+            Assertions.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, restored.getState());
+            KinesisShardTopology restoredTopology = Deencapsulation.getField(restored, "shardTopology");
+            KinesisProgress restoredProgress = Deencapsulation.getField(restored, "progress");
+            Assertions.assertEquals("900", restoredTopology.getStartPosition("shard-0"));
+            Assertions.assertEquals("900", restoredProgress.getSequenceNumberByShard("shard-0"));
+            Assertions.assertEquals(List.of("shard-0"), restoredTopology.getReadyShardIds());
+        }
     }
 
     @Test

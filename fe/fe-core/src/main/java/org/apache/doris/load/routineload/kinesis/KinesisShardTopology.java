@@ -31,11 +31,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Job-owned lineage and scheduling barriers. All mutations require the job write lock. */
+/** Job-owned lineage and shard lifecycle. All mutations require the job write lock. */
 public class KinesisShardTopology {
     public enum ShardState {
         DISCOVERED,
-        PENDING_PARENT,
         ACTIVE,
         DRAINING,
         COMPLETED
@@ -231,7 +230,7 @@ public class KinesisShardTopology {
         reconcileStates();
     }
 
-    /** EOF is durable at COMMITTED, but neither parent nor children can run before VISIBLE. */
+    /** EOF is durable at COMMITTED. Only this shard stops running until VISIBLE completes it. */
     public void markEndCommitted(String shardId, long txnId) {
         ShardNode node = Preconditions.checkNotNull(nodes.get(shardId), "Unknown Kinesis shard %s", shardId);
         if (node.state == ShardState.COMPLETED) {
@@ -357,13 +356,8 @@ public class KinesisShardTopology {
             node.state = ShardState.DISCOVERED;
             return;
         }
-        for (String parentId : node.parentShardIds) {
-            ShardNode parent = nodes.get(parentId);
-            if (!parent.outsideInitialSnapshot && parent.state != ShardState.COMPLETED) {
-                node.state = ShardState.PENDING_PARENT;
-                return;
-            }
-        }
+        // Lineage records split/merge relationships; it does not constrain consumption order.
+        // A child with confirmed metadata and a resolved position can run while its parents drain.
         node.state = node.sourceClosed ? ShardState.DRAINING : ShardState.ACTIVE;
     }
 }
