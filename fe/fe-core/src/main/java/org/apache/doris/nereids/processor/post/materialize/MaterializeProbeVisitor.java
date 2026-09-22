@@ -37,6 +37,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
@@ -204,6 +209,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalCatalogRelation(
             PhysicalCatalogRelation relation, ProbeContext context) {
+        if (!(relation instanceof PhysicalOlapScan) && requiresInitialExternalScan(context.slot.getDataType())) {
+            return Optional.empty();
+        }
         if (checkRelationTableSupportedType(relation)
                     && relation.getOutput().contains(context.slot)
                     && !relation.getOperativeSlots().contains(context.slot)) {
@@ -221,6 +229,9 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     @Override
     public Optional<MaterializeSource> visitPhysicalTVFRelation(
             PhysicalTVFRelation tvfRelation, ProbeContext context) {
+        if (!isLanceExternalSearch(tvfRelation) && requiresInitialExternalScan(context.slot.getDataType())) {
+            return Optional.empty();
+        }
         // The first Lance implementation fetches top-level columns by row ID. Keep nested
         // sub-column projections in the search phase until take_rows supports access paths.
         if (isLanceExternalSearch(tvfRelation) && context.slot.hasSubColPath()) {
@@ -238,6 +249,29 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
         }
 
         return Optional.empty();
+    }
+
+    private static boolean requiresInitialExternalScan(DataType type) {
+        // Phase-two FileScanner V1 supports neither external VARIANT nor versioned timestamps.
+        // Check nested types before lazy pruning hides these leaves from regular scan validation.
+        return VariantType.containsVariant(type) || containsTimestamp(type);
+    }
+
+    private static boolean containsTimestamp(DataType type) {
+        if (type.isDateTimeType() || type.isDateTimeV2Type() || type.isTimeStampTzType()) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsTimestamp(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            return containsTimestamp(((MapType) type).getKeyType())
+                    || containsTimestamp(((MapType) type).getValueType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream().anyMatch(field -> containsTimestamp(field.getDataType()));
+        }
+        return false;
     }
 
     @Override

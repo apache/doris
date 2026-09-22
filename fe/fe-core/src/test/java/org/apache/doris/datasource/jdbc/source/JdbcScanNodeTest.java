@@ -24,12 +24,14 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -40,10 +42,74 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 
 public class JdbcScanNodeTest {
+
+    @Test
+    public void testZonedTimestampCalendarFunctionsStayLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "event_time");
+        slot.setType(ScalarType.createTimeStampTzType(6));
+        Expr year = new FunctionCallExpr("year", Arrays.asList(slot));
+        for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.MYSQL, TOdbcTableType.CLICKHOUSE)) {
+            Assert.assertEquals(false, method.invoke(null, dialect,
+                    new BinaryPredicate(Operator.EQ, year, new IntLiteral(2020))));
+        }
+        // A direct null check is timezone-independent and should still be pushed down.
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.MYSQL, new IsNullPredicate(slot, false)));
+    }
+
+    @Test
+    public void testZonedTimestampLiteralStaysLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "event_time");
+        slot.setType(ScalarType.createTimeStampTzType(6));
+        DateLiteral literal = new DateLiteral(java.time.LocalDateTime.parse("2020-01-02T04:01:00.111333"),
+                ScalarType.createTimeStampTzType(6));
+        for (TOdbcTableType dialect : TOdbcTableType.values()) {
+            Assert.assertEquals(false, method.invoke(null, dialect,
+                    new BinaryPredicate(Operator.EQ, slot, literal)));
+            Assert.assertEquals(false, method.invoke(null, dialect,
+                    new InPredicate(slot, Arrays.asList(literal), false)));
+        }
+    }
+
+    @Test
+    public void testBinaryInPredicatesStayLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "binary_col");
+        slot.setType(Type.VARBINARY);
+        for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.POSTGRESQL,
+                TOdbcTableType.ORACLE, TOdbcTableType.SQLSERVER, TOdbcTableType.DB2,
+                TOdbcTableType.OCEANBASE_ORACLE)) {
+            for (Operator operator : Arrays.asList(Operator.EQ, Operator.NE, Operator.LT)) {
+                Assert.assertEquals(false, method.invoke(null, dialect,
+                        new BinaryPredicate(operator, slot, new VarBinaryLiteral(new byte[] {0, (byte) 0xff}))));
+            }
+            for (boolean notIn : Arrays.asList(false, true)) {
+                Expr predicate = new InPredicate(slot, Arrays.asList(
+                        new VarBinaryLiteral(new byte[] {(byte) 0xde, 0, (byte) 0xff}),
+                        new VarBinaryLiteral(new byte[0])), notIn);
+                Assert.assertEquals(false, method.invoke(null, dialect, predicate));
+                Expr compound = new CompoundPredicate(CompoundPredicate.Operator.OR, predicate,
+                        new BinaryPredicate(Operator.EQ, new SlotRef(null, "id"), new IntLiteral(1)));
+                Assert.assertEquals(false, method.invoke(null, dialect, compound));
+            }
+            Assert.assertEquals(true, method.invoke(null, dialect,
+                    new InPredicate(new SlotRef(null, "id"), Arrays.asList(new IntLiteral(1)), false)));
+        }
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.MYSQL,
+                new InPredicate(slot, Arrays.asList(new VarBinaryLiteral(new byte[] {0, (byte) 0xff})), false)));
+    }
 
     @Mocked
     private JdbcTable mockTable;

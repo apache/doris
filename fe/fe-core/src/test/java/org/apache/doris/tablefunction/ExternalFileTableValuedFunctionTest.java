@@ -47,10 +47,76 @@ import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
     @Test
+    public void testTimestampMappingCannotBeDisabled() throws AnalysisException {
+        for (String legacyFlag : Arrays.asList(null, "false", "true")) {
+            ExternalFileTableValuedFunction tvf = Mockito.mock(
+                    ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+            if (legacyFlag != null) {
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, legacyFlag);
+            }
+            Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
+            Assert.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
+            Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
+        }
+    }
+
+    @Test
     public void testLanceIsAcceptedByFileFormatFactory() {
         FileFormatProperties properties = FileFormatProperties.createFileFormatProperties("LaNcE");
         Assert.assertTrue(properties instanceof LanceFileFormatProperties);
         Assert.assertEquals(TFileFormatType.FORMAT_LANCE, properties.getFileFormatType());
+    }
+
+    @Test
+    public void testHiveParquetTimeZoneIsCanonicalizedAndRemovedFromStorageProperties()
+            throws AnalysisException {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "8:00");
+
+        Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
+
+        Assert.assertEquals("+08:00", tvf.getHiveParquetTimeZone());
+        Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
+    }
+
+    @Test
+    public void testHiveParquetTimeZoneRejectsAmbiguousShortAlias() {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "CST");
+
+        AnalysisException exception = Assert.assertThrows(
+                AnalysisException.class, () -> tvf.parseCommonProperties(properties));
+
+        Assert.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testTvfVarbinaryMappingRemainsExplicit() throws AnalysisException {
+        ExternalFileTableValuedFunction defaultTvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> defaultProperties = Maps.newHashMap();
+        defaultProperties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+
+        defaultTvf.parseCommonProperties(defaultProperties);
+
+        Assert.assertFalse(defaultTvf.fileFormatProperties.enableMappingVarbinary);
+
+        ExternalFileTableValuedFunction enabledTvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> enabledProperties = Maps.newHashMap(defaultProperties);
+        enabledProperties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "true");
+
+        enabledTvf.parseCommonProperties(enabledProperties);
+
+        Assert.assertTrue(enabledTvf.fileFormatProperties.enableMappingVarbinary);
     }
 
     @Test

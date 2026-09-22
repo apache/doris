@@ -56,8 +56,20 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
             continue;
         }
         auto& value = data[old_data_size + row];
-        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value.from_unixtime(timestamp.seconds, utc_time_zone);
+        value.set_microsecond(timestamp.microseconds);
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC TIMESTAMPTZ is outside the Doris 0000-9999 range");
+        }
     }
     return Status::OK();
 }
@@ -386,6 +398,28 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeTimeStampTzSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (field->type()->id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    const auto& timestamp = assert_cast<const arrow::TimestampType&>(*field->type());
+    const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
+                                                : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
+                                                                        : arrow::TimeUnit::SECOND;
+    if (timestamp.unit() != expected_unit) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 /**
  * Reads an Arrow timestamp array into a TIMESTAMPTZ column.
  *
@@ -492,6 +526,13 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         int64_t timestamp = 0;
         col_data[row_id].unix_timestamp(&timestamp, UTC);
 
+        // ORC-645 increments this second to zero, making it indistinguishable from a
+        // positive instant. Reject it before the writer can silently corrupt the value.
+        if (timestamp == -1 && col_data[row_id].microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
     }

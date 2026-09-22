@@ -67,6 +67,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.format.OrcOptions;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
@@ -81,6 +83,12 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.LocalZonedTimestampType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
+import org.apache.paimon.types.RowType;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -187,6 +195,13 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
+    private final Map<Long, TableSchema> historyTableSchemas = new ConcurrentHashMap<>();
+
+    @Override
+    protected String getHiveParquetTimeZone() {
+        // Paimon schema history owns TIMESTAMP/LOCAL_ZONED_TIMESTAMP semantics, including HMS tables.
+        return "";
+    }
 
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
@@ -356,18 +371,24 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
 
-            TableSchema tableSchema;
-            if (targetTable instanceof PaimonExternalTable) {
-                // Schema IDs are scoped to the resolved relation table, so a branch ID must
-                // never be looked up through the base table's schema cache namespace.
-                tableSchema = ((DataTable) source.getPaimonTable()).schemaManager().schema(schemaId);
-            } else {
-                tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
-            }
+            TableSchema tableSchema = getHistoryTableSchema(schemaId);
             params.addToHistorySchemaInfo(PaimonUtil.getHistorySchemaInfo(targetTable, tableSchema,
                     source.getCatalog().getEnableMappingVarbinary(),
                     source.getCatalog().getEnableMappingTimestampTz()));
         }
+    }
+
+    private TableSchema getHistoryTableSchema(long schemaId) {
+        return historyTableSchemas.computeIfAbsent(schemaId, id -> {
+            ExternalTable targetTable = source.getExternalTable();
+            if (targetTable instanceof PaimonExternalTable) {
+                // Schema IDs belong to the resolved relation, including its branch and
+                // time-travel options; reuse the same lookup for routing and serialization.
+                Table table = processedTable != null ? processedTable : source.getPaimonTable();
+                return ((DataTable) table).schemaManager().schema(id);
+            }
+            return PaimonUtils.getSchemaCacheValue(targetTable, id).getTableSchema();
+        });
     }
 
     @VisibleForTesting
@@ -423,6 +444,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
             } else if (fileFormat.equals("parquet")) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                // History schemas also exist for ORC; only actual native Parquet requires its timestamp contract.
+                // Keep this scan-level flag set if a later range uses a different format.
+                params.setContainsNativeParquet(true);
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
@@ -1043,14 +1067,55 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (!optRawFiles.isPresent()) {
             return false;
         }
-        List<String> files = optRawFiles.get().stream().map(RawFile::path).collect(Collectors.toList());
-        for (String f : files) {
-            String splitFileFormat = getFileFormat(f);
+        List<RawFile> orcFiles = new ArrayList<>();
+        for (RawFile file : optRawFiles.get()) {
+            String splitFileFormat = getFileFormat(file.path());
             if (!splitFileFormat.equals("orc") && !splitFileFormat.equals("parquet")) {
+                return false;
+            }
+            if (splitFileFormat.equals("orc")) {
+                orcFiles.add(file);
+            }
+        }
+        if (orcFiles.isEmpty()) {
+            return true;
+        }
+        Table table = processedTable != null ? processedTable : source.getPaimonTable();
+        if (!new Options(table.options()).get(OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
+            return true;
+        }
+        // Legacy Paimon ORC LTZ encoding requires the SDK's JVM-zone conversion:
+        // its physical TIMESTAMP_INSTANT bytes alone do not represent the logical instant.
+        // Check old schemas too, since evolution may remove or change a nested LTZ field.
+        if (containsTimestampLtz(table.rowType())) {
+            return false;
+        }
+        for (RawFile file : orcFiles) {
+            if (containsTimestampLtz(getHistoryTableSchema(file.schemaId()).logicalRowType())) {
                 return false;
             }
         }
         return true;
+    }
+
+    private static boolean containsTimestampLtz(DataType type) {
+        if (type instanceof LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsTimestampLtz(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return containsTimestampLtz(map.getKeyType()) || containsTimestampLtz(map.getValueType());
+        }
+        if (type instanceof MultisetType) {
+            return containsTimestampLtz(((MultisetType) type).getElementType());
+        }
+        if (type instanceof RowType) {
+            return ((RowType) type).getFieldTypes().stream().anyMatch(PaimonScanNode::containsTimestampLtz);
+        }
+        return false;
     }
 
     @Override

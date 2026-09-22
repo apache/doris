@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPartitionMeta;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -56,16 +57,20 @@ public class FeServiceClient {
     private final String user;
     private final String password;
     private final int retryCount;
-    private final int timeout;
+    private final int timeoutMs;
 
     public FeServiceClient(String name, List<TNetworkAddress> addresses, String user, String password,
-            int retryCount, int timeout) {
+            int retryCount, int timeoutSec) {
+        // Catalog timeouts are in seconds, but the Thrift pool expects milliseconds. Validate
+        // before multiplying so overflow cannot silently disable or shorten the read timeout.
+        Preconditions.checkArgument(timeoutSec >= 0 && timeoutSec <= Integer.MAX_VALUE / 1000,
+                "Remote Doris metadata read timeout must be between 0 and %s seconds", Integer.MAX_VALUE / 1000);
         this.name = name;
         this.addresses = addresses;
         this.user = user;
         this.password = password;
         this.retryCount = retryCount;
-        this.timeout = timeout;
+        this.timeoutMs = timeoutSec * 1000;
     }
 
     private List<TNetworkAddress> getAddresses() {
@@ -127,7 +132,7 @@ public class FeServiceClient {
             return result.getBackends().stream()
                     .map(b -> Backend.fromThrift(b))
                     .collect(Collectors.toList());
-        }, msg, timeout);
+        }, msg, timeoutMs);
     }
 
     public RemoteOlapTable getOlapTable(String dbName, String table, long tableId, List<Partition> partitions) {
@@ -174,7 +179,7 @@ public class FeServiceClient {
             }
             remoteOlapTable.rebuildPartitions(partitions, updatedPartitions, removedPartitions);
             return remoteOlapTable;
-        }, msg, timeout);
+        }, msg, timeoutMs);
     }
 
     private interface ThriftCall<T> {

@@ -31,6 +31,7 @@ import java.net.InetAddress;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -55,6 +56,12 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
+            case TIMESTAMPTZ: {
+                // The projection preserves epoch microseconds before JDBC v1 can lose a DST-fold offset.
+                long micros = resultSet.getLong(columnIndex + 1);
+                return resultSet.wasNull() ? null : LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
+                        (int) Math.floorMod(micros, 1_000_000) * 1000, ZoneOffset.UTC);
+            }
             case BOOLEAN:
                 return resultSet.getObject(columnIndex + 1, Boolean.class);
             case TINYINT:
@@ -86,8 +93,10 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
             case VARCHAR:
             case STRING:
                 return resultSet.getObject(columnIndex + 1, String.class);
-            case ARRAY:
-                return convertArrayToList(resultSet.getArray(columnIndex + 1).getArray());
+            case ARRAY: {
+                java.sql.Array value = resultSet.getArray(columnIndex + 1);
+                return value == null ? null : convertArrayToList(value.getArray());
+            }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
@@ -125,6 +134,20 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
             return null;
         }
         switch (type.getType()) {
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = Lists.newArrayList();
+                // The scan projection sends epoch microseconds, avoiding zone-less JDBC array values.
+                for (Object element : array) {
+                    if (element == null) {
+                        result.add(null);
+                    } else {
+                        long micros = ((Number) element).longValue();
+                        result.add(LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
+                                (int) Math.floorMod(micros, 1_000_000) * 1000, ZoneOffset.UTC));
+                    }
+                }
+                return result;
+            }
             case SMALLINT: {
                 List<Short> result = Lists.newArrayList();
                 for (Object element : array) {
@@ -212,8 +235,10 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
                     if (element == null) {
                         resultArray.add(null);
                     } else {
-                        resultArray.add(
-                                Lists.newArrayList(convertArray((List<?>) element, type.getChildTypes().get(0))));
+                        // Drivers may return nested Java arrays rather than Lists.
+                        List<?> elements = element instanceof List
+                                ? (List<?>) element : convertArrayToList(element);
+                        resultArray.add(Lists.newArrayList(convertArray(elements, type.getChildTypes().get(0))));
                     }
                 }
                 return resultArray;

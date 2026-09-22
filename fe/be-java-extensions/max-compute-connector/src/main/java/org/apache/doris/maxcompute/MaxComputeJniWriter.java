@@ -192,7 +192,7 @@ public class MaxComputeJniWriter extends JniWriter {
             // set it via reflection to avoid NPE in ArrowWriterImpl
             ArrowOptions arrowOptions = ArrowOptions.newBuilder()
                     .withDatetimeUnit(TimestampUnit.MILLI)
-                    .withTimestampUnit(TimestampUnit.MILLI)
+                    .withTimestampUnit(TimestampUnit.MICRO)
                     .build();
             java.lang.reflect.Field arrowField = writeSession.getClass()
                     .getSuperclass().getDeclaredField("arrowOptions");
@@ -565,8 +565,24 @@ public class MaxComputeJniWriter extends JniWriter {
                 vec.setValueCount(numRows);
                 break;
             }
-            case DATETIME:
             case TIMESTAMP: {
+                // TIMESTAMPTZ's JNI carrier is UTC and must retain microseconds on write.
+                org.apache.arrow.vector.TimeStampVector vec =
+                        (org.apache.arrow.vector.TimeStampVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    if (vc.isNullAt(rowOffset + i)) {
+                        vec.setNull(i);
+                    } else {
+                        LocalDateTime utc = vc.getTimeStampTz(rowOffset + i);
+                        vec.setSafe(i, utc.toEpochSecond(java.time.ZoneOffset.UTC) * 1_000_000L
+                                + utc.getNano() / 1000);
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case DATETIME: {
                 TimeStampMilliVector vec = (TimeStampMilliVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {
@@ -760,8 +776,25 @@ public class MaxComputeJniWriter extends JniWriter {
                 vec.setValueCount(numRows);
                 break;
             }
-            case DATETIME:
             case TIMESTAMP: {
+                org.apache.arrow.vector.TimeStampVector vec =
+                        (org.apache.arrow.vector.TimeStampVector) root.getVector(colIdx);
+                vec.allocateNew(numRows);
+                for (int i = 0; i < numRows; i++) {
+                    Object value = colData[startRow + i];
+                    if (value == null) {
+                        vec.setNull(i);
+                    } else {
+                        java.time.Instant instant = value instanceof java.sql.Timestamp
+                                ? ((java.sql.Timestamp) value).toInstant()
+                                : ((LocalDateTime) value).toInstant(java.time.ZoneOffset.UTC);
+                        vec.setSafe(i, instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000);
+                    }
+                }
+                vec.setValueCount(numRows);
+                break;
+            }
+            case DATETIME: {
                 TimeStampMilliVector vec = (TimeStampMilliVector) root.getVector(colIdx);
                 vec.allocateNew(numRows);
                 for (int i = 0; i < numRows; i++) {

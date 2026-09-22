@@ -173,7 +173,9 @@ Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
     // dictionary, and raw evaluation direct-slot-only while Bloom may consume a nested leaf.
     const auto data_type = remove_nullable(bloom_probe->value_type);
     DORIS_CHECK(data_type != nullptr);
-    if (is_complex_type(data_type->get_primitive_type())) {
+    // Binary IN is evaluated by the SQL function; storage predicates cannot interpret its keys.
+    if (is_complex_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_VARBINARY) {
         return Status::OK();
     }
 

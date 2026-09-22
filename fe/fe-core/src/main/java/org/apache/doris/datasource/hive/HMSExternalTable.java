@@ -855,7 +855,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     // to be same as doris managed table.
                     // This is to avoid some unexpected behavior such as different partition pruning result
                     // between doris managed table and external table.
-                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                    // HMS partition names use the legacy text representation. Keep only partition
+                    // columns compatible with metadata literals and writer routing; file BINARY
+                    // columns still use VARBINARY and must never be decoded as text.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING
+                            || column.getType().getPrimitiveType() == PrimitiveType.VARBINARY) {
                         column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
                     }
                     partitionColumns.add(column);

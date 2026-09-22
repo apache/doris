@@ -47,7 +47,8 @@ import java.util.stream.Collectors;
 public class CatalogProperty {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
-    // Default: false, mapping BINARY types to STRING for compatibility
+    // Retained so persisted catalogs can be replayed, but binary mapping is always enabled.
+    @Deprecated
     public static final String ENABLE_MAPPING_VARBINARY = "enable.mapping.varbinary";
     // Default: false, mapping TIMESTAMP_TZ types to DATETIME for compatibility
     public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable.mapping.timestamp_tz";
@@ -103,37 +104,43 @@ public class CatalogProperty {
     }
 
     /**
-     * @return true if varbinary mapping is enabled, false otherwise
+     * @return true because external binary types always retain their binary semantics
      */
+    @Deprecated
     public boolean getEnableMappingVarbinary() {
-        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_VARBINARY, "false"));
+        return true;
     }
 
     /**
-     * Set enable mapping varbinary property.
-     * @param enable true to enable varbinary mapping, false to disable
+     * Keep the persisted compatibility marker enabled for old FE and BE binaries.
+     * @param enable ignored because binary mapping can no longer be disabled
      */
+    @Deprecated
     public void setEnableMappingVarbinary(boolean enable) {
-        addProperty(ENABLE_MAPPING_VARBINARY, String.valueOf(enable));
+        addProperty(ENABLE_MAPPING_VARBINARY, "true");
     }
 
     /**
-     * @return true if timestamp_tz mapping is enabled, false otherwise
+     * @return true because external instant types always retain their timezone semantics
      */
+    @Deprecated
     public boolean getEnableMappingTimestampTz() {
-        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        return true;
     }
 
     /**
-     * Set enable mapping timestamp_tz property.
-     * @param enable true to enable timestamp_tz mapping, false to disable
+     * Keep the persisted compatibility marker enabled for older FE and BE binaries.
+     * @param enable ignored because instant-to-wall-clock mapping is no longer supported
      */
+    @Deprecated
     public void setEnableMappingTimestampTz(boolean enable) {
-        addProperty(ENABLE_MAPPING_TIMESTAMP_TZ, String.valueOf(enable));
+        addProperty(ENABLE_MAPPING_TIMESTAMP_TZ, "true");
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
         synchronized (this) {
+            // Preserve replayed values until the master journals their migration. Normalizing
+            // only this copy would hide pending upgrades from followers and rollback images.
             properties.putAll(props);
             resetAllCaches();
         }

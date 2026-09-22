@@ -79,6 +79,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.common.io.BaseEncoding;
 import com.google.gson.reflect.TypeToken;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -156,6 +157,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -525,7 +527,10 @@ public class IcebergUtils {
                 case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
-                    if (((Types.TimestampType) icebergType).shouldAdjustToUTC()) {
+                    // TIMESTAMPTZ literals already contain UTC fields after planner coercion.
+                    // Applying the session zone again changes the pushed predicate's instant.
+                    if (((Types.TimestampType) icebergType).shouldAdjustToUTC()
+                            && !dateLiteral.getType().isTimeStampTz()) {
                         return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
                     } else {
                         return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getUTCTimeZone());
@@ -715,21 +720,24 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
+                return ScalarType.createVarbinaryType(16);
             case BINARY:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
-                        : Type.STRING;
+                // Arbitrary binary payloads are not valid UTF-8 in general, so exposing them as
+                // STRING makes Arrow clients reject otherwise valid Iceberg values.
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fixed.length())
-                        : ScalarType.createCharType(fixed.length());
+                // Iceberg fixed(N) is an arbitrary N-byte value, not text, so retain both its
+                // binary semantics and declared width.
+                return ScalarType.createVarbinaryType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:
-                if (enableMappingTimestampTz && ((TimestampType) primitive).shouldAdjustToUTC()) {
+                // Preserve the logical distinction between instants and wall-clock timestamps.
+                if (((TimestampType) primitive).shouldAdjustToUTC()) {
                     return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
                 }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
@@ -1044,10 +1052,10 @@ public class IcebergUtils {
         if (typeId == TypeID.BINARY || typeId == TypeID.FIXED) {
             return false;
         }
-        if (enableMappingVarbinary && typeId == TypeID.UUID) {
+        if (typeId == TypeID.UUID) {
             return false;
         }
-        return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP
+        return typeId != TypeID.TIMESTAMP
                 || !((TimestampType) type).shouldAdjustToUTC();
     }
 
@@ -1091,7 +1099,7 @@ public class IcebergUtils {
         }
     }
 
-    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
+    public static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
@@ -1105,8 +1113,16 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
-            // case binary, fixed should not supported, because if return string with utf8,
-            // the data maybe be corrupted
+            case BINARY:
+            case FIXED:
+                if (value == null) {
+                    return null;
+                }
+                // Read only the buffer's remaining bytes and never mutate a metadata buffer.
+                ByteBuffer buffer = ((ByteBuffer) value).duplicate();
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                return "0x" + BaseEncoding.base16().lowerCase().encode(bytes);
             case DATE:
                 if (value == null) {
                     return null;
@@ -1130,13 +1146,15 @@ public class IcebergUtils {
                 // (1970-01-01T00:00:00)
                 long timestampMicros = (Long) value;
                 TimestampType timestampType = (TimestampType) type;
+                // Floor the seconds so pre-epoch fractions still have a non-negative nanos field.
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
-                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        Math.floorDiv(timestampMicros, 1_000_000),
+                        (int) Math.floorMod(timestampMicros, 1_000_000) * 1000,
                         ZoneOffset.UTC);
                 // type is timestamptz if timestampType.shouldAdjustToUTC() is true
                 if (timestampType.shouldAdjustToUTC()) {
-                    timestamp = timestamp.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of(timeZone))
-                            .toLocalDateTime();
+                    // Delete/overwrite commits must distinguish both instants in a DST overlap.
+                    return timestamp.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
                 }
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
@@ -1262,6 +1280,20 @@ public class IcebergUtils {
             switch (icebergType.typeId()) {
                 case STRING:
                     return valueStr;
+                case UUID:
+                    if (!valueStr.startsWith("0x")) {
+                        return UUID.fromString(valueStr);
+                    }
+                    ByteBuffer uuidBytes = decodeBinaryPartitionValue(valueStr);
+                    Preconditions.checkArgument(uuidBytes.remaining() == 16, "UUID requires 16 bytes");
+                    return new UUID(uuidBytes.getLong(), uuidBytes.getLong());
+                case BINARY:
+                case FIXED:
+                    ByteBuffer binary = decodeBinaryPartitionValue(valueStr);
+                    Preconditions.checkArgument(icebergType.typeId() != TypeID.FIXED
+                                    || binary.remaining() == ((Types.FixedType) icebergType).length(),
+                            "Invalid fixed partition length");
+                    return binary;
                 case INTEGER:
                     return Integer.parseInt(valueStr);
                 case LONG:
@@ -1286,6 +1318,12 @@ public class IcebergUtils {
             throw new IllegalArgumentException(String.format("Failed to convert partition value '%s' to type %s",
                     valueStr, icebergType), e);
         }
+    }
+
+    private static ByteBuffer decodeBinaryPartitionValue(String value) {
+        // The explicit prefix distinguishes bytes from text across static input and BE commits.
+        Preconditions.checkArgument(value.startsWith("0x"), "Binary partition values require a 0x prefix");
+        return ByteBuffer.wrap(BaseEncoding.base16().decode(value.substring(2).toUpperCase(Locale.ROOT)));
     }
 
     private static String normalizeFloatingPointPartitionValue(String valueStr) {
@@ -1334,9 +1372,13 @@ public class IcebergUtils {
                 DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND));
 
         // Convert to microseconds
-        ZoneId zone = timestampType.shouldAdjustToUTC()
-                ? DateUtils.getTimeZone()
-                : ZoneId.of("UTC");
+        ZoneId zone = ZoneOffset.UTC;
+        if (timestampType.shouldAdjustToUTC()) {
+            // Dynamic BE commits carry an explicit offset. Only unqualified static literals
+            // should inherit the session zone; ignoring the offset corrupts partition metadata.
+            ZoneId explicitZone = temporal.query(java.time.temporal.TemporalQueries.zone());
+            zone = explicitZone != null ? explicitZone : DateUtils.getTimeZone();
+        }
 
         long epochSecond = ldt.atZone(zone).toInstant().getEpochSecond();
         long microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 1_000L;
@@ -1463,12 +1505,6 @@ public class IcebergUtils {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
             // Doris' DATETIMEV2 default parser requires a space between the date and time.
             String dorisValue = humanValue.replace('T', ' ');
-            Types.TimestampType timestampType = (Types.TimestampType) type;
-            if (timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz) {
-                // Preserve the instant and its offset through FE-to-BE transport. The BE converts
-                // it to the session-local DATETIMEV2 wall time immediately before materialization.
-                return dorisValue;
-            }
             return dorisValue;
         }
         if (isBinaryLike(type)) {
@@ -1492,16 +1528,7 @@ public class IcebergUtils {
             Types.NestedField field, boolean enableMappingTimestampTz) {
         Preconditions.checkArgument(field.initialDefault() != null,
                 "Iceberg field %s has no initial default", field.fieldId());
-        if (field.type().typeId() == TypeID.TIMESTAMP
-                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()
-                && !enableMappingTimestampTz) {
-            long micros = (Long) field.initialDefault();
-            long seconds = Math.floorDiv(micros, 1_000_000L);
-            int nanos = Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L);
-            LocalDateTime localDateTime = LocalDateTime.ofInstant(
-                    Instant.ofEpochSecond(seconds, nanos), TimeUtils.getDorisZoneId());
-            return localDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
-        }
+        // TIMESTAMPTZ defaults must retain their offset, not become session-local wall times.
         return getSerializedInitialDefault(field, enableMappingTimestampTz);
     }
 
@@ -2088,8 +2115,9 @@ public class IcebergUtils {
             throws AnalysisException {
         // For NULL value, create a minimum partition for it.
         if (value == null) {
-            PartitionKey nullLowKey = PartitionKey.createPartitionKey(
-                    Lists.newArrayList(new PartitionValue("0000-01-01")), partitionColumns);
+            // The sentinel is not a session-local timestamp; parsing year zero through a
+            // positive timezone offset would underflow the supported timestamp range.
+            PartitionKey nullLowKey = PartitionKey.createInfinityPartitionKey(partitionColumns, false);
             PartitionKey nullUpKey = nullLowKey.successor();
             return Range.closedOpen(nullLowKey, nullUpKey);
         }
@@ -2123,11 +2151,15 @@ public class IcebergUtils {
             default:
                 throw new RuntimeException("Unsupported transform " + transform);
         }
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        // Use proleptic years: year-of-era formatting aliases year zero to year one and empties its range.
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
         Column c = partitionColumns.get(0);
         Preconditions.checkState(c.getDataType().isDateLikeType(), "Only support date type partition column");
         if (c.getType().isDate() || c.getType().isDateV2()) {
-            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+            formatter = DateTimeFormatter.ofPattern("uuuu-MM-dd");
+        } else if (c.getType().isTimeStampTz()) {
+            // Iceberg time transforms count UTC intervals, independently of the query timezone.
+            formatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss'+00:00'");
         }
         PartitionValue lowerValue = new PartitionValue(lower.format(formatter));
         PartitionValue upperValue = new PartitionValue(upper.format(formatter));

@@ -394,6 +394,9 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
             case DATETIME:
             case DATETIMEV2:
                 return TypeInfoFactory.DATETIME;
+            case TIMESTAMPTZ:
+                // Reverse mapping must retain the instant semantics of external timestamp columns.
+                return TypeInfoFactory.TIMESTAMP;
             case LARGEINT:
             case HLL:
             case BITMAP:

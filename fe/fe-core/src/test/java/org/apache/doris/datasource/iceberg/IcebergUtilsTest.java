@@ -17,25 +17,34 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Range;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
@@ -72,6 +81,7 @@ import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -86,6 +96,201 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testTimestampPredicateLiteralAlreadyContainsUtcFields() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (LocalDateTime utc : Arrays.asList(
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                        LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                        LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+                    // Planner TIMESTAMPTZ literals are UTC instants, even in non-UTC sessions.
+                    DateLiteral literal = new DateLiteral(utc, ScalarType.createTimeStampTzType(6));
+                    long micros = utc.toEpochSecond(ZoneOffset.UTC) * 1_000_000 + utc.getNano() / 1000;
+                    Assert.assertEquals(micros,
+                            IcebergUtils.extractDorisLiteral(Types.TimestampType.withZone(), literal));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampTransformRangesUseUtc() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            List<Column> columns = Collections.singletonList(
+                    new Column("ts", ScalarType.createTimeStampTzType(6)));
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String transform : Arrays.asList("hour", "day", "month", "year")) {
+                    // Iceberg transform ordinals describe UTC boundaries, not session-local time.
+                    Range<PartitionKey> range = IcebergUtils.getPartitionRange("0", transform, columns);
+                    Assert.assertEquals(0, range.lowerEndpoint().getKeys().get(0).compareLiteral(
+                            new DateLiteral(1970, 1, 1, 0, 0, 0, 0, columns.get(0).getType())));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testYearZeroTransformRangeUsesProlepticYear() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        context.getSessionVariable().setTimeZone("UTC");
+        try {
+            for (ScalarType type : Arrays.asList(ScalarType.createDateV2Type(),
+                    ScalarType.createDatetimeV2Type(6), ScalarType.createTimeStampTzType(6))) {
+                List<Column> columns = Collections.singletonList(new Column("ts", type));
+                // Year-of-era formatting would map both year zero and year one to 0001.
+                Range<PartitionKey> range = IcebergUtils.getPartitionRange("-1970", "year", columns);
+                Assert.assertFalse(range.isEmpty());
+                Assert.assertEquals(0L, ((DateLiteral) range.lowerEndpoint().getKeys().get(0)).getYear());
+                Assert.assertEquals(1L, ((DateLiteral) range.upperEndpoint().getKeys().get(0)).getYear());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampTransformNullRange() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            List<Column> columns = Collections.singletonList(
+                    new Column("ts", ScalarType.createTimeStampTzType(6)));
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                Range<PartitionKey> nullRange = IcebergUtils.getPartitionRange(null, "day", columns);
+                Assert.assertFalse(nullRange.isEmpty());
+                Assert.assertTrue(nullRange.upperEndpoint().compareTo(
+                        IcebergUtils.getPartitionRange("0", "day", columns).lowerEndpoint()) < 0);
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampPartitionSerializationRoundTrip() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (Types.TimestampType type : Arrays.asList(Types.TimestampType.withZone(),
+                        Types.TimestampType.withoutZone())) {
+                    for (long micros : new long[] {-1L, -1_000_001L, 1636263000123456L, 1636266600123456L}) {
+                        // Partition metadata must retain the instant even in a DST overlap.
+                        String serialized = IcebergUtils.serializePartitionValue(type, micros, zone);
+                        Assert.assertEquals(micros, IcebergUtils.parsePartitionValueFromString(
+                                serialized.replace('T', ' '), type));
+                    }
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampPartitionCommitsPreserveExplicitOffsets() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String value : Arrays.asList("2021-11-07T01:30:00.123456-04:00",
+                        "2021-11-07T01:30:00.123456-05:00", "1969-12-31T23:59:59.999999+00:00")) {
+                    java.time.Instant instant = java.time.OffsetDateTime.parse(value).toInstant();
+                    long expected = instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000;
+                    // BE commits include an offset so the FE session must not reinterpret their fields.
+                    Assert.assertEquals(expected, IcebergUtils.parsePartitionValueFromString(
+                            value.replace('T', ' '), Types.TimestampType.withZone()));
+                }
+                Assert.assertEquals(-1L, IcebergUtils.parsePartitionValueFromString(
+                        "1969-12-31 23:59:59.999999", Types.TimestampType.withoutZone()));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testStaticBinaryPartitionContextUsesTypedHex() {
+        UnboundIcebergTableSink<?> sink = Mockito.mock(UnboundIcebergTableSink.class);
+        Mockito.when(sink.hasStaticPartition()).thenReturn(true);
+        Mockito.when(sink.getStaticPartitionKeyValues()).thenReturn(Collections.singletonMap("key",
+                new VarBinaryLiteral("DEAD")));
+        InsertOverwriteTableCommand command = new InsertOverwriteTableCommand(
+                sink, Optional.empty(), Optional.empty(), Optional.empty());
+        IcebergInsertCommandContext context = new IcebergInsertCommandContext();
+        Deencapsulation.invoke(command, "setStaticPartitionToContext", sink, context);
+        Assert.assertEquals("0xDEAD", context.getStaticPartitionValues().get("key"));
+    }
+
+    @Test
+    public void testBinaryPartitionCommitRoundTrip() {
+        byte[] bytes = new byte[] {0, (byte) 0xde, (byte) 0xad, (byte) 0xff};
+        for (org.apache.iceberg.types.Type type : Arrays.asList(
+                Types.BinaryType.get(), Types.FixedType.ofLength(bytes.length))) {
+            Assert.assertEquals(ByteBuffer.wrap(bytes),
+                    IcebergUtils.parsePartitionValueFromString("0x00deadff", type));
+            Assert.assertEquals("0x00deadff", IcebergUtils.serializePartitionValue(type,
+                    ByteBuffer.wrap(bytes), "UTC"));
+            Assert.assertEquals(ByteBuffer.allocate(0),
+                    IcebergUtils.parsePartitionValueFromString("0x", Types.BinaryType.get()));
+        }
+        UUID uuid = UUID.fromString("00112233-4455-6677-8899-aabbccddeeff");
+        Assert.assertEquals(uuid, IcebergUtils.parsePartitionValueFromString(
+                "0x00112233445566778899aabbccddeeff", Types.UUIDType.get()));
+        Assert.assertEquals(uuid, IcebergUtils.parsePartitionValueFromString(uuid.toString(), Types.UUIDType.get()));
+        Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                "0xdead", Types.FixedType.ofLength(4)));
+        Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                "0xdead", Types.UUIDType.get()));
+        for (String malformed : Arrays.asList("DEAD", "0xD", "0xGG")) {
+            Assert.assertThrows(IllegalArgumentException.class, () -> IcebergUtils.parsePartitionValueFromString(
+                    malformed, Types.BinaryType.get()));
+        }
+        ByteBuffer slice = ByteBuffer.wrap(bytes).asReadOnlyBuffer();
+        slice.position(1);
+        Assert.assertEquals("0xdeadff", IcebergUtils.serializePartitionValue(Types.BinaryType.get(), slice, "UTC"));
+        Assert.assertEquals(1, slice.position());
+    }
+
     @Test
     public void testSelectEffectiveStoragePropertiesPrefersOssOverGenericS3() throws UserException {
         Map<String, String> properties = new HashMap<>();
@@ -110,6 +315,32 @@ public class IcebergUtilsTest {
         Assert.assertTrue(selected.get(StorageProperties.Type.OSS) instanceof OSSProperties);
         Assert.assertSame(selected.get(StorageProperties.Type.OSS),
                 LocationPath.of("s3://bucket/data.parquet", selected).getStorageProperties());
+    }
+
+    @Test
+    public void testIcebergFixedAlwaysMapsToLengthPreservingVarbinary() {
+        for (boolean enableMappingVarbinary : Arrays.asList(false, true)) {
+            Type shortFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(4), enableMappingVarbinary, false);
+            Assert.assertTrue(shortFixed.isVarbinaryType());
+            Assert.assertEquals(4, ((ScalarType) shortFixed).getLength());
+
+            Type longFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(256), enableMappingVarbinary, false);
+            Assert.assertTrue(longFixed.isVarbinaryType());
+            Assert.assertEquals(256, ((ScalarType) longFixed).getLength());
+        }
+    }
+
+    @Test
+    public void testIcebergBinaryAlwaysMapsToVarbinary() {
+        Type binary = IcebergUtils.icebergTypeToDorisType(Types.BinaryType.get(), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
+
+        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
+        Assert.assertTrue(uuid.isVarbinaryType());
+        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
     }
 
     @Test
@@ -645,7 +876,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testLegacyTimestamptzMissingColumnExpressionUsesSessionTimeZone() {
+    public void testTimestamptzMissingColumnExpressionPreservesOffsetWithoutFlag() {
         Types.NestedField field = Types.NestedField.optional("event_time")
                 .withId(1)
                 .ofType(Types.TimestampType.withZone())
@@ -655,7 +886,7 @@ public class IcebergUtilsTest {
         context.getSessionVariable().setTimeZone("Asia/Shanghai");
         context.setThreadLocalInfo();
         try {
-            Assert.assertEquals("2025-01-18 09:02:03.654321",
+            Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, false));
             Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, true));

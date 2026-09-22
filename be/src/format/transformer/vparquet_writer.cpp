@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
 #include <arrow/io/type_fwd.h>
 #include <arrow/memory_pool.h>
 #include <arrow/table.h>
-#include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
 #include <parquet/api/reader.h>
 #include <parquet/column_writer.h>
@@ -33,21 +32,19 @@
 #include <exception>
 #include <ostream>
 #include <string>
-#include <unordered_set>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
-#include "format/table/iceberg/arrow_schema_util.h"
-#include "format/table/parquet_utils.h"
+#include "format/parquet/parquet_arrow_block_convertor.h"
 #include "io/fs/file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -180,36 +177,27 @@ void ParquetBuildHelper::build_version(::parquet::WriterProperties::Builder& bui
     }
 }
 
-VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                         std::vector<std::string> column_names,
-                                         bool output_object_data,
-                                         const ParquetFileOptions& parquet_options,
-                                         const std::string* iceberg_schema_json,
-                                         const iceberg::Schema* iceberg_schema)
+VParquetWriter::VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                               const VExprContextSPtrs& output_vexpr_ctxs,
+                               std::vector<std::string> column_names, bool output_object_data,
+                               const ParquetFileOptions& parquet_options)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_names(std::move(column_names)),
-          _parquet_options(parquet_options),
-          _iceberg_schema_json(iceberg_schema_json),
-          _iceberg_schema(iceberg_schema) {
+          _parquet_options(parquet_options) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
-VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                         std::vector<TParquetSchema> parquet_schemas,
-                                         bool output_object_data,
-                                         const ParquetFileOptions& parquet_options,
-                                         const std::string* iceberg_schema_json)
+VParquetWriter::VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                               const VExprContextSPtrs& output_vexpr_ctxs,
+                               std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
+                               const ParquetFileOptions& parquet_options)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _parquet_schemas(std::move(parquet_schemas)),
-          _parquet_options(parquet_options),
-          _iceberg_schema_json(iceberg_schema_json) {
-    _iceberg_schema = nullptr;
+          _parquet_options(parquet_options) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
-Status VParquetTransformer::_parse_properties() {
+Status VParquetWriter::_parse_properties() {
     try {
         arrow::MemoryPool* pool = get_arrow_memory_pool();
 
@@ -241,48 +229,22 @@ Status VParquetTransformer::_parse_properties() {
     return Status::OK();
 }
 
-Status VParquetTransformer::_parse_schema() {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    if (_iceberg_schema != nullptr) {
-        RETURN_IF_ERROR(
-                iceberg::ArrowSchemaUtil::convert(_iceberg_schema, _state->timezone(), fields));
-    } else {
-        for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-            std::shared_ptr<arrow::DataType> type;
-            RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
-                                                  _state->timezone()));
-            if (!_parquet_schemas.empty()) {
-                std::shared_ptr<arrow::Field> field =
-                        arrow::field(_parquet_schemas[i].schema_column_name, type,
-                                     _output_vexpr_ctxs[i]->root()->is_nullable());
-                fields.emplace_back(field);
-            } else {
-                std::shared_ptr<arrow::Field> field = arrow::field(
-                        _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
-                fields.emplace_back(field);
-            }
-        }
-    }
-
-    if (_iceberg_schema_json != nullptr) {
-        std::shared_ptr<arrow::KeyValueMetadata> schema_metadata =
-                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json});
-        _arrow_schema = arrow::schema(std::move(fields), std::move(schema_metadata));
-    } else {
-        _arrow_schema = arrow::schema(std::move(fields));
-    }
-    return Status::OK();
+std::unique_ptr<ArrowBlockConvertor> VParquetWriter::_create_arrow_block_convertor(
+        DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
+        const cctz::time_zone& timezone, bool enable_int96_timestamps) const {
+    return std::make_unique<ParquetArrowBlockConvertor>(
+            std::move(types), std::move(names), timezone_name, timezone, enable_int96_timestamps);
 }
 
-Status VParquetTransformer::write(const Block& block) {
+Status VParquetWriter::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, get_arrow_memory_pool(), &result,
-                                           _state->timezone_obj()));
+    RETURN_IF_ERROR(
+            _arrow_block_convertor->convert_to_arrow(block, get_arrow_memory_pool(), &result));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
     }
@@ -294,16 +256,42 @@ Status VParquetTransformer::write(const Block& block) {
     return Status::OK();
 }
 
-arrow::Status VParquetTransformer::_open_file_writer() {
-    ARROW_ASSIGN_OR_RAISE(_writer, ::parquet::arrow::FileWriter::Open(
-                                           *_arrow_schema, get_arrow_memory_pool(), _outstream,
-                                           _parquet_writer_properties, _arrow_properties));
+arrow::Status VParquetWriter::_open_file_writer() {
+    ARROW_ASSIGN_OR_RAISE(_writer,
+                          ::parquet::arrow::FileWriter::Open(
+                                  *_arrow_block_convertor->arrow_schema(), get_arrow_memory_pool(),
+                                  _outstream, _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }
 
-Status VParquetTransformer::open() {
+Status VParquetWriter::open() {
+    _timezone = _state->timezone();
+    _timezone_obj = _state->timezone_obj();
+    if (_parquet_options.enable_int96_timestamps && _parquet_options.int96_timezone.has_value()) {
+        _timezone = *_parquet_options.int96_timezone;
+        // Cache the override on this writer, never mutate the shared query RuntimeState.
+        if (!TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj)) {
+            return Status::InvalidArgument("Invalid Parquet INT96 writer timezone: {}", _timezone);
+        }
+    }
     RETURN_IF_ERROR(_parse_properties());
-    RETURN_IF_ERROR(_parse_schema());
+    DataTypes types;
+    types.reserve(_output_vexpr_ctxs.size());
+    for (const auto& context : _output_vexpr_ctxs) {
+        types.emplace_back(context->root()->data_type());
+    }
+    std::vector<std::string> names = _column_names;
+    if (!_parquet_schemas.empty()) {
+        names.clear();
+        names.reserve(_parquet_schemas.size());
+        for (const auto& schema : _parquet_schemas) {
+            names.emplace_back(schema.schema_column_name);
+        }
+    }
+    _arrow_block_convertor =
+            _create_arrow_block_convertor(std::move(types), std::move(names), _timezone,
+                                          _timezone_obj, _parquet_options.enable_int96_timestamps);
+    RETURN_IF_ERROR(_arrow_block_convertor->init());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());
     } catch (const ::parquet::ParquetStatusException& e) {
@@ -316,11 +304,11 @@ Status VParquetTransformer::open() {
     return Status::OK();
 }
 
-int64_t VParquetTransformer::written_len() {
+int64_t VParquetWriter::written_len() {
     return _outstream->get_written_len();
 }
 
-Status VParquetTransformer::close() {
+Status VParquetWriter::close() {
     try {
         if (_writer != nullptr) {
             RETURN_DORIS_STATUS_IF_ERROR(_writer->Close());
@@ -335,85 +323,4 @@ Status VParquetTransformer::close() {
     return Status::OK();
 }
 
-Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
-    std::shared_ptr<::parquet::FileMetaData> file_metadata = _writer->metadata();
-    if (file_metadata == nullptr) {
-        return Status::InternalError("File metadata is not available");
-    }
-    std::map<int, int64_t> column_sizes;
-    std::map<int, int64_t> value_counts;
-    std::map<int, int64_t> null_value_counts;
-    std::map<int, std::string> lower_bounds;
-    std::map<int, std::string> upper_bounds;
-    std::map<int, std::shared_ptr<::parquet::Statistics>> merged_column_stats;
-    std::unordered_set<int> variant_field_ids;
-
-    const int num_row_groups = file_metadata->num_row_groups();
-    const int num_columns = file_metadata->num_columns();
-    for (int col_idx = 0; col_idx < num_columns; ++col_idx) {
-        const auto& schema_node = file_metadata->schema()->Column(col_idx)->schema_node();
-        const auto* parent = schema_node->parent();
-        const bool is_variant_child = parent != nullptr && parent->logical_type() != nullptr &&
-                                      parent->logical_type()->is_variant();
-        if (is_variant_child && schema_node->name() != "metadata") {
-            // The value leaf has no independent Iceberg field and its byte statistics are not
-            // logical Variant statistics.
-            continue;
-        }
-        const int field_id = is_variant_child ? parent->field_id() : schema_node->field_id();
-        if (field_id < 0) {
-            // Parquet structural leaves (including Variant children) may intentionally omit an
-            // Iceberg field id. Never publish them under the synthetic -1 key.
-            continue;
-        }
-        if (is_variant_child) {
-            variant_field_ids.insert(field_id);
-        }
-
-        for (int rg_idx = 0; rg_idx < num_row_groups; ++rg_idx) {
-            auto row_group = file_metadata->RowGroup(rg_idx);
-            auto column_chunk = row_group->ColumnChunk(col_idx);
-            if (!is_variant_child) {
-                column_sizes[field_id] += column_chunk->total_compressed_size();
-            }
-
-            if (column_chunk->is_stats_set()) {
-                auto column_stat = column_chunk->statistics();
-                if (!merged_column_stats.contains(field_id)) {
-                    merged_column_stats[field_id] = column_stat;
-                } else {
-                    parquet_utils::merge_stats(merged_column_stats[field_id], column_stat);
-                }
-            }
-        }
-    }
-
-    bool has_any_null_count = false;
-    bool has_any_min_max = false;
-    for (const auto& [field_id, column_stat] : merged_column_stats) {
-        value_counts[field_id] = column_stat->num_values();
-        if (column_stat->HasNullCount()) {
-            has_any_null_count = true;
-            int64_t null_count = column_stat->null_count();
-            null_value_counts[field_id] = null_count;
-            value_counts[field_id] += null_count;
-        }
-        if (!variant_field_ids.contains(field_id) && column_stat->HasMinMax()) {
-            has_any_min_max = true;
-            lower_bounds[field_id] = column_stat->EncodeMin();
-            upper_bounds[field_id] = column_stat->EncodeMax();
-        }
-    }
-
-    stats->__set_column_sizes(column_sizes);
-    stats->__set_value_counts(value_counts);
-    if (has_any_null_count) {
-        stats->__set_null_value_counts(null_value_counts);
-    }
-    if (has_any_min_max) {
-        stats->__set_lower_bounds(lower_bounds);
-        stats->__set_upper_bounds(upper_bounds);
-    }
-    return Status::OK();
-}
 } // namespace doris

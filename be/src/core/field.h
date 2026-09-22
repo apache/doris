@@ -191,13 +191,15 @@ public:
     Field(PrimitiveType w) : type(w) {}
     template <PrimitiveType T>
     static Field create_field(const typename PrimitiveTypeTraits<T>::CppType& data) {
-        auto f = Field(T);
+        // Publish the type only after construction succeeds, so allocation failures cannot
+        // destroy uninitialized owned storage (including long binary values).
+        auto f = Field();
         f.template create_concrete<T>(data);
         return f;
     }
     template <PrimitiveType T>
     static Field create_field(typename PrimitiveTypeTraits<T>::CppType&& data) {
-        auto f = Field(T);
+        auto f = Field();
         f.template create_concrete<T>(std::move(data));
         return f;
     }
@@ -243,6 +245,7 @@ public:
         if (this != &rhs) {
             if (type != rhs.type) {
                 destroy();
+                type = TYPE_NULL;
                 create(std::move(rhs));
             } else {
                 assign(std::move(rhs));

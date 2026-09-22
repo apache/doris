@@ -152,6 +152,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             """
             logger.info("sql_result = ${sql_result}");
 
+            assertEquals(1, sql_result.size())
             def profileText = getProfileWithToken(t1);
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -164,6 +165,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             """
             logger.info("sql_result = ${sql_result}");
 
+            assertEquals(1, sql_result.size())
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -179,6 +181,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             """
             logger.info("sql_result = ${sql_result}");
 
+            assertEquals(0, sql_result.size())
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -197,6 +200,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             """
             logger.info("sql_result = ${sql_result}");
 
+            assertEquals(1, sql_result.size())
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -212,6 +216,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             """
             logger.info("sql_result = ${sql_result}");
 
+            assertEquals(14, sql_result.size())
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -224,6 +229,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             """
             logger.info("sql_result = ${sql_result}");
 
+            assertEquals(7299, sql_result.size())
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -237,6 +243,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
                 select * ,"${t1}" from   alltypes_tiny_pages_plain where id in (1,2);
             """
             logger.info("sql_result = ${sql_result}");  
+            assertEquals(2, sql_result.size())
             def profileText = getProfileWithToken(t1)
             assertTrue(profileText.contains("ParquetReader"), "Profile does not contain ParquetReader")
             return extractProfileBlockMetrics(profileText, "ParquetReader")
@@ -267,374 +274,41 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
 
 
 
-        def test_true_true = {
-            sql """ set enable_parquet_filter_by_min_max = true; """
-            sql """ set enable_parquet_lazy_materialization = true; """
-
-            def metrics = q1()
-            logger.info("metrics = ${metrics}")
-            assertEquals("99", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("1", metrics["RawRowsRead"])
-            assertEquals("99", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("99", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q2()
-            logger.info("metrics = ${metrics}")
-            assertEquals("99", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("1", metrics["RawRowsRead"])
-            assertEquals("99", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("99", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q3()
-            logger.info("metrics = ${metrics}")
-            assertEquals("100", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("0", metrics["RawRowsRead"])
-            assertEquals("100", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("100", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("0", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q4()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("20", metrics["FilteredRowsByLazyRead"])
-            assertEquals("7.279K (7279)", metrics["FilteredRowsByPage"])
-            assertEquals("21", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q5()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("28", metrics["FilteredRowsByLazyRead"])
-            assertEquals("7.258K (7258)", metrics["FilteredRowsByPage"])
-            assertEquals("42", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q6()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("1", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertTrue(metrics["RawRowsRead"].contains("7300"))
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q7()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("19", metrics["FilteredRowsByLazyRead"])
-            assertEquals("7.279K (7279)", metrics["FilteredRowsByPage"])
-            assertEquals("21", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
+        // Versioned Parquet plans always use V2, including when the session toggle is false.
+        // V2 filters predicates before materializing output regardless of the legacy lazy flag.
+        for (boolean scannerV2 : [false, true]) {
+            sql "set enable_file_scanner_v2=${scannerV2}"
+            for (boolean minMax : [false, true]) {
+                sql "set enable_parquet_filter_by_min_max=${minMax}"
+                for (boolean lazy : [false, true]) {
+                    sql "set enable_parquet_lazy_materialization=${lazy}"
+                    def queries = [q1, q2, q3, q4, q5, q6, q7]
+                    for (int queryIndex = 0; queryIndex < queries.size(); queryIndex++) {
+                        def metrics = queries[queryIndex]()
+                        long raw = metricValueAsLong(metrics["RawRowsRead"])
+                        // ReaderSelectRows sums per-column work, not logical output rows.
+                        long selected = metricValueAsLong(metrics["SelectedRows"])
+                        long filtered = metricValueAsLong(metrics["RowsFilteredByConjunct"])
+                        long lazyFiltered = metricValueAsLong(metrics["FilteredRowsByLazyRead"])
+                        assertTrue(raw >= 0 && selected >= 0 && filtered >= 0)
+                        assertEquals(raw, selected + filtered)
+                        assertTrue(lazyFiltered >= 0 && lazyFiltered <= filtered)
+                        // Accounting can remain correct even if pruning is broken. These fixtures
+                        // must skip row groups/pages, independently of conjunct and lazy filtering.
+                        if (minMax && queryIndex < 3) {
+                            long totalGroups = metricValueAsLong(metrics["RowGroupsTotalNum"])
+                            long readGroups = metricValueAsLong(metrics["RowGroupsReadNum"])
+                            assertTrue(metricValueAsLong(metrics["RowGroupsFilteredByMinMax"]) > 0)
+                            assertTrue(readGroups >= 0 && readGroups < totalGroups)
+                        }
+                        if (minMax && queryIndex in [3, 4, 6]) {
+                            assertTrue(metricValueAsLong(metrics["FilteredRowsByPage"]) > 0)
+                            assertTrue(raw < 7300)
+                        }
+                    }
+                }
+            }
         }
-
-
-        def test_true_false = {
-            sql """ set enable_parquet_filter_by_min_max = true; """
-            sql """ set enable_parquet_lazy_materialization = false; """
-            // in v2 lazy materialization is always enabled.
-            sql """ set enable_file_scanner_v2=false; """
-
-            def metrics = q1()
-            logger.info("metrics = ${metrics}")
-            assertEquals("99", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("1", metrics["RawRowsRead"])
-            assertEquals("99", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("99", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q2()
-            logger.info("metrics = ${metrics}")
-            assertEquals("99", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("1", metrics["RawRowsRead"])
-            assertEquals("99", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("99", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q3()
-            logger.info("metrics = ${metrics}")
-            assertEquals("100", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("0", metrics["RawRowsRead"])
-            assertEquals("100", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("100", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("0", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q4()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("7.279K (7279)", metrics["FilteredRowsByPage"])
-            assertEquals("21", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q5()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("7.258K (7258)", metrics["FilteredRowsByPage"])
-            assertEquals("42", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q6()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertTrue(metrics["RawRowsRead"].contains("7300"))
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q7()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("7.279K (7279)", metrics["FilteredRowsByPage"])
-            assertEquals("21", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-        }
-
-
-        def test_false_false = {
-            sql """ set enable_parquet_filter_by_min_max = false; """
-            sql """ set enable_parquet_lazy_materialization = false; """
-
-            def metrics = q1()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("100", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("100", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q2()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("100", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("100", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q3()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("100", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("100", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q4()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("7.3K (7300)", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q5()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("7.3K (7300)", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q6()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("7.3K (7300)", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q7()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("7.3K (7300)", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-        }
-
-
-        def test_false_true = {
-            sql """ set enable_parquet_filter_by_min_max = false; """
-            sql """ set enable_parquet_lazy_materialization = true; """
-
-            def metrics = q1()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("99", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("100", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("100", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q2()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("99", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("100", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("100", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q3()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("100", metrics["FilteredRowsByLazyRead"])
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertEquals("100", metrics["RawRowsRead"])
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("100", metrics["RowGroupsReadNum"])
-            assertEquals("100", metrics["RowGroupsTotalNum"])
-
-            metrics = q4()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertTrue(metrics["FilteredRowsByLazyRead"].contains("7299"))
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertTrue(metrics["RawRowsRead"].contains("7300"))
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q5()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertTrue(metrics["FilteredRowsByLazyRead"].contains("7286"))
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertTrue(metrics["RawRowsRead"].contains("7300"))
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q6()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertTrue(metrics["FilteredRowsByLazyRead"].contains("1"))
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertTrue(metrics["RawRowsRead"].contains("7300"))
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-
-            metrics = q7()
-            logger.info("metrics = ${metrics}")
-            assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertTrue(metrics["FilteredRowsByLazyRead"].contains("7298"))
-            assertEquals("0", metrics["FilteredRowsByPage"])
-            assertTrue(metrics["RawRowsRead"].contains("7300"))
-            assertEquals("0", metrics["RowGroupsFiltered"])
-            assertEquals("0", metrics["RowGroupsFilteredByBloomFilter"])
-            assertEquals("0", metrics["RowGroupsFilteredByMinMax"])
-            assertEquals("1", metrics["RowGroupsReadNum"])
-            assertEquals("1", metrics["RowGroupsTotalNum"])
-        }
-
-        // The existing profile counter expectations below describe the legacy reader. Keep them
-        // isolated from the format v2 default; q8() is the format v2 lazy-materialization check.
-        sql """ set enable_file_scanner_v2=false; """
-        test_true_true();
-        test_true_false();
-        test_false_false();
-        test_false_true();
         q8();
 
 

@@ -39,6 +39,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -443,6 +444,105 @@ TEST(PaimonReaderTest, AnnotatesArrayAndMapFileSchemaFromSplitHistorySchema) {
     EXPECT_EQ(file_schema[1].children[0].name_mapping, std::vector<std::string>({"key"}));
     EXPECT_EQ(file_schema[1].children[1].get_identifier_field_id(), 42);
     EXPECT_EQ(file_schema[1].children[1].name_mapping, std::vector<std::string>({"score"}));
+}
+
+// Paimon writes precision 7..9 TIMESTAMP and TIMESTAMP_LTZ with the same unannotated INT96
+// physical type. The historical Paimon schema must therefore preserve the per-column semantic so
+// the native reader can keep TIMESTAMP as a wall clock and decode TIMESTAMP_LTZ as an instant.
+TEST(PaimonReaderTest, AnnotatesTimestampSemanticsFromSplitHistorySchema) {
+    auto timestamp = external_schema_field("ts", 10);
+    timestamp.field_ptr->__set_timestamp_is_adjusted_to_utc(false);
+    auto timestamp_ltz = external_schema_field("ts_ltz", 11);
+    timestamp_ltz.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {timestamp, timestamp_ltz})});
+
+    paimon::PaimonReader reader;
+    reader.TEST_set_scan_params(&scan_params);
+    SplitReadOptions split_options;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_schema_table_format_desc(100));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    const auto datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(0, "ts", datetime_type),
+            make_file_column(1, "ts_ltz", datetime_type),
+    };
+    ASSERT_TRUE(reader.TEST_annotate_file_schema(&file_schema).ok());
+
+    ASSERT_TRUE(file_schema[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*file_schema[0].timestamp_is_adjusted_to_utc);
+    EXPECT_EQ(remove_nullable(file_schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
+    ASSERT_TRUE(file_schema[1].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*file_schema[1].timestamp_is_adjusted_to_utc);
+    EXPECT_EQ(remove_nullable(file_schema[1].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+}
+
+TEST(PaimonReaderTest, RebuildsNestedTimestampTypesAndPreservesNullability) {
+    const auto timestamp = std::make_shared<DataTypeDateTimeV2>(3);
+    auto instant = make_file_column(2, "instant", make_nullable(timestamp));
+    instant.timestamp_is_adjusted_to_utc = true;
+    auto wall = make_file_column(3, "wall", timestamp);
+    wall.timestamp_is_adjusted_to_utc = false;
+    auto map =
+            make_file_column(1, "entries", std::make_shared<DataTypeMap>(instant.type, wall.type));
+    map.children = {instant, wall};
+    auto array =
+            make_file_column(0, "events", make_nullable(std::make_shared<DataTypeArray>(map.type)));
+    array.children = {map};
+    std::vector<ColumnDefinition> schema {array};
+    TFileScanRangeParams params;
+    paimon::PaimonReader reader;
+    reader.TEST_set_scan_params(&params);
+    reader.TEST_set_format(FileFormat::PARQUET);
+    ASSERT_TRUE(reader.TEST_annotate_file_schema(&schema).ok());
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    const auto& result_array = assert_cast<const DataTypeArray&>(*remove_nullable(schema[0].type));
+    // ARRAY elements use nullable carriers even when the physical child is required.
+    ASSERT_TRUE(result_array.get_nested_type()->is_nullable());
+    const auto& result_map =
+            assert_cast<const DataTypeMap&>(*remove_nullable(result_array.get_nested_type()));
+    EXPECT_EQ(remove_nullable(result_map.get_key_type())->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(result_map.get_key_type()->get_scale(), 3);
+    EXPECT_EQ(remove_nullable(result_map.get_value_type())->get_primitive_type(), TYPE_DATETIMEV2);
+    EXPECT_EQ(result_map.get_value_type()->get_scale(), 3);
+    EXPECT_TRUE(schema[0].children[0].children[0].type->is_nullable());
+    EXPECT_FALSE(schema[0].children[0].children[1].type->is_nullable());
+}
+
+TEST(PaimonReaderTest, RejectsMalformedTimestampContainersBeforeChangingChildren) {
+    const auto timestamp = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    for (bool is_array : {true, false}) {
+        for (size_t count : {0U, 1U, 2U, 3U}) {
+            if (count == (is_array ? 1U : 2U)) {
+                continue;
+            }
+            SCOPED_TRACE(std::to_string(count));
+            DataTypePtr type =
+                    is_array ? DataTypePtr(std::make_shared<DataTypeArray>(timestamp))
+                             : DataTypePtr(std::make_shared<DataTypeMap>(timestamp, timestamp));
+            auto parent = make_file_column(0, "container", type);
+            for (size_t i = 0; i < count; ++i) {
+                auto child = make_file_column(i + 1, "child", timestamp);
+                child.timestamp_is_adjusted_to_utc = true;
+                parent.children.push_back(std::move(child));
+            }
+            std::vector<ColumnDefinition> schema {parent};
+            TFileScanRangeParams params;
+            paimon::PaimonReader reader;
+            reader.TEST_set_scan_params(&params);
+            reader.TEST_set_format(FileFormat::PARQUET);
+            const auto status = reader.TEST_annotate_file_schema(&schema);
+            EXPECT_FALSE(status.ok());
+            for (const auto& child : schema[0].children) {
+                EXPECT_EQ(child.type, timestamp);
+            }
+            EXPECT_EQ(schema[0].type, type);
+        }
+    }
 }
 
 // Scenario: when FE does not send a matching historical schema for the split schema id, Paimon must

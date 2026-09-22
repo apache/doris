@@ -283,29 +283,42 @@ public class TrinoConnectorPredicateConverter {
                 return ((DateLiteral) literalExpr).daynr() - new DateLiteral(EPOCH_DATE).daynr();
             case "ShortTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                return dateLiteral.unixTimestamp(TimeZone.getTimeZone(GMT)) * 1000
-                        + dateLiteral.getMicrosecond();
+                // unixTimestamp already includes milliseconds; only add the sub-millisecond remainder.
+                return dateLiteral.getUnixTimestampWithMicroseconds(TimeZone.getTimeZone(GMT));
             }
             case "LongTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                long epochMicros = dateLiteral.unixTimestamp(TimeZone.getTimeZone(GMT)) * 1000
-                        + dateLiteral.getMicrosecond();
+                long epochMicros = dateLiteral.getUnixTimestampWithMicroseconds(TimeZone.getTimeZone(GMT));
                 return new LongTimestamp(epochMicros, 0);
             }
             case "LongTimestampWithTimeZoneType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
-                long epochMillis = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-                int picosOfMilli = (int) dateLiteral.getMicrosecond() * 1000000;
-                TimeZoneKey timeZoneKey = TimeZoneKey.getTimeZoneKey(TimeUtils.getTimeZone().toZoneId().toString());
+                // TIMESTAMPTZ literals store UTC components, independent of the session timezone.
+                TimeZone zone = dateLiteral.getType().isTimeStampTz()
+                        ? TimeZone.getTimeZone(GMT) : TimeUtils.getTimeZone();
+                long epochMillis = dateLiteral.unixTimestamp(zone);
+                int picosOfMilli = (int) (dateLiteral.getMicrosecond() % 1000) * 1000000;
+                TimeZoneKey timeZoneKey = TimeZoneKey.getTimeZoneKey(zone.toZoneId().toString());
                 return LongTimestampWithTimeZone.fromEpochMillisAndFraction(epochMillis, picosOfMilli, timeZoneKey);
             }
-            case "ShortTimestampWithTimeZoneType":
+            case "ShortTimestampWithTimeZoneType": {
+                DateLiteral dateLiteral = (DateLiteral) literalExpr;
+                // Rounding a range endpoint down could discard matching source rows.
+                if (dateLiteral.getMicrosecond() % 1000 != 0) {
+                    throw new AnalysisException(
+                            "Cannot push down sub-millisecond timestamp to a short timestamp domain");
+                }
+                TimeZone zone = dateLiteral.getType().isTimeStampTz()
+                        ? TimeZone.getTimeZone(GMT) : TimeUtils.getTimeZone();
+                return io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone(
+                        dateLiteral.unixTimestamp(zone), TimeZoneKey.getTimeZoneKey(zone.toZoneId().toString()));
+            }
             case "TimeType":
             case "ArrayType":
             case "MapType":
             case "RowType":
             default:
-                return new AnalysisException("Do not support convert trino type [" + type.getSimpleName()
+                throw new AnalysisException("Do not support convert trino type [" + type.getSimpleName()
                         + "] to domain values.");
         }
     }

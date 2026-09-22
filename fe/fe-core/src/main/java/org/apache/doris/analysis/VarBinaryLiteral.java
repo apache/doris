@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -27,6 +28,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TVarBinaryLiteral;
 
 import com.google.common.io.BaseEncoding;
+import com.google.common.primitives.UnsignedBytes;
 import com.google.gson.annotations.SerializedName;
 
 import java.nio.ByteBuffer;
@@ -92,33 +94,8 @@ public class VarBinaryLiteral extends LiteralExpr {
     @Override
     public int compareLiteral(LiteralExpr other) {
         if (other instanceof VarBinaryLiteral) {
-            byte[] thisBytes = this.value;
-            byte[] otherBytes = ((VarBinaryLiteral) other).value;
-
-            int minLength = Math.min(thisBytes.length, otherBytes.length);
-            int i = 0;
-            for (i = 0; i < minLength; i++) {
-                if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
-                    return -1;
-                } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
-                    return 1;
-                }
-            }
-            if (thisBytes.length > otherBytes.length) {
-                if (thisBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return 1;
-                }
-            } else if (thisBytes.length < otherBytes.length) {
-                if (otherBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            } else {
-                return 0;
-            }
+            // Binary prefixes remain distinct even when the next byte is zero.
+            return UnsignedBytes.lexicographicalComparator().compare(value, ((VarBinaryLiteral) other).value);
         }
         if (other instanceof NullLiteral) {
             return 1;
@@ -133,6 +110,12 @@ public class VarBinaryLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         return new String(value, StandardCharsets.ISO_8859_1);
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        // Bucket pruning must hash the raw bytes used by BE routing, not a UTF-8 re-encoding.
+        return ByteBuffer.wrap(value);
     }
 
     @Override

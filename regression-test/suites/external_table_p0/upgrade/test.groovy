@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_catalog_upgrade_test", "p0,external,hive,external_docker,external_docker_hive,restart_fe,upgrade_case") {
+    // Iceberg and JDBC MySQL instants retain their timezone after catalog refresh or upgrade.
+    sql """set time_zone = 'Asia/Shanghai'"""
 
     // Hive
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -80,4 +82,3 @@ suite("test_catalog_upgrade_test", "p0,external,hive,external_docker,external_do
         order_qt_mysql2 """select * from doris_test.dt""";
     }
 }
-

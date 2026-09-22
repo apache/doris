@@ -67,7 +67,6 @@ public abstract class JdbcClient {
     protected boolean isOnlySpecifiedDatabase;
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
-    protected boolean enableMappingVarbinary;
     protected boolean enableMappingTimestampTz;
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
@@ -113,7 +112,6 @@ public abstract class JdbcClient {
         this.dbType = parseDbType(jdbcUrl);
         initializeClassLoader(jdbcClientConfig);
         initializeDataSource(jdbcClientConfig);
-        this.enableMappingVarbinary = jdbcClientConfig.isEnableMappingVarbinary();
         this.enableMappingTimestampTz = jdbcClientConfig.isEnableMappingTimestampTz();
     }
 

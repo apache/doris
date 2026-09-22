@@ -19,10 +19,40 @@
 
 #include "core/data_type/data_type_varbinary.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/in.h"
 
 namespace doris {
 
 using namespace ut_type;
+
+TEST(function_binary_test, comparisons_preserve_zero_bytes) {
+    const InputTypeSet types = {TYPE_VARBINARY, TYPE_VARBINARY};
+    const DataSet equals = {{{VARBINARY("a"), VARBINARY("a\0", 2)}, uint8_t(0)},
+                            {{VARBINARY("\0", 1), VARBINARY("\0", 1)}, uint8_t(1)},
+                            {{VARBINARY(""), VARBINARY("\0", 1)}, uint8_t(0)},
+                            {{VARBINARY("\xff", 1), VARBINARY("\xff", 1)}, uint8_t(1)},
+                            {{Null(), VARBINARY("")}, Null()}};
+    check_function_all_arg_comb<DataTypeUInt8, true>("eq", types, equals);
+    const DataSet less = {{{VARBINARY("a"), VARBINARY("a\0\1", 3)}, uint8_t(1)},
+                          {{VARBINARY("\x7f", 1), VARBINARY("\x80", 1)}, uint8_t(1)},
+                          {{VARBINARY("\0", 1), VARBINARY("")}, uint8_t(0)},
+                          {{Null(), VARBINARY("")}, Null()}};
+    check_function_all_arg_comb<DataTypeUInt8, true>("lt", types, less);
+}
+
+TEST(function_binary_test, in_and_not_in_are_not_supported) {
+    RuntimeState state;
+    for (const auto& type : DataTypes {std::make_shared<DataTypeVarbinary>(),
+                                       make_nullable(std::make_shared<DataTypeVarbinary>())}) {
+        const DataTypes arguments {type, type};
+        auto context = FunctionContext::create_context(
+                &state, make_nullable(std::make_shared<DataTypeUInt8>()), arguments);
+        EXPECT_EQ(FunctionIn<false>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+                  ErrorCode::NOT_IMPLEMENTED_ERROR);
+        EXPECT_EQ(FunctionIn<true>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+                  ErrorCode::NOT_IMPLEMENTED_ERROR);
+    }
+}
 
 TEST(function_binary_test, function_binary_length_test) {
     std::string func_name = "length";

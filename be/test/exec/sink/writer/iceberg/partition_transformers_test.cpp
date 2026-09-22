@@ -22,6 +22,9 @@
 #include <limits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_varbinary.h"
+#include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
 
@@ -30,6 +33,92 @@ public:
     PartitionTransformersTest() = default;
     virtual ~PartitionTransformersTest() = default;
 };
+
+TEST_F(PartitionTransformersTest, human_hour_floors_negative_ordinals) {
+    const std::vector<std::pair<int, std::string>> cases = {
+            {-25, "1969-12-30-23"}, {-24, "1969-12-31-00"}, {-1, "1969-12-31-23"},
+            {0, "1970-01-01-00"},   {23, "1970-01-01-23"},  {24, "1970-01-02-00"}};
+    for (const auto& [ordinal, expected] : cases) {
+        EXPECT_EQ(expected, PartitionColumnTransformUtils::human_hour(ordinal));
+    }
+}
+
+TEST_F(PartitionTransformersTest, binary_computation_transforms_are_not_supported) {
+    const auto type = std::make_shared<DataTypeVarbinary>();
+    for (const auto& source_type : DataTypes {type, make_nullable(type)}) {
+        for (const auto& transform : {"truncate[1]", "bucket[16]"}) {
+            EXPECT_THROW(
+                    PartitionColumnTransforms::create(
+                            iceberg::PartitionField(1, 1000, "binary_key", transform), source_type),
+                    Exception);
+        }
+    }
+    IdentityPartitionColumnTransform identity(type);
+    EXPECT_EQ("0xc3a900ff", identity.get_partition_value(type, std::string("\xc3\xa9\0\xff", 4)));
+}
+
+TEST_F(PartitionTransformersTest, timestamp_transforms_use_utc_calendar_and_microseconds) {
+    for (const auto& type : std::vector<DataTypePtr> {std::make_shared<DataTypeDateTimeV2>(6),
+                                                      std::make_shared<DataTypeTimeStampTz>(6)}) {
+        auto column = type->create_column();
+        // The first two UTC values represent the repeated New York 01:30 with different offsets.
+        const std::vector<std::array<int, 7>> fields = {{2021, 11, 7, 5, 30, 0, 123456},
+                                                        {2021, 11, 7, 6, 30, 0, 123456},
+                                                        {1969, 12, 31, 23, 59, 59, 999999}};
+        const std::vector<Int64> micros = {1636263000123456, 1636266600123456, -1};
+        for (const auto& f : fields) {
+            DateV2Value<DateTimeV2ValueType> dt;
+            ASSERT_TRUE(dt.check_range_and_set_time(f[0], f[1], f[2], f[3], f[4], f[5], f[6]));
+            auto packed = dt.to_date_int_val();
+            column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
+        }
+        column->insert_default();
+        auto null_map = ColumnUInt8::create();
+        null_map->get_data().assign({0, 0, 0, 1});
+        Block block({{ColumnNullable::create(std::move(column), std::move(null_map)),
+                      make_nullable(type), "event_time"}});
+        const std::vector<std::string> transforms = {"year", "month", "day", "hour", "bucket[16]"};
+        const std::vector<std::vector<Int32>> expected = {
+                {51, 51, -1}, {622, 622, -1}, {18938, 18938, -1}, {454517, 454518, -1}};
+        for (size_t t = 0; t < transforms.size(); ++t) {
+            SCOPED_TRACE(type->get_name() + " " + transforms[t]);
+            auto transform = PartitionColumnTransforms::create(
+                    iceberg::PartitionField(1, 1000, "event_partition", transforms[t]), type);
+            auto result = transform->apply(block, 0);
+            ASSERT_TRUE(result.column->is_null_at(3));
+            const auto& values =
+                    assert_cast<const ColumnInt32&>(
+                            assert_cast<const ColumnNullable&>(*result.column).get_nested_column())
+                            .get_data();
+            for (size_t row = 0; row < micros.size(); ++row) {
+                Int32 expected_value =
+                        t < 4 ? expected[t][row]
+                              : (HashUtil::murmur_hash3_32(&micros[row], sizeof(Int64), 0) &
+                                 INT32_MAX) %
+                                        16;
+                EXPECT_EQ(expected_value, values[row]);
+            }
+            if (transforms[t] == "hour") {
+                EXPECT_EQ("1969-12-31-23", transform->to_human_string(result.type, Int32(-1)));
+            }
+        }
+    }
+}
+
+TEST_F(PartitionTransformersTest, date_partitions_before_epoch_use_calendar_ordinals) {
+    auto type = std::make_shared<DataTypeDateV2>();
+    auto column = ColumnDateV2::create();
+    DateV2Value<DateV2ValueType> value;
+    value.unchecked_set_time(1969, 12, 31, 0, 0, 0);
+    column->insert_value(value.to_date_int_val());
+    Block block({{std::move(column), type, "event_date"}});
+    for (const auto& name : {"year", "month", "day"}) {
+        auto transform = PartitionColumnTransforms::create(
+                iceberg::PartitionField(1, 1000, "date_partition", name), type);
+        auto result = transform->apply(block, 0);
+        EXPECT_EQ(-1, assert_cast<const ColumnInt32&>(*result.column).get_data()[0]);
+    }
+}
 
 TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
     const std::vector<int32_t> values({1, -1});
@@ -239,7 +328,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_bucket_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampBucketPartitionColumnTransform transform(source_type, 16);
+    TimestampBucketPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
 
@@ -312,7 +401,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_year_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampYearPartitionColumnTransform transform(source_type);
+    TimestampYearPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 
@@ -366,7 +455,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_month_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampMonthPartitionColumnTransform transform(source_type);
+    TimestampMonthPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 
@@ -420,7 +509,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampDayPartitionColumnTransform transform(source_type);
+    TimestampDayPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 
@@ -447,7 +536,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampHourPartitionColumnTransform transform(source_type);
+    TimestampHourPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 

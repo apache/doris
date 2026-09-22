@@ -64,6 +64,11 @@ TEST_F(HybridSetTest, bool) {
     EXPECT_TRUE(set->find(&a));
 }
 
+TEST_F(HybridSetTest, StoragePredicateFactoryRejectsBinary) {
+    EXPECT_THROW(std::unique_ptr<HybridSetBase>(create_set(TYPE_VARBINARY, true)), Exception);
+    EXPECT_THROW(delete create_minmax_filter(TYPE_VARBINARY, true), Exception);
+}
+
 #define TEST_NUMERIC(primitive_type)                                               \
     do {                                                                           \
         using NumericType = PrimitiveTypeTraits<primitive_type>::CppType;          \
