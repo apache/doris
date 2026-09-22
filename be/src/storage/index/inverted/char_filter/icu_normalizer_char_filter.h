@@ -41,25 +41,17 @@ public:
     size_t size() override { return _buf.size(); }
     int32_t correct_offset(int32_t current_offset) const override;
 
-    size_t offset_correction_run_count() const { return _offset_correction_runs.size(); }
-
 private:
-    struct OffsetCorrectionRun {
-        int32_t source_start;
-        int32_t destination_start;
-        int32_t source_length;
-        int32_t destination_length;
-        int32_t repeat_count;
-    };
-
     void fill();
     void normalize_text(const std::string& input, std::string& output);
-    void build_source_byte_offset_runs();
 
     std::shared_ptr<const icu::Normalizer2> _normalizer;
+    // ICU's own edit encoding is the only per-change state; the cursor caches the last
+    // search position so mostly increasing offset queries stay cheap.
     icu::Edits _edits;
+    mutable icu::Edits::Iterator _offset_cursor;
+    int32_t _source_length = 0;
     std::string _buf;
-    std::vector<OffsetCorrectionRun> _offset_correction_runs;
     lucene::util::SStringReader<char> _transformed_input;
 };
 using ICUNormalizerCharFilterPtr = std::shared_ptr<ICUNormalizerCharFilter>;

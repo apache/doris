@@ -280,12 +280,45 @@ TEST_F(ICUNormalizerCharFilterFactoryTest, SparseOffsetCorrectionsRemainCompact)
     ASSERT_NE(filter, nullptr);
     filter->init(input.data(), static_cast<int32_t>(input.size()), false);
 
-    EXPECT_EQ(filter->offset_correction_run_count(), 1);
     EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes)), unchanged_bytes);
     EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes + 1)),
               unchanged_bytes + 3);
     EXPECT_EQ(filter->correct_offset(static_cast<int32_t>(unchanged_bytes + 2)),
               unchanged_bytes + 4);
+}
+
+TEST_F(ICUNormalizerCharFilterFactoryTest, DenseAlternatingEditsMapOffsetsWithoutSideTable) {
+    // Every second rune is folded 3 -> 1 with one unchanged byte in between, so nothing
+    // coalesces; the correction state must stay bounded by ICU's own edit encoding.
+    constexpr int32_t pairs = 100000;
+    std::string input;
+    input.reserve(static_cast<size_t>(pairs) * 4);
+    for (int32_t i = 0; i < pairs; ++i) {
+        input += "aＡ";
+    }
+
+    Settings settings;
+    ICUNormalizerCharFilterFactory factory;
+    factory.initialize(settings);
+
+    auto reader = make_reader(input);
+    auto filter = std::dynamic_pointer_cast<ICUNormalizerCharFilter>(factory.create(reader));
+    ASSERT_NE(filter, nullptr);
+    filter->init(input.data(), static_cast<int32_t>(input.size()), false);
+    ASSERT_EQ(filter->size(), static_cast<size_t>(pairs) * 2);
+
+    auto expect_pair = [&filter](int32_t k) {
+        EXPECT_EQ(filter->correct_offset(2 * k), 4 * k);
+        EXPECT_EQ(filter->correct_offset(2 * k + 1), 4 * k + 1);
+        EXPECT_EQ(filter->correct_offset(2 * k + 2), 4 * k + 4);
+    };
+    for (int32_t k = 0; k < pairs; k += 997) {
+        expect_pair(k);
+    }
+    for (int32_t k = pairs - 1; k >= 0; k -= 991) {
+        expect_pair(k);
+    }
+    EXPECT_EQ(filter->correct_offset(2 * pairs), 4 * pairs);
 }
 
 } // namespace doris::segment_v2::inverted_index

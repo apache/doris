@@ -63,7 +63,8 @@ void ICUNormalizerCharFilter::fill() {
     input.resize(_reader->size());
     _reader->readCopy(input.data(), 0, static_cast<int32_t>(input.size()));
     normalize_text(input, _buf);
-    build_source_byte_offset_runs();
+    _source_length = static_cast<int32_t>(input.size());
+    _offset_cursor = _edits.getFineIterator();
     _transformed_input.init(_buf.data(), static_cast<int32_t>(_buf.size()), false);
 }
 
@@ -86,74 +87,25 @@ void ICUNormalizerCharFilter::normalize_text(const std::string& input, std::stri
     }
 }
 
-void ICUNormalizerCharFilter::build_source_byte_offset_runs() {
-    _offset_correction_runs.clear();
-    UErrorCode status = U_ZERO_ERROR;
-    auto iterator = _edits.getFineChangesIterator();
-    while (iterator.next(status)) {
-        if (U_FAILURE(status)) {
-            _offset_correction_runs.clear();
-            return;
-        }
-
-        const int32_t source_start = iterator.sourceIndex();
-        const int32_t destination_start = iterator.destinationIndex();
-        const int32_t source_length = iterator.oldLength();
-        const int32_t destination_length = iterator.newLength();
-        if (!_offset_correction_runs.empty()) {
-            auto& previous = _offset_correction_runs.back();
-            const int64_t previous_source_end =
-                    static_cast<int64_t>(previous.source_start) +
-                    static_cast<int64_t>(previous.source_length) * previous.repeat_count;
-            const int64_t previous_destination_end =
-                    static_cast<int64_t>(previous.destination_start) +
-                    static_cast<int64_t>(previous.destination_length) * previous.repeat_count;
-            if (previous.source_length == source_length &&
-                previous.destination_length == destination_length &&
-                previous_source_end == source_start &&
-                previous_destination_end == destination_start) {
-                ++previous.repeat_count;
-                continue;
-            }
-        }
-        _offset_correction_runs.push_back(
-                {source_start, destination_start, source_length, destination_length, 1});
-    }
-    if (U_FAILURE(status)) {
-        _offset_correction_runs.clear();
-    }
-}
-
 int32_t ICUNormalizerCharFilter::correct_offset(int32_t current_offset) const {
-    if (current_offset < 0 || _offset_correction_runs.empty()) {
+    if (current_offset < 0) {
         return DorisCharFilter::correct_offset(current_offset);
     }
+    const auto destination_length = static_cast<int32_t>(_buf.size());
+    if (current_offset >= destination_length) {
+        return DorisCharFilter::correct_offset(_source_length +
+                                               (current_offset - destination_length));
+    }
 
-    const auto next_run = std::ranges::upper_bound(_offset_correction_runs, current_offset, {},
-                                                   &OffsetCorrectionRun::destination_start);
-    if (next_run == _offset_correction_runs.begin()) {
+    // Offsets at the start of an edit map to its source start, offsets inside an edit map to
+    // its source end, and unchanged text keeps its relative position.
+    UErrorCode status = U_ZERO_ERROR;
+    const int32_t source_offset =
+            _offset_cursor.sourceIndexFromDestinationIndex(current_offset, status);
+    if (U_FAILURE(status)) {
         return DorisCharFilter::correct_offset(current_offset);
     }
-
-    const auto& run = *std::prev(next_run);
-    const int64_t source_end = static_cast<int64_t>(run.source_start) +
-                               static_cast<int64_t>(run.source_length) * run.repeat_count;
-    const int64_t destination_end = static_cast<int64_t>(run.destination_start) +
-                                    static_cast<int64_t>(run.destination_length) * run.repeat_count;
-    if (run.destination_length == 0 && current_offset == run.destination_start) {
-        return DorisCharFilter::correct_offset(static_cast<int32_t>(source_end));
-    }
-
-    if (current_offset <= destination_end) {
-        const int64_t relative_destination = current_offset - run.destination_start;
-        const int64_t completed_edits = relative_destination / run.destination_length;
-        const int64_t source_offset =
-                run.source_start + completed_edits * run.source_length +
-                (relative_destination % run.destination_length == 0 ? 0 : run.source_length);
-        return DorisCharFilter::correct_offset(static_cast<int32_t>(source_offset));
-    }
-    return DorisCharFilter::correct_offset(
-            static_cast<int32_t>(source_end + current_offset - destination_end));
+    return DorisCharFilter::correct_offset(source_offset);
 }
 
 } // namespace doris::segment_v2::inverted_index
