@@ -340,6 +340,10 @@ private:
     bool _try_read_from_inflight_buffers(size_t offset, Slice result, size_t bytes_req,
                                          bool is_dryrun, ReadStatistics& stats);
 
+    /// Opt-in snapshot of cache coverage immediately before an exact remote read.
+    /// Probes never populate/touch cache blocks, and their result does not alter the IO decision.
+    void _trace_remote_miss(size_t offset, size_t size, const IOContext* io_ctx);
+
     /// Read in-flight buffers or downloaded cache blocks only when one source fully covers the
     /// request; otherwise read remote data directly without writing file cache.
     /// @param[in] offset Original request offset.
