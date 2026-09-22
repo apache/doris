@@ -797,6 +797,27 @@ TEST_F(PinyinFilterTest, TestResetReleasesOversizedUpstreamProvenanceScratch) {
     EXPECT_EQ(collect(), ordinary_tokens);
 }
 
+TEST_F(PinyinFilterTest, TestOffsetTrackingReusesTokenizerScratchAcrossTokens) {
+    for (const std::string tokenizer_type : {"standard", "ik_max_word"}) {
+        SCOPED_TRACE(tokenizer_type);
+        const std::string text = "abcdefghijklmnopqrstuvwxyz bc de fg hi";
+        auto tokenizer = createTokenizer(tokenizer_type, text);
+        tokenizer->set_source_byte_offsets_enabled(true);
+        Token token;
+        // The scratch and the published vector alternate, so after two tokens every
+        // following token must land in one of the two warmed buffers without reallocating.
+        std::vector<size_t> capacities;
+        while (tokenizer->next(&token) != nullptr) {
+            capacities.push_back(tokenizer->source_byte_offsets_capacity_for_test());
+        }
+        ASSERT_EQ(capacities.size(), 5);
+        EXPECT_GE(capacities[0], 27);
+        for (size_t i = 2; i < capacities.size(); ++i) {
+            EXPECT_EQ(capacities[i], capacities[i - 2]) << "token " << i;
+        }
+    }
+}
+
 TEST_F(PinyinFilterTest, TestPinyinTrimmedKeywordOffsetsPreserveSourceBoundariesAndReset) {
     Settings settings;
     settings.set("keep_first_letter", "false");

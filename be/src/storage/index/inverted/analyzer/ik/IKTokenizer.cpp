@@ -29,12 +29,15 @@ namespace doris::segment_v2 {
 namespace {
 
 // Normalize the token and collect normalized-rune to source-byte boundaries in the same pass.
+// offsets is reusable scratch owned by the caller so ordinary tokens do not reallocate it.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): ICU UTF-8 macros expand to branches.
-std::vector<int32_t> regularize_with_source_byte_offsets(std::string& token, bool lowercase) {
+void regularize_with_source_byte_offsets(std::string& token, bool lowercase,
+                                         std::vector<int32_t>& offsets) {
     const auto length = static_cast<int32_t>(token.size());
     std::string normalized;
     normalized.reserve(token.size());
-    std::vector<int32_t> offsets {0};
+    offsets.clear();
+    offsets.push_back(0);
     int32_t offset = 0;
     while (offset < length) {
         const int32_t source_start = offset;
@@ -56,7 +59,6 @@ std::vector<int32_t> regularize_with_source_byte_offsets(std::string& token, boo
         offsets.push_back(offset);
     }
     token = std::move(normalized);
-    return offsets;
 }
 
 std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
@@ -94,8 +96,8 @@ Token* IKTokenizer::next(Token* token) {
     // full-width to half-width, and lowercase
     // TODO(ryan19929): do regularizeString in fillBuffer.
     if (source_byte_offsets_enabled_) {
-        current_source_byte_offsets_ =
-                regularize_with_source_byte_offsets(token_data.text, this->lowercase);
+        regularize_with_source_byte_offsets(token_data.text, this->lowercase,
+                                            current_source_byte_offsets_);
     } else {
         CharacterUtil::regularizeString(token_data.text, this->lowercase);
         current_source_byte_offsets_.clear();
@@ -134,7 +136,7 @@ Token* IKTokenizer::next(Token* token) {
         // Char-filter expansions can repeat a corrected boundary; publish through the shared
         // path so such runes keep a conservative span instead of an empty one.
         publish_source_byte_offsets(static_cast<int32_t>(current_source_byte_offsets_.size()) - 1,
-                                    std::move(current_source_byte_offsets_));
+                                    current_source_byte_offsets_);
     }
     return token;
 }
@@ -157,6 +159,7 @@ void IKTokenizer::reset(lucene::util::Reader* reader) {
     this->tokens_.clear();
     this->current_token_ = nullptr;
     this->current_source_byte_offsets_.clear();
+    inverted_index::release_oversized_scratch(this->current_source_byte_offsets_);
     _source_byte_offsets.clear();
     _source_byte_end_offsets.clear();
 
