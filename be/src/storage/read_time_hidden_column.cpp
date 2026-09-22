@@ -17,8 +17,6 @@
 
 #include "storage/read_time_hidden_column.h"
 
-#include "common/logging.h"
-#include "core/column/column.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 
@@ -72,20 +70,6 @@ std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType 
         return std::nullopt;
     }
     __builtin_unreachable();
-}
-
-void replace_suffix_with_read_time_hidden_column(ReadTimeHiddenColumnType column_type,
-                                                 const Version& version, const TsoRange& commit_tso,
-                                                 size_t num_rows, IColumn& column) {
-    auto value = get_read_time_hidden_column_value(column_type, version, commit_tso, false);
-    if (!value.has_value()) {
-        return;
-    }
-    DORIS_CHECK_GE(column.size(), num_rows);
-    column.pop_back(num_rows);
-    for (size_t i = 0; i < num_rows; ++i) {
-        column.insert(*value);
-    }
 }
 
 } // namespace doris

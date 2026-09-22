@@ -103,11 +103,12 @@ public:
         return _column_store_col_uids;
     }
 
-    const std::vector<std::pair<int32_t, uint32_t>>& read_time_hidden_columns() const {
-        return _read_time_hidden_columns;
-    }
+    // Whether the projection holds VERSION/COMMIT_TSO, whose value depends on the owning rowset.
+    bool has_rowset_derived_hidden_columns() const { return _has_rowset_derived_hidden_columns; }
 
-    bool has_read_time_hidden_columns() const { return !_read_time_hidden_columns.empty(); }
+    // Whether the row-store JSONB still serves any projected column once the rowset-derived
+    // hidden columns are left out of it.
+    bool decode_row_store() const { return _row_store_column_ids != -1 && _decode_row_store; }
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
@@ -130,12 +131,12 @@ private:
     int32_t _row_store_column_ids = -1;
     // some column is missing in rowstore(column group), we need to fill them with column store values
     std::unordered_set<int32_t> _missing_col_uids;
-    // included cids in rowstore(column group)
+    // cids decoded from the rowstore(column group) JSONB; empty means every slot
     std::unordered_set<int32_t> _include_col_uids;
-    // Missing columns plus VERSION/COMMIT_TSO, whose row-store values can be stale after compaction.
+    // Missing columns plus the projected VERSION/COMMIT_TSO: everything the JSONB does not serve.
     std::unordered_set<int32_t> _column_store_col_uids;
-    // projected read-time hidden column unique id and its position in the result block
-    std::vector<std::pair<int32_t, uint32_t>> _read_time_hidden_columns;
+    bool _has_rowset_derived_hidden_columns = false;
+    bool _decode_row_store = true;
     // delete sign idx in block
     int32_t _delete_sign_idx = -1;
 };

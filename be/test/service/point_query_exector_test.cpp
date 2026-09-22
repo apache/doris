@@ -29,7 +29,6 @@
 #include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
-#include "core/column/column_vector.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -290,21 +289,23 @@ protected:
     Reusable _reusable;
 };
 
-TEST_F(PointQueryHiddenColumnTest, FullRowStoreRoutesHiddenColumnsToColumnStore) {
+TEST_F(PointQueryHiddenColumnTest, FullRowStoreLeavesHiddenColumnsOutOfJsonb) {
     add_row_store();
     ASSERT_NO_FATAL_FAILURE(init_reusable({kVersionUid, kKeyUid, kCommitTsoUid, kDeleteSignUid},
                                           {kVersionUid, kKeyUid, kCommitTsoUid, kVersionUid}));
     EXPECT_TRUE(_reusable.missing_col_uids().empty());
-    EXPECT_TRUE(_reusable.include_col_uids().empty());
+    // The JSONB decode is narrowed to the slots it still serves.
+    EXPECT_EQ((std::unordered_set<int32_t> {kKeyUid, kDeleteSignUid}),
+              _reusable.include_col_uids());
     EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kCommitTsoUid}),
               _reusable.column_store_col_uids());
-    EXPECT_EQ((std::vector<std::pair<int32_t, uint32_t>> {{kVersionUid, 0}, {kCommitTsoUid, 2}}),
-              _reusable.read_time_hidden_columns());
+    EXPECT_TRUE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_TRUE(_reusable.decode_row_store());
     EXPECT_EQ(kRowStoreUid, _reusable.rs_column_uid());
     EXPECT_EQ(3, _reusable.delete_sign_idx());
 }
 
-TEST_F(PointQueryHiddenColumnTest, FullRowStoreHiddenOnlyUsesIndependentColumnReads) {
+TEST_F(PointQueryHiddenColumnTest, FullRowStoreHiddenOnlyProjectionSkipsJsonb) {
     add_row_store();
     ASSERT_NO_FATAL_FAILURE(
             init_reusable({kVersionUid, kCommitTsoUid}, {kCommitTsoUid, kVersionUid}));
@@ -312,6 +313,10 @@ TEST_F(PointQueryHiddenColumnTest, FullRowStoreHiddenOnlyUsesIndependentColumnRe
     EXPECT_TRUE(_reusable.include_col_uids().empty());
     EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kCommitTsoUid}),
               _reusable.column_store_col_uids());
+    EXPECT_TRUE(_reusable.has_rowset_derived_hidden_columns());
+    // An empty include set would decode every slot again, so the JSONB is not decoded at all.
+    EXPECT_FALSE(_reusable.decode_row_store());
+    EXPECT_EQ(kRowStoreUid, _reusable.rs_column_uid());
 }
 
 TEST_F(PointQueryHiddenColumnTest, PartialRowStoreDoesNotTrustStoredHiddenColumns) {
@@ -319,10 +324,10 @@ TEST_F(PointQueryHiddenColumnTest, PartialRowStoreDoesNotTrustStoredHiddenColumn
     ASSERT_NO_FATAL_FAILURE(init_reusable({kKeyUid, kVersionUid, kCommitTsoUid, kValueUid},
                                           {kKeyUid, kVersionUid, kCommitTsoUid, kValueUid}));
     EXPECT_EQ((std::unordered_set<int32_t> {kValueUid}), _reusable.missing_col_uids());
-    EXPECT_EQ((std::unordered_set<int32_t> {kKeyUid, kVersionUid, kCommitTsoUid}),
-              _reusable.include_col_uids());
+    EXPECT_EQ((std::unordered_set<int32_t> {kKeyUid}), _reusable.include_col_uids());
     EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kCommitTsoUid, kValueUid}),
               _reusable.column_store_col_uids());
+    EXPECT_TRUE(_reusable.decode_row_store());
 }
 
 TEST_F(PointQueryHiddenColumnTest, PartialRowStoreKeepsMissingHiddenColumnsInColumnStore) {
@@ -339,7 +344,8 @@ TEST_F(PointQueryHiddenColumnTest, OrdinaryProjectionKeepsFullRowStoreFastPath) 
     EXPECT_TRUE(_reusable.missing_col_uids().empty());
     EXPECT_TRUE(_reusable.include_col_uids().empty());
     EXPECT_TRUE(_reusable.column_store_col_uids().empty());
-    EXPECT_FALSE(_reusable.has_read_time_hidden_columns());
+    EXPECT_FALSE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_TRUE(_reusable.decode_row_store());
     EXPECT_EQ(kRowStoreUid, _reusable.rs_column_uid());
 }
 
@@ -350,44 +356,43 @@ TEST_F(PointQueryHiddenColumnTest, NoRowStoreReadsAllProjectedColumnsIndependent
               _reusable.missing_col_uids());
     EXPECT_EQ(_reusable.missing_col_uids(), _reusable.column_store_col_uids());
     EXPECT_TRUE(_reusable.include_col_uids().empty());
+    EXPECT_TRUE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_FALSE(_reusable.decode_row_store());
     EXPECT_EQ(-1, _reusable.rs_column_uid());
 }
 
-TEST_F(PointQueryHiddenColumnTest, BinlogTsoDoesNotRequireIndependentColumnRead) {
+TEST_F(PointQueryHiddenColumnTest, BinlogTsoStaysInJsonbAndKeepsRowCache) {
     add_row_store();
     ASSERT_NO_FATAL_FAILURE(init_reusable({kBinlogTsoUid, kKeyUid}, {kBinlogTsoUid, kKeyUid}));
     EXPECT_TRUE(_reusable.missing_col_uids().empty());
+    EXPECT_TRUE(_reusable.include_col_uids().empty());
     EXPECT_TRUE(_reusable.column_store_col_uids().empty());
+    EXPECT_FALSE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_TRUE(_reusable.decode_row_store());
 }
 
-TEST_F(PointQueryHiddenColumnTest, CompactedColumnValuesAreNotReplacedByRowsetMaximum) {
-    for (auto column_type :
-         {ReadTimeHiddenColumnType::VERSION, ReadTimeHiddenColumnType::COMMIT_TSO}) {
-        auto column = ColumnInt64::create();
-        column->insert_value(123);
-        column->insert_value(2);
-        column->insert_value(3);
-        replace_suffix_with_read_time_hidden_column(column_type, Version(2, 3), TsoRange(2, 3), 2,
-                                                    *column);
-        ASSERT_EQ(3, column->size());
-        EXPECT_EQ(123, column->get_element(0));
-        EXPECT_EQ(2, column->get_element(1));
-        EXPECT_EQ(3, column->get_element(2));
-    }
-}
-
-TEST_F(PointQueryHiddenColumnTest, SingletonColumnReadStillReplacesOnlyCurrentRow) {
-    for (auto column_type :
-         {ReadTimeHiddenColumnType::VERSION, ReadTimeHiddenColumnType::COMMIT_TSO}) {
-        auto column = ColumnInt64::create();
-        column->insert_value(123);
-        column->insert_value(0);
-        replace_suffix_with_read_time_hidden_column(column_type, Version(7, 7), TsoRange(8, 8), 1,
-                                                    *column);
-        ASSERT_EQ(2, column->size());
-        EXPECT_EQ(123, column->get_element(0));
-        EXPECT_EQ(column_type == ReadTimeHiddenColumnType::VERSION ? 7 : 8, column->get_element(1));
-    }
+TEST_F(PointQueryHiddenColumnTest, RowsetDerivedValueOnlyForSingletonRowsets) {
+    // A compacted rowset keeps its materialized per-row values.
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(2, 3),
+                                                   TsoRange(2, 3), false)
+                         .has_value());
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                   Version(2, 3), TsoRange(2, 3), false)
+                         .has_value());
+    // A singleton rowset answers with its own version and assigned commit TSO.
+    EXPECT_EQ(7, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(7, 7),
+                                                   TsoRange(8, 8), false)
+                         ->get<TYPE_BIGINT>());
+    EXPECT_EQ(8, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                   Version(7, 7), TsoRange(8, 8), false)
+                         ->get<TYPE_BIGINT>());
+    // An unassigned commit TSO and BINLOG_TSO outside a row-binlog read keep the stored value.
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                   Version(7, 7), TsoRange(), false)
+                         .has_value());
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::BINLOG_TSO,
+                                                   Version(7, 7), TsoRange(8, 8), false)
+                         .has_value());
 }
 
 // RowCache test class
