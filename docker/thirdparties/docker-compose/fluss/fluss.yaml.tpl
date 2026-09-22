@@ -113,9 +113,9 @@ services:
         # Lakehouse storage. The coordinator creates the paimon table when a
         # datalake-enabled fluss table is created, so it needs the warehouse and
         # the credentials to reach it, not just the tiering job. The plugin jars
-        # are in the image: fluss-dist ships plugins/paimon (fluss-lake-paimon +
-        # paimon-bundle + shaded hadoop) and build-images.sh adds paimon-s3
-        # beside them, which is where the S3 FileIO comes from.
+        # are the image's plugins/paimon (fluss-lake-paimon + paimon-bundle +
+        # shaded hadoop) plus the paimon-s3 mounted beside them below, which is
+        # where the S3 FileIO comes from.
         #
         # This block is also most of what makes the tables READABLE by Doris: the
         # coordinator copies its datalake.paimon.* config into every lake table's
@@ -137,6 +137,12 @@ services:
         datalake.paimon.s3.access-key: ${FLUSS_LAKE_S3_ACCESS_KEY}
         datalake.paimon.s3.secret-key: ${FLUSS_LAKE_S3_SECRET_KEY}
     volumes:
+      # The S3 FileIO for the warehouse, fetched by fetch-paimon-s3.sh; see
+      # FLUSS_PAIMON_S3_JAR in fluss.env.tpl for why the image has none. Into the
+      # paimon plugin directory itself: fluss loads each plugin directory in a
+      # classloader of its own, and paimon finds its filesystems by ServiceLoader
+      # within the one that holds it.
+      - ${FLUSS_PAIMON_S3_JAR}:/opt/fluss/plugins/paimon/paimon-s3.jar:ro
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
       # Only used when the warehouse is switched back to a directory for
       # debugging; see FLUSS_PAIMON_WAREHOUSE in fluss.env.tpl. Left in place so
@@ -198,6 +204,8 @@ services:
         datalake.paimon.s3.access-key: ${FLUSS_LAKE_S3_ACCESS_KEY}
         datalake.paimon.s3.secret-key: ${FLUSS_LAKE_S3_SECRET_KEY}
     volumes:
+      # See the coordinator.
+      - ${FLUSS_PAIMON_S3_JAR}:/opt/fluss/plugins/paimon/paimon-s3.jar:ro
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}
       # See the coordinator: kept for the directory warehouse, unused otherwise.
       - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
@@ -213,7 +221,12 @@ services:
     image: ${FLUSS_FLINK_IMAGE}
     container_name: doris--fluss-jobmanager
     hostname: doris--fluss-jobmanager
-    command: jobmanager
+    # The quickstart image keeps its paimon runtime out of lib/ until this
+    # script copies it there and hands over to the flink entrypoint (see
+    # FLUSS_FLINK_IMAGE in fluss.env.tpl); every flink container here starts
+    # through it, because the tiering job runs on all of them.
+    entrypoint: ["/opt/flink/init_paimon.sh"]
+    command: ["jobmanager"]
     ports:
       - ${DOCKER_FLUSS_FLINK_JOBMANAGER_EXTERNAL_PORT}:8081
     environment:
@@ -245,7 +258,8 @@ services:
     image: ${FLUSS_FLINK_IMAGE}
     container_name: doris--fluss-taskmanager
     hostname: doris--fluss-taskmanager
-    command: taskmanager
+    entrypoint: ["/opt/flink/init_paimon.sh"]
+    command: ["taskmanager"]
     depends_on:
       doris--fluss-jobmanager:
         condition: service_healthy
@@ -283,8 +297,10 @@ services:
         condition: service_healthy
       doris--fluss-taskmanager:
         condition: service_healthy
-    # Runs as a command, not as an entrypoint override: the image entrypoint is
-    # what turns FLINK_PROPERTIES into the config the SQL client submits with.
+    # Runs as a command behind the image's init script, not as an entrypoint of
+    # its own: the script ends in the flink entrypoint, which is what turns
+    # FLINK_PROPERTIES into the config the SQL client submits with.
+    entrypoint: ["/opt/flink/init_paimon.sh"]
     command: ["/opt/fluss-scripts/run-init-sql.sh"]
     environment:
       - FLUSS_BOOTSTRAP_SERVERS=doris--fluss-coordinator:9123
