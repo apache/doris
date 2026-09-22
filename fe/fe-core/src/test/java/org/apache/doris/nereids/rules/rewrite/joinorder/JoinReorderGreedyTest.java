@@ -166,7 +166,8 @@ class JoinReorderGreedyTest {
                 @Override
                 protected Optional<PlanInfo> buildJoin(GroupInfo leftGroup, GroupInfo rightGroup) {
                     Optional<PlanInfo> join = super.buildJoin(leftGroup, rightGroup);
-                    join.get().plan.setStatistics(new Statistics(rowCount, ImmutableMap.of()));
+                    ((LogicalJoin<?, ?>) join.get().plan).setStatistics(
+                            new Statistics(rowCount, ImmutableMap.of()));
                     return join;
                 }
             };
