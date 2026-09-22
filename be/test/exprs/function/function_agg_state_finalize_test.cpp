@@ -218,4 +218,34 @@ TEST_F(FunctionAggStateFinalizeTest, EmptyBlock) {
     EXPECT_EQ(result->size(), 0);
 }
 
+TEST_F(FunctionAggStateFinalizeTest, VariableLengthStatesWithOuterNulls) {
+    auto type = state_type("collect_set", std::make_shared<DataTypeString>(), false);
+    auto states = type->create_column();
+    auto null_map = ColumnUInt8::create();
+    const std::string large(16384, 'x');
+    for (size_t group = 0; group < 16; ++group) {
+        // Valid rows exceed the initial arena chunk; outer NULL payloads must be skipped.
+        states->insert_default();
+        null_map->insert_value(1);
+        append_state(type->get_nested_function(),
+                     ColumnHelper::create_column<DataTypeString>({large + std::to_string(group)}),
+                     *states);
+        null_map->insert_value(0);
+    }
+    auto result = finalize(make_nullable(type),
+                           ColumnNullable::create(std::move(states), std::move(null_map)));
+    const auto& arrays = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    const auto& strings = assert_cast<const ColumnString&>(
+            assert_cast<const ColumnNullable&>(arrays.get_data()).get_nested_column());
+    ASSERT_EQ(result->size(), 32);
+    for (size_t group = 0; group < 16; ++group) {
+        EXPECT_TRUE(result->is_null_at(group * 2));
+        EXPECT_FALSE(result->is_null_at(group * 2 + 1));
+        EXPECT_EQ(arrays.get_offsets()[group * 2], group);
+        EXPECT_EQ(arrays.get_offsets()[group * 2 + 1], group + 1);
+        EXPECT_EQ(strings.get_data_at(group).to_string(), large + std::to_string(group));
+    }
+}
+
 } // namespace doris
