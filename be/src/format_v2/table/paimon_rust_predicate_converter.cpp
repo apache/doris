@@ -138,7 +138,7 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
         // must not be pushed. Safe conjuncts that cannot be converted keep
         // the old skip: they cannot raise, so pruning rows before they are
         // evaluated as the residual never loses an error.
-        if (!root->is_safe_to_execute_on_selected_rows()) {
+        if (!_is_safe_to_push(root)) {
             break;
         }
         predicate_ptr pred(_convert_expr(root));
@@ -156,6 +156,32 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
         }
     }
     return result.release();
+}
+
+bool PaimonRustPredicateConverter::_is_safe_to_push(const VExprSPtr& expr) {
+    if (expr->is_safe_to_execute_on_selected_rows()) {
+        return true;
+    }
+    // VectorizedFnCall::is_safe_to_execute_on_selected_rows() admits a fixed
+    // whitelist that does not include `like`, so a like conjunct would always
+    // stop the safe prefix here and never reach _convert_like. A like call
+    // whose children are themselves safe is just as total as the whitelisted
+    // comparisons: it only compares strings, and its regex is built by escaping
+    // the pattern operand (FunctionLike::convert_like_pattern), so no scanned
+    // value can make it raise — a malformed pattern or escape operand fails
+    // at open() on every execution, regardless of which rows survive. Admit
+    // it here rather than widening the generic whitelist, which gates shared
+    // BE pushdown paths outside this reader's scope.
+    auto* fn = dynamic_cast<VectorizedFnCall*>(expr.get());
+    if (fn == nullptr || _normalize_name(fn->function_name()) != "like") {
+        return false;
+    }
+    for (uint16_t i = 0; i < fn->get_num_children(); ++i) {
+        if (!fn->get_child(i)->is_safe_to_execute_on_selected_rows()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 paimon_predicate* PaimonRustPredicateConverter::_convert_expr(const VExprSPtr& expr) {
@@ -202,7 +228,7 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_expr(const VExprSPtr& e
             return _convert_is_null(expr, fn_name);
         }
         if (fn_name == "like") {
-            return _convert_like_prefix(expr);
+            return _convert_like(expr);
         }
     }
 
@@ -249,17 +275,13 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_in(const VExprSPtr& exp
     storages.reserve(num_values);
     datums.reserve(num_values);
     for (uint16_t i = 1; i < expr->get_num_children(); ++i) {
-        // Mirror FE's doInPredicate, which only accepts bare LiteralExpr
-        // children: a casted child would be unwrapped to its pre-cast value
-        // (debug_skip_fold_constant keeps such casts un-folded in the plan),
-        // so Doris would compare against the cast result while rust filters
-        // on the raw value — e.g. in `amount IN (CAST(1.24 AS DECIMAL(10,1)))`
-        // Doris keeps the 1.2 rows and the unwrapped 1.24 push would remove
-        // them permanently. Reject the whole predicate; the residual applies
-        // the cast correctly.
-        if (expr->get_child(i)->node_type() == TExprNodeType::CAST_EXPR) {
-            return nullptr;
-        }
+        // Casted list values are rejected by _convert_literal (the same rule
+        // as the binary RHS): with debug_skip_fold_constant the cast reaches
+        // the BE un-folded, and unwrapping it would filter on the pre-cast
+        // value — in `amount IN (CAST(1.24 AS DECIMAL(10,1)))` Doris keeps
+        // the 1.2 rows while the unwrapped 1.24 push removes them. Rejecting
+        // the value rejects the whole predicate; the residual applies the
+        // cast correctly.
         auto holder = _convert_literal(expr->get_child(i), field_meta->type);
         if (!holder) {
             return nullptr;
@@ -344,8 +366,8 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_is_null(const VExprSPtr
     return _take(paimon_predicate_is_null(_table, field_meta->column.c_str()));
 }
 
-paimon_predicate* PaimonRustPredicateConverter::_convert_like_prefix(const VExprSPtr& expr) {
-    if (!expr || expr->get_num_children() != 2) {
+paimon_predicate* PaimonRustPredicateConverter::_convert_like(const VExprSPtr& expr) {
+    if (!expr || expr->get_num_children() < 2) {
         return nullptr;
     }
     auto field_meta = _resolve_field(expr->get_child(0));
@@ -358,41 +380,50 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_like_prefix(const VExpr
         return nullptr;
     }
     const std::string& pattern = *pattern_opt;
-    // Only prefix matches (`abc%`) are convertible to a range scan.
-    if (!pattern.empty() && pattern.front() == '%') {
-        return nullptr;
-    }
-    if (pattern.empty() || pattern.back() != '%') {
-        return nullptr;
+
+    // Doris's 3-arg like(col, pattern, escape) form: the pinned rust
+    // predicate only supports the backslash escape (its builder rejects any
+    // other escape character), so only the default-escape shape converts.
+    // The 2-arg form always carries the Doris/SQL default '\'.
+    if (expr->get_num_children() >= 3) {
+        auto escape_opt = _extract_string_literal(expr->get_child(2));
+        if (!escape_opt || escape_opt->size() != 1 || (*escape_opt)[0] != '\\') {
+            return nullptr;
+        }
     }
 
-    const char* column = field_meta->column.c_str();
-    std::string prefix = pattern.substr(0, pattern.size() - 1);
-
-    // lower bound: column >= prefix
-    paimon_datum lower {};
-    lower.tag = kTagString;
-    _bind_datum_storage(&lower, prefix);
-    predicate_ptr lower_pred(_take(paimon_predicate_greater_or_equal(_table, column, lower)));
-    if (!lower_pred) {
-        return nullptr;
+    // The pinned rust like implements SQL LIKE (% = any run, _ = one char,
+    // \X = literal X for any X — arrow's like kernel), and its builder
+    // optimizes `prefix%` / `%suffix` / `%mid%` shapes internally, so every
+    // pattern without a backslash matches Doris semantics exactly. The one
+    // divergence is the escape handling for a backslash before an ordinary
+    // character: Doris keeps both characters (only \%, \_ and \\ are
+    // escapes; `a\qb` matches a backslash followed by q b) while rust
+    // consumes the backslash (`a\qb` matches aqb) — pushing such a pattern
+    // would wrongly prune the Doris-matching rows before the residual can
+    // see them. Reject exactly the divergent shapes: every backslash must
+    // precede %, _ or \ (identical literal semantics on both sides) or end
+    // the pattern (literal backslash on both sides); anything else stays in
+    // the residual.
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        if (pattern[i] == '\\') {
+            if (i + 1 >= pattern.size()) {
+                continue; // trailing backslash: literal on both sides
+            }
+            char next = pattern[i + 1];
+            if (next != '%' && next != '_' && next != '\\') {
+                return nullptr;
+            }
+            ++i;
+        }
     }
 
-    auto upper_prefix = _next_prefix(prefix);
-    if (!upper_prefix) {
-        return lower_pred.release();
-    }
-
-    // upper bound: column < next_prefix
-    paimon_datum upper {};
-    upper.tag = kTagString;
-    _bind_datum_storage(&upper, *upper_prefix);
-    predicate_ptr upper_pred(_take(paimon_predicate_less_than(_table, column, upper)));
-    if (!upper_pred) {
-        // No usable upper bound: fall back to the (still correct) lower bound.
-        return lower_pred.release();
-    }
-    return paimon_predicate_and(lower_pred.release(), upper_pred.release());
+    paimon_datum datum {};
+    datum.tag = kTagString;
+    // `pattern` outlives the build call (it is a const ref into the caller's
+    // optional), so the datum may point straight at it.
+    _bind_datum_storage(&datum, pattern);
+    return _take(paimon_predicate_like(_table, field_meta->column.c_str(), datum, '\\'));
 }
 
 std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConverter::_resolve_field(
@@ -427,16 +458,19 @@ std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConver
 std::optional<PaimonRustPredicateConverter::DatumHolder>
 PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
                                                const DataTypePtr& column_type) const {
-    // Mirror the FE converter's convertDorisExprToLiteralExpr: a bare literal
-    // or a single cast wrapping a direct literal converts; anything deeper is
-    // rejected. Unwrapping recursively would silently apply the inner casts'
-    // lossy semantics (e.g. a DECIMAL scale reduction), which FE also rejects
-    // (its instanceof check only unwraps one CastExpr around a LiteralExpr).
-    VExprSPtr literal_expr = expr;
+    // A casted literal is rejected, never unwrapped: the cast is not executed
+    // here (with constant folding disabled — debug_skip_fold_constant — it
+    // reaches the BE un-folded), so unwrapping would push the pre-cast value
+    // while the Doris residual compares against the cast result. A
+    // scale-reducing cast makes the two disagree — `amount =
+    // CAST(1.24 AS DECIMAL(10,1))` keeps a stored 1.20 row in Doris (1.24
+    // rounds down to 1.2) but the unwrapped `amount = 1.24` push prunes it, and
+    // rows pruned by the pushed filter cannot be recovered by the residual.
+    // The conjunct stays in the residual, where the cast is evaluated exactly.
     if (expr->node_type() == TExprNodeType::CAST_EXPR) {
-        literal_expr = expr->get_child(0);
+        return std::nullopt;
     }
-    auto* literal = dynamic_cast<VLiteral*>(literal_expr.get());
+    auto* literal = dynamic_cast<VLiteral*>(expr.get());
     if (!literal) {
         return std::nullopt;
     }
@@ -634,13 +668,15 @@ PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
 
 std::optional<std::string> PaimonRustPredicateConverter::_extract_string_literal(
         const VExprSPtr& expr) const {
-    // Same one-level cast rule as _convert_literal: a bare string literal or a
-    // single cast wrapping one converts; deeper cast trees stay in the residual.
-    VExprSPtr literal_expr = expr;
+    // Same rule as _convert_literal: a bare string literal converts, a casted
+    // one is rejected — the cast is not executed here, so the pushed pattern
+    // must come from the literal's own value. A truncating cast (e.g. to
+    // CHAR(k)) would otherwise push a different prefix than the residual
+    // matches. Cast trees stay in the residual.
     if (expr->node_type() == TExprNodeType::CAST_EXPR) {
-        literal_expr = expr->get_child(0);
+        return std::nullopt;
     }
-    auto* literal = dynamic_cast<VLiteral*>(literal_expr.get());
+    auto* literal = dynamic_cast<VLiteral*>(expr.get());
     if (!literal) {
         return std::nullopt;
     }
@@ -689,21 +725,6 @@ std::string PaimonRustPredicateConverter::_normalize_name(std::string_view name)
     return out;
 }
 
-std::optional<std::string> PaimonRustPredicateConverter::_next_prefix(const std::string& prefix) {
-    if (prefix.empty()) {
-        return std::nullopt;
-    }
-    std::string upper = prefix;
-    for (int i = static_cast<int>(upper.size()) - 1; i >= 0; --i) {
-        auto c = static_cast<unsigned char>(upper[i]);
-        if (c != 0xFF) {
-            upper[i] = static_cast<char>(c + 1);
-            upper.resize(i + 1);
-            return upper;
-        }
-    }
-    return std::nullopt;
-}
 
 int32_t PaimonRustPredicateConverter::_seconds_to_days(int64_t seconds) {
     static constexpr int64_t kSecondsPerDay = 24 * 60 * 60;

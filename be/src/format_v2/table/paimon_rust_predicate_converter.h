@@ -108,9 +108,12 @@ private:
     paimon_predicate* _convert_in(const VExprSPtr& expr);
     paimon_predicate* _convert_binary(const VExprSPtr& expr);
     paimon_predicate* _convert_is_null(const VExprSPtr& expr, const std::string& fn_name);
-    paimon_predicate* _convert_like_prefix(const VExprSPtr& expr);
+    paimon_predicate* _convert_like(const VExprSPtr& expr);
 
     std::optional<FieldMeta> _resolve_field(const VExprSPtr& expr) const;
+    // Whether the conjunct may join the pushed prefix: total over its input
+    // domain, on top of the generic is_safe_to_execute_on_selected_rows gate.
+    static bool _is_safe_to_push(const VExprSPtr& expr);
     std::optional<DatumHolder> _convert_literal(const VExprSPtr& expr,
                                                 const DataTypePtr& column_type) const;
     std::optional<std::string> _extract_string_literal(const VExprSPtr& expr) const;
@@ -122,7 +125,6 @@ private:
     static void _bind_datum_storage(paimon_datum* datum, const std::string& storage);
 
     static std::string _normalize_name(std::string_view name);
-    static std::optional<std::string> _next_prefix(const std::string& prefix);
     static int32_t _seconds_to_days(int64_t seconds);
     static bool _is_integer_type(PrimitiveType type);
     static bool _is_string_type(PrimitiveType type);
