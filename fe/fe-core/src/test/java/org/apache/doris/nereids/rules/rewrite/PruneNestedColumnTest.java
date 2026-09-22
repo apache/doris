@@ -89,6 +89,11 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 + ">)\n"
                 + "properties ('replication_num'='1')");
 
+        createTable("create table upper_case_tbl(\n"
+                + "  id int,\n"
+                + "  S struct<City: string, Zip: int>)\n"
+                + "properties ('replication_num'='1')");
+
         createTable("create table tbl2(\n"
                 + "  id2 int,\n"
                 + "  value int,\n"
@@ -284,6 +289,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
         }
         Assertions.assertEquals(ImmutableList.of(path("s")), ImmutableList.copyOf(allAccessPaths));
+        Assertions.assertEquals(ImmutableList.of(path("s", "city")), ImmutableList.copyOf(predicateAccessPaths));
+    }
+
+    @Test
+    public void testWholeUpperCaseColumnOutputKeepsSubFieldPredicatePath() throws Exception {
+        // The collected paths are lower-cased, the whole-column path keeps the catalog name. The
+        // predicate path must still count as covered, otherwise it is added to the all paths and
+        // BE reads that one field and skips its siblings.
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select S from upper_case_tbl where struct_element(S, 'City') = 'x'");
+        TreeSet<TColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<TColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertEquals(ImmutableList.of(path("S")), ImmutableList.copyOf(allAccessPaths));
         Assertions.assertEquals(ImmutableList.of(path("s", "city")), ImmutableList.copyOf(predicateAccessPaths));
     }
 
