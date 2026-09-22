@@ -744,6 +744,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private WriteOperation connectorWriteOperation(PhysicalConnectorTableSink<?> sink) {
+        if (sink.getDmlCommandType() == null) {
+            // Legacy connector sinks do not carry a DML command type. Preserve their existing
+            // INSERT/REWRITE admission behavior while row-level sinks pass an explicit type.
+            return sink.isRewrite() ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        }
         switch (sink.getDmlCommandType()) {
             case DELETE:
                 return WriteOperation.DELETE;
