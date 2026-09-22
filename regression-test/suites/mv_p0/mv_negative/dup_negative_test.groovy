@@ -152,5 +152,10 @@ suite("dup_negative_mv_test", "mv_negative") {
         exception """The aggregate column should be after none agg column"""
     }
 
+    // A dependent function can still be declared as a synchronous MV key.
+    def dependent_mv_name = "${prefix_str}_dependent_mv"
+    def dependent_mv_sql = """select col3 as k, abs(col3) as abs_k, sum(col8) as total
+            from ${tb_name} group by col3, abs(col3) order by col3, abs(col3)"""
+    create_sync_mv(db, tb_name, dependent_mv_name, dependent_mv_sql)
 
 }
