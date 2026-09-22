@@ -241,6 +241,14 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (!keepsSourceValue(rightDeepAncestors, leftTop.getBuilderNode())) {
             return;
         }
+        // The filter created on the producer stands in for every filter of this group, so it has to keep the
+        // group's requirement not to be waited for. The producer feeds all the consumers, while a filter which
+        // waits is produced by the build side of one of them: a replacement which waits for a consumer whose
+        // own filter was non-blocking closes the cycle producer -> consumer build side -> consumer -> producer,
+        // and the query stalls until the runtime filter or the query times out. Waiting less than a member of
+        // the group asks for only makes the filter arrive later, it never prunes a row the member would keep,
+        // so the replacement is non-blocking as soon as one member of the group is.
+        boolean nonBlocking = rfsOfIdentity.stream().anyMatch(RuntimeFilter::isNonBlocking);
 
         for (RuntimeFilter rfToPush : rightDeepRfs) {
             Expression rightDeepTargetExpressionOnCTE = null;
@@ -254,7 +262,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     rfToPush,
                     rightDeepTargetExpressionOnCTE,
                     rfCtx,
-                    cteProducer
+                    cteProducer,
+                    nonBlocking
             );
             if (pushedDown) {
                 rfCtx.removeFilter(
@@ -1064,7 +1073,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     private boolean doPushDownIntoCTEProducerInternal(RuntimeFilter rf, Expression targetExpression,
-                                                    RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer) {
+                                                    RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer,
+                                                    boolean nonBlocking) {
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
         Slot unwrappedSlot = checkTargetChild(targetExpression);
         if (unwrappedSlot == null) {
@@ -1094,12 +1104,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (!checkCanPushDownIntoBasicTable(inputPlanNode)) {
             return false;
         }
-        // Use the PushDownVisitor to push inside the CTE producer subtree
+        // Use the PushDownVisitor to push inside the CTE producer subtree. The non-blocking requirement of the
+        // filters this one replaces travels with it: the visitor creates a new filter object, which would
+        // otherwise wait by default.
         RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                 RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                         ctx, rf.getBuilderNode(), rf.getSrcExpr(), producerTargetExpression,
                         rf.getType(), rf.gettMinMaxType(),
-                        !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder());
+                        !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder())
+                        .withNonBlocking(nonBlocking);
         if (pushDownContext.isValid()) {
             return inputPlanNode.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
         }

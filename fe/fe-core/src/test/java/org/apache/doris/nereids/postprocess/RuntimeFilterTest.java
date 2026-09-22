@@ -813,6 +813,51 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     /**
+     * The filter created on the shared producer replaces the filters of the consumers, so it has to keep the
+     * requirement of that group not to be waited for. The producer feeds every consumer, while a filter which
+     * waits is built by one of them: a replacement which waits for a consumer whose own filter was
+     * non-blocking closes the cycle producer -> build side of a consumer -> consumer -> producer, and the
+     * query stalls until the runtime filter or the query times out.
+     */
+    @Test
+    public void testPushSharedCteRuntimeFilterIntoTheProducerKeepsTheNonBlockingRequirement() {
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        boolean oldExpandByInnerJoin = connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin;
+        boolean oldDecoupled = connectContext.getSessionVariable().enableDecoupledRuntimeFilter;
+        long oldMinDecoupledRows = connectContext.getSessionVariable().minDecoupledRfTargetRows;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        // the tables of the test catalog hold one row, while the decoupled filter of the plan below targets a
+        // scan of it: keep the filter which describes the behavior under test rather than the pruning of
+        // filters which cannot arrive in time on a tiny scan.
+        connectContext.getSessionVariable().minDecoupledRfTargetRows = 0;
+        try {
+            // `c1.c_custkey = s_suppkey` is the condition join: its standard filter targets the CTE consumer
+            // `c1` and expands to `c2`, while the reverse decoupled filter is built by the deeper join
+            // `c2.c_custkey = c1.c_custkey`, whose build side carries the filter on `c_region`. The decoupled
+            // filter is therefore preferred and both standard filters are marked non-blocking.
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select c_custkey, c_region from customer)"
+                            + " select c1.c_custkey from t c2 join t c1 on c2.c_custkey = c1.c_custkey"
+                            + " join supplier on c1.c_custkey = s_suppkey"
+                            + " where c1.c_region = 'ASIA'");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertFalse(pushedIntoProducer.isEmpty(),
+                    () -> "the filter which every consumer applies must be pushed into the producer: "
+                            + plan.treeString());
+            Assertions.assertTrue(pushedIntoProducer.stream().allMatch(RuntimeFilter::isNonBlocking),
+                    () -> "a filter pushed into the producer must keep the non-blocking requirement of the"
+                            + " filters it replaces: " + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = oldExpandByInnerJoin;
+            connectContext.getSessionVariable().enableDecoupledRuntimeFilter = oldDecoupled;
+            connectContext.getSessionVariable().minDecoupledRfTargetRows = oldMinDecoupledRows;
+        }
+    }
+
+    /**
      * A node which synthesizes a value of the source column -- here the NULL the repeat adds for the grouping
      * set which does not group by it -- makes a filter built below it prune the rows the consumers above it
      * still need, so the deepest filter must not stand in for them.
