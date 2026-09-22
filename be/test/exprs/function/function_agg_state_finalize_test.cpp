@@ -109,6 +109,35 @@ TEST_F(FunctionAggStateFinalizeTest, EmptyNonNullableAvgMatchesMerge) {
     EXPECT_EQ(result->compare_at(0, 0, *expected, 1), 0);
 }
 
+TEST_F(FunctionAggStateFinalizeTest, TrivialStatesResetAcrossOuterNulls) {
+    auto type = state_type("sum", std::make_shared<DataTypeInt64>());
+    auto function = type->get_nested_function();
+    ASSERT_TRUE(function->is_trivial());
+    auto states = type->create_column();
+    append_state(function, ColumnHelper::create_column<DataTypeInt64>({2, 4}), *states);
+    states->insert_default();
+    append_state(function, ColumnHelper::create_column<DataTypeInt64>({}), *states);
+    append_state(function, ColumnHelper::create_column<DataTypeInt64>({-7}), *states);
+    append_state(function, ColumnHelper::create_column<DataTypeInt64>({10}), *states);
+    ColumnPtr nullable_states = ColumnNullable::create(
+            std::move(states), ColumnHelper::create_column<DataTypeUInt8>({0, 1, 0, 0, 0}));
+
+    auto result = finalize(make_nullable(type), nullable_states);
+    const auto& values = assert_cast<const ColumnNullable&>(*result).get_nested_column();
+    ASSERT_EQ(result->size(), 5);
+    EXPECT_EQ(values.get_int(0), 6);
+    EXPECT_TRUE(result->is_null_at(1));
+    EXPECT_FALSE(result->is_null_at(2));
+    EXPECT_EQ(values.get_int(2), 0);
+    EXPECT_EQ(values.get_int(3), -7);
+    EXPECT_EQ(values.get_int(4), 10);
+
+    auto repeated = finalize(make_nullable(type), nullable_states);
+    for (size_t row = 0; row < result->size(); ++row) {
+        EXPECT_EQ(result->compare_at(row, row, *repeated, 1), 0);
+    }
+}
+
 TEST_F(FunctionAggStateFinalizeTest, NativeSerializedColumnsAndEmptyCount) {
     for (const auto& name : {"count", "sum", "min", "max"}) {
         SCOPED_TRACE(name);
