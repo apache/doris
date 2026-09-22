@@ -501,4 +501,14 @@ suite("correlated_exists_having") {
                 " WHERE i.k = e.k GROUP BY GROUPING SETS ((i.g), ()))"
         exception "access outer query's column before grouping sets is not supported"
     }
+    // The join combines the rows of the domain of an outer row with the rows of its other side, and
+    // the rewrite reads the aggregation of that domain from below the join: the aggregation above
+    // the join would group the rows of every correlation key together, so the subquery is reported
+    // instead of reporting the outer rows whose key another correlation key decides on
+    test {
+        sql "SELECT e.k FROM ceh_e e WHERE EXISTS (SELECT count(*) FROM" +
+                " (SELECT i.k, i.g FROM ceh_i i WHERE i.k = e.k) x JOIN ceh_i j ON x.g = j.g" +
+                " GROUP BY x.g)"
+        exception "access outer query's column before join is not supported"
+    }
 }

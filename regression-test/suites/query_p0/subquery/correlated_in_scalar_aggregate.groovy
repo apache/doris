@@ -417,4 +417,20 @@ suite("correlated_in_scalar_aggregate") {
                 " WHERE i.k = o.k GROUP BY GROUPING SETS ((i.g), ()))"
         exception "access outer query's column before grouping sets is not supported"
     }
+    // The join combines the rows of the domain of an outer row with the rows of its other side, and
+    // the rewrite reads the aggregation of that domain from below the join: the join would be
+    // evaluated once for the rows of every correlation key together, so the subquery is rejected
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT count(*) FROM" +
+                " (SELECT i.k, i.g FROM cisa_i i WHERE i.k = o.k) x JOIN cisa_i j ON x.g = j.g)"
+        exception "access outer query's column before join is not supported"
+    }
+    // ... while a join below the correlated predicate is part of the rows which that predicate
+    // selects (the domain of an outer row), so the subquery is rewritten: the outer row k=2 has the
+    // domain (2, 10), whose row joins the rows of the key 1 as well (both have the key 10)
+    order_qt_in_with_a_join_below_the_correlated_predicate """
+        SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT count(*) FROM cisa_i i
+            JOIN cisa_i j ON i.g = j.g WHERE i.k = o.k)
+        ORDER BY o.k
+    """
 }

@@ -462,6 +462,44 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testInSubqueryWithJoinAboveTheCorrelatedPredicateIsRejected() {
+        // The join combines the rows of the domain of an outer row with the rows of its other side,
+        // and the rewrite reads the aggregation of that domain from below the join
+        // (see containsAJoinAboveTheCorrelatedPredicate): the join would be evaluated once for the
+        // rows of every correlation key together.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM"
+                                + " (SELECT T2.id, T2.score FROM T2 WHERE T2.score = T1.id) x"
+                                + " JOIN T3 j ON x.id = j.id)"));
+        Assertions.assertTrue(exception.getMessage().contains("before join"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testExistsSubqueryWithJoinAboveTheCorrelatedPredicateIsRejected() {
+        // The aggregation above the join groups the rows which the join produces, and the keys of the
+        // correlation are the keys of one branch of the join alone: the EXISTS of an outer row whose
+        // domain is empty would be decided by the rows of another correlation key.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE EXISTS (SELECT count(*) FROM"
+                                + " (SELECT T2.id, T2.score FROM T2 WHERE T2.score = T1.id) x"
+                                + " JOIN T3 j ON x.id = j.id GROUP BY x.score)"));
+        Assertions.assertTrue(exception.getMessage().contains("before join"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testJoinBelowTheCorrelatedPredicateIsAccepted() {
+        // a join below the correlated predicate is part of the rows which that predicate selects (the
+        // domain of an outer row), so the rewrite keeps it as it is
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT count(*) FROM T2"
+                        + " JOIN T3 ON T2.id = T3.id WHERE T2.score = T1.id)");
+    }
+
+    @Test
     public void testExistsCorrelatedScalarAggUnionOrderBy() {
         // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
         // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().

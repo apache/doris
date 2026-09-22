@@ -124,6 +124,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     "access outer query's column before grouping sets is not supported "
                             + analyzedResult.getLogicalPlan());
         }
+        if (analyzedResult.isCorrelated() && containsAJoinAboveTheCorrelatedPredicate(
+                analyzedResult.getLogicalPlan(), ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+            // The join interleaves the rows of the domain of an outer row with the rows of its other
+            // side, and the rewrite reads the aggregation of that domain from below the join: the
+            // join would be evaluated once for the rows of every correlation key together (see
+            // containsAJoinAboveTheCorrelatedPredicate), so the subquery is reported instead of
+            // reporting the outer rows which the domain of another correlation key decides on.
+            throw new AnalysisException(
+                    "access outer query's column before join is not supported "
+                            + analyzedResult.getLogicalPlan());
+        }
         return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
@@ -201,6 +212,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
                 throw new AnalysisException(
                         "access outer query's column before grouping sets is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
+            if (containsAJoinAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                // The join interleaves the rows of the domain of an outer row with the rows of its
+                // other side, and the rewrite reads the aggregation of that domain from below the
+                // join: the join would be evaluated once for the rows of every correlation key
+                // together (see containsAJoinAboveTheCorrelatedPredicate), so the subquery is
+                // reported instead of comparing the outer rows with the rows of another key.
+                throw new AnalysisException(
+                        "access outer query's column before join is not supported "
                                 + analyzedResult.getLogicalPlan());
             }
         }
@@ -721,14 +743,51 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
     }
 
     /**
-     * Reject the LIMIT, the TOP-N and the LATERAL VIEW nodes which sit above the correlated predicate
-     * of the subquery: the LIMIT and the LATERAL VIEW of the subquery of an outer row decide on the
-     * rows of the domain of that row (the LIMIT keeps one row of the derived table of the domain, the
-     * LATERAL VIEW explodes the arrays of the rows of the domain), and the rewrite which unnests a
-     * correlated IN subquery reads the value which the IN compares from the aggregation of the domain
-     * of the outer row: the LIMIT of that rewrite reads the domains of every correlation key together
-     * and the LATERAL VIEW is evaluated once for all of them. Neither rewrite can rebuild those nodes
-     * per correlation key, so the subquery of
+     * Whether a join of the subtree combines the rows of the correlated domain of one outer row with
+     * the other side of the join (see visitInSubquery): that is the case for a join which sits above
+     * the correlated predicate, whose rows the predicate selects below it. The rewrite which unnests a
+     * correlated subquery reads the aggregation of the domain of an outer row from below the join (see
+     * locateAggregate of UnCorrelatedApplyAggregateFilter), because the join interleaves the rows of
+     * the domain of an outer row with the rows of another relation: a join above the correlated
+     * predicate is evaluated once for the rows of every correlation key together when the rewrite
+     * groups them, so the subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from (select i.id, i.k from i where i.k = o.k) x
+     *             join j on x.id = j.id)
+     *
+     * is reported as unsupported for that reason. The plan of the query is
+     * Apply(IN) -> Aggregate -> Join -> Project -> Filter(i.k = o.k): the walk which validates the
+     * nodes above the correlated predicate (see rejectTheWrappersWhichTheRewriteCannotRebuild)
+     * reaches the join before the filter, and the join has no aggregation below it which could carry
+     * the keys of the correlation. A join below the correlated predicate is part of the rows which
+     * that predicate selects (the domain of an outer row), so the rewrite keeps it as it is and the
+     * subquery of
+     *
+     *     select k from o where k in (
+     *         select count(*) from i join j on i.id = j.id where i.k = o.k)
+     *
+     * is accepted.
+     */
+    private static boolean containsAJoinAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
+        if (plan instanceof LogicalJoin && plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> containsAJoinAboveTheCorrelatedPredicate(child, correlatedSlots));
+    }
+
+    /**
+     * Reject the LIMIT, the TOP-N, the LATERAL VIEW and the JOIN nodes which sit above the correlated
+     * predicate of the subquery: the LIMIT and the LATERAL VIEW of the subquery of an outer row decide
+     * on the rows of the domain of that row (the LIMIT keeps one row of the derived table of the domain,
+     * the LATERAL VIEW explodes the arrays of the rows of the domain), and the JOIN combines those rows
+     * with the rows of its other side, while the rewrite which unnests a correlated subquery reads the
+     * value which the subquery exposes from the aggregation of the domain of the outer row: the LIMIT of
+     * that rewrite reads the domains of every correlation key together, and the LATERAL VIEW and the
+     * JOIN are evaluated once for all of them. Neither rewrite can rebuild those nodes per correlation
+     * key, so the subquery of
      *
      *     select k from o where k in (
      *         select max(c) from (select count(*) c from i where i.k = o.k group by i.g limit 1) x)
@@ -749,6 +808,15 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             if (node instanceof LogicalGenerate) {
                 throw new AnalysisException(
                         "access outer query's column before lateral view is not supported " + plan);
+            }
+            if (node instanceof LogicalJoin) {
+                // The join combines the rows of the domain of an outer row with the rows of its other
+                // side, and the rewrite reads the aggregation of that domain from below the join (see
+                // containsAJoinAboveTheCorrelatedPredicate): the keys which it adds to the group by of
+                // the aggregation would be the keys of one branch of the join alone, so the join would
+                // be evaluated once for the rows of every correlation key together.
+                throw new AnalysisException(
+                        "access outer query's column before join is not supported " + plan);
             }
             if (readsAnOuterSlot(node, correlatedSlots)) {
                 // the predicate of the outer query itself: the nodes below it hold the rows of the

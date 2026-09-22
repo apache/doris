@@ -231,3 +231,6 @@
 2	false
 7	true
 
+-- !in_with_a_join_below_the_correlated_predicate --
+2
+
