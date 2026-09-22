@@ -64,10 +64,6 @@ public class TruncateTableInfo implements Writable {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTimeMs;
-    // The transaction id watermark of the truncation. Transactions which started not later than it were
-    // removed by the truncation. -1 for the entries written before the watermark was recorded.
-    @SerializedName(value = "truncateTxnId")
-    private long truncateTxnId = -1;
 
     public TruncateTableInfo() {
 
@@ -77,14 +73,6 @@ public class TruncateTableInfo implements Writable {
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
             boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force,
             Map<Long, Long> updateRecords, long version, long versionTimeMs) {
-        this(dbId, db, tblId, table, partitions, isEntireTable, rawSql, oldPartitions, force, updateRecords,
-                version, versionTimeMs, -1);
-    }
-
-    // for internal table
-    public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
-            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force,
-            Map<Long, Long> updateRecords, long version, long versionTimeMs, long truncateTxnId) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -99,7 +87,6 @@ public class TruncateTableInfo implements Writable {
         this.updateRecords = updateRecords;
         this.version = version;
         this.versionTimeMs = versionTimeMs;
-        this.truncateTxnId = truncateTxnId;
     }
 
     // for external table
@@ -161,10 +148,6 @@ public class TruncateTableInfo implements Writable {
 
     public long getUpdateTime() {
         return updateTime;
-    }
-
-    public long getTruncateTxnId() {
-        return truncateTxnId;
     }
 
     public long getVersion() {

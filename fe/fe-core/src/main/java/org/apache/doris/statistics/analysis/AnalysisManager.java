@@ -1279,7 +1279,7 @@ public class AnalysisManager implements Writable {
     // Invoke this when load transaction finished.
     public void updateUpdatedRows(Map<Long, Map<Long, Long>> tabletRecords, long dbId, long txnId) {
         try {
-            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId).withTxnId(txnId);
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(tabletRecords, dbId);
             LOG.info("Update rows transactionId is {}", txnId);
             replayUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
@@ -1298,12 +1298,12 @@ public class AnalysisManager implements Writable {
     }
 
     // Invoke this for cloud version load.
-    public void updateUpdatedRows(Map<Long, Long> updatedRows, long txnId) {
+    public void updateUpdatedRows(Map<Long, Long> updatedRows) {
         try {
             if (!Env.getCurrentEnv().isMaster() || Env.isCheckpointThread()) {
                 return;
             }
-            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows).withTxnId(txnId);
+            UpdateRowsEvent updateRowsEvent = new UpdateRowsEvent(updatedRows);
             replayUpdateRowsRecord(updateRowsEvent);
             logUpdateRowsRecord(updateRowsEvent);
         } catch (Throwable t) {
@@ -1356,7 +1356,7 @@ public class AnalysisManager implements Writable {
         if (event.getRecords() != null) {
             for (Entry<Long, Long> record : event.getRecords().entrySet()) {
                 TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
-                if (statsStatus != null && !statsStatus.isUpdateOfTruncatedRows(event.getTxnId())) {
+                if (statsStatus != null) {
                     statsStatus.updatedRows.addAndGet(record.getValue());
                 }
             }
@@ -1367,7 +1367,7 @@ public class AnalysisManager implements Writable {
         if (event.getTabletRecords() != null) {
             for (Entry<Long, Map<Long, Long>> record : event.getTabletRecords().entrySet()) {
                 TableStatsMeta statsStatus = idToTblStats.get(record.getKey());
-                if (statsStatus != null && !statsStatus.isUpdateOfTruncatedRows(event.getTxnId())) {
+                if (statsStatus != null) {
                     Optional<Database> dbOption = catalog.getDb(event.getDbId());
                     if (!dbOption.isPresent()) {
                         LOG.warn("Database {} does not exist.", event.getDbId());
@@ -1499,14 +1499,14 @@ public class AnalysisManager implements Writable {
      * entry is not atomic with the truncate entry, and a crash in between would replay a zeroed record
      * onto the data which was never truncated.
      */
-    public void resetTableStats(OlapTable table, long truncateTxnId) {
+    public void resetTableStats(OlapTable table) {
         synchronized (idToTblStats) {
             TableStatsMeta tableStats = idToTblStats.get(table.getId());
             if (tableStats == null) {
                 tableStats = new TableStatsMeta(table);
                 idToTblStats.put(table.getId(), tableStats);
             }
-            tableStats.reset(table, truncateTxnId);
+            tableStats.reset(table);
         }
     }
 

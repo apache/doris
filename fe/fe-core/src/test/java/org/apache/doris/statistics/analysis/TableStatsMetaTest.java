@@ -99,7 +99,7 @@ class TableStatsMetaTest {
         Assertions.assertNotNull(meta.jobType);
 
         meta.userInjected = true;
-        meta.reset(table, 100);
+        meta.reset(table);
 
         Assertions.assertEquals(0, meta.rowCount);
         Assertions.assertEquals(0, meta.updatedRows.get());
@@ -186,29 +186,11 @@ class TableStatsMetaTest {
         // An analyze job built before the truncation can deliver its snapshot after it. The 100 rows of
         // the snapshot are gone, only the 5 rows loaded after the truncation are there. The stale row
         // count and the stale baseline cancel each other out.
-        meta.reset(table, 500);
+        meta.reset(table);
         meta.updatedRows.set(5);
         meta.update(analyzeJob(), table);
         Assertions.assertEquals(100, meta.getRowCount(BASE_INDEX_ID));
         Assertions.assertEquals(-95, meta.getBaseIndexDeltaRowCount(table));
         Assertions.assertEquals(5, meta.getRowCount(BASE_INDEX_ID) + meta.getBaseIndexDeltaRowCount(table));
-    }
-
-    @Test
-    void testFenceOfTransactionsRemovedByTruncate() {
-        OlapTable table = mockOlapTable();
-        TableStatsMeta meta = new TableStatsMeta();
-        meta.reset(table, 100);
-        // Transactions which started not later than the watermark of the truncation were removed by it.
-        Assertions.assertTrue(meta.isUpdateOfTruncatedRows(50));
-        Assertions.assertTrue(meta.isUpdateOfTruncatedRows(100));
-        // Transactions which started after the truncation loaded rows of the remaining data.
-        Assertions.assertFalse(meta.isUpdateOfTruncatedRows(101));
-        // An update which doesn't belong to a load transaction is not fenced.
-        Assertions.assertFalse(meta.isUpdateOfTruncatedRows(-1));
-
-        TableStatsMeta notTruncated = new TableStatsMeta();
-        notTruncated.reset(table, -1);
-        Assertions.assertFalse(notTruncated.isUpdateOfTruncatedRows(50));
     }
 }

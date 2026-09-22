@@ -45,12 +45,6 @@ public class UpdateRowsEvent implements Writable {
     @SerializedName("tableId")
     private final long tableId;
 
-    // The load transaction the rows belong to. It discards the updates of the transactions which started
-    // before the table was truncated: their rows were removed by the truncation, but the update can still
-    // arrive after the stats record was reset. -1 for updates which don't belong to a load transaction.
-    @SerializedName("txnId")
-    private long txnId = -1;
-
     public UpdateRowsEvent(Map<Long, Long> records) {
         this.records = records;
         this.tabletRecords = null;
@@ -73,15 +67,6 @@ public class UpdateRowsEvent implements Writable {
         this.dbId = dbId;
         this.partitionToUpdateRows = partitionToUpdateRows;
         this.tableId = tableId;
-    }
-
-    public UpdateRowsEvent withTxnId(long txnId) {
-        this.txnId = txnId;
-        return this;
-    }
-
-    public long getTxnId() {
-        return txnId;
     }
 
     // TableId -> table update rows

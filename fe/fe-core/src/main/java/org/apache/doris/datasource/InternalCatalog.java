@@ -3903,18 +3903,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             long versionTimeMs = Config.isNotCloudMode() ? System.currentTimeMillis() : 0L;
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
                     truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTimeMs);
-            // Transactions which started not later than this watermark were removed by the truncation, their
-            // row count updates may still arrive and must not be counted as rows loaded after it. Reading the
-            // watermark only protects against those stale updates, so it must not fail the truncation.
-            long truncateTxnId = -1;
-            try {
-                truncateTxnId = Env.getCurrentEnv().getGlobalTransactionMgr().getTransactionIdWatermark();
-            } catch (UserException e) {
-                LOG.warn("Failed to get the transaction id watermark of truncate table {}.{}",
-                        db.getFullName(), olapTable.getName(), e);
-            }
             if (truncateEntireTable) {
-                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable, truncateTxnId);
+                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
             } else {
                 Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
                         updateRecords, db.getId(), olapTable.getId(), 0);
@@ -3924,8 +3914,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs,
-                            truncateTxnId);
+                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3998,7 +3987,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // Keep the stats record of the truncated table instead of dropping it, so that the rows
                 // loaded after the truncation are still accounted for. This is the transition the DDL path
                 // applies as well, the truncate entry carries it for every frontend.
-                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable, info.getTruncateTxnId());
+                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
             }
 
             // add tablet to inverted index
