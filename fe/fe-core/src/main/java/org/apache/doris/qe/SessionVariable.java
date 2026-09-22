@@ -4184,7 +4184,7 @@ public class SessionVariable implements Serializable, Writable {
         checkFieldValue(PARALLEL_SCAN_MAX_SCANNERS_COUNT, Integer.MIN_VALUE, 256, value);
     }
 
-    public void checkSendBatchParallelism(String value) throws Exception {
+    public static void checkSendBatchParallelism(String value) throws Exception {
         // The tablet writer uses one sender for values less than or equal to one.
         checkFieldValue(SEND_BATCH_PARALLELISM, Integer.MIN_VALUE, 256, value);
     }
@@ -4259,7 +4259,7 @@ public class SessionVariable implements Serializable, Writable {
         return val;
     }
 
-    private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
+    private static int checkFieldValue(String variableName, int minValue, String value) throws Exception {
         int val = Integer.valueOf(value);
         if (val < minValue) {
             throw new Exception(
@@ -4269,7 +4269,7 @@ public class SessionVariable implements Serializable, Writable {
         return val;
     }
 
-    private int checkFieldValue(String variableName, int minValue, int maxValue, String value) throws Exception {
+    private static int checkFieldValue(String variableName, int minValue, int maxValue, String value) throws Exception {
         int val = checkFieldValue(variableName, minValue, value);
         if (val > maxValue) {
             throw new Exception(variableName + " value should less than or equal " + maxValue
