@@ -53,7 +53,8 @@ TEST(DataTypeWritToJsonb, test_number) {
     {
         auto data = ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 5});
         JsonbWriter writer;
-        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(*data.column, 3, writer));
+        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(
+                *data.column, 3, writer, DataTypeSerDe::FormatOptions {}));
         EXPECT_EQ(to_string(writer), "4");
 
         auto data_to = ColumnInt32::create();
@@ -65,7 +66,8 @@ TEST(DataTypeWritToJsonb, test_number) {
     {
         auto data = ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5});
         JsonbWriter writer;
-        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(*data.column, 3, writer));
+        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(
+                *data.column, 3, writer, DataTypeSerDe::FormatOptions {}));
         EXPECT_EQ(to_string(writer), "4");
         auto data_to = ColumnInt64::create();
         EXPECT_TRUE(data.type->get_serde()->deserialize_column_from_jsonb(
@@ -77,7 +79,8 @@ TEST(DataTypeWritToJsonb, test_number) {
         auto data = ColumnHelper::create_column_with_name<DataTypeFloat32>(
                 {1.1F, 2.2F, 3.3F, 4.4F, 5.5F});
         JsonbWriter writer;
-        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(*data.column, 3, writer));
+        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(
+                *data.column, 3, writer, DataTypeSerDe::FormatOptions {}));
         EXPECT_EQ(to_string(writer), "4.4");
 
         auto data_to = ColumnFloat32::create();
@@ -92,7 +95,8 @@ TEST(DataTypeWritToJsonb, test_number) {
         col->insert_value(val);
         auto type = std::make_shared<DataTypeDecimal128>(18, 2);
         JsonbWriter writer;
-        EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col, 0, writer));
+        EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col, 0, writer,
+                                                                 DataTypeSerDe::FormatOptions {}));
         EXPECT_EQ(to_string(writer), "123.45");
 
         auto data_to = ColumnDecimal128V3::create(0, 2);
@@ -109,7 +113,8 @@ TEST(DataTypeWritToJsonb, test_string) {
         auto data = ColumnHelper::create_column_with_name<DataTypeString>(
                 {"hello", "world", "doris", "vectorized", "test"});
         JsonbWriter writer;
-        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(*data.column, 3, writer));
+        EXPECT_TRUE(data.type->get_serde()->serialize_column_to_jsonb(
+                *data.column, 3, writer, DataTypeSerDe::FormatOptions {}));
         EXPECT_EQ(to_string(writer), "\"vectorized\"");
 
         auto data_to = ColumnString::create();
@@ -137,7 +142,8 @@ TEST(DataTypeWritToJsonb, test_array) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_array, 0, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_array, 0, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "[1,2,3]");
             auto col_array_to = col_array->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
@@ -148,7 +154,8 @@ TEST(DataTypeWritToJsonb, test_array) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_array, 1, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_array, 1, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "[null,5]");
             auto col_array_to = col_array->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
@@ -182,7 +189,8 @@ TEST(DataTypeWritToJsonb, test_struct) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_struct, 0, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_struct, 0, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "{\"int_col\":1,\"string_col\":\"hello\"}");
             auto col_struct_to = col_struct->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
@@ -194,7 +202,8 @@ TEST(DataTypeWritToJsonb, test_struct) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_struct, 1, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_struct, 1, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "{\"int_col\":2,\"string_col\":\"world\"}");
             auto col_struct_to = col_struct->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
@@ -206,7 +215,8 @@ TEST(DataTypeWritToJsonb, test_struct) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_struct, 2, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_struct, 2, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "{\"int_col\":3,\"string_col\":null}");
             auto col_struct_to = col_struct->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
@@ -217,7 +227,8 @@ TEST(DataTypeWritToJsonb, test_struct) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_struct, 3, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_struct, 3, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "{\"int_col\":null,\"string_col\":\"vectorized\"}");
             auto col_struct_to = col_struct->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(
@@ -229,7 +240,8 @@ TEST(DataTypeWritToJsonb, test_struct) {
 
         {
             JsonbWriter writer;
-            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(*col_struct, 4, writer));
+            EXPECT_TRUE(type->get_serde()->serialize_column_to_jsonb(
+                    *col_struct, 4, writer, DataTypeSerDe::FormatOptions {}));
             EXPECT_EQ(to_string(writer), "{\"int_col\":5,\"string_col\":\"test\"}");
             auto col_struct_to = col_struct->clone_empty();
             EXPECT_TRUE(type->get_serde()->deserialize_column_from_jsonb(

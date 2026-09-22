@@ -75,7 +75,11 @@ public class JsonArrayIgnoreNull extends ScalarFunction
     public Expression rewriteWhenAnalyze() {
         List<Expression> convectedChildren = new ArrayList<>();
         for (Expression child : children()) {
-            convectedChildren.add(ToJson.of(child));
+            if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
+            } else {
+                convectedChildren.add(new ToJson(child));
+            }
         }
         return withChildren(convectedChildren);
     }

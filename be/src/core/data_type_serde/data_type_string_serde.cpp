@@ -714,9 +714,9 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
 }
 
 template <typename ColumnType>
-Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                                      int64_t row_num,
-                                                                      JsonbWriter& writer) const {
+Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_jsonb(
+        const IColumn& from_column, int64_t row_num, JsonbWriter& writer,
+        const FormatOptions& options) const {
     if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
         return Status::NotSupported(
                 "DataTypeStringSerDeBase only supports ColumnString for serialize_column_to_jsonb");

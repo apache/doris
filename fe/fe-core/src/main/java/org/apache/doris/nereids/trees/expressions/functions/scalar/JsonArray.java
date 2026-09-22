@@ -74,7 +74,11 @@ public class JsonArray extends ScalarFunction implements CustomSignature, Always
     public Expression rewriteWhenAnalyze() {
         List<Expression> convectedChildren = new ArrayList<>();
         for (Expression child : children()) {
-            convectedChildren.add(ToJson.of(child));
+            if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
+            } else {
+                convectedChildren.add(new ToJson(child));
+            }
         }
         return withChildren(convectedChildren);
     }

@@ -889,12 +889,12 @@ void append_value(VariantRef value, const DataTypePtr& target_type, IColumn* tar
 
 Status stringify_complex_column(const DataTypePtr& source_type, const ColumnNullable& source,
                                 ColumnPtr* result) {
+    DataTypeSerDe::FormatOptions options;
     auto jsonb = ColumnString::create();
     RETURN_IF_ERROR(source_type->get_serde()->serialize_column_to_jsonb_vector(
-            source.get_nested_column(), *jsonb));
+            source.get_nested_column(), *jsonb, options));
 
     auto strings = ColumnString::create();
-    DataTypeSerDe::FormatOptions options;
     DataTypeJsonb().get_serde()->to_string_batch(*jsonb, *strings, options);
     *result = ColumnNullable::create(std::move(strings),
                                      source.get_null_map_column().clone_resized(source.size()));

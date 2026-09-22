@@ -1180,8 +1180,8 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
 
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                         int64_t row_num,
-                                                         JsonbWriter& writer) const {
+                                                         int64_t row_num, JsonbWriter& writer,
+                                                         const FormatOptions& options) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
@@ -1194,8 +1194,8 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_col
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                ColumnString& to_column) const {
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }

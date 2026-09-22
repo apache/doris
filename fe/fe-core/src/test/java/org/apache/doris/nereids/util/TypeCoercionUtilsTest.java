@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
@@ -781,14 +783,14 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testToJsonCastsVariantArgument() {
-        SlotReference variant = new SlotReference("v", VariantType.INSTANCE);
-        SlotReference json = new SlotReference("j", JsonType.INSTANCE);
-        SlotReference bigint = new SlotReference("b", BigIntType.INSTANCE);
-        Assertions.assertEquals(new Cast(variant, JsonType.INSTANCE), ToJson.of(variant));
-        Assertions.assertEquals(new Cast(variant, JsonType.INSTANCE), new ToJson(variant).rewriteWhenAnalyze());
-        Assertions.assertSame(json, ToJson.of(json));
-        Assertions.assertEquals(new ToJson(bigint), ToJson.of(bigint));
+    public void testToJsonAcceptsVariantArgument() {
+        SlotReference variant = new SlotReference("v", new VariantType(100));
+        FunctionSignature signature = new ToJson(variant).getSignature();
+        Assertions.assertEquals(JsonType.INSTANCE, signature.returnType);
+        Assertions.assertEquals(variant.getDataType(), signature.getArgType(0));
+        // JSON builders keep converting a Variant argument through to_json.
+        Expression array = new JsonArray(variant).rewriteWhenAnalyze();
+        Assertions.assertEquals(new ToJson(variant), array.child(0));
     }
 
     @Test

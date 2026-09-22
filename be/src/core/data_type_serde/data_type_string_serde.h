@@ -178,7 +178,8 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;

@@ -440,12 +440,14 @@ public:
     }
 
     virtual Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                             JsonbWriter& writer) const {
+                                             JsonbWriter& writer,
+                                             const FormatOptions& options) const {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
 
     virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                    ColumnString& to_column) const;
+                                                    ColumnString& to_column,
+                                                    const FormatOptions& options) const;
 
     virtual Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                                  CastParameters& castParms) const {

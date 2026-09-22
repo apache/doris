@@ -98,8 +98,10 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
             Expression child = children.get(i);
             if (i % 2 == 0) {
                 convectedChildren.add(child);
+            } else if (child.getDataType() instanceof JsonType) {
+                convectedChildren.add(child);
             } else {
-                convectedChildren.add(ToJson.of(child));
+                convectedChildren.add(new ToJson(child));
             }
         }
         return withChildren(convectedChildren);

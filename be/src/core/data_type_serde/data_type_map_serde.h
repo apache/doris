@@ -107,7 +107,8 @@ public:
     }
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override {
         return {key_serde, value_serde};

@@ -28,6 +28,9 @@
 5	"abc"	["abc",1]	["abc"]	{"v":"abc"}	{"v":"abc"}	{"b":null}	{"v":null}
 6	\N	[null,1]	[]	{"v":null}	{"v":null}	{"b":null}	{"v":null}
 
+-- !array_of_variant --
+3	[1,"two",{"three":3}]	[1,"two",{"three":3}]	[[1,"two",{"three":3}]]
+
 -- !same_as_explicit_cast --
 1	true	true	true	true	true	true
 2	true	true	true	true	true	true
@@ -47,4 +50,7 @@
 
 -- !typed_scalars --
 string	"2026-01-02 03:04:05.000000"	Decimal32	["2026-01-02",1.50]
+
+-- !session_time_zone --
+1	{"ts":"2026-01-01 10:00:00.000000+08:00"}	{"ts":"2026-01-01 10:00:00.000000+08:00"}	[{"ts":"2026-01-01 10:00:00.000000+08:00"}]	{"ts":"2026-01-01 10:00:00.000000+08:00"}
 

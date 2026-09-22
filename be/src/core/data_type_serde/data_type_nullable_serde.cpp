@@ -122,14 +122,15 @@ Status DataTypeNullableSerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeNullableSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                        JsonbWriter& writer) const {
+                                                        JsonbWriter& writer,
+                                                        const FormatOptions& options) const {
     const auto& col_null = assert_cast<const ColumnNullable&>(from_column);
 
     if (col_null.is_null_at(row_num)) {
         writer.writeNull();
     } else {
         RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(col_null.get_nested_column(),
-                                                                row_num, writer));
+                                                                row_num, writer, options));
     }
 
     return Status::OK();
