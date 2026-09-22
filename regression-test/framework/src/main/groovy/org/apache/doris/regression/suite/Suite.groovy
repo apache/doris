@@ -2232,6 +2232,21 @@ class Suite implements GroovyInterceptable {
         logger.info("index stats: " + stats.toString())
     }
 
+    void waitingMTMVTaskFinishedWithoutAnalyze(String jobName) {
+        // Wait for the newly submitted MTMV task to become visible in tasks().
+        Thread.sleep(2000);
+        String showTasks = """
+                select TaskId, Status from tasks('type'='mv')
+                where JobName = '${jobName}' order by CreateTime DESC limit 1
+                """
+        List<Object> taskRow = waitMTMVTaskTerminal(showTasks, "waitingMTMVTaskFinishedWithoutAnalyze")
+        String status = taskRow == null ? "NULL" : taskRow.get(1).toString()
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
     void waitingMTMVTaskFinishedNotNeedSuccess(String jobName) {
         // Wait for the newly submitted MTMV task to become visible in tasks().
         Thread.sleep(2000);
