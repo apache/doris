@@ -368,10 +368,11 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
         EXPECT_EQ(actual_max, expected_max);
     }
 
-    // Test 4: Update high_priority_flush_thread_num_per_store
+    // Test 4: The retired high-priority setting does not resize the shared pool.
+    int shared_max_threads = flush_executor->flush_pool()->max_threads();
     config::high_priority_flush_thread_num_per_store = 8;
     flush_executor->update_memtable_flush_threads();
-    // Note: We can't directly access _high_prio_flush_pool, but update should not crash
+    EXPECT_EQ(flush_executor->flush_pool()->max_threads(), shared_max_threads);
 
     // Test 5: Set very small values
     config::flush_thread_num_per_store = 0; // Should be adjusted to 1 by std::max

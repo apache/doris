@@ -23,6 +23,9 @@
 
 #include "common/logging.h"
 #include "load/memtable/memtable.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/tablet/base_tablet.h"
 #include "util/time.h"
 
@@ -38,13 +41,13 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
     }
 
     const auto submit_time_us = MonotonicMicros();
-    return _thread_token->submit_func([=, this]() {
+    auto resource_ctx = thread_context()->resource_ctx();
+    return _submit_func([=, this]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(_resource_ctx);
+        SCOPED_ATTACH_TASK(resource_ctx);
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
                                                      tablet_delete_bitmap, queue_time_us);
@@ -68,12 +71,12 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
     }
     const auto submit_time_us = MonotonicMicros();
-    return _thread_token->submit_func([=, this]() {
+    auto resource_ctx = thread_context()->resource_ctx();
+    return _submit_func([=, this]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(_resource_ctx);
+        SCOPED_ATTACH_TASK(resource_ctx);
         auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
                                                               delete_bitmap, queue_time_us);
         if (!st.ok()) {
@@ -89,12 +92,34 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
 }
 
 Status CalcDeleteBitmapToken::wait() {
-    _thread_token->wait();
-    // all tasks complete here, don't need lock;
-    return _status;
+    if (_thread_token) {
+        _thread_token->wait();
+    }
+    std::shared_lock rlock(_lock);
+    RETURN_IF_ERROR(_status);
+    // A workload-group shutdown may remove queued tasks without executing them.
+    if (_finished_tasks.load() != _submitted_tasks.load()) {
+        return Status::Cancelled("delete bitmap tasks were cancelled before completion");
+    }
+    return Status::OK();
 }
 
-void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
+Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
+    ++_submitted_tasks;
+    auto task = [this, func = std::move(func)]() {
+        func();
+        ++_finished_tasks;
+    };
+    if (_thread_token) {
+        return _thread_token->submit_func(std::move(task));
+    }
+    task();
+    return Status::OK();
+}
+
+void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads,
+                                    ThreadPool* load_pool) {
+    _load_pool = load_pool;
     static_cast<void>(ThreadPoolBuilder(name)
                               .set_min_threads(1)
                               .set_max_threads(max_threads)
@@ -104,6 +129,29 @@ void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() {
     return std::make_unique<CalcDeleteBitmapToken>(
             _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT));
+}
+
+std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
+        int64_t load_id, LoadTaskPriority priority) {
+    return create_load_token(load_id, priority, thread_context()->resource_ctx()->workload_group());
+}
+
+std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
+        int64_t load_id, LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg) {
+    // Publish holds tablet locks while waiting for segment calculations. Running
+    // these children inline preserves the lock scope without a same-pool wait.
+    if (ThreadPool::is_load_worker()) {
+        return std::make_unique<CalcDeleteBitmapToken>(nullptr);
+    }
+    // A commit retry can outlive a dropped workload group. Its pool is stopped;
+    // use the default domain in that case. A concurrent stop is reported by submit/wait.
+    ThreadPool* pool = wg && !wg->can_be_dropped() ? wg->get_memtable_flush_pool() : nullptr;
+    if (pool == nullptr) {
+        pool = _load_pool;
+    }
+    DCHECK(pool != nullptr);
+    return std::make_unique<CalcDeleteBitmapToken>(pool->new_load_token(load_id, priority),
+                                                   std::move(wg));
 }
 
 } // namespace doris

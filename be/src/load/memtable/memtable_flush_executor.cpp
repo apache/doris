@@ -145,7 +145,9 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                 return _flush_status;
             }
         }
-        Status submit_st = pool->submit(std::move(sub_tasks[i]));
+        Status submit_st =
+                pool->submit_load(std::move(sub_tasks[i]), _rowset_writer->context().txn_id,
+                                  LoadTaskPriority::MEMTABLE_FLUSH);
         if (UNLIKELY(!submit_st.ok())) {
             {
                 std::lock_guard wrlk(_flush_status_lock);
@@ -489,13 +491,6 @@ void MemTableFlushExecutor::init(int num_disk) {
                               .set_min_threads(min_threads)
                               .set_max_threads(max_threads)
                               .build(&_flush_pool));
-
-    auto [hi_min, hi_max] = calc_flush_thread_count(
-            num_cpus, _num_disk, config::high_priority_flush_thread_num_per_store);
-    static_cast<void>(ThreadPoolBuilder("MemTableHighPriorityFlushThreadPool")
-                              .set_min_threads(hi_min)
-                              .set_max_threads(hi_max)
-                              .build(&_high_prio_flush_pool));
 }
 
 void MemTableFlushExecutor::update_memtable_flush_threads() {
@@ -506,18 +501,13 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
     // Update max_threads first to avoid constraint violation when increasing min_threads
     static_cast<void>(_flush_pool->set_max_threads(max_threads));
     static_cast<void>(_flush_pool->set_min_threads(min_threads));
-
-    auto [hi_min, hi_max] = calc_flush_thread_count(
-            num_cpus, _num_disk, config::high_priority_flush_thread_num_per_store);
-    // Update max_threads first to avoid constraint violation when increasing min_threads
-    static_cast<void>(_high_prio_flush_pool->set_max_threads(hi_max));
-    static_cast<void>(_high_prio_flush_pool->set_min_threads(hi_min));
 }
 
-// NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
+// All foreground load tasks share the same resource domain. Stage priority is
+// applied within a load; is_high_priority no longer selects a separate pool.
 Status MemTableFlushExecutor::create_flush_token(
         std::shared_ptr<FlushToken>& flush_token, std::shared_ptr<RowsetWriter> rowset_writer,
-        bool is_high_priority, std::shared_ptr<WorkloadGroup> wg_sptr,
+        bool /*is_high_priority*/, std::shared_ptr<WorkloadGroup> wg_sptr,
         std::shared_ptr<OlapTableSchemaParam> table_schema_param) {
     switch (rowset_writer->type()) {
     case ALPHA_ROWSET:
@@ -525,7 +515,7 @@ Status MemTableFlushExecutor::create_flush_token(
         return Status::InternalError<false>("not support alpha rowset load now.");
     case BETA_ROWSET: {
         // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-        ThreadPool* pool = is_high_priority ? _high_prio_flush_pool.get() : _flush_pool.get();
+        ThreadPool* pool = _flush_pool.get();
         flush_token = FlushToken::create_shared(pool, wg_sptr);
         flush_token->set_rowset_writer(rowset_writer);
         flush_token->set_table_schema_param(std::move(table_schema_param));
