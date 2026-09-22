@@ -38,6 +38,10 @@ public:
     Token* next(Token* token) override;
     void reset() override;
 
+#ifdef BE_TEST
+    size_t source_scratch_size_for_test() const { return sourceUtf8Str_.size(); }
+#endif
+
 private:
     bool advance_source_offset(int32_t utf16_offset, int32_t& utf8_offset);
 

@@ -40,6 +40,7 @@ public:
 
     size_t size() override { return _buf.size(); }
     int32_t correct_offset(int32_t current_offset) const override;
+    int32_t correct_start_offset(int32_t current_offset) const override;
 
 private:
     void fill();

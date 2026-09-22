@@ -106,9 +106,11 @@ Token* IKTokenizer::next(Token* token) {
     const int32_t corrected_start =
             source_char_filter_ == nullptr
                     ? token_data.start_offset
-                    : source_char_filter_->correct_offset(token_data.start_offset);
+                    : source_char_filter_->correct_start_offset(token_data.start_offset);
     if (source_char_filter_ != nullptr && source_byte_offsets_enabled_) {
-        for (int32_t& offset : current_source_byte_offsets_) {
+        // The first boundary is the token start itself; later ones end the preceding rune.
+        for (size_t i = 1; i < current_source_byte_offsets_.size(); ++i) {
+            int32_t& offset = current_source_byte_offsets_[i];
             offset = source_char_filter_->correct_offset(token_data.start_offset + offset) -
                      corrected_start;
         }

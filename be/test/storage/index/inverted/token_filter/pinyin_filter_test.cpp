@@ -949,6 +949,149 @@ TEST_F(PinyinFilterTest, TestWordDelimiterWithoutUpstreamProvenancePublishesToke
     assert_stream(filter, {{"l", 0, 1}, {"i", 1, 2}, {"u", 2, 3}, {"d", 4, 5}, {"e", 5, 6}});
 }
 
+TEST_F(PinyinFilterTest, TestNGramInsideCharFilterExpansionKeepsSourceSpan) {
+    PinyinFilterFactory letters = make_letters_filter_factory();
+    auto source = std::make_shared<lucene::util::SStringReader<char>>();
+    const std::string text = "\xEF\xAC\x81"; // U+FB01 expands to "fi"
+    source->init(text.data(), static_cast<int32_t>(text.size()), false);
+    ICUNormalizerCharFilterFactory char_filter_factory;
+    char_filter_factory.initialize({});
+    auto reader = char_filter_factory.create(source);
+
+    Settings settings;
+    settings.set("min_gram", "1");
+    settings.set("max_gram", "1");
+    NGramTokenizerFactory tokenizer_factory;
+    tokenizer_factory.initialize(settings);
+    auto tokenizer = tokenizer_factory.create();
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+    auto filter = letters.create(tokenizer);
+    // A gram that starts inside the expansion still owns the whole ligature's source span.
+    assert_stream(filter, {{"f", 0, 3}, {"i", 0, 3}});
+
+    const std::string reset_text = "ＬＩ";
+    reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+    tokenizer->set_reader(reader);
+    filter->reset();
+    assert_stream(filter, {{"l", 0, 3}, {"i", 3, 6}});
+}
+
+TEST_F(PinyinFilterTest, TestPinyinTokenizerCollectsSourceScratchOnlyForOffsets) {
+    const std::string large(96 * 1024, 'a');
+    Token token;
+
+    auto ignoring_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    ignoring_reader->init(large.data(), static_cast<int32_t>(large.size()), false);
+    PinyinTokenizerFactory default_factory;
+    default_factory.initialize({});
+    auto ignoring = std::dynamic_pointer_cast<PinyinTokenizer>(default_factory.create());
+    ASSERT_NE(ignoring, nullptr);
+    ignoring->set_reader(ignoring_reader);
+    ignoring->reset();
+    while (ignoring->next(&token) != nullptr) {
+    }
+    // Default settings ignore offsets, so no per-letter source ranges are collected.
+    EXPECT_EQ(ignoring->ascii_scratch_capacity_for_test(), 0);
+
+    auto tracking_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    tracking_reader->init(large.data(), static_cast<int32_t>(large.size()), false);
+    auto tracking = std::dynamic_pointer_cast<PinyinTokenizer>(
+            make_pinyin_tokenizer(tracking_reader, false));
+    ASSERT_NE(tracking, nullptr);
+    while (tracking->next(&token) != nullptr) {
+    }
+    EXPECT_GT(tracking->ascii_scratch_capacity_for_test(), 0);
+
+    const std::string small = "ab";
+    auto small_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    small_reader->init(small.data(), static_cast<int32_t>(small.size()), false);
+    tracking->set_reader(small_reader);
+    tracking->reset();
+    EXPECT_LE(tracking->ascii_scratch_capacity_for_test() * sizeof(int32_t), 64 * 1024);
+    while (tracking->next(&token) != nullptr) {
+    }
+}
+
+TEST_F(PinyinFilterTest, TestPinyinFilterCollectsRuneIndicesOnlyForOffsets) {
+    const std::string large(4096, 'a');
+    Token token;
+
+    PinyinFilterFactory default_factory;
+    default_factory.initialize({});
+    auto ignoring = std::dynamic_pointer_cast<PinyinFilter>(
+            default_factory.create(createTokenizer("keyword", large)));
+    ASSERT_NE(ignoring, nullptr);
+    ASSERT_NE(ignoring->next(&token), nullptr);
+    EXPECT_EQ(ignoring->last_ascii_rune_index_capacity_for_test(), 0);
+
+    Settings settings;
+    settings.set("ignore_pinyin_offset", "false");
+    PinyinFilterFactory tracking_factory;
+    tracking_factory.initialize(settings);
+    auto tracking = std::dynamic_pointer_cast<PinyinFilter>(
+            tracking_factory.create(createTokenizer("keyword", large)));
+    ASSERT_NE(tracking, nullptr);
+    ASSERT_NE(tracking->next(&token), nullptr);
+    EXPECT_GE(tracking->last_ascii_rune_index_capacity_for_test(), large.size());
+}
+
+TEST_F(PinyinFilterTest, TestIcuTokenizerTranscodesSourceOnlyForOffsets) {
+    const std::string text = "Hello";
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    Token token;
+
+    auto plain = std::dynamic_pointer_cast<ICUTokenizer>(factory.create());
+    ASSERT_NE(plain, nullptr);
+    auto plain_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    plain_reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    plain->set_reader(plain_reader);
+    plain->reset();
+    ASSERT_NE(plain->next(&token), nullptr);
+    EXPECT_EQ(plain->source_scratch_size_for_test(), 0);
+
+    // Without lowercasing the term already is the source text, so it is reused as provenance input.
+    auto tracking = std::dynamic_pointer_cast<ICUTokenizer>(factory.create());
+    ASSERT_NE(tracking, nullptr);
+    tracking->set_source_byte_offsets_enabled(true);
+    auto tracking_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    tracking_reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    tracking->set_reader(tracking_reader);
+    tracking->reset();
+    ASSERT_NE(tracking->next(&token), nullptr);
+    EXPECT_EQ(tracking->source_scratch_size_for_test(), 0);
+    EXPECT_EQ(tracking->get_source_byte_offsets().size(), text.size() + 1);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), text);
+}
+
+TEST_F(PinyinFilterTest, TestCaseAndFoldingFiltersCountRunesOnlyForOffsets) {
+    Token token;
+    for (const bool enabled : {false, true}) {
+        SCOPED_TRACE(enabled);
+        // U+0130 lowercases to two code points, so the rune count changes when it is checked.
+        const std::string dotted = "\xC4\xB0";
+        LowerCaseFilterFactory lower_factory;
+        lower_factory.initialize({});
+        auto lower = std::dynamic_pointer_cast<LowerCaseFilter>(
+                lower_factory.create(createTokenizer("keyword", dotted)));
+        ASSERT_NE(lower, nullptr);
+        lower->set_source_byte_offsets_enabled(enabled);
+        ASSERT_NE(lower->next(&token), nullptr);
+        EXPECT_EQ(lower->rune_count_changed_for_test(), enabled);
+
+        const std::string ligature = "\xC3\x86"; // U+00C6 folds to "AE"
+        ASCIIFoldingFilterFactory folding_factory;
+        folding_factory.initialize({});
+        auto folding = std::dynamic_pointer_cast<ASCIIFoldingFilter>(
+                folding_factory.create(createTokenizer("keyword", ligature)));
+        ASSERT_NE(folding, nullptr);
+        folding->set_source_byte_offsets_enabled(enabled);
+        ASSERT_NE(folding->next(&token), nullptr);
+        EXPECT_EQ(folding->rune_count_changed_for_test(), enabled);
+    }
+}
+
 TEST_F(PinyinFilterTest, TestOffsetTrackingReusesTokenizerScratchAcrossTokens) {
     for (const std::string tokenizer_type : {"standard", "ik_max_word"}) {
         SCOPED_TRACE(tokenizer_type);

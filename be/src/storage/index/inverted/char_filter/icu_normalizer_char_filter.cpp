@@ -108,4 +108,23 @@ int32_t ICUNormalizerCharFilter::correct_offset(int32_t current_offset) const {
     return DorisCharFilter::correct_offset(source_offset);
 }
 
+int32_t ICUNormalizerCharFilter::correct_start_offset(int32_t current_offset) const {
+    const auto destination_length = static_cast<int32_t>(_buf.size());
+    if (current_offset < 0 || current_offset >= destination_length) {
+        return DorisCharFilter::correct_start_offset(correct_offset(current_offset));
+    }
+
+    // Inside a changed edit the term starts with output of that whole edit, so it maps to the
+    // edit's source start; elsewhere this matches correct_offset().
+    UErrorCode status = U_ZERO_ERROR;
+    if (!_offset_cursor.findDestinationIndex(current_offset, status) || U_FAILURE(status)) {
+        return correct_offset(current_offset);
+    }
+    int32_t source_offset = _offset_cursor.sourceIndex();
+    if (!_offset_cursor.hasChange()) {
+        source_offset += current_offset - _offset_cursor.destinationIndex();
+    }
+    return DorisCharFilter::correct_start_offset(source_offset);
+}
+
 } // namespace doris::segment_v2::inverted_index

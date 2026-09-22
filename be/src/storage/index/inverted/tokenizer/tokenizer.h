@@ -78,6 +78,12 @@ protected:
         return char_filter == nullptr ? offset : char_filter->correct_offset(offset);
     }
 
+    // Correct the offset a term starts at; see DorisCharFilter::correct_start_offset().
+    int32_t correct_source_start_offset(int32_t offset) const {
+        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
+        return char_filter == nullptr ? offset : char_filter->correct_start_offset(offset);
+    }
+
     void set_source_byte_offsets(std::string_view term, int32_t source_start) {
         set_source_byte_offsets(term, term, source_start);
     }
@@ -91,8 +97,9 @@ protected:
         }
 
         const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
-        const int32_t corrected_start =
-                char_filter == nullptr ? source_start : char_filter->correct_offset(source_start);
+        const int32_t corrected_start = char_filter == nullptr
+                                                ? source_start
+                                                : char_filter->correct_start_offset(source_start);
         std::vector<int32_t>& source_offsets = _source_offsets_scratch;
         source_offsets.clear();
         source_offsets.push_back(0);

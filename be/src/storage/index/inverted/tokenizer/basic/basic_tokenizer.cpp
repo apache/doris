@@ -54,7 +54,7 @@ Token* BasicTokenizer::next(Token* token) {
     const auto source_start = static_cast<int32_t>(token_text.data() - _buffer.data());
     std::string_view term(token_text.data(), size);
     set_source_byte_offsets(term, source_start);
-    token->setStartOffset(correct_source_offset(source_start));
+    token->setStartOffset(correct_source_start_offset(source_start));
     token->setEndOffset(correct_source_offset(source_start + static_cast<int32_t>(size)));
     return token;
 }

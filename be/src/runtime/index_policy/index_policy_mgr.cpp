@@ -247,9 +247,10 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     if (resolved_name != nullptr) {
         *resolved_name = index_policy->name;
     }
-    // A metadata alias must not select a builtin or a different policy.
+    // A metadata alias must not select a builtin analyzer or normalizer, or a different policy.
     if (legacy_name != nullptr &&
         !segment_v2::inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(normalized_name) &&
+        !BUILTIN_NORMALIZERS.contains(normalized_name) &&
         find_policy_by_name_locked(normalized_name) == index_policy) {
         *legacy_name = normalized_name;
     }

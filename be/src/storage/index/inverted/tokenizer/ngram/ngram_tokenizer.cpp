@@ -76,7 +76,7 @@ Token* NGramTokenizer::next(Token* token) {
         to_chars(_buffer, _buffer_start, _gram_size);
         set(token, _utf8_buffer);
         set_source_byte_offsets(_utf8_buffer, _offset);
-        token->setStartOffset(correct_source_offset(_offset));
+        token->setStartOffset(correct_source_start_offset(_offset));
         token->setEndOffset(
                 correct_source_offset(_offset + static_cast<int32_t>(_utf8_buffer.size())));
         ++_gram_size;

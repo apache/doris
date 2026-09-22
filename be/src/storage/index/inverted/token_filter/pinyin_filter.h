@@ -52,6 +52,9 @@ public:
     bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
 
 #ifdef BE_TEST
+    size_t last_ascii_rune_index_capacity_for_test() const {
+        return last_ascii_rune_index_capacity_;
+    }
     size_t current_runes_capacity_for_test() const { return current_runes_.capacity(); }
     size_t current_source_offsets_capacity_for_test() const {
         return current_source_byte_offsets_.capacity();
@@ -136,6 +139,9 @@ private:
     std::vector<int32_t> published_source_byte_end_offsets_;
     int32_t published_source_length_ = 0;
     bool has_published_token_ = false;
+#ifdef BE_TEST
+    size_t last_ascii_rune_index_capacity_ = 0;
+#endif
 };
 
 using PinyinFilterPtr = std::shared_ptr<PinyinFilter>;

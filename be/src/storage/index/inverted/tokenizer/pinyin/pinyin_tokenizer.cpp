@@ -51,6 +51,8 @@ void PinyinTokenizer::reset() {
     has_current_span_ = false;
     ascii_buff_rune_starts_.clear();
     ascii_buff_rune_ends_.clear();
+    release_oversized_scratch(ascii_buff_rune_starts_);
+    release_oversized_scratch(ascii_buff_rune_ends_);
     position_ = 0;
     candidate_offset_ = 0;
     done_ = false;
@@ -114,8 +116,11 @@ void PinyinTokenizer::processInput() {
                             ascii_buff_start_byte = r.byte_start;
                         }
                         ascii_buff.push_back(static_cast<char>(r.cp));
-                        ascii_buff_rune_starts_.push_back(r.byte_start);
-                        ascii_buff_rune_ends_.push_back(r.byte_end);
+                        // Ignored offsets are replaced by the whole input span in next().
+                        if (!config_->ignorePinyinOffset) {
+                            ascii_buff_rune_starts_.push_back(r.byte_start);
+                            ascii_buff_rune_ends_.push_back(r.byte_end);
+                        }
                     } else {
                         position_++;
                         std::string single_char(1, static_cast<char>(r.cp));
@@ -221,7 +226,7 @@ Token* PinyinTokenizer::next(Token* token) {
             start = 0;
             end = runes_.empty() ? 0 : runes_.back().byte_end;
         }
-        token->setStartOffset(correct_source_offset(start));
+        token->setStartOffset(correct_source_start_offset(start));
         token->setEndOffset(correct_source_offset(end));
         publishCandidateProvenance(std::string_view(text.data(), size), start, end);
 
@@ -255,7 +260,7 @@ void PinyinTokenizer::publishCandidateProvenance(std::string_view term, int32_t 
             return;
         }
     }
-    current_span_end_ = correct_source_offset(end) - correct_source_offset(start);
+    current_span_end_ = correct_source_offset(end) - correct_source_start_offset(start);
     has_current_span_ = true;
 }
 
@@ -348,9 +353,19 @@ void PinyinTokenizer::parseBuff(std::string& ascii_buff, int& ascii_buff_start_b
     }
 
     // Each buffered letter keeps its own source range, so a candidate spans from the first letter
-    // it covers to the end of the last one even when punctuation was skipped in between.
-    DCHECK_EQ(ascii_buff.size(), ascii_buff_rune_starts_.size());
-    const int32_t buff_end_byte = ascii_buff_rune_ends_.back();
+    // it covers to the end of the last one even when punctuation was skipped in between. Without
+    // offset tracking the ranges are never used, so letter positions stand in for them.
+    const bool tracked = !config_->ignorePinyinOffset;
+    DCHECK(!tracked || ascii_buff.size() == ascii_buff_rune_starts_.size());
+    auto letter_start = [&](size_t i) {
+        return tracked ? ascii_buff_rune_starts_[i]
+                       : ascii_buff_start_byte + static_cast<int32_t>(i);
+    };
+    auto letter_end = [&](size_t i) {
+        return tracked ? ascii_buff_rune_ends_[i]
+                       : ascii_buff_start_byte + static_cast<int32_t>(i) + 1;
+    };
+    const int32_t buff_end_byte = letter_end(ascii_buff.size() - 1);
 
     if (config_->noneChinesePinyinTokenize) {
         std::vector<std::string> result = PinyinAlphabetTokenizer::walk(ascii_buff);
@@ -361,8 +376,8 @@ void PinyinTokenizer::parseBuff(std::string& ascii_buff, int& ascii_buff_start_b
                 break;
             }
             const size_t last = std::min(covered + t.length(), ascii_buff.size()) - 1;
-            int32_t start = ascii_buff_rune_starts_[covered];
-            int32_t end = ascii_buff_rune_ends_[last];
+            int32_t start = letter_start(covered);
+            int32_t end = letter_end(last);
             if (config_->fixedPinyinOffset) {
                 start = fixed_start;
                 end = fixed_start + 1;

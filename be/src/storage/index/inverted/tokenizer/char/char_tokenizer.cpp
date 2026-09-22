@@ -127,7 +127,7 @@ Token* CharTokenizer::next(Token* token) {
     std::string_view term(_char_buffer + start, length);
     set(token, term);
     set_source_byte_offsets(term, start);
-    token->setStartOffset(correct_source_offset(start));
+    token->setStartOffset(correct_source_start_offset(start));
     token->setEndOffset(correct_source_offset(start + length));
     return token;
 }

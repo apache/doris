@@ -40,6 +40,10 @@ public:
     static int32_t fold_to_ascii(const char* in, int32_t input_pos, char* out, int32_t output_pos,
                                  int32_t length);
 
+#ifdef BE_TEST
+    bool rune_count_changed_for_test() const { return _rune_count_changed; }
+#endif
+
 private:
     void fold_to_ascii(const char* in, int32_t length);
     bool need_to_preserve(const char* in, int32_t input_length);

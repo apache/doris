@@ -400,6 +400,27 @@ TEST_F(IndexPolicyMgrTest, BuiltinNormalizerWinsOverNormalizedLegacyPolicy) {
     EXPECT_THROW(manager.get_policy_by_name("LOWERCASE"), Exception);
 }
 
+TEST_F(IndexPolicyMgrTest, ExactCustomNormalizerDoesNotPublishBuiltinAlias) {
+    IndexPolicyMgr manager;
+
+    // "lowercase" is reserved for the built-in normalizer, so an exact custom policy must not
+    // advertise it as a compatibility alias for reader selection.
+    TIndexPolicy legacy;
+    legacy.id = 180;
+    legacy.name = "LOWERCASE";
+    legacy.type = TIndexPolicyType::NORMALIZER;
+    legacy.properties["token_filter"] = "asciifolding";
+    manager.apply_policy_changes({legacy}, {});
+
+    std::string resolved_name;
+    std::string legacy_name;
+    auto provider =
+            manager.get_analyzer_provider_by_name("LOWERCASE", {}, &resolved_name, &legacy_name);
+    ASSERT_NE(provider, nullptr);
+    EXPECT_EQ(resolved_name, "LOWERCASE");
+    EXPECT_TRUE(legacy_name.empty()) << legacy_name;
+}
+
 TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
     TIndexPolicy analyzer;
     analyzer.id = 20;

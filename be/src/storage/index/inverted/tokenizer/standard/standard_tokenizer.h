@@ -44,7 +44,7 @@ public:
                 const int32_t token_start = _scanner->get_token_start_offset();
                 const int32_t token_end = _scanner->get_token_end_offset();
                 set_source_byte_offsets(term, token_start);
-                t->setStartOffset(correct_source_offset(token_start));
+                t->setStartOffset(correct_source_start_offset(token_start));
                 t->setEndOffset(correct_source_offset(token_end));
                 return t;
             } else {

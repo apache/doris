@@ -63,8 +63,12 @@ Token* ICUTokenizer::next(Token* token) {
         --length;
     }
     auto subString = buffer_.tempSubString(start, length);
+    // Provenance needs the text before lowercasing; without lowercasing that is the term itself.
+    const bool keep_source = _source_byte_offsets_enabled && this->lowercase;
     sourceUtf8Str_.clear();
-    subString.toUTF8String(sourceUtf8Str_);
+    if (keep_source) {
+        subString.toUTF8String(sourceUtf8Str_);
+    }
     if (this->lowercase) {
         subString.toLower().toUTF8String(utf8Str_);
     } else {
@@ -76,8 +80,8 @@ Token* ICUTokenizer::next(Token* token) {
     int32_t source_end = 0;
     if (start >= 0 && length >= 0 && advance_source_offset(start, source_start) &&
         advance_source_offset(start + length, source_end)) {
-        set_source_byte_offsets(utf8Str_, sourceUtf8Str_, source_start);
-        token->setStartOffset(correct_source_offset(source_start));
+        set_source_byte_offsets(utf8Str_, keep_source ? sourceUtf8Str_ : utf8Str_, source_start);
+        token->setStartOffset(correct_source_start_offset(source_start));
         token->setEndOffset(correct_source_offset(source_end));
     }
     return token;

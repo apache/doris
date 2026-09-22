@@ -41,6 +41,12 @@ public:
     void reset() override;
     bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
 
+#ifdef BE_TEST
+    size_t ascii_scratch_capacity_for_test() const {
+        return ascii_buff_rune_starts_.capacity() + ascii_buff_rune_ends_.capacity();
+    }
+#endif
+
 private:
     bool done_;
     bool processed_candidate_;

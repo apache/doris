@@ -94,6 +94,10 @@ public:
         return true;
     }
 
+#ifdef BE_TEST
+    bool rune_count_changed_for_test() const { return _rune_count_changed; }
+#endif
+
     void set_source_byte_offsets_enabled(bool enabled) override {
         _source_byte_offsets_enabled = enabled;
         DorisTokenFilter::set_source_byte_offsets_enabled(enabled);
@@ -166,9 +170,11 @@ public:
                             static_cast<int32_t>(status), u_errorName(status));
         }
 
-        _rune_count_changed = count_utf8_runes(term) !=
-                              count_utf8_runes(std::string_view(_lower_term.data(), result_len));
-        if (_rune_count_changed && _source_byte_offsets_enabled) {
+        // Rune counts only matter to a downstream provenance consumer.
+        _rune_count_changed = _source_byte_offsets_enabled &&
+                              count_utf8_runes(term) != count_utf8_runes(std::string_view(
+                                                                _lower_term.data(), result_len));
+        if (_rune_count_changed) {
             _has_source_span = get_delegated_source_byte_span(*t, _source_start, _source_end);
         }
         set_text(t, std::string_view(_lower_term.data(), result_len));

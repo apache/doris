@@ -378,7 +378,10 @@ bool PinyinFilter::processCurrentToken() {
             } else {
                 // Accumulate ASCII characters for later processing
                 ascii_buffer += static_cast<char>(codepoint);
-                ascii_source_rune_indices.push_back(static_cast<int>(i));
+                // Candidate subranges are only used when offsets are tracked.
+                if (!config_->ignorePinyinOffset) {
+                    ascii_source_rune_indices.push_back(static_cast<int>(i));
+                }
             }
 
             // Handle ASCII alphanumeric characters for first letters
@@ -442,6 +445,9 @@ bool PinyinFilter::processCurrentToken() {
     if (!ascii_buffer.empty()) {
         processAsciiBuffer(ascii_buffer, ascii_source_rune_indices);
     }
+#ifdef BE_TEST
+    last_ascii_rune_index_capacity_ = ascii_source_rune_indices.capacity();
+#endif
 
     // Store the collected letters for later processing
     first_letters_ = first_letters_buffer;
@@ -490,34 +496,40 @@ void PinyinFilter::processAsciiBuffer(const std::string& ascii_buffer,
     if (ascii_buffer.empty() || !config_->keepNoneChinese) {
         return;
     }
-    DORIS_CHECK_EQ(ascii_buffer.size(), source_rune_indices.size());
+    // Without offset tracking every candidate gets the whole token span, so letter positions
+    // stand in for the source rune indices that were not collected.
+    const bool tracked = !config_->ignorePinyinOffset;
+    DORIS_CHECK(!tracked || ascii_buffer.size() == source_rune_indices.size());
+    auto rune_index = [&](size_t i) {
+        return tracked ? source_rune_indices[i] : static_cast<int>(i);
+    };
 
     if (config_->noneChinesePinyinTokenize) {
         // Use PinyinAlphabetTokenizer to split ASCII buffer into meaningful tokens
         std::vector<std::string> tokens = PinyinAlphabetTokenizer::walk(ascii_buffer);
 
         size_t compact_offset = 0;
-        int fixed_offset = source_rune_indices.front();
+        int fixed_offset = rune_index(0);
         for (const auto& token : tokens) {
             const size_t compact_end = compact_offset + token.size();
-            DORIS_CHECK_LE(compact_end, source_rune_indices.size());
+            DORIS_CHECK_LE(compact_end, ascii_buffer.size());
             position_++;
             if (config_->fixedPinyinOffset) {
                 addCandidate(TermItem(token, fixed_offset, fixed_offset + 1, position_));
                 ++fixed_offset;
             } else {
-                const int source_start = source_rune_indices[compact_offset];
-                const int source_end = source_rune_indices[compact_end - 1] + 1;
+                const int source_start = rune_index(compact_offset);
+                const int source_end = rune_index(compact_end - 1) + 1;
                 addCandidate(TermItem(token, source_start, source_end, position_));
             }
             compact_offset = compact_end;
         }
-        DORIS_CHECK_EQ(compact_offset, source_rune_indices.size());
+        DORIS_CHECK_EQ(compact_offset, ascii_buffer.size());
     } else {
         // Treat the entire ASCII buffer as a single token
         position_++;
-        addCandidate(TermItem(ascii_buffer, source_rune_indices.front(),
-                              source_rune_indices.back() + 1, position_));
+        addCandidate(TermItem(ascii_buffer, rune_index(0), rune_index(ascii_buffer.size() - 1) + 1,
+                              position_));
     }
 }
 
