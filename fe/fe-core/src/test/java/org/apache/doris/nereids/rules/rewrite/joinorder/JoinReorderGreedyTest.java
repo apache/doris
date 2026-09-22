@@ -176,6 +176,24 @@ class JoinReorderGreedyTest {
     }
 
     @Test
+    void testRejectNonFiniteBushyJoinRowCount() {
+        List<Plan> atoms = ImmutableList.of(scan(63, "a", 10, 10), scan(64, "b", 10, 10),
+                scan(65, "c", 10, 10), scan(66, "d", 10, 10));
+        JoinReorderGreedy greedy = new JoinReorderGreedy() {
+            @Override
+            protected Optional<PlanInfo> buildJoin(GroupInfo leftGroup, GroupInfo rightGroup) {
+                Optional<PlanInfo> join = super.buildJoin(leftGroup, rightGroup);
+                if (leftGroup.atoms.cardinality() == 2 && rightGroup.atoms.cardinality() == 2) {
+                    ((LogicalJoin<?, ?>) join.get().plan).setStatistics(
+                            new Statistics(Double.NaN, ImmutableMap.of()));
+                }
+                return join;
+            }
+        };
+        Assertions.assertFalse(greedy.reorder(atoms, ImmutableList.of()));
+    }
+
+    @Test
     void testMaximumFiniteAtomCost() {
         LogicalOlapScan a = scan(71, "a", Double.MAX_VALUE, 10);
         LogicalOlapScan b = scan(72, "b", 1, 1);
