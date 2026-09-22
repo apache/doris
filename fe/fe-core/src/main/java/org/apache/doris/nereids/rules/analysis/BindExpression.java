@@ -23,6 +23,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergSpatialWriteAnalyzer;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.nereids.CTEContext;
@@ -367,6 +368,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         if (writesDataFiles) {
             IcebergVariantWriteAnalyzer.validateMergeActions(visibleColumns, visibleOutputExprs);
+            IcebergSpatialWriteAnalyzer.validateMergeActions(visibleColumns, visibleOutputExprs);
         }
 
         List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());

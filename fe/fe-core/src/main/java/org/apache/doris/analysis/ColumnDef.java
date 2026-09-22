@@ -421,9 +421,11 @@ public class ColumnDef {
         FeNameFormat.checkColumnName(name);
         FeNameFormat.checkColumnCommentLength(comment);
 
-        typeDef.analyze();
-
         Type type = typeDef.getType();
+        if (isOlap && containsSpatialType(type)) {
+            throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
+        }
+        typeDef.analyze();
 
         if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
             throw new AnalysisException("quantile_state is disabled"
@@ -554,6 +556,24 @@ public class ColumnDef {
             validateDefaultValue(type, defaultValue.value, defaultValue.defaultValueExprDef);
         }
         validateGeneratedColumnInfo();
+    }
+
+    private static boolean containsSpatialType(Type type) {
+        if (type instanceof ScalarType) {
+            return ((ScalarType) type).isSpatialType();
+        }
+        if (type instanceof org.apache.doris.catalog.ArrayType) {
+            return containsSpatialType(((org.apache.doris.catalog.ArrayType) type).getItemType());
+        }
+        if (type instanceof org.apache.doris.catalog.MapType) {
+            org.apache.doris.catalog.MapType mapType = (org.apache.doris.catalog.MapType) type;
+            return containsSpatialType(mapType.getKeyType()) || containsSpatialType(mapType.getValueType());
+        }
+        if (type instanceof org.apache.doris.catalog.StructType) {
+            return ((org.apache.doris.catalog.StructType) type).getFields().stream()
+                    .anyMatch(field -> containsSpatialType(field.getType()));
+        }
+        return false;
     }
 
     @SuppressWarnings("checkstyle:Indentation")

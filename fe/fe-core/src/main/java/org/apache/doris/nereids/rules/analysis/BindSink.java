@@ -39,6 +39,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergSpatialWriteAnalyzer;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
@@ -947,6 +948,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
 
         IcebergVariantWriteAnalyzer.validate(bindColumns, child.getOutput());
+        IcebergSpatialWriteAnalyzer.validate(bindColumns, child.getOutput());
         VariantWritePlanValidator.validateNoLossyCoercion(
                 "Iceberg", bindColumns, child, ctx.cascadesContext.getCteContext());
 

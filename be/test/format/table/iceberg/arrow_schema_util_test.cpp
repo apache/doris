@@ -254,6 +254,35 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     EXPECT_EQ("uuid", fields[3]->metadata()->Get("originalType").ValueUnsafe());
 }
 
+TEST(ArrowSchemaUtilTest, test_geospatial_field_types) {
+    const std::string schema_json = R"JSON({
+        "type": "struct",
+        "fields": [
+            {"id": 101, "name": "shape", "required": false, "type": "GEOMETRY(EPSG:3857)"},
+            {"id": 102, "name": "place", "required": false,
+             "type": "geography(OGC:CRS84, vincenty)"}
+        ]
+    })JSON";
+    const auto schema = SchemaParser::from_json(schema_json);
+    const auto* geometry = static_cast<const GeometryType*>(schema->columns()[0].field_type());
+    const auto* geography = static_cast<const GeographyType*>(schema->columns()[1].field_type());
+    EXPECT_EQ("EPSG:3857", geometry->crs());
+    EXPECT_EQ("OGC:CRS84", geography->crs());
+    EXPECT_EQ("vincenty", geography->algorithm());
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    ASSERT_TRUE(ArrowSchemaUtil::convert(schema.get(), "utc", fields).ok());
+    ASSERT_EQ(2, fields.size());
+
+    EXPECT_EQ(arrow::Type::BINARY, fields[0]->type()->id());
+    EXPECT_EQ("101", fields[0]->metadata()->Get(pfid).ValueUnsafe());
+    EXPECT_EQ("GEOMETRY", fields[0]->metadata()->Get("iceberg.binary-type").ValueUnsafe());
+
+    EXPECT_EQ(arrow::Type::BINARY, fields[1]->type()->id());
+    EXPECT_EQ("102", fields[1]->metadata()->Get(pfid).ValueUnsafe());
+    EXPECT_EQ("GEOGRAPHY", fields[1]->metadata()->Get("iceberg.binary-type").ValueUnsafe());
+}
+
 TEST(ArrowSchemaUtilTest, test_variant_field) {
     std::vector<NestedField> nested_fields;
     nested_fields.emplace_back(true, 21, "payload", std::make_unique<VariantType>(), std::nullopt);

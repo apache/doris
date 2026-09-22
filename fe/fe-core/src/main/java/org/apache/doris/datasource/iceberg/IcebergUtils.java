@@ -120,6 +120,7 @@ import org.apache.iceberg.mapping.MappedFields;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
@@ -254,6 +255,7 @@ public class IcebergUtils {
 
     public static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
     public static final int ICEBERG_VARIANT_MIN_VERSION = 3;
+    public static final int ICEBERG_SPATIAL_MIN_VERSION = 3;
     public static final String ICEBERG_ROW_ID_COL = "_row_id";
     public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
@@ -733,6 +735,20 @@ public class IcebergUtils {
                     return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
                 }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
+            case GEOMETRY:
+                String geometryCrs = ((Types.GeometryType) primitive).crs();
+                return geometryCrs == null
+                        ? ScalarType.createGeometryType()
+                        : ScalarType.createGeometryType(geometryCrs);
+            case GEOGRAPHY:
+                Types.GeographyType geography = (Types.GeographyType) primitive;
+                String geographyCrs = geography.crs() == null
+                        ? Types.GeographyType.DEFAULT_CRS : geography.crs();
+                String geographyAlgorithm = geography.algorithm() == null
+                        ? EdgeAlgorithm.SPHERICAL.toString() : geography.algorithm().toString();
+                return ScalarType.createGeographyType(
+                        geographyCrs,
+                        geographyAlgorithm);
             case TIME:
                 return Type.UNSUPPORTED;
             default:
@@ -794,11 +810,39 @@ public class IcebergUtils {
         return false;
     }
 
+    public static boolean containsSpatial(Type type) {
+        if (type.isScalarType()) {
+            return ((ScalarType) type).isSpatialType();
+        }
+        if (type.isArrayType()) {
+            return containsSpatial(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType map = (MapType) type;
+            return containsSpatial(map.getKeyType()) || containsSpatial(map.getValueType());
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsSpatial(field.getType()));
+        }
+        return false;
+    }
+
+    private static boolean containsNestedSpatial(Type type) {
+        if (type.isScalarType()) {
+            return false;
+        }
+        return containsSpatial(type);
+    }
+
     public static void validateWriteSchema(Table table, List<Column> columns) {
         boolean writesVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
+        boolean writesSpatial = columns.stream().anyMatch(column -> containsSpatial(column.getType()));
         FileFormat fileFormat = getFileFormat(table);
-        if (writesVariant) {
+        if (writesVariant || writesSpatial) {
             validateWriteSchema(columns, getFormatVersion(table), fileFormat);
+        }
+        if (writesVariant) {
             validateVariantWriteProperties(columns, table.properties());
         }
         boolean writesOrcBinary = fileFormat == FileFormat.ORC
@@ -831,16 +875,36 @@ public class IcebergUtils {
 
     @VisibleForTesting
     public static void validateWriteSchema(List<Column> columns, int formatVersion, FileFormat fileFormat) {
-        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+        boolean hasVariant = columns.stream().anyMatch(column -> containsVariant(column.getType()));
+        boolean hasSpatial = columns.stream().anyMatch(column -> containsSpatial(column.getType()));
+        if (!hasVariant && !hasSpatial) {
             return;
         }
-        if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
+        if (columns.stream().anyMatch(column -> containsNestedSpatial(column.getType()))) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+                    "Iceberg writes do not support GEOMETRY or GEOGRAPHY nested in complex types");
         }
-        if (fileFormat != FileFormat.PARQUET) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+        if (hasVariant) {
+            if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+            }
+            if (fileFormat != FileFormat.PARQUET) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+            }
+        }
+        if (hasSpatial) {
+            if (formatVersion < ICEBERG_SPATIAL_MIN_VERSION) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg GEOMETRY and GEOGRAPHY writes require table format-version 3, but found "
+                                + formatVersion);
+            }
+            if (fileFormat != FileFormat.PARQUET) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg GEOMETRY and GEOGRAPHY writes require Parquet data files, but found "
+                                + fileFormat);
+            }
         }
     }
 

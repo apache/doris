@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
@@ -443,6 +444,39 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testSpatialTypeRoundTrip() {
+        Type defaultGeometry = IcebergUtils.icebergTypeToDorisType(
+                Types.GeometryType.crs84(), false, false);
+        Assert.assertEquals("OGC:CRS84", ((ScalarType) defaultGeometry).getSpatialCrs());
+        Assert.assertEquals(Types.GeometryType.crs84(), IcebergUtils.dorisTypeToIcebergType(defaultGeometry));
+
+        Type geometry = IcebergUtils.icebergTypeToDorisType(
+                Types.GeometryType.of("EPSG:3857"), false, false);
+        Assert.assertEquals("EPSG:3857", ((ScalarType) geometry).getSpatialCrs());
+        Assert.assertEquals(Types.GeometryType.of("EPSG:3857"), IcebergUtils.dorisTypeToIcebergType(geometry));
+
+        Type defaultGeography = IcebergUtils.icebergTypeToDorisType(
+                Types.GeographyType.crs84(), false, false);
+        Assert.assertEquals("OGC:CRS84", ((ScalarType) defaultGeography).getSpatialCrs());
+        Assert.assertEquals("spherical", ((ScalarType) defaultGeography).getSpatialAlgorithm());
+        Assert.assertEquals(Types.GeographyType.crs84(), IcebergUtils.dorisTypeToIcebergType(defaultGeography));
+
+        Type geography = IcebergUtils.icebergTypeToDorisType(
+                Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.VINCENTY), false, false);
+        Assert.assertEquals("EPSG:4326", ((ScalarType) geography).getSpatialCrs());
+        Assert.assertEquals("vincenty", ((ScalarType) geography).getSpatialAlgorithm());
+        Assert.assertEquals(Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.VINCENTY),
+                IcebergUtils.dorisTypeToIcebergType(geography));
+
+        Type geographyWithDefaultAlgorithm = IcebergUtils.icebergTypeToDorisType(
+                Types.GeographyType.of("EPSG:4326"), false, false);
+        Assert.assertEquals("EPSG:4326", ((ScalarType) geographyWithDefaultAlgorithm).getSpatialCrs());
+        Assert.assertEquals("spherical", ((ScalarType) geographyWithDefaultAlgorithm).getSpatialAlgorithm());
+        Assert.assertEquals(Types.GeographyType.of("EPSG:4326", org.apache.iceberg.types.EdgeAlgorithm.SPHERICAL),
+                IcebergUtils.dorisTypeToIcebergType(geographyWithDefaultAlgorithm));
+    }
+
+    @Test
     public void testIcebergVariantWriteCapabilityMatrix() {
         Type variant = IcebergUtils.icebergTypeToDorisType(Types.VariantType.get(), false, false);
         Column column = new Column("payload", variant);
@@ -464,6 +498,27 @@ public class IcebergUtilsTest {
                 new ArrayList<>(ImmutableList.of(new StructField("payload", variant)))));
         IcebergUtils.validateWriteSchema(
                 ImmutableList.of(nestedColumn), 3, FileFormat.PARQUET);
+    }
+
+    @Test
+    public void testIcebergSpatialWriteCapabilityMatrix() {
+        Type geometry = IcebergUtils.icebergTypeToDorisType(Types.GeometryType.crs84(), false, false);
+        Column column = new Column("shape", geometry);
+        IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.PARQUET);
+
+        AnalysisException formatException = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateWriteSchema(ImmutableList.of(column), 2, FileFormat.PARQUET));
+        Assert.assertTrue(formatException.getMessage().contains("format-version 3"));
+
+        AnalysisException fileFormatException = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateWriteSchema(ImmutableList.of(column), 3, FileFormat.ORC));
+        Assert.assertTrue(fileFormatException.getMessage().contains("Parquet"));
+
+        Column nestedColumn = new Column("nested", new org.apache.doris.catalog.StructType(
+                new ArrayList<>(ImmutableList.of(new StructField("shape", geometry)))));
+        AnalysisException nestedException = Assert.assertThrows(AnalysisException.class,
+                () -> IcebergUtils.validateWriteSchema(ImmutableList.of(nestedColumn), 3, FileFormat.PARQUET));
+        Assert.assertTrue(nestedException.getMessage().contains("nested in complex types"));
     }
 
     @Test
