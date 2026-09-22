@@ -102,19 +102,13 @@ suite("test_ranger_group_policy", "p2,ranger,external") {
 	}
 	def select = [new RangerPolicy.RangerPolicyItemAccess("SELECT")]
 
-	// 1. Access: SELECT on the table for the group.
-	RangerPolicy policy = new RangerPolicy()
-	policy.setService(rangerServiceName)
-	policy.setName(accessPolicy)
-	policy.setResources(resourcesOf(table, null))
-	RangerPolicy.RangerPolicyItem accessItem = new RangerPolicy.RangerPolicyItem()
-	accessItem.setGroups([group])
-	accessItem.setAccesses(select)
-	policy.setPolicyItems([accessItem])
-	rangerClient.createPolicy(policy)
+	// Four policies, four Ranger Admin calls, and the FE polls for policies every few seconds: a poll
+	// between two of the calls brings a generation with only the first of them. So the access policy - the
+	// one the wait below watches for - is written last: neither a row filter nor a mask nor a deny grants
+	// anything, and once the FE answers on the access policy it holds the generation the other three are in.
 
-	// 2. A row filter for the group.
-	policy = new RangerPolicy()
+	// 1. A row filter for the group.
+	RangerPolicy policy = new RangerPolicy()
 	policy.setService(rangerServiceName)
 	policy.setName(rowFilterPolicy)
 	policy.setPolicyType(RangerPolicy.POLICY_TYPE_ROWFILTER)
@@ -126,7 +120,7 @@ suite("test_ranger_group_policy", "p2,ranger,external") {
 	policy.setRowFilterPolicyItems([rowFilterItem])
 	rangerClient.createPolicy(policy)
 
-	// 3. A column mask for the group.
+	// 2. A column mask for the group.
 	policy = new RangerPolicy()
 	policy.setService(rangerServiceName)
 	policy.setName(maskPolicy)
@@ -139,7 +133,7 @@ suite("test_ranger_group_policy", "p2,ranger,external") {
 	policy.setDataMaskPolicyItems([maskItem])
 	rangerClient.createPolicy(policy)
 
-	// 4. A deny written against the group, on a table the user is allowed on by name. Before groups were
+	// 3. A deny written against the group, on a table the user is allowed on by name. Before groups were
 	// attached this deny was silently ignored and the user read the table - the dangerous half of the bug.
 	policy = new RangerPolicy()
 	policy.setService(rangerServiceName)
@@ -153,6 +147,17 @@ suite("test_ranger_group_policy", "p2,ranger,external") {
 	denyGroupItem.setGroups([group])
 	denyGroupItem.setAccesses(select)
 	policy.setDenyPolicyItems([denyGroupItem])
+	rangerClient.createPolicy(policy)
+
+	// 4. Access: SELECT on the table for the group. Last, see above.
+	policy = new RangerPolicy()
+	policy.setService(rangerServiceName)
+	policy.setName(accessPolicy)
+	policy.setResources(resourcesOf(table, null))
+	RangerPolicy.RangerPolicyItem accessItem = new RangerPolicy.RangerPolicyItem()
+	accessItem.setGroups([group])
+	accessItem.setAccesses(select)
+	policy.setPolicyItems([accessItem])
 	rangerClient.createPolicy(policy)
 
 	def tokens = context.config.jdbcUrl.split('/')
@@ -171,7 +176,8 @@ suite("test_ranger_group_policy", "p2,ranger,external") {
 
 	// The policies reach the FE within its policy poll interval; the membership reaches it with the next
 	// user store download, which the plugin makes every 60 seconds unless userStoreRefresherPollingInterval
-	// in ranger-doris-security.xml says otherwise. Hence waiting on the effect rather than a fixed sleep.
+	// in ranger-doris-security.xml says otherwise. Hence waiting on the effect rather than a fixed sleep -
+	// and on the policy written last, which proves the whole set is there (see above).
 	logger.info("waiting for the group's SELECT to reach ${user}")
 	awaitUntil(180, 3) { readable(table) }
 

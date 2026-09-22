@@ -66,15 +66,86 @@ public final class RangerUserStoreGroups {
     public static final String USE_RANGER_GROUPS = ".use.rangerGroups";
 
     /** How often the plugin asks Ranger Admin for a newer user store, when nothing configures it. */
-    private static final String DEFAULT_REFRESH_INTERVAL_MS = Integer.toString(60 * 1000);
+    private static final long DEFAULT_REFRESH_INTERVAL_MS = 60 * 1000L;
 
     private RangerUserStoreGroups() {
     }
 
-    /** Whether the plugin configured by {@code config} attaches user store groups; on unless switched off. */
+    /**
+     * Whether the plugin configured by {@code config} attaches user store groups; on unless switched off.
+     *
+     * <p>Read strictly - {@code true}, {@code false}, or nothing - and not through Hadoop's {@code getBoolean},
+     * which takes any value it cannot read as the default: a mistyped opt-out ({@code flase}) would switch this
+     * on, in a deployment that has just decided the opposite, and Ranger reads the same property with the
+     * opposite default, so that the two would disagree about what a single setting says.
+     *
+     * @throws IllegalArgumentException for a value that is neither; {@link #validate} raises it before the
+     *         load, so that a request never meets it
+     */
     public static boolean enabledFor(RangerPluginConfig config) {
         // No configuration at all - a plugin stubbed out in a test - has not switched anything off.
-        return config == null || config.getBoolean(config.getPropertyPrefix() + USE_RANGER_GROUPS, true);
+        if (config == null) {
+            return true;
+        }
+        String property = config.getPropertyPrefix() + USE_RANGER_GROUPS;
+        String value = config.getTrimmed(property);
+        if (value == null || value.isEmpty() || value.equalsIgnoreCase("true")) {
+            return true;
+        }
+        if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new IllegalArgumentException("Ranger service " + config.getServiceName() + ": " + property + "="
+                + value + " is neither true nor false; leave it unset or set it to false to switch off the"
+                + " groups requests carry");
+    }
+
+    /**
+     * How often the plugin asks Ranger Admin for a newer user store, in milliseconds: what
+     * {@code userStoreRefresherPollingInterval} says, or a minute.
+     *
+     * <p>Read here rather than left to the enricher, which parses the option inside the policy engine's
+     * construction: a value that is not a number fails there, and one that is not positive fails a step
+     * later in {@code Timer.schedule}, after the enricher has downloaded the store and started its refresher
+     * thread. {@code RangerBasePlugin.setPolicies} catches both and leaves the plugin without an engine, which
+     * {@link LoadedRangerPlugin#init} would refuse for the wrong reason - and, in the second case, with that
+     * thread left behind. So both are refused before the load, by {@link #validate}.
+     *
+     * @throws IllegalArgumentException for a value that is not a positive number of milliseconds
+     */
+    static long refreshIntervalMsOf(RangerPluginConfig config) {
+        String property = RangerUserStoreEnricher.USERSTORE_REFRESHER_POLLINGINTERVAL_OPTION;
+        String value = config.getTrimmed(property);
+        if (value == null || value.isEmpty()) {
+            return DEFAULT_REFRESH_INTERVAL_MS;
+        }
+        long intervalMs;
+        try {
+            intervalMs = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Ranger service " + config.getServiceName() + ": " + property + "="
+                    + value + " is not a number of milliseconds", e);
+        }
+        if (intervalMs <= 0) {
+            throw new IllegalArgumentException("Ranger service " + config.getServiceName() + ": " + property + "="
+                    + value + " is not a positive number of milliseconds");
+        }
+        return intervalMs;
+    }
+
+    /**
+     * Refuses a configuration this cannot run with, before {@code RangerBasePlugin.init()} starts anything:
+     * an opt-out that is neither true nor false, and a refresh interval that is not a positive number of
+     * milliseconds. See {@link #enabledFor} and {@link #refreshIntervalMsOf} for where each would fail
+     * otherwise, and how much worse.
+     *
+     * @throws IllegalArgumentException naming the property and its value
+     */
+    public static void validate(RangerPluginConfig config) {
+        if (config == null || !enabledFor(config)) {
+            return;
+        }
+        refreshIntervalMsOf(config);
     }
 
     /**
@@ -93,8 +164,7 @@ public final class RangerUserStoreGroups {
         }
         String retriever = config.get(RangerUserStoreEnricher.USERSTORE_RETRIEVER_CLASSNAME_OPTION,
                 RangerAdminUserStoreRetriever.class.getCanonicalName());
-        String refreshIntervalMs = config.get(RangerUserStoreEnricher.USERSTORE_REFRESHER_POLLINGINTERVAL_OPTION,
-                DEFAULT_REFRESH_INTERVAL_MS);
+        String refreshIntervalMs = Long.toString(refreshIntervalMsOf(config));
         // Ranger logs the addition itself, once per download that needed it; the operator-facing line about
         // why the store is downloaded at all is the plugin's, written once when it starts (see describe).
         if (ServiceDefUtil.addUserStoreEnricher(policies, retriever, refreshIntervalMs) && LOG.isDebugEnabled()) {

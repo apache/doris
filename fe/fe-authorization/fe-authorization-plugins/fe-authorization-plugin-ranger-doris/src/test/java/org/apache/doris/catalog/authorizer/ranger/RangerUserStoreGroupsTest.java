@@ -60,6 +60,74 @@ public class RangerUserStoreGroupsTest {
         Assertions.assertTrue(RangerUserStoreGroups.enabledFor(config()));
     }
 
+    /** The switch is read as Ranger reads its own copy of it, case and surrounding blanks aside. */
+    @Test
+    public void testReadsTheSwitchStrictly() {
+        RangerPluginConfig config = config();
+        config.set("ranger.plugin.test.use.rangerGroups", " False ");
+        Assertions.assertFalse(RangerUserStoreGroups.enabledFor(config));
+        config.set("ranger.plugin.test.use.rangerGroups", "TRUE");
+        Assertions.assertTrue(RangerUserStoreGroups.enabledFor(config));
+        config.set("ranger.plugin.test.use.rangerGroups", "");
+        Assertions.assertTrue(RangerUserStoreGroups.enabledFor(config));
+    }
+
+    /**
+     * Hadoop's getBoolean would take a mistyped opt-out as its default and switch this on; an operator who
+     * has just decided the opposite is told so, by property and value, rather than granted on groups.
+     */
+    @Test
+    public void testRefusesASwitchThatIsNeitherTrueNorFalse() {
+        RangerPluginConfig config = config();
+        config.set("ranger.plugin.test.use.rangerGroups", "flase");
+
+        IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> RangerUserStoreGroups.validate(config));
+
+        Assertions.assertTrue(refused.getMessage().contains("ranger.plugin.test.use.rangerGroups=flase"),
+                refused.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class, () -> RangerUserStoreGroups.enabledFor(config));
+    }
+
+    /**
+     * Ranger's enricher parses the interval inside the engine's construction, and a non-positive one
+     * fails in Timer.schedule after the refresher thread is up; both are refused before any of that.
+     */
+    @Test
+    public void testRefusesAnIntervalThatIsNotAPositiveNumberOfMilliseconds() {
+        for (String interval : new String[] {"0", "-1", "often", "5s"}) {
+            RangerPluginConfig config = config();
+            config.set(RangerUserStoreEnricher.USERSTORE_REFRESHER_POLLINGINTERVAL_OPTION, interval);
+
+            IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> RangerUserStoreGroups.validate(config), interval);
+
+            Assertions.assertTrue(refused.getMessage().contains(
+                    RangerUserStoreEnricher.USERSTORE_REFRESHER_POLLINGINTERVAL_OPTION + "=" + interval),
+                    refused.getMessage());
+        }
+    }
+
+    @Test
+    public void testAcceptsADefaultOrPositiveInterval() {
+        RangerPluginConfig config = config();
+        Assertions.assertDoesNotThrow(() -> RangerUserStoreGroups.validate(config));
+        Assertions.assertEquals(60000L, RangerUserStoreGroups.refreshIntervalMsOf(config));
+        config.set(RangerUserStoreEnricher.USERSTORE_REFRESHER_POLLINGINTERVAL_OPTION, " 5000 ");
+        Assertions.assertDoesNotThrow(() -> RangerUserStoreGroups.validate(config));
+        Assertions.assertEquals(5000L, RangerUserStoreGroups.refreshIntervalMsOf(config));
+    }
+
+    /** Switched off, no enricher reads the interval, so a bad one refuses nothing. */
+    @Test
+    public void testAnIntervalDoesNotMatterWhenSwitchedOff() {
+        RangerPluginConfig config = config();
+        config.set("ranger.plugin.test.use.rangerGroups", "false");
+        config.set(RangerUserStoreEnricher.USERSTORE_REFRESHER_POLLINGINTERVAL_OPTION, "0");
+
+        Assertions.assertDoesNotThrow(() -> RangerUserStoreGroups.validate(config));
+    }
+
     /**
      * The enricher is the one Ranger adds for its own {@code use.rangerGroups}, options included, so that a
      * deployment that tuned the retriever or the interval for Ranger has tuned them here.

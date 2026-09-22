@@ -38,10 +38,12 @@ import java.util.concurrent.TimeUnit;
  * use - no account bypasses the source - and a catalog bound to a {@code ranger-hive} source in that state
  * refuses every statement against it, in both cases with nothing but a line in fe.log to say why. So
  * {@link #init()} refuses that state instead: a load that ended with no policies, from the admin or the
- * cache, stops what it started and throws, with the cause. That fails the FE start, the {@code CREATE
- * CATALOG} (whose dry run builds the plugin), or the statement binding a catalog to its source again, which
- * is where an operator sees it. Once built, an outage of the admin is Ranger's to survive, as it always
- * was: the refresher keeps the last policies it downloaded and keeps polling.
+ * cache - or with policies Ranger could build no engine out of, which it also survives, by logging - stops
+ * what it started and throws, with the cause. That fails the FE start, the {@code CREATE CATALOG} (whose
+ * dry run builds the plugin), or the statement binding a catalog to its source again, which is where an
+ * operator sees it. A configuration the load could not use is refused before it starts, for the same
+ * reader; see {@link RangerUserStoreGroups#validate}. Once built, an outage of the admin is Ranger's to
+ * survive, as it always was: the refresher keeps the last policies it downloaded and keeps polling.
  *
  * <p>The user store is not part of that. A load that found the policies but no user store is logged and
  * accepted - policy items written against a group do not apply until the store arrives, which the enricher
@@ -56,6 +58,15 @@ import java.util.concurrent.TimeUnit;
 public abstract class LoadedRangerPlugin extends RangerBasePlugin {
     private static final Logger LOG = LogManager.getLogger(LoadedRangerPlugin.class);
 
+    /**
+     * The version of the policies the last {@link #setPolicies} was handed and could not build an engine
+     * out of; null when it built one, or was handed none. {@code RangerBasePlugin.setPolicies} catches
+     * whatever the engine's construction throws and leaves the plugin without an engine, which is the state
+     * "no policies" leaves it in as well, and not the same cause: {@link #init} reads this to tell the two
+     * apart when it refuses the plugin.
+     */
+    private volatile Long policiesWithoutEngine;
+
     protected LoadedRangerPlugin(String serviceType, String serviceName, String appId) {
         super(serviceType, serviceName, appId);
     }
@@ -64,16 +75,22 @@ public abstract class LoadedRangerPlugin extends RangerBasePlugin {
      * Loads the plugin - {@code RangerBasePlugin.init()}: roles, policies and user store, on this thread -
      * and refuses to leave it without policies; see the class comment.
      *
-     * @throws IllegalStateException when the load ended with no policies from either the admin or the cache
+     * @throws IllegalArgumentException for a configuration the load could not use, before it starts; see
+     *         {@link RangerUserStoreGroups#validate}
+     * @throws IllegalStateException when the load ended with no policies from either the admin or the
+     *         cache, or with policies no engine could be built out of
      */
     @Override
     public void init() {
+        RangerUserStoreGroups.validate(getConfig());
         LOG.info(RangerUserStoreGroups.describe(getConfig()));
         long startedAtNanos = System.nanoTime();
         try {
             super.init();
             if (getPoliciesVersion() < 0) {
-                throw new IllegalStateException(describeNoPolicies());
+                Long refusedVersion = policiesWithoutEngine;
+                throw new IllegalStateException(refusedVersion == null
+                        ? describeNoPolicies() : describeNoEngine(refusedVersion));
             }
         } catch (RuntimeException | Error e) {
             // Stops what the load had started before it failed - the policy refresher and its download
@@ -116,15 +133,27 @@ public abstract class LoadedRangerPlugin extends RangerBasePlugin {
                 + " and try again";
     }
 
+    /** Why the plugin was refused when its policies did arrive: nothing could be built out of them. */
+    private String describeNoEngine(long policiesVersion) {
+        return "Ranger service " + getServiceName() + " (type " + getServiceType() + ") has no policies to"
+                + " authorize against: its policies (version " + policiesVersion + ") were downloaded, but no"
+                + " policy engine could be built out of them; RangerBasePlugin.setPolicies logged the cause"
+                + " just before this. Fix what it names and try again";
+    }
+
     /**
      * Takes the policies Ranger downloaded, and asks for the user store with them, so that the requests the
      * source over this plugin builds can carry the groups Ranger keeps for a user; see
      * {@link RangerUserStoreGroups}. Done on the way in rather than left to Ranger, because Ranger only does
      * it on its own from 2.5 on, and behind a property.
+     *
+     * <p>Notes, for {@link #init}, whether the policies handed over left the plugin without an engine.
      */
     @Override
     public void setPolicies(ServicePolicies policies) {
         RangerUserStoreGroups.addUserStoreEnricher(getConfig(), policies);
         super.setPolicies(policies);
+        Long version = policies == null ? null : policies.getPolicyVersion();
+        policiesWithoutEngine = version != null && getPoliciesVersion() < 0 ? version : null;
     }
 }

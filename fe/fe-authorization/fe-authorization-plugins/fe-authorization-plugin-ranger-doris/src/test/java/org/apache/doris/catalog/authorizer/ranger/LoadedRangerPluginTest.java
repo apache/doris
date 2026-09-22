@@ -22,8 +22,10 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.ranger.admin.client.RangerAdminClient;
 import org.apache.ranger.authorization.utils.JsonUtils;
+import org.apache.ranger.plugin.contextenricher.RangerAbstractContextEnricher;
 import org.apache.ranger.plugin.model.RangerRole;
 import org.apache.ranger.plugin.model.RangerServiceDef;
+import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.util.GrantRevokeRequest;
 import org.apache.ranger.plugin.util.GrantRevokeRoleRequest;
 import org.apache.ranger.plugin.util.RangerRoles;
@@ -165,6 +167,21 @@ public class LoadedRangerPluginTest {
         }
     }
 
+    /**
+     * A context enricher the policy engine cannot be built with: Ranger builds the enrichers a service
+     * definition names while it builds the engine, and does not catch what their init() throws there.
+     */
+    public static final class BrokenEnricher extends RangerAbstractContextEnricher {
+        @Override
+        public void init() {
+            throw new IllegalStateException("broken on purpose");
+        }
+
+        @Override
+        public void enrich(RangerAccessRequest request) {
+        }
+    }
+
     private static final class TestPlugin extends LoadedRangerPlugin {
         private TestPlugin(String cacheDir) {
             // Service type "test" reads ranger-test-*.xml, none of which exist here: what the load needs is set
@@ -228,6 +245,12 @@ public class LoadedRangerPluginTest {
     private static boolean refresherRunning() {
         return Thread.getAllStackTraces().keySet().stream()
                 .anyMatch(thread -> thread.getName().startsWith("PolicyRefresher(serviceName=test)"));
+    }
+
+    /** The thread the user store enricher starts to download the store, which cleanup() reaches through the engine. */
+    private static boolean userStoreRefresherRunning() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .anyMatch(thread -> thread.getName().startsWith("RangerUserStoreRefresher(serviceName=test)"));
     }
 
     /** Built out of what the admin serves, groups included: the user store came with the policies. */
@@ -310,6 +333,65 @@ public class LoadedRangerPluginTest {
 
         Assertions.assertThrows(NumberFormatException.class, plugin::init);
 
+        Assertions.assertFalse(refresherRunning());
+    }
+
+    /**
+     * A refresh interval the enricher could not schedule is refused before the load starts. Left to the
+     * enricher, a non-positive interval fails in Timer.schedule after the store is downloaded and the
+     * refresher thread is up, inside the engine's construction: RangerBasePlugin.setPolicies catches it, the
+     * plugin is refused as if it had no policies, and cleanup() cannot reach the thread through an engine
+     * that was never built.
+     */
+    @Test
+    public void testRefusedBeforeTheLoadForAnIntervalTheEnricherCouldNotSchedule() {
+        Admin.policies = policies(3L);
+        Admin.userStore = new RangerUserStore(1L, null, null, ImmutableMap.of("user1", ImmutableSet.of("readers")));
+        plugin = new TestPlugin(cacheDir.toString());
+        plugin.getConfig().set("userStoreRefresherPollingInterval", "0");
+
+        IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class, plugin::init);
+
+        Assertions.assertTrue(refused.getMessage().contains("userStoreRefresherPollingInterval=0"),
+                refused.getMessage());
+        Assertions.assertFalse(plugin.hasEngine(), "an engine was left behind");
+        Assertions.assertFalse(refresherRunning(), "the policy refresher was started");
+        Assertions.assertFalse(userStoreRefresherRunning(), "the user store refresher was started");
+    }
+
+    /** An opt-out Hadoop's getBoolean would have read as the default is refused, not switched on. */
+    @Test
+    public void testRefusedBeforeTheLoadForASwitchThatIsNeitherTrueNorFalse() {
+        Admin.policies = policies(3L);
+        plugin = new TestPlugin(cacheDir.toString());
+        plugin.getConfig().set(PREFIX + ".use.rangerGroups", "flase");
+
+        IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class, plugin::init);
+
+        Assertions.assertTrue(refused.getMessage().contains(PREFIX + ".use.rangerGroups=flase"), refused.getMessage());
+        Assertions.assertFalse(refresherRunning());
+    }
+
+    /**
+     * The policies arrived and Ranger could build no engine out of them - here, a context enricher on the
+     * service definition whose init() throws; RangerBasePlugin.setPolicies logs that and keeps going with
+     * no engine, the same state as no policies at all. Refused for what happened, not for an admin that
+     * answered.
+     */
+    @Test
+    public void testRefusedWithPoliciesNoEngineCouldBeBuiltOutOf() {
+        ServicePolicies policies = policies(3L);
+        policies.getServiceDef().setContextEnrichers(Collections.singletonList(
+                new RangerServiceDef.RangerContextEnricherDef(1L, "broken", BrokenEnricher.class.getName(), null)));
+        Admin.policies = policies;
+        plugin = new TestPlugin(cacheDir.toString());
+
+        IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class, plugin::init);
+
+        Assertions.assertTrue(refused.getMessage().contains("policies (version 3) were downloaded, but no policy"
+                + " engine could be built out of them"), refused.getMessage());
+        Assertions.assertFalse(refused.getMessage().contains("could not be reached"), refused.getMessage());
+        Assertions.assertFalse(plugin.hasEngine(), "an engine was left behind");
         Assertions.assertFalse(refresherRunning());
     }
 
