@@ -21,6 +21,7 @@
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <string>
 #include <utility>
 
@@ -40,33 +41,40 @@ TEST(TimeStampTzValueTest, make_time) {
 TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     TimezoneUtils::load_offsets_to_cache();
     const auto utc = cctz::utc_time_zone();
+    cctz::time_zone shanghai;
+    cctz::time_zone new_york;
+    cctz::time_zone kathmandu;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Kathmandu", &kathmandu));
     struct TestCase {
-        const char* zone;
+        cctz::time_zone zone;
         int year;
         const char* civil;
         const char* offset;
     };
     const TestCase cases[] = {
-            {"Asia/Shanghai", 1890, "1890-01-01 08:05:43", "+08:05:43"},
-            {"America/New_York", 1880, "1879-12-31 19:03:58", "-04:56:02"},
-            {.zone = "Asia/Manila",
+            {.zone = shanghai, .year = 1890, .civil = "1890-01-01 08:05:43", .offset = "+08:05:43"},
+            {.zone = new_york, .year = 1880, .civil = "1879-12-31 19:03:58", .offset = "-04:56:02"},
+            // Pre-standard offsets vary across tzdata versions. Fixed zones keep coverage
+            // of offsets beyond 14 hours independent of the host's historical records.
+            {.zone = cctz::fixed_time_zone(std::chrono::seconds(-57368)),
              .year = 1800,
              .civil = "1799-12-31 08:03:52",
              .offset = "-15:56:08"},
-            {.zone = "Pacific/Guam",
+            {.zone = cctz::fixed_time_zone(std::chrono::seconds(-51660)),
              .year = 1800,
              .civil = "1799-12-31 09:39:00",
              .offset = "-14:21"},
-            {"Asia/Shanghai", 2024, "2024-01-01 08:00:00", "+08:00"},
-            {"America/New_York", 2024, "2023-12-31 19:00:00", "-05:00"},
-            {"Asia/Kathmandu", 2024, "2024-01-01 05:45:00", "+05:45"},
-            {"UTC", 2024, "2024-01-01 00:00:00", "+00:00"},
+            {.zone = shanghai, .year = 2024, .civil = "2024-01-01 08:00:00", .offset = "+08:00"},
+            {.zone = new_york, .year = 2024, .civil = "2023-12-31 19:00:00", .offset = "-05:00"},
+            {.zone = kathmandu, .year = 2024, .civil = "2024-01-01 05:45:00", .offset = "+05:45"},
+            {.zone = utc, .year = 2024, .civil = "2024-01-01 00:00:00", .offset = "+00:00"},
     };
     for (const auto& test_case : cases) {
-        cctz::time_zone zone;
-        ASSERT_TRUE(cctz::load_time_zone(test_case.zone, &zone));
+        const auto& zone = test_case.zone;
         for (const auto scale : {0, 3, 6}) {
-            SCOPED_TRACE(testing::Message() << test_case.zone << ", scale=" << scale);
+            SCOPED_TRACE(testing::Message() << zone.name() << ", scale=" << scale);
             const auto micros = scale == 6 ? 123456 : scale == 3 ? 123000 : 0;
             const auto value = make_timestamptz(test_case.year, 1, 1, 0, 0, 0, micros);
             const std::string fraction = scale == 6 ? ".123456" : scale == 3 ? ".123" : "";

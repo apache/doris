@@ -37,6 +37,9 @@
 #include "core/string_view.h"
 #include "core/types.h"
 #include "exec/common/sip_hash.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/raw_value.h"
 
 namespace doris {
@@ -74,6 +77,80 @@ TEST(ColumnVarbinaryStorageTest, FieldsOwnLongBinaryValues) {
     EXPECT_EQ(copy.get<TYPE_VARBINARY>().str(), expected);
     copy = Field::create_field<TYPE_VARBINARY>(StringView("a"));
     EXPECT_EQ(copy.get<TYPE_VARBINARY>().str(), "a");
+}
+
+TEST(ColumnVarbinaryStorageTest, FieldsChargeAndReleaseTrackedMemory) {
+    const std::string payload(64, '\xff');
+    const std::string smaller(16, 's');
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "binary-field-ownership", 1024);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+    const auto consumption = [&] {
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        return tracker->consumption();
+    };
+    {
+        auto field = Field::create_field<TYPE_VARBINARY>(StringView(payload));
+        EXPECT_EQ(consumption(), 64);
+        Field copied = field;
+        EXPECT_EQ(consumption(), 128);
+        // Replacement must release the old allocation using its original size.
+        copied = Field::create_field<TYPE_VARBINARY>(StringView(smaller));
+        EXPECT_EQ(consumption(), 80);
+        EXPECT_EQ(copied.get<TYPE_VARBINARY>().str(), smaller);
+        copied = Field::create_field<TYPE_VARBINARY>(StringView("inline"));
+        EXPECT_EQ(consumption(), 64);
+        auto inline_field = Field::create_field<TYPE_VARBINARY>(StringView("inline"));
+        EXPECT_EQ(consumption(), 64);
+        EXPECT_EQ(inline_field.get<TYPE_VARBINARY>().str(), "inline");
+        field.get<TYPE_VARBINARY>() = StringView("shorter view");
+        EXPECT_EQ(consumption(), 64);
+    }
+    EXPECT_EQ(consumption(), 0);
+}
+
+TEST(ColumnVarbinaryStorageTest, FieldsRespectTrackedMemoryLimit) {
+    const std::string payload(64, '\xff');
+    const std::string oversized(128, 'x');
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "binary-field-limit", 96);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+    ++enable_thread_catch_bad_alloc;
+    Defer restore_catch_bad_alloc {[] { --enable_thread_catch_bad_alloc; }};
+    const auto consumption = [&] {
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        return tracker->consumption();
+    };
+    const auto expect_allocation_failure = [](auto&& operation) {
+        try {
+            operation();
+            FAIL() << "Expected the binary payload to respect the memory limit";
+        } catch (const Exception& e) {
+            EXPECT_EQ(e.code(), ErrorCode::MEM_ALLOC_FAILED);
+        }
+    };
+    expect_allocation_failure(
+            [&] { auto field = Field::create_field<TYPE_VARBINARY>(StringView(oversized)); });
+    EXPECT_EQ(consumption(), 0);
+    {
+        auto field = Field::create_field<TYPE_VARBINARY>(StringView(payload));
+        EXPECT_EQ(consumption(), 64);
+        // A deep copy must check the peak while the source is still retained.
+        expect_allocation_failure([&] { Field copied = field; });
+        EXPECT_EQ(consumption(), 64);
+        auto destination = Field::create_field<TYPE_VARBINARY>(StringView("inline"));
+        expect_allocation_failure([&] { destination = field; });
+        EXPECT_EQ(destination.get<TYPE_VARBINARY>().str(), "inline");
+        EXPECT_EQ(field.get<TYPE_VARBINARY>().str(), payload);
+        EXPECT_EQ(consumption(), 64);
+        const std::string smaller(16, 's');
+        destination = Field::create_field<TYPE_VARBINARY>(StringView(smaller));
+        EXPECT_EQ(consumption(), 80);
+        expect_allocation_failure([&] { destination = field; });
+        EXPECT_EQ(destination.get<TYPE_VARBINARY>().str(), smaller);
+        EXPECT_EQ(consumption(), 80);
+    }
+    EXPECT_EQ(consumption(), 0);
 }
 
 TEST(ColumnVarbinaryStorageTest, StorageDecoderInsertionPreservesBinaryPayloads) {
