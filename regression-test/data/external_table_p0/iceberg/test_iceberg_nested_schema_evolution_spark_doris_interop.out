@@ -25,3 +25,4 @@ attrs	map<string,struct<spark_first_code:int(11),code:bigint(20),spark_after_cod
 -- !deep_nested_rows --
 1	last-old	middle-old	first-old	old-note	1.5	12.34
 2	last-new	middle-new	first-new	new-note	2.5	56.78
+

@@ -310,6 +310,20 @@ public class TypeTest {
                 column.toSql(false, true));
     }
 
+    /** The comment has to be escaped for the SQL mode the statement will be parsed under. */
+    @Test
+    public void testStructDdlFollowsNoBackslashEscapesMode() {
+        StructType structType = new StructType(
+                new StructField("b", Type.STRING, "C:\\tmp", true));
+        Column column = new Column("s", structType, false, null, true, null, null);
+
+        // Default mode reads a doubled back slash as one, NO_BACKSLASH_ESCAPES reads it as two.
+        Assertions.assertEquals("`s` struct<b:text comment \"C:\\\\tmp\"> NULL",
+                column.toSql(false, true, false, false));
+        Assertions.assertEquals("`s` struct<b:text comment \"C:\\tmp\"> NULL",
+                column.toSql(false, true, false, true));
+    }
+
     /** Nested comments belong to DDL, but DESCRIBE only prints them when asked for. */
     @Test
     public void testStructDescribeHidesNestedCommentUnlessRequested() {

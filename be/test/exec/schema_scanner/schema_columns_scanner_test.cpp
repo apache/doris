@@ -69,6 +69,28 @@ TEST_F(SchemaColumnsScannerTest, nested_struct_type_string_carries_field_names) 
     EXPECT_EQ("struct<arr:array<struct<deep:int(11)>>>", type_to_string(outer));
 }
 
+TEST_F(SchemaColumnsScannerTest, struct_field_name_holding_a_separator_is_quoted) {
+    // These names are legal, they are declared with back quotes. Printed raw they would make
+    // the text impossible to split back into fields.
+    TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
+    desc.__set_children(
+            {make_desc("a,b", TPrimitiveType::INT), make_desc("c:d", TPrimitiveType::INT),
+             make_desc("e<f>", TPrimitiveType::INT), make_desc("g`h", TPrimitiveType::INT)});
+
+    EXPECT_EQ("struct<`a,b`:int(11),`c:d`:int(11),`e<f>`:int(11),`g``h`:int(11)>",
+              type_to_string(desc));
+}
+
+TEST_F(SchemaColumnsScannerTest, plain_struct_field_name_stays_bare) {
+    TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
+    desc.__set_children({make_desc("a-b", TPrimitiveType::INT),
+                         make_desc("f 2", TPrimitiveType::INT),
+                         make_desc("order", TPrimitiveType::INT)});
+
+    // A hyphen, a space or a keyword carries no meaning in this text, so leave them alone.
+    EXPECT_EQ("struct<a-b:int(11),f 2:int(11),order:int(11)>", type_to_string(desc));
+}
+
 TEST_F(SchemaColumnsScannerTest, empty_struct_type_string) {
     TColumnDesc desc = make_desc("st", TPrimitiveType::STRUCT);
     EXPECT_EQ("struct<>", type_to_string(desc));

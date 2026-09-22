@@ -884,11 +884,16 @@ public class Column implements GsonPostProcessable {
     }
 
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
-        return toSql(isUniqueTable, isCompatible, false);
+        return toSql(isUniqueTable, isCompatible, false, false);
     }
 
-    /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
-    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
+    /**
+     * Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis.
+     * Pass the SQL mode the statement will be parsed under, a comment is escaped differently under
+     * NO_BACKSLASH_ESCAPES.
+     */
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder,
+            boolean noBackslashEscapes) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
@@ -897,7 +902,7 @@ public class Column implements GsonPostProcessable {
         if (isCompatible) {
             // isToSql = true, showNestedComment = true
             // SHOW CREATE TABLE and CREATE TABLE LIKE need the nested comment.
-            sb.append(type.hideVersionForVersionColumn(true, true, false));
+            sb.append(type.hideVersionForVersionColumn(true, true, noBackslashEscapes));
         } else {
             sb.append(typeStr);
         }
