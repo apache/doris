@@ -545,7 +545,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
         Env env = Env.getCurrentEnv();
-        env.getAnalysisManager().updateUpdatedRows(updatedRows);
+        env.getAnalysisManager().updateUpdatedRows(updatedRows, txnId);
         // 2. update table and partition version
         Map<Long, List<Long>> tablePartitionMap = updateVersion(commitTxnResponse);
         // 3. notify partition first load

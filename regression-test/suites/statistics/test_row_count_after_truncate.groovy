@@ -57,4 +57,41 @@ suite("test_row_count_after_truncate") {
         Thread.sleep(1000)
     }
     assertEquals("3", updatedRows)
+
+    // A scan which selects an aggregate rollup index must report the row count of that index. The rows
+    // loaded after the truncation are only known for the base index, they must not be added to an index
+    // which aggregates them, otherwise the rollup is estimated with the rows of the whole table.
+    sql """DROP TABLE IF EXISTS test_row_count_after_truncate_aggr"""
+    sql """CREATE TABLE test_row_count_after_truncate_aggr (
+            k1 INT NOT NULL,
+            k2 INT NOT NULL,
+            v INT SUM NOT NULL
+        ) ENGINE = OLAP
+        AGGREGATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """ALTER TABLE test_row_count_after_truncate_aggr ADD ROLLUP r1 (k1, v)"""
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE ROLLUP WHERE TableName='test_row_count_after_truncate_aggr' ORDER BY CreateTime DESC LIMIT 1"""
+        time 600
+    }
+    sql """INSERT INTO test_row_count_after_truncate_aggr SELECT 1, number, 1 FROM numbers("number" = "100")"""
+    sql """TRUNCATE TABLE test_row_count_after_truncate_aggr"""
+    sql """INSERT INTO test_row_count_after_truncate_aggr SELECT 1, number, 1 FROM numbers("number" = "100")"""
+
+    // 100 rows are loaded into the base index, the rollup aggregates them into a single row. Whether the
+    // backends have reported the new tablets or not, the rollup scan reports its own row count and the
+    // base index scan reports the 100 loaded rows.
+    explain {
+        sql """SELECT k1, sum(v) FROM test_row_count_after_truncate_aggr GROUP BY k1"""
+        contains "(r1)"
+        contains "cardinality=1, "
+    }
+    explain {
+        sql """SELECT k2 FROM test_row_count_after_truncate_aggr"""
+        contains "cardinality=100, "
+    }
 }

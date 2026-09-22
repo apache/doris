@@ -112,6 +112,11 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("updatedRowsBase")
     private final AtomicLong updatedRowsBase = new AtomicLong(-1);
 
+    // The transaction id watermark of the truncation which emptied the table, -1 when it was never
+    // truncated. Transactions which started not later than that watermark were removed by the truncation.
+    @SerializedName("truncateTxnId")
+    public long truncateTxnId = -1;
+
     @VisibleForTesting
     public TableStatsMeta() {
         ctlId = 0;
@@ -159,12 +164,15 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
      * table instead of dropping it, so that the rows loaded after the truncation can still be accumulated
      * into {@link #updatedRows} and be reported as the row count of the table.
      */
-    public void reset(OlapTable table) {
+    public void reset(OlapTable table, long truncateTxnId) {
         rowCount = 0;
         updatedRows.set(0);
         // Nothing has been collected for the emptied table, so none of the rows loaded from now on is
         // included in the collected row count. They are all delta rows.
         updatedRowsBase.set(0);
+        // The transactions which started before the truncation might still deliver their row count update
+        // after this reset, their rows were removed and must not be counted as rows of this table.
+        this.truncateTxnId = truncateTxnId;
         partitionUpdateRows.clear();
         // All the data is removed, so the last collected row count of every index becomes 0.
         indexesRowCount = buildEmptyIndexRowCount(table);
@@ -179,6 +187,17 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         updatedTime = 0;
         lastAnalyzeTime = 0;
         jobType = null;
+    }
+
+    /**
+     * Whether the row count update of the given transaction describes rows which the truncation removed.
+     * The rows of those transactions are discarded, but their update can still arrive after the record was
+     * reset, and they must not be counted as rows loaded after the truncation. Transaction ids are handed
+     * out when a transaction starts and increase monotonically, so a transaction which started before the
+     * truncation has an id which is not newer than the watermark recorded by the truncation.
+     */
+    public boolean isUpdateOfTruncatedRows(long txnId) {
+        return truncateTxnId >= 0 && txnId > 0 && txnId <= truncateTxnId;
     }
 
     private static ConcurrentMap<Long, Long> buildEmptyIndexRowCount(OlapTable table) {

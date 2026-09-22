@@ -384,11 +384,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * returns the sum of deltaRowCount for all selected partitions or for the table.
      */
     private long computeDeltaRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
+        // The delta rows are the rows loaded into the base index which the collected base index row count
+        // doesn't include yet. They are not the rows of a rollup or an aggregate index selected by the scan,
+        // that index has its own (usually much smaller) row count, so they only apply to the base index.
+        if (olapScan.getSelectedIndexId() != olapTable.getBaseIndexId()) {
+            return 0;
+        }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapTable.getId());
         long deltaRowCount = 0;
         if (tableMeta != null) {
-            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapScan.getTable());
+            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapTable);
         }
         return deltaRowCount;
     }

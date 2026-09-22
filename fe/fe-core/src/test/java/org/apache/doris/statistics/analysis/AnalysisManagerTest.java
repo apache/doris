@@ -661,6 +661,35 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(count.get() <= 20);
     }
 
+    @Test
+    public void testUpdateRowsRemovedByTruncateAreNotCounted() {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(30001L);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        TableStatsMeta tableStats = new TableStatsMeta(table);
+        tableStats.reset(table, 100);
+        manager.replayUpdateTableStatsStatus(tableStats);
+
+        Map<Long, Long> updatedRows = new HashMap<>();
+        updatedRows.put(30001L, 50L);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            // The transaction started before the truncation, the truncation removed the rows it loaded.
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(updatedRows).withTxnId(100));
+            Assertions.assertEquals(0, manager.findTableStatsStatus(30001L).updatedRows.get());
+            // An update which doesn't belong to a load transaction is applied, a partition truncation
+            // reports the rows it removed this way.
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(updatedRows));
+            Assertions.assertEquals(50, manager.findTableStatsStatus(30001L).updatedRows.get());
+            // A transaction which started after the truncation loaded rows of the remaining data.
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(updatedRows).withTxnId(101));
+            Assertions.assertEquals(100, manager.findTableStatsStatus(30001L).updatedRows.get());
+        }
+    }
+
     private AnalyzeTableCommand mockAnalyzeCommand(AnalysisMethod analysisMethod, ScheduleType scheduleType,
             boolean hasCollectHotValue, boolean collectHotValue) {
         AnalyzeTableCommand command = Mockito.mock(AnalyzeTableCommand.class);
