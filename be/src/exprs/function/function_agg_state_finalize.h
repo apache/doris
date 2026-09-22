@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstring>
+
 #include "core/arena.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -60,24 +62,37 @@ public:
         output->reserve(input_rows_count);
         // Keep the reusable state storage separate from its per-row variable-length data.
         Arena state_arena;
-        auto* place = state_arena.aligned_alloc(_agg_function->size_of_data(),
-                                                _agg_function->align_of_data());
+        const auto state_size = _agg_function->size_of_data();
+        auto* place = state_arena.aligned_alloc(state_size, _agg_function->align_of_data());
         Arena arena;
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            if (nullable && nullable->is_null_at(row)) {
-                output->insert_default();
-                continue;
+        auto finalize_row = [&](size_t row) {
+            // Serialized states can use native columns as well as strings.
+            _agg_function->deserialize_and_merge_from_column_range(place, states, row, row, arena);
+            _agg_function->insert_result_into(place, *output);
+        };
+        auto finalize_rows = [&]<bool is_trivial>() {
+            for (size_t row = 0; row < input_rows_count; ++row) {
+                if (nullable && nullable->is_null_at(row)) {
+                    output->insert_default();
+                    continue;
+                }
+                if constexpr (is_trivial) {
+                    // Trivial states support zero-init and need no destruction.
+                    std::memset(place, 0, state_size);
+                    finalize_row(row);
+                } else {
+                    _agg_function->create(place);
+                    DEFER(_agg_function->destroy(place));
+                    finalize_row(row);
+                }
+                // Destroy states before reclaiming any variable-length data they own.
+                arena.clear();
             }
-            {
-                _agg_function->create(place);
-                DEFER(_agg_function->destroy(place));
-                // The serialized column can be numeric, fixed-length, string or a complex column.
-                _agg_function->deserialize_and_merge_from_column_range(place, states, row, row,
-                                                                       arena);
-                _agg_function->insert_result_into(place, *output);
-            }
-            // States may own variable-length data. Destroy them before reclaiming their arena.
-            arena.clear();
+        };
+        if (_agg_function->is_trivial()) {
+            finalize_rows.template operator()<true>();
+        } else {
+            finalize_rows.template operator()<false>();
         }
         ColumnPtr result_column = std::move(output);
         if (_return_type->is_nullable()) {
