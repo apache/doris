@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
@@ -324,6 +325,64 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 TableScanParams.TAG, ImmutableMap.of(), ImmutableList.of("v1"));
         Mockito.when(scan.getScanParams()).thenReturn(Optional.of(scanParams));
         Assertions.assertFalse(context.canActivatePrimaryKey(scan));
+    }
+
+    /**
+     * Foreign-key proof requires current-state rows, even when a versioned foreign scan still
+     * exposes the same catalog columns. Cover external snapshots, branches, tags and options,
+     * native incremental reads, and the stream-scan modes separately from PK completeness.
+     */
+    @Test
+    void testVersionedScansCannotSupplyForeignKeyProof() {
+        ForeignKeyContext context = new ForeignKeyContext();
+        LogicalFileScan fileScan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.empty());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.empty());
+        Assertions.assertTrue(context.canUseCurrentConstraint(fileScan));
+
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.of(TableSnapshot.versionOf("1")));
+        Assertions.assertFalse(context.canUseCurrentConstraint(fileScan));
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.empty());
+
+        for (String selector : ImmutableList.of(TableScanParams.TAG, TableScanParams.BRANCH,
+                TableScanParams.INCREMENTAL_READ)) {
+            TableScanParams params = new TableScanParams(selector, ImmutableMap.of(), ImmutableList.of("old"));
+            Mockito.when(fileScan.getScanParams()).thenReturn(Optional.of(params));
+            Assertions.assertFalse(context.canUseCurrentConstraint(fileScan));
+        }
+        TableScanParams options = new TableScanParams(
+                TableScanParams.OPTIONS, ImmutableMap.of("snapshot-id", "1"), ImmutableList.of());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.of(options));
+        Assertions.assertFalse(context.canUseCurrentConstraint(fileScan));
+
+        LogicalOlapScan olapScan = Mockito.mock(LogicalOlapScan.class);
+        Mockito.when(olapScan.getScanParams()).thenReturn(Optional.empty());
+        Assertions.assertTrue(context.canUseCurrentConstraint(olapScan));
+        Mockito.when(olapScan.getScanParams()).thenReturn(Optional.of(
+                new TableScanParams(TableScanParams.INCREMENTAL_READ, ImmutableMap.of(), ImmutableList.of())));
+        Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
+        Assertions.assertFalse(context.canUseCurrentConstraint(Mockito.mock(LogicalOlapTableStreamScan.class)));
+    }
+
+    /**
+     * A native row-binlog read on the foreign side must retain the join to the current PK table.
+     * Change records can contain foreign rows that no longer have a matching current PK row, so
+     * treating their column names as proof would change the query result.
+     */
+    @Test
+    void testChangeReadForeignScanKeepsJoin() throws Exception {
+        createTables("create table self_ref_change (id int not null, parent_id int not null) "
+                + "unique key(id) distributed by hash(id) buckets 1 "
+                + "properties (\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
+                + "\"binlog.format\" = \"ROW\")");
+        addConstraint("alter table self_ref_change add constraint self_ref_change_pk primary key (id)");
+        addConstraint("alter table self_ref_change add constraint self_ref_change_fk "
+                + "foreign key (parent_id) references self_ref_change(id)");
+
+        String sql = "select f.parent_id from self_ref_change p "
+                + "inner join self_ref_change@incr('incrementType'='DETAIL') f "
+                + "on p.id = f.parent_id";
+        PlanChecker.from(connectContext).analyze(sql).rewrite().matches(logicalJoin());
     }
 
     /** Aliasing every component of a wide PK records one entry per slot, not all alias subsets. */

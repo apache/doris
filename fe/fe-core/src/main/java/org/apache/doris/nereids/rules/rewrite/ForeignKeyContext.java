@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -242,10 +243,11 @@ public class ForeignKeyContext {
     }
 
     /**
-     * Register each scan slot's table column and relation instance, then activate this table's
-     * complete declared primary keys if the scan covers the full relation. Passing only local
-     * declarations avoids revisiting keys from every previously visited table; scan eligibility
-     * is computed once regardless of how many keys this table declares.
+     * Register a current-state scan's table columns and relation instance for both FK and PK
+     * proofs. Historical snapshots and change reads cannot use the current constraint metadata:
+     * even if their slots are not active PKs, recording their FK lineage could eliminate a join
+     * against a different table version. Activate only this table's complete PKs when the scan
+     * covers the full relation; local declarations avoid revisiting earlier tables' keys.
      *
      * @param relation catalog scan contributing the slots and relation identity
      * @param table catalog table containing the declared columns
@@ -253,6 +255,9 @@ public class ForeignKeyContext {
      */
     void putSlots(LogicalCatalogRelation relation, TableIf table,
             Set<Set<QualifiedColumn>> tablePrimaryKeys) {
+        if (!canUseCurrentConstraint(relation)) {
+            return;
+        }
         Map<QualifiedColumn, Slot> columnToSlot = new HashMap<>();
         for (Slot slot : relation.getOutput()) {
             if (!(slot instanceof SlotReference) || !((SlotReference) slot).getOriginalColumn().isPresent()) {
@@ -280,6 +285,29 @@ public class ForeignKeyContext {
     }
 
     /**
+     * Check whether a scan reads the current table state assumed by its declared constraints.
+     * A subset of current rows can still use an FK proof, but historical snapshots, explicit
+     * branches/tags/options, and native or external change reads may have different relationships
+     * from the current PK table. Stream scans are conservatively excluded for the same reason.
+     *
+     * @param relation catalog scan whose version and read mode are inspected
+     * @return true if no known version selector or change-read mode is active
+     */
+    boolean canUseCurrentConstraint(LogicalCatalogRelation relation) {
+        if (relation instanceof LogicalOlapTableStreamScan) {
+            return false;
+        }
+        if (relation instanceof LogicalOlapScan) {
+            return !((LogicalOlapScan) relation).getScanParams().isPresent();
+        }
+        if (relation instanceof LogicalFileScan) {
+            LogicalFileScan scan = (LogicalFileScan) relation;
+            return !scan.getTableSnapshot().isPresent() && !scan.getScanParams().isPresent();
+        }
+        return true;
+    }
+
+    /**
      * Determine whether a scan reads the full relation described by its declared primary key.
      * This checks scan selectors and duplicate-producing scan modes, not the data trait's inferred
      * uniqueness: PK constraints are declarative assumptions, and a trait check is not a
@@ -289,6 +317,9 @@ public class ForeignKeyContext {
      * @return true if no known scan selector or mode invalidates the PK proof
      */
     boolean canActivatePrimaryKey(LogicalCatalogRelation relation) {
+        if (!canUseCurrentConstraint(relation)) {
+            return false;
+        }
         if (relation instanceof LogicalOlapScan) {
             LogicalOlapScan scan = (LogicalOlapScan) relation;
             return new HashSet<>(scan.getSelectedPartitionIds()).equals(
@@ -304,9 +335,7 @@ public class ForeignKeyContext {
             boolean scansAllPartitions = !partitions.isPruned
                     || partitions.totalPartitionNum == partitions.selectedPartitions.size();
             return scansAllPartitions
-                    && !scan.getTableSample().isPresent()
-                    && !scan.getTableSnapshot().isPresent()
-                    && !scan.getScanParams().isPresent();
+                    && !scan.getTableSample().isPresent();
         }
         return true;
     }
