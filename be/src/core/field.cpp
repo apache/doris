@@ -22,6 +22,8 @@
 
 #include "common/compare.h"
 #include "core/accurate_comparison.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -96,6 +98,7 @@ namespace {
 struct OwnedBinaryField {
     StringView view;
     char* bytes = nullptr;
+    size_t byte_size = 0;
 
     explicit OwnedBinaryField(const StringView& value) {
         // Inline views already own their bytes; preserve their allocation-free representation.
@@ -103,20 +106,31 @@ struct OwnedBinaryField {
             view = value;
             return;
         }
-        // The Field must remain valid after the source column or decoder page is released.
-        bytes = new char[value.size()];
+        // Charge retained payloads and deep-copy peaks through Doris's checked allocator.
+        // Keep a standard-layout owner so the leading view remains accessible via Field::get().
+        bytes = static_cast<char*>(Allocator<false> {}.alloc(value.size()));
+        byte_size = value.size();
         memcpy(bytes, value.data(), value.size());
         view = StringView(bytes, value.size());
     }
     OwnedBinaryField(const OwnedBinaryField&) = delete;
     OwnedBinaryField& operator=(const OwnedBinaryField&) = delete;
     OwnedBinaryField& operator=(OwnedBinaryField&& other) noexcept {
+        release_bytes();
         view = other.view;
-        delete[] bytes;
         bytes = std::exchange(other.bytes, nullptr);
+        byte_size = std::exchange(other.byte_size, 0);
         return *this;
     }
-    ~OwnedBinaryField() { delete[] bytes; }
+    ~OwnedBinaryField() { release_bytes(); }
+
+private:
+    void release_bytes() {
+        if (bytes != nullptr) {
+            // Field::get() exposes a mutable view; release the original allocation size.
+            Allocator<false> {}.free(bytes, byte_size);
+        }
+    }
 };
 static_assert(std::is_standard_layout_v<OwnedBinaryField>);
 static_assert(offsetof(OwnedBinaryField, view) == 0);
