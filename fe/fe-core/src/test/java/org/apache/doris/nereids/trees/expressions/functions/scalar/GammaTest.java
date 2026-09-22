@@ -69,4 +69,15 @@ public class GammaTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(new Gamma(new DoubleLiteral(3.5)), rewritten);
         Assertions.assertEquals(DoubleType.INSTANCE, rewritten.getDataType());
     }
+
+    @Test
+    public void testWithChildrenRejectsWrongArity() {
+        Gamma gamma = new Gamma(new DoubleLiteral(2.5));
+
+        // The arity guard is the only branch in this class, so the failing direction has to be
+        // exercised as well: a partially covered line counts as uncovered for the increment
+        // coverage gate.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> gamma.withChildren(ImmutableList.of(new DoubleLiteral(1.0), new DoubleLiteral(2.0))));
+    }
 }
