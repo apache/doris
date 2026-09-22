@@ -50,7 +50,7 @@ class Thread;
 class ThreadPool;
 class ThreadPoolToken;
 
-// Priority within a load. Callers map task stages to levels; lower values run first.
+// Priority across load tasks in a resource domain; lower values run first.
 enum class LoadTaskPriority : uint8_t {
     HIGHEST = 0,
     HIGH = 1,
@@ -208,10 +208,10 @@ public:
     // Submits a function bound using std::bind(&FuncName, args...).
     Status submit_func(std::function<void()> f);
 
-    // Group by transaction on this pool (resource domain). Existing tokenless
-    // and SERIAL/CONCURRENT token submissions retain their original policy.
-    Status submit_load(std::shared_ptr<Runnable> r, int64_t load_id, LoadTaskPriority priority);
-    std::unique_ptr<ThreadPoolToken> new_load_token(int64_t load_id, LoadTaskPriority priority);
+    // Strict priority across foreground load tasks, FIFO within each priority.
+    // Ordinary tokenless and SERIAL/CONCURRENT submissions retain their policy.
+    Status submit_load(std::shared_ptr<Runnable> r, LoadTaskPriority priority);
+    std::unique_ptr<ThreadPoolToken> new_load_token(LoadTaskPriority priority);
     static bool is_load_worker();
 
     // Waits until all the tasks are completed.
@@ -326,7 +326,7 @@ private:
     void check_not_pool_thread_unlocked();
 
     // Submits a task to be run via token.
-    Status do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token, int64_t load_id = 0,
+    Status do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token,
                      LoadTaskPriority priority = LoadTaskPriority::LOW);
     bool queues_empty() const;
     struct ScheduledLoadTask;
@@ -557,10 +557,8 @@ private:
     // Queued client tasks.
     std::deque<ThreadPool::Task> _entries;
 
-    // Immutable scheduling identity; writer/tablet tokens of one transaction
-    // share an outer FIFO entry while retaining independent wait/shutdown.
+    // Load tokens share global priority queues but retain independent wait/shutdown.
     bool _is_load_token = false;
-    int64_t _load_id = 0;
     LoadTaskPriority _load_priority = LoadTaskPriority::LOW;
     size_t _queued_load_tasks = 0;
     bool tasks_empty() const { return _entries.empty() && _queued_load_tasks == 0; }

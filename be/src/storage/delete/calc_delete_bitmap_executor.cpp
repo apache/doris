@@ -134,12 +134,12 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() 
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        int64_t load_id, LoadTaskPriority priority) {
-    return create_load_token(load_id, priority, thread_context()->resource_ctx()->workload_group());
+        LoadTaskPriority priority) {
+    return create_load_token(priority, thread_context()->resource_ctx()->workload_group());
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        int64_t load_id, LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg) {
+        LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg) {
     // Publish holds tablet locks while waiting for segment calculations. Running
     // these children inline preserves the lock scope without a same-pool wait.
     if (ThreadPool::is_load_worker()) {
@@ -152,8 +152,7 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_tok
         pool = _load_pool;
     }
     DCHECK(pool != nullptr);
-    return std::make_unique<CalcDeleteBitmapToken>(pool->new_load_token(load_id, priority),
-                                                   std::move(wg));
+    return std::make_unique<CalcDeleteBitmapToken>(pool->new_load_token(priority), std::move(wg));
 }
 
 } // namespace doris

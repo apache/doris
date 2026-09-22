@@ -28,6 +28,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "exec/sink/autoinc_buffer.h"
@@ -48,10 +49,21 @@
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/utils.h"
 #include "testutil/creators.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
 namespace {
+
+class FlushOrderTask final : public Runnable {
+public:
+    explicit FlushOrderTask(std::vector<int>* order) : _order(order) {}
+    void run() override { _order->push_back(1); }
+
+private:
+    std::vector<int>* _order;
+};
 
 class MockRowsetWriter final : public RowsetWriter {
 public:
@@ -325,6 +337,39 @@ void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
+}
+
+TEST(MemTableFlushExecutorTest, DuplicateFlushPrecedesWriteTimeBitmap) {
+    using namespace std::chrono_literals;
+    for (auto keys_type : {DUP_KEYS, UNIQUE_KEYS, AGG_KEYS}) {
+        std::unique_ptr<ThreadPool> pool;
+        ASSERT_TRUE(ThreadPoolBuilder("flush_priority_test").set_max_threads(1).build(&pool).ok());
+        std::atomic<int> flush_count = 0;
+        auto writer = std::make_shared<MockRowsetWriter>(&flush_count);
+        RowsetWriterContext context;
+        context.tablet_schema = std::make_shared<TabletSchema>();
+        context.tablet_schema->_keys_type = keys_type;
+        ASSERT_TRUE(writer->init(context).ok());
+        auto flush = FlushToken::create_shared(pool.get(), nullptr);
+        flush->set_rowset_writer(writer);
+        auto bitmap = pool->new_load_token(LoadTaskPriority::MID);
+        CountDownLatch entered(1), release(1);
+        std::vector<int> order;
+        Defer unblock = [&] { release.count_down(); };
+        EXPECT_TRUE(pool->submit_func([&] {
+                            entered.count_down();
+                            release.wait();
+                        }).ok());
+        EXPECT_TRUE(entered.wait_for(5s));
+        // Exercise the real flush submission's schema-based priority selection.
+        EXPECT_TRUE(flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order)})
+                            .ok());
+        EXPECT_TRUE(bitmap->submit_func([&] { order.push_back(2); }).ok());
+        release.count_down();
+        pool->wait();
+        EXPECT_EQ(order,
+                  keys_type == DUP_KEYS ? (std::vector<int> {1, 2}) : (std::vector<int> {2, 1}));
+    }
 }
 
 TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {

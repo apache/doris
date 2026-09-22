@@ -21,62 +21,42 @@
 #include <array>
 #include <cassert>
 #include <cstddef>
-#include <cstdint>
 #include <deque>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace doris {
 
-// FIFO between loads, strict priority within each load. The caller serializes
-// push/pop/remove with the same lock. Empty-to-nonempty transitions are the only
-// way a load enters _ready_loads; no membership flag or per-load concurrency cap.
+// Strict priority across all foreground load tasks in a resource domain, with
+// FIFO dispatch within each priority. The caller serializes push/pop/remove.
 template <typename T>
 class LoadTaskQueue {
 public:
     static constexpr size_t NUM_PRIORITIES = 4;
 
-    void push(int64_t load_id, size_t priority, T task) {
+    void push(size_t priority, T task) {
         assert(priority < NUM_PRIORITIES);
-        auto [it, inserted] = _loads.try_emplace(load_id);
-        if (inserted) {
-            _ready_loads.push_back(load_id);
-        }
-        it->second[priority].push_back(std::move(task));
+        _queues[priority].push_back(std::move(task));
         ++_size;
     }
 
     T pop() {
         assert(!empty());
-        auto load_id = _ready_loads.front();
-        _ready_loads.pop_front();
-        auto it = _loads.find(load_id);
-        auto& queues = it->second;
         size_t p = 0;
-        while (queues[p].empty()) {
+        while (_queues[p].empty()) {
             ++p;
         }
-        T task = std::move(queues[p].front());
-        queues[p].pop_front();
+        T task = std::move(_queues[p].front());
+        _queues[p].pop_front();
         --_size;
-        if (queues_empty(queues)) {
-            _loads.erase(it);
-        } else {
-            _ready_loads.push_back(load_id);
-        }
         return task;
     }
 
     // Return removed tasks so owners can destroy callbacks outside their lock.
     template <typename Predicate>
-    std::vector<T> remove_if(int64_t load_id, Predicate predicate) {
+    std::vector<T> remove_if(Predicate predicate) {
         std::vector<T> removed;
-        auto it = _loads.find(load_id);
-        if (it == _loads.end()) {
-            return removed; // The token may have only running tasks.
-        }
-        for (auto& queue : it->second) {
+        for (auto& queue : _queues) {
             auto end = std::remove_if(queue.begin(), queue.end(), [&](T& task) {
                 if (!predicate(task)) {
                     return false;
@@ -87,10 +67,6 @@ public:
             });
             queue.erase(end, queue.end());
         }
-        if (queues_empty(it->second)) {
-            _loads.erase(it);
-            _ready_loads.erase(std::find(_ready_loads.begin(), _ready_loads.end(), load_id));
-        }
         return removed;
     }
 
@@ -98,13 +74,7 @@ public:
     size_t size() const { return _size; }
 
 private:
-    using Queues = std::array<std::deque<T>, NUM_PRIORITIES>;
-    static bool queues_empty(const Queues& queues) {
-        return std::all_of(queues.begin(), queues.end(), [](const auto& q) { return q.empty(); });
-    }
-
-    std::unordered_map<int64_t, Queues> _loads;
-    std::deque<int64_t> _ready_loads;
+    std::array<std::deque<T>, NUM_PRIORITIES> _queues;
     size_t _size = 0;
 };
 

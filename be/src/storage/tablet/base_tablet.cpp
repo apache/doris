@@ -1696,8 +1696,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     });
 
     if (!rowsets_skip_alignment.empty()) {
-        auto token = self->calc_delete_bitmap_executor()->create_load_token(
-                txn_id, LoadTaskPriority::HIGHEST);
+        auto token =
+                self->calc_delete_bitmap_executor()->create_load_token(LoadTaskPriority::HIGHEST);
         // set rowset_writer to nullptr to skip the alignment process
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, rowsets_skip_alignment,
                                            delete_bitmap, cur_version - 1, token.get(), nullptr,
@@ -1748,8 +1748,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
     // Cloud publish already runs on a load worker and executes children inline.
     // Local publish submits P0 segment tasks and waits outside the shared pool.
-    auto token = self->calc_delete_bitmap_executor()->create_load_token(txn_id,
-                                                                        LoadTaskPriority::HIGHEST);
+    auto token = self->calc_delete_bitmap_executor()->create_load_token(LoadTaskPriority::HIGHEST);
     RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
                                        cur_version - 1, token.get(), transient_rs_writer.get(),
                                        tablet_delete_bitmap));

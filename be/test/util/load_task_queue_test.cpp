@@ -24,74 +24,70 @@
 
 namespace doris {
 
-TEST(LoadTaskQueueTest, LoadFifoThenPriority) {
+TEST(LoadTaskQueueTest, GlobalPriorityThenFifo) {
     LoadTaskQueue<int> queue;
-    queue.push(1, 3, 13);
-    queue.push(1, 2, 12);
-    queue.push(1, 1, 11);
-    queue.push(1, 0, 10);
-    queue.push(2, 3, 23); // DUP load gets a turn despite load 1's bitmap work.
+    queue.push(3, 30);
+    queue.push(2, 20);
+    queue.push(1, 10);
+    queue.push(0, 0);
+    queue.push(1, 11);
     std::vector<int> actual;
     while (!queue.empty()) {
         actual.push_back(queue.pop());
     }
-    EXPECT_EQ(actual, (std::vector<int> {10, 23, 11, 12, 13}));
+    EXPECT_EQ(actual, (std::vector<int> {0, 10, 11, 20, 30}));
 }
 
-TEST(LoadTaskQueueTest, PriorityDoesNotCrossLoadsAndSamePriorityIsFifo) {
+TEST(LoadTaskQueueTest, SamePriorityIsFifo) {
     LoadTaskQueue<int> queue;
-    queue.push(1, 3, 1);
-    queue.push(2, 0, 2);
-    queue.push(1, 3, 3);
-    queue.push(2, 0, 4);
-    for (int expected : {1, 2, 3, 4}) {
+    for (int task : {101, 102, 201}) {
+        queue.push(1, task);
+    }
+    for (int expected : {101, 102, 201}) {
         EXPECT_EQ(queue.pop(), expected);
     }
     EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, RequeueBeforeExecutionAndReactivateEmptyLoad) {
+TEST(LoadTaskQueueTest, NewHighPriorityWorkPrecedesQueuedFlushes) {
     LoadTaskQueue<int> queue;
-    queue.push(1, 3, 1);
-    queue.push(1, 3, 2);
-    queue.push(2, 3, 3);
-    EXPECT_EQ(queue.pop(), 1); // Task 1 need not finish before the next turn.
+    queue.push(3, 1);
+    queue.push(3, 2);
+    EXPECT_EQ(queue.pop(), 1); // Running work is no longer in the ready queues.
+    queue.push(0, 3);
     EXPECT_EQ(queue.pop(), 3);
     EXPECT_EQ(queue.pop(), 2);
-    queue.push(2, 3, 4);
-    queue.push(1, 0, 5); // Empty -> nonempty puts load 1 at the tail exactly once.
-    queue.push(1, 0, 6);
-    for (int expected : {4, 5, 6}) {
-        EXPECT_EQ(queue.pop(), expected);
-    }
+    EXPECT_TRUE(queue.empty());
+    queue.push(1, 4);
+    EXPECT_EQ(queue.pop(), 4);
     EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, CancelOneTokenPreservesOtherTasksAndLoadOrder) {
+TEST(LoadTaskQueueTest, CancelPreservesPriorityAndFifo) {
     LoadTaskQueue<int> queue;
-    queue.push(1, 0, 1);
-    queue.push(1, 2, 2);
-    queue.push(2, 3, 3);
-    queue.push(1, 3, 4);
-    EXPECT_EQ(queue.remove_if(1, [](int task) { return task < 3; }), (std::vector<int> {1, 2}));
+    queue.push(0, 1);
+    queue.push(2, 2);
+    queue.push(3, 3);
+    queue.push(3, 4);
+    EXPECT_EQ(queue.remove_if([](int task) { return task < 3; }), (std::vector<int> {1, 2}));
     EXPECT_EQ(queue.size(), 2);
-    EXPECT_EQ(queue.pop(), 4);
     EXPECT_EQ(queue.pop(), 3);
-    queue.push(1, 3, 5);
-    queue.push(2, 0, 6);
-    EXPECT_EQ(queue.remove_if(1, [](int) { return true; }), (std::vector<int> {5}));
-    queue.push(1, 0, 7);
+    EXPECT_EQ(queue.pop(), 4);
+    queue.push(3, 5);
+    queue.push(0, 6);
+    EXPECT_EQ(queue.remove_if([](int task) { return task == 5; }), (std::vector<int> {5}));
+    queue.push(0, 7);
     EXPECT_EQ(queue.pop(), 6);
     EXPECT_EQ(queue.pop(), 7);
-    EXPECT_TRUE(queue.remove_if(99, [](int) { return true; }).empty());
+    EXPECT_TRUE(queue.remove_if([](int) { return true; }).empty());
     EXPECT_TRUE(queue.empty());
 }
 
 TEST(LoadTaskQueueTest, MoveOnlyTasksAndDeferredDestruction) {
     LoadTaskQueue<std::unique_ptr<int>> queue;
-    queue.push(1, 0, std::make_unique<int>(1));
-    queue.push(1, 0, std::make_unique<int>(2));
-    auto removed = queue.remove_if(1, [](const auto& task) { return *task == 1; });
+    queue.push(0, std::make_unique<int>(1));
+    queue.push(0, std::make_unique<int>(2));
+    auto removed = queue.remove_if([](const auto& task) { return *task == 1; });
     ASSERT_EQ(removed.size(), 1);
     EXPECT_EQ(*removed.front(), 1);
     EXPECT_EQ(*queue.pop(), 2);
