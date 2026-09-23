@@ -36,6 +36,7 @@ import java.io.IOException;
 import java.nio.channels.Channels;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * The client does not see the {@link Field} objects {@link DorisArrowTypeMapping} builds, it sees the
