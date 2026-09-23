@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
@@ -39,7 +40,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitGenerator;
@@ -55,6 +59,8 @@ import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTableCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
+import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanNodeId;
@@ -89,6 +95,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionData;
@@ -117,6 +124,7 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.Closeable;
@@ -3155,6 +3163,82 @@ public class IcebergScanNodeTest {
         Assert.assertNotNull(predicate);
         scan = scan.filter(predicate);
         Assert.assertEquals(1, materializeTasks(scan).size());
+    }
+
+    @Test
+    public void testManifestCachePlanningResolvesDroppedEqualityDeleteField() throws Exception {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "k", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "row_tag", Types.StringType.get()));
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("manifest_cache_dropped_equality_key").toUri().toString();
+        Table table = new HadoopTables(new Configuration()).create(
+                schema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/old.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(2)
+                .build()).commit();
+        table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec())
+                .ofEqualityDeletes(1)
+                .withPath(tableLocation + "/data/eq-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build()).commit();
+        // The live equality delete still references field 1 after it leaves the current schema.
+        table.updateSchema().deleteColumn("k").commit();
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/new.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build()).commit();
+
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(ExternalCatalog.class));
+        Mockito.when(source.getTargetTable()).thenReturn(Mockito.mock(ExternalTable.class));
+        setPrivateField(node, "source", source);
+        setPrivateField(node, "icebergTable", table);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(Mockito.mock(ExternalMetaCacheMgr.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<IcebergManifestCacheLoader> loader =
+                        Mockito.mockStatic(IcebergManifestCacheLoader.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            loader.when(() -> IcebergManifestCacheLoader.loadDeleteFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DeleteFile> files = new ArrayList<>();
+                        try (CloseableIterable<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDeleteFiles(files);
+                    });
+            loader.when(() -> IcebergManifestCacheLoader.loadDataFilesWithCache(Mockito.any(), Mockito.any(),
+                    Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        List<DataFile> files = new ArrayList<>();
+                        try (CloseableIterable<DataFile> reader = ManifestFiles.read(
+                                invocation.getArgument(2), table.io(), table.specs())) {
+                            reader.forEach(file -> files.add(file.copy()));
+                        }
+                        return ManifestCacheValue.forDataFiles(files);
+                    });
+
+            List<FileScanTask> tasks = node.loadFileScanTasksWithManifestCache(
+                    table.newScan(), table.currentSnapshot());
+
+            Map<String, Integer> deleteCounts = new HashMap<>();
+            tasks.forEach(task -> deleteCounts.put(task.file().location(), task.deletes().size()));
+            Assert.assertEquals(ImmutableMap.of(
+                    tableLocation + "/data/old.parquet", 1,
+                    tableLocation + "/data/new.parquet", 0), deleteCounts);
+        }
     }
 
     @Test

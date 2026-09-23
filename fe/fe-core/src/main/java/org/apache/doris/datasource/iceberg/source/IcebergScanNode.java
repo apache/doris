@@ -2420,9 +2420,12 @@ public class IcebergScanNode extends FileQueryScanNode {
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
-        // Build delete file index for efficient lookup of deletes applicable to each data file
+        // Build delete file index for efficient lookup of deletes applicable to each data file.
+        // Equality deletes may reference fields dropped from the current schema, so resolve their
+        // field IDs against every historical schema like Iceberg's DataTableScan does.
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                 .specsById(specsById)
+                .schemasById(icebergTable.schemas())
                 .caseSensitive(caseSensitive)
                 .build();
 
