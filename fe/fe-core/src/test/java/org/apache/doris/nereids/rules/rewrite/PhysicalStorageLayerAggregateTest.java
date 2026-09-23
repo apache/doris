@@ -267,10 +267,16 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     public void testFileMinMaxSafeCast() {
         for (boolean projected : new boolean[] {false, true}) {
             for (boolean nullable : new boolean[] {false, true}) {
-                checkFileMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, false, true);
-                checkFileMinMaxCast(Type.INT, DoubleType.INSTANCE, nullable, projected, false, true);
-                checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(3, 2).toCatalogDataType(),
-                        DecimalV3Type.createDecimalV3Type(4, 2), nullable, projected, false, true);
+                for (boolean strict : new boolean[] {false, true}) {
+                    checkFileMinMaxCast(Type.INT, BigIntType.INSTANCE, nullable, projected, strict, true);
+                    checkFileMinMaxCast(Type.INT, DoubleType.INSTANCE, nullable, projected, strict, true);
+                    checkFileMinMaxCast(Type.INT, DecimalV3Type.createDecimalV3Type(20, 0),
+                            nullable, projected, strict, true);
+                    checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(9, 2).toCatalogDataType(),
+                            BigIntType.INSTANCE, nullable, projected, strict, true);
+                    checkFileMinMaxCast(DecimalV3Type.createDecimalV3Type(3, 2).toCatalogDataType(),
+                            DecimalV3Type.createDecimalV3Type(4, 2), nullable, projected, strict, true);
+                }
             }
         }
     }
@@ -562,11 +568,13 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
     public void testNestedCountCastPushdown() {
         List<DataType> sourceTypes = ImmutableList.of(
                 ArrayType.of(IntegerType.INSTANCE),
+                ArrayType.of(DecimalV3Type.createDecimalV3Type(9, 2)),
                 ArrayType.of(StringType.INSTANCE),
                 MapType.of(StringType.INSTANCE, IntegerType.INSTANCE),
                 new StructType(ImmutableList.of(new StructField("value", StringType.INSTANCE, true, ""))),
                 StringType.INSTANCE);
         List<DataType> targetTypes = ImmutableList.of(
+                ArrayType.of(BigIntType.INSTANCE),
                 ArrayType.of(BigIntType.INSTANCE),
                 ArrayType.of(IntegerType.INSTANCE),
                 MapType.of(IntegerType.INSTANCE, IntegerType.INSTANCE),
@@ -575,8 +583,8 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         for (int i = 0; i < sourceTypes.size(); i++) {
             DataType sourceType = sourceTypes.get(i);
             DataType targetType = targetTypes.get(i);
-            boolean failureFree = i == 0;
-            boolean nestedConversion = i > 0 && i < 4;
+            boolean failureFree = i < 2;
+            boolean nestedConversion = i >= 2 && i < sourceTypes.size() - 1;
             LogicalOlapScan olapScan = PlanConstructor.newLogicalOlapScan(6 + i, "nested_cast_count", 0);
             olapScan.getTable().getFullSchema().get(0).setType(sourceType.toCatalogDataType());
             olapScan.getTable().getFullSchema().get(0).setIsAllowNull(false);
