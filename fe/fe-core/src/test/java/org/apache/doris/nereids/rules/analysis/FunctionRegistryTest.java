@@ -181,7 +181,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
                 () -> PlanChecker.from(connectContext)
                         .analyze("select map(parse_to_variant('1'), 1)"));
         Assertions.assertTrue(mapKeyException.getMessage()
-                .contains("map does not support jsonb/variant type"));
+                .contains("map does not support variant keys"));
     }
 
     @Test
