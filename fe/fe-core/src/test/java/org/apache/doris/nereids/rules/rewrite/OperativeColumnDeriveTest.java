@@ -117,5 +117,8 @@ public class OperativeColumnDeriveTest extends TestWithFeService implements Memo
                 .next();
 
         Assertions.assertTrue(rewrittenScan.getOperativeSlots().isEmpty());
+        // the empty list is the derivation result and not the initial value, so the statistics
+        // derivation must not fall back to reading the column stats of all table columns
+        Assertions.assertTrue(rewrittenScan.isOperativeSlotsDerived());
     }
 }
