@@ -183,12 +183,6 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Resolves this table's connector handle for a per-handle write-capability probe, or empty on any miss (a
-     * null connector, or an unresolvable handle). A heterogeneous gateway needs the handle to answer write
-     * capabilities per-table (its iceberg tables differ from its hive tables); a single-format connector ignores
-     * the handle (the per-handle overloads default to connector-level), so this is byte-identical for it.
-     */
-    /**
      * The CONNECTOR-LEVEL write plan provider, or null when this catalog's connector is absent or declares no
      * write support. Callers must have already checked that the catalog is plugin-driven. Used by the write
      * traits whose answer is the same for every table of a heterogeneous gateway, so paying for a per-handle

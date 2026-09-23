@@ -162,8 +162,8 @@ public interface ConnectorWritePlanProvider {
 
     /**
      * Returns the table's write distribution, or {@code null} to retain the engine's existing generic
-     * distribution rules. An external hash function name and its options are connector-owned opaque values;
-     * FE Core only resolves column names and transports the descriptor to BE.
+     * distribution rules. FE Core treats an external hash function name and its options as opaque values and
+     * transports them to BE, but the named function must be registered in the BE build.
      */
     default ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
@@ -201,8 +201,9 @@ public interface ConnectorWritePlanProvider {
      * The write operations this provider can plan, in one place — the single source of truth for a
      * connector's write capability. Replaces the removed {@code ConnectorWriteOps} boolean methods and
      * the removed INSERT-support capability switch. Default: INSERT only (any write provider can at least
-     * append). A connector overrides this to add OVERWRITE / DELETE / UPDATE / MERGE / REWRITE. Connector-level
-     * (does not vary per table); per-table mode constraints stay in
+     * append). A connector overrides this to add OVERWRITE / DELETE / UPDATE / MERGE / REWRITE. The engine
+     * resolves the provider for the target table handle, so a heterogeneous connector may return a provider
+     * whose operation set varies by table. Per-table mode constraints stay in
      * {@link org.apache.doris.connector.spi.ConnectorWriteOps#validateRowLevelDmlMode}. A provider
      * advertising DELETE, UPDATE, or MERGE must also declare its {@link #getRowChangeStyle()}.
      */

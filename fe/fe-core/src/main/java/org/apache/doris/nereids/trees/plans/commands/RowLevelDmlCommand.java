@@ -42,8 +42,7 @@ import java.util.concurrent.Callable;
  *
  * <p>Owns the single live planner-drive loop that was triplicated across {@code ExternalRowLevelDeletePlanBuilder},
  * {@code ExternalRowLevelUpdatePlanBuilder} and {@code ExternalRowLevelMergePlanBuilder}: the per-operation
- * points (mode check, plan synthesis, required sink, executor factory, label prefix, conflict-detection
- * wiring, finalize) are routed
+ * points (mode check, plan synthesis, required sink, executor factory, label prefix and finalize) are routed
  * through a {@link RowLevelDmlTransform} resolved from {@link RowLevelDmlRegistry}. The dispatching commands
  * ({@code UpdateCommand}/{@code DeleteFromCommand}/{@code MergeIntoCommand}) delegate here once a transform is
  * found, so the reverse {@code instanceof} dispatch is consolidated into the registry.</p>
@@ -78,7 +77,7 @@ public class RowLevelDmlCommand {
         ctx.setSyntheticWriteColTargetTableId(table.getId());
         try {
             LogicalPlan plan = transform.synthesize(ctx, args, op);
-            executeWithExternalTableBatchModeDisabled(ctx, () -> {
+            Callable<Void> execute = () -> {
                 LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
                 planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
@@ -94,7 +93,6 @@ public class RowLevelDmlCommand {
 
                 BaseExternalTableInsertExecutor insertExecutor =
                         transform.newExecutor(ctx, table, label, planner, emptyInsert, op);
-                transform.setupConflictDetection(insertExecutor, planner.getAnalyzedPlan(), table, op);
 
                 if (insertExecutor.isEmptyInsert()) {
                     return null;
@@ -104,7 +102,12 @@ public class RowLevelDmlCommand {
                         planner.getAnalyzedPlan(), table, fragment, dataSink, physicalSink);
                 insertExecutor.executeSingleInsert(stmtExecutor);
                 return null;
-            });
+            };
+            if (transform.requiresExternalTableBatchModeDisabled()) {
+                executeWithExternalTableBatchModeDisabled(ctx, execute);
+            } else {
+                execute.call();
+            }
         } finally {
             ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
         }
@@ -149,12 +152,7 @@ public class RowLevelDmlCommand {
         }
     }
 
-    /**
-     * Write-constraint path: only fires when the executor exposes an SPI
-     * {@link ConnectorTransaction}. Today iceberg DELETE/MERGE run on the legacy {@code IcebergTransaction}
-     * (the base {@code getConnectorTransactionOrNull()} returns {@code null}), so this is a no-op; the legacy
-     * 3-hop conflict-detection path ({@link RowLevelDmlTransform#setupConflictDetection}) remains the live one.
-     */
+    /** Applies the connector-neutral optimistic write constraint when the transaction supports it. */
     @VisibleForTesting
     static void applyWriteConstraintIfPresent(RowLevelDmlTransform transform,
             BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table) {
@@ -166,9 +164,8 @@ public class RowLevelDmlCommand {
     }
 
     /**
-     * Run {@code action} with external-table batch mode disabled so the iceberg scan node yields all splits
-     * (needed by {@code IcebergRewritableDeletePlanner.collect}). Byte-identical to the per-command copies
-     * retained on the legacy {@code Iceberg*Command} classes until P6.7.
+     * Runs {@code action} with external-table batch mode disabled for row-change representations that require
+     * every source split to be available while the write is planned.
      */
     static <T> T executeWithExternalTableBatchModeDisabled(ConnectContext ctx, Callable<T> action) throws Exception {
         boolean previousEnableExternalTableBatchMode = ctx.getSessionVariable().enableExternalTableBatchMode;

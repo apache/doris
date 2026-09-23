@@ -393,9 +393,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (targetType instanceof ConnectorComputeVariantType) {
             return VariantType.isSupportedComputeV2CastSource(originalType);
         }
-        if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
-        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;

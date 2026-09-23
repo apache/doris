@@ -72,7 +72,7 @@ public class Array extends ScalarFunction
         for (Expression argument : getArguments()) {
             DataType childType = argument.getDataType();
             if (childType.isJsonType()) {
-                throw new AnalysisException("array does not support jsonb/variant type");
+                throw new AnalysisException("array does not support jsonb type");
             }
         }
     }

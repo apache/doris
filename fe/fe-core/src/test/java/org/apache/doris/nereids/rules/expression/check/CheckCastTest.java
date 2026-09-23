@@ -128,7 +128,7 @@ public class CheckCastTest {
         VariantType differentProperties = new VariantType(200);
 
         Assertions.assertTrue(CheckCast.check(source, sameProperties, true));
-        Assertions.assertFalse(CheckCast.check(source, differentProperties, true));
+        Assertions.assertTrue(CheckCast.check(source, differentProperties, true));
         Assertions.assertTrue(CheckCast.check(source, ConnectorComputeVariantType.INSTANCE, true));
         Assertions.assertTrue(CheckCast.check(ConnectorComputeVariantType.INSTANCE, source, true));
         Assertions.assertTrue(CheckCast.check(

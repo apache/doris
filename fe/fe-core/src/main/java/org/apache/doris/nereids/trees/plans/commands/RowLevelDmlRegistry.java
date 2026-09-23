@@ -57,12 +57,17 @@ public final class RowLevelDmlRegistry {
         if (table instanceof PluginDrivenExternalTable) {
             PluginDrivenExternalTable connectorTable = (PluginDrivenExternalTable) table;
             Set<WriteOperation> operations = connectorTable.connectorSupportedWriteOperations();
-            if (operations.contains(WriteOperation.DELETE) || operations.contains(WriteOperation.UPDATE)
-                    || operations.contains(WriteOperation.MERGE)) {
+            if (supportsAnyRowLevelDml(operations)) {
                 throw new AnalysisException("No row-level DML plan for connector row-change style "
                         + connectorTable.getConnectorRowChangeStyle());
             }
         }
         return Optional.empty();
+    }
+
+    static boolean supportsAnyRowLevelDml(Set<WriteOperation> operations) {
+        return operations.contains(WriteOperation.DELETE)
+                || operations.contains(WriteOperation.UPDATE)
+                || operations.contains(WriteOperation.MERGE);
     }
 }

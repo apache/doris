@@ -88,8 +88,11 @@ public class CreateMap extends ScalarFunction
         for (int i = 0; i < arity(); i++) {
             DataType childType = getArgument(i).getDataType();
             boolean isKey = i % 2 == 0;
-            if (childType.isJsonType() || (isKey && childType.isVariantType())) {
-                throw new AnalysisException("map does not support jsonb/variant type");
+            if (childType.isJsonType()) {
+                throw new AnalysisException("map does not support jsonb type");
+            }
+            if (isKey && childType.isVariantType()) {
+                throw new AnalysisException("map does not support variant keys");
             }
         }
     }
