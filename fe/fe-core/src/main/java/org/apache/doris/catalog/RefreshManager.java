@@ -31,6 +31,8 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalMetaCache;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -69,7 +71,8 @@ public class RefreshManager {
             LOG.warn("failed to find catalog replaying refresh catalog {}", log.getCatalogId());
             return;
         }
-        refreshCatalogInternal(catalog, log.isInvalidCache());
+        replayRefreshSafely("refresh catalog " + log.getCatalogId(),
+                () -> refreshCatalogInternal(catalog, log.isInvalidCache()));
     }
 
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
@@ -100,24 +103,28 @@ public class RefreshManager {
     }
 
     public void replayRefreshDb(ExternalObjectLog log) {
-        ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
-        if (catalog == null) {
-            LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
-            return;
-        }
-        invalidateLanceTableAccess(catalog);
-        Optional<ExternalDatabase<? extends ExternalTable>> db;
-        if (!Strings.isNullOrEmpty(log.getDbName())) {
-            db = catalog.getDbForReplay(log.getDbName());
-        } else {
-            db = catalog.getDbForReplay(log.getDbId());
-        }
+        replayRefreshSafely("refresh db " + log.getCatalogId(), () -> {
+            ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalog(log.getCatalogId());
+            if (catalog == null) {
+                LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
+                return;
+            }
+            invalidateLanceTableAccess(catalog);
+            Optional<ExternalDatabase<? extends ExternalTable>> db;
+            if (!Strings.isNullOrEmpty(log.getDbName())) {
+                db = catalog.getDbForReplay(log.getDbName());
+            } else {
+                db = catalog.getDbForReplay(log.getDbId());
+            }
 
-        if (!db.isPresent()) {
-            LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
-        } else {
-            refreshDbInternal(db.get());
-        }
+            if (!db.isPresent()) {
+                LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
+                invalidatePaimonCatalogForUnresolvedReplay(catalog);
+            } else {
+                refreshDbInternal(db.get());
+            }
+        });
     }
 
     private void invalidateLanceTableAccess(CatalogIf catalog) {
@@ -168,60 +175,73 @@ public class RefreshManager {
     }
 
     public void replayRefreshTable(ExternalObjectLog log) {
-        ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
-        if (catalog == null) {
-            LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
-            return;
-        }
-        invalidateLanceTableAccess(catalog);
-        Optional<ExternalDatabase<? extends ExternalTable>> db;
-        if (!Strings.isNullOrEmpty(log.getDbName())) {
-            db = catalog.getDbForReplay(log.getDbName());
-        } else {
-            db = catalog.getDbForReplay(log.getDbId());
-        }
-        // See comment in refreshDbInternal for why db and table may be null.
-        if (!db.isPresent()) {
-            LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
-            return;
-        }
-        Optional<? extends ExternalTable> table;
-        if (!Strings.isNullOrEmpty(log.getTableName())) {
-            table = db.get().getTableForReplay(log.getTableName());
-        } else {
-            table = db.get().getTableForReplay(log.getTableId());
-        }
-        if (!table.isPresent()) {
-            LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
-            return;
-        }
-        if (!Strings.isNullOrEmpty(log.getNewTableName())) {
-            // this is a rename table op
-            db.get().unregisterTable(log.getTableName());
-            db.get().resetMetaCacheNames();
-        } else {
-            List<String> modifiedPartNames = log.getPartitionNames();
-            List<String> newPartNames = log.getNewPartitionNames();
-            if (catalog instanceof HMSExternalCatalog
-                    && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
-                    || (newPartNames != null && !newPartNames.isEmpty()))) {
-                // Partition-level cache invalidation, only for hive catalog
-                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                        .hive(catalog.getId());
-                cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
-                if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
-                    ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
-                }
-                LOG.info("replay refresh partitions for table {}, "
-                                + "modified partitions count: {}, "
-                                + "new partitions count: {}",
-                        table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
-                        newPartNames == null ? 0 : newPartNames.size());
-            } else {
-                // Full table cache invalidation
-                refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+        replayRefreshSafely("refresh table " + log.getCatalogId(), () -> {
+            ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalog(log.getCatalogId());
+            if (catalog == null) {
+                LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
+                return;
             }
-        }
+            invalidateLanceTableAccess(catalog);
+            Optional<ExternalDatabase<? extends ExternalTable>> db;
+            if (!Strings.isNullOrEmpty(log.getDbName())) {
+                db = catalog.getDbForReplay(log.getDbName());
+            } else {
+                db = catalog.getDbForReplay(log.getDbId());
+            }
+            // See comment in refreshDbInternal for why db and table may be null.
+            if (!db.isPresent()) {
+                LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
+                invalidatePaimonCatalogForUnresolvedReplay(catalog);
+                return;
+            }
+            Optional<? extends ExternalTable> table;
+            if (!Strings.isNullOrEmpty(log.getTableName())) {
+                table = db.get().getTableForReplay(log.getTableName());
+            } else {
+                table = db.get().getTableForReplay(log.getTableId());
+            }
+            if (!table.isPresent()) {
+                LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
+                // Only a genuinely unresolved name (for example a lost case-insensitive mapping)
+                // needs the conservative database-wide retirement; an ordinary cold miss for a
+                // known name must not evict unrelated cached siblings.
+                if (!Strings.isNullOrEmpty(log.getTableName())
+                        && !db.get().hasLocalTableName(log.getTableName())) {
+                    db.get().retireAllTableObjectsWithoutEngineInvalidation();
+                }
+                invalidatePaimonCatalogForUnresolvedReplay(catalog);
+                return;
+            }
+            if (!Strings.isNullOrEmpty(log.getNewTableName())) {
+                // this is a rename table op
+                db.get().unregisterTable(log.getTableName());
+                db.get().resetMetaCacheNames();
+            } else {
+                List<String> modifiedPartNames = log.getPartitionNames();
+                List<String> newPartNames = log.getNewPartitionNames();
+                if (catalog instanceof HMSExternalCatalog
+                        && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
+                        || (newPartNames != null && !newPartNames.isEmpty()))) {
+                    // Partition-level cache invalidation, only for hive catalog
+                    HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                            .hive(catalog.getId());
+                    cache.refreshAffectedPartitionsCache(
+                            (HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+                    if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
+                        ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
+                    }
+                    LOG.info("replay refresh partitions for table {}, "
+                                    + "modified partitions count: {}, "
+                                    + "new partitions count: {}",
+                            table.get().getName(), modifiedPartNames == null ? 0 : modifiedPartNames.size(),
+                            newPartNames == null ? 0 : newPartNames.size());
+                } else {
+                    // Full table cache invalidation
+                    refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+                }
+            }
+        });
     }
 
     public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,
@@ -258,6 +278,26 @@ public class RefreshManager {
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
         LOG.info("refresh table {}, id {} from db {} in catalog {}, update time: {}",
                 table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName(), updateTime);
+    }
+
+    /**
+     * Run a replay-time cache invalidation without letting a failure escape into EditLog's fatal
+     * replay handler. The refresh record is already committed, so a cache-cleanup failure must be
+     * logged and swallowed instead of taking the FE down.
+     */
+    private void replayRefreshSafely(String operation, Runnable action) {
+        try {
+            action.run();
+        } catch (Exception e) {
+            LOG.warn("failed to replay {}: {}", operation, e.getMessage(), e);
+        }
+    }
+
+    private void invalidatePaimonCatalogForUnresolvedReplay(ExternalCatalog catalog) {
+        if (catalog instanceof PaimonExternalCatalog) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateCatalogByEngine(catalog.getId(), PaimonExternalMetaCache.ENGINE);
+        }
     }
 
     // Refresh partition

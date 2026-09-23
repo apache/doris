@@ -23,6 +23,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.persist.EditLog;
 
@@ -213,6 +214,13 @@ public class LanceCatalogLifecycleTest {
             caches.invalidateDb(catalog.getId(), "mapped_db");
             caches.invalidateCatalog(catalog.getId());
             Mockito.verify(client, Mockito.times(2)).invalidateTableAccessCache();
+
+            // Leader REFRESH TABLE reaches only the typed table route, which must still retire the
+            // Lance access cache even though it bypasses the name-based invalidateTable() entry.
+            ExternalTable lanceTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(lanceTable.getCatalog()).thenReturn(catalog);
+            caches.invalidateTableCache(lanceTable);
+            Mockito.verify(client, Mockito.times(3)).invalidateTableAccessCache();
             Mockito.verify(session, Mockito.never()).close();
             Mockito.verify(catalog, Mockito.never()).createClient();
         } finally {
