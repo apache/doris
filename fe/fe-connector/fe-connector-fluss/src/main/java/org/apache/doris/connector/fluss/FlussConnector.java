@@ -30,11 +30,14 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.config.Configuration;
+import org.apache.fluss.metadata.TablePath;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,6 +85,15 @@ public class FlussConnector implements Connector {
     // Written BEFORE the volatile lakeSibling publishes it, so a reader that sees the sibling sees this.
     private Map<String, String> lakeSiblingProperties;
 
+    // Cluster-reported storage defaults become known only after the first lake table is resolved. Publish
+    // them before constructing the sibling: the shared context lazily asks deriveStorageProperties() while
+    // that sibling binds its FE filesystem and BE storage map.
+    private volatile Map<String, String> lakeStorageProperties = Collections.emptyMap();
+
+    // Source Fluss identity -> physical lake identity. The latter may be overridden independently for the
+    // database and table, and targeted invalidation must follow the same path as lookup.
+    private final Map<TablePath, TablePath> lakeTablePaths = new LinkedHashMap<>();
+
     public FlussConnector(FlussCatalogProperties properties, ConnectorContext context) {
         this.properties = properties;
         this.catalogName = context.getCatalogName();
@@ -92,7 +104,7 @@ public class FlussConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new FlussConnectorMetadata(adminOps(), properties.getTypeMappingOptions(),
                 properties.getRawCatalogProperties(), properties.getLakeOverrides(),
-                this::getOrCreateLakeSibling, this::lakeSiblingOwning);
+                this::getOrCreateLakeSibling, this::lakeSiblingOwning, this::rememberLakePath);
     }
 
     /**
@@ -158,7 +170,7 @@ public class FlussConnector implements Connector {
      *
      * <p>Also fails loud when a second, DIFFERENT lake configuration shows up — see the field comment: a
      * second paimon sibling could not be routed apart from the first, so serving both would mean reading
-     * one warehouse under the other's name. The message asks for a catalog refresh, which rebuilds this
+     * one warehouse under the other's name. The message asks for catalog recreation, which rebuilds this
      * connector and picks up the new configuration. It deliberately does not print either configuration:
      * they carry storage credentials.
      *
@@ -168,8 +180,12 @@ public class FlussConnector implements Connector {
     synchronized Connector getOrCreateLakeSibling(Map<String, String> siblingProperties) {
         throwIfClosed();
         if (lakeSibling == null) {
+            lakeStorageProperties = Collections.unmodifiableMap(
+                    LakeStorageOptions.toStorageProperties(siblingProperties));
+            Map<String, String> metadataProperties = new HashMap<>(siblingProperties);
+            metadataProperties.keySet().removeIf(LakeStorageOptions::isStorageOption);
             Connector sibling =
-                    context.createSiblingConnector(PAIMON_CONNECTOR_TYPE, siblingProperties);
+                    context.createSiblingConnector(PAIMON_CONNECTOR_TYPE, metadataProperties);
             if (sibling == null) {
                 throw new DorisConnectorException(
                         "Cannot read the lake table of fluss catalog '" + catalogName
@@ -182,14 +198,14 @@ public class FlussConnector implements Connector {
             throw new DorisConnectorException(
                     "Fluss catalog '" + catalogName + "' is already serving lake tables with a different"
                             + " paimon configuration than this table's. Its fluss cluster was reconfigured;"
-                            + " refresh the catalog to pick up the new lake configuration");
+                            + " recreate the catalog after applying the new lake configuration");
         }
         return lakeSibling;
     }
 
     /**
-     * The storage the lake sits on, as the catalog states it: the storage half of its
-     * {@code fluss.lake.paimon.*} settings, translated into the names Doris binds storage by.
+     * The storage the lake sits on: cluster-reported defaults learned from a lake table plus the storage
+     * half of the catalog's {@code fluss.lake.paimon.*} settings, translated into Doris names.
      *
      * <p>This is the only route that reaches both halves of a scan. The engine folds what is returned here
      * into the catalog's storage properties before the FE binds a filesystem and before the BE-side storage
@@ -201,26 +217,50 @@ public class FlussConnector implements Connector {
      */
     @Override
     public Map<String, String> deriveStorageProperties(Map<String, String> rawCatalogProps) {
-        return LakeStorageOptions.toStorageProperties(
-                FlussCatalogProperties.extractLakeOverrides(rawCatalogProps));
+        Map<String, String> storage = new HashMap<>(lakeStorageProperties);
+        storage.putAll(LakeStorageOptions.toStorageProperties(
+                FlussCatalogProperties.extractLakeOverrides(rawCatalogProps)));
+        return storage;
+    }
+
+    synchronized void rememberLakePath(TablePath sourcePath, TablePath lakePath) {
+        lakeTablePaths.put(sourcePath, lakePath);
     }
 
     @Override
     public synchronized void invalidateTable(String dbName, String tableName) {
         if (lakeSibling != null) {
-            lakeSibling.invalidateTable(dbName, tableName);
+            // Keep the mapping until the table is resolved again (which replaces it) or the whole catalog
+            // is invalidated. A single engine refresh may emit more than one targeted invalidation, and a
+            // second one must not fall back to the source name merely because the first already ran.
+            TablePath lakePath = lakeTablePaths.get(TablePath.of(dbName, tableName));
+            lakeSibling.invalidateTable(
+                    lakePath == null ? dbName : lakePath.getDatabaseName(),
+                    lakePath == null ? tableName : lakePath.getTableName());
         }
     }
 
     @Override
     public synchronized void invalidateDb(String dbName) {
         if (lakeSibling != null) {
-            lakeSibling.invalidateDb(dbName);
+            Set<String> lakeDatabases = new LinkedHashSet<>();
+            // An unresolved table cannot have populated the sibling's table cache, but the sibling may
+            // still hold database-level metadata for the source namespace. Invalidating it as well as every
+            // known physical override is conservative and prevents one overridden table from accidentally
+            // suppressing invalidation of ordinary lake tables in the same Fluss database.
+            lakeDatabases.add(dbName);
+            lakeTablePaths.forEach((source, lake) -> {
+                if (source.getDatabaseName().equals(dbName)) {
+                    lakeDatabases.add(lake.getDatabaseName());
+                }
+            });
+            lakeDatabases.forEach(lakeSibling::invalidateDb);
         }
     }
 
     @Override
     public synchronized void invalidateAll() {
+        lakeTablePaths.clear();
         if (lakeSibling != null) {
             lakeSibling.invalidateAll();
         }
@@ -230,7 +270,10 @@ public class FlussConnector implements Connector {
     public synchronized void invalidatePartition(
             String dbName, String tableName, List<String> partitionNames) {
         if (lakeSibling != null) {
-            lakeSibling.invalidatePartition(dbName, tableName, partitionNames);
+            TablePath lakePath = lakeTablePaths.get(TablePath.of(dbName, tableName));
+            lakeSibling.invalidatePartition(
+                    lakePath == null ? dbName : lakePath.getDatabaseName(),
+                    lakePath == null ? tableName : lakePath.getTableName(), partitionNames);
         }
     }
 
@@ -262,6 +305,8 @@ public class FlussConnector implements Connector {
             sibling = lakeSibling;
             lakeSibling = null;
             lakeSiblingProperties = null;
+            lakeStorageProperties = Collections.emptyMap();
+            lakeTablePaths.clear();
             toClose = connection;
             connection = null;
         }

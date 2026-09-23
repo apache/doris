@@ -39,6 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 
 /**
  * The lake gateway: {@code tbl$lake} is served by an embedded paimon sibling, and every per-handle call
@@ -70,16 +71,27 @@ public class FlussLakeTableTest {
     }
 
     private RecordingFlussAdminOps withLakeTable(String lakeFormat) {
+        return withLakeTable(lakeFormat, null, null);
+    }
+
+    private RecordingFlussAdminOps withLakeTable(
+            String lakeFormat, String lakeDatabaseName, String lakeTableName) {
         RecordingFlussAdminOps adminOps = new RecordingFlussAdminOps();
-        adminOps.tableInfos.put(LAKE_TABLE, FlussTestTables.builder(LAKE_TABLE)
+        FlussTestTables.Builder lakeTable = FlussTestTables.builder(LAKE_TABLE)
                 .column("id", DataTypes.BIGINT())
                 .column("name", DataTypes.STRING())
                 .buckets(2)
                 .property("table.datalake.enabled", "true")
                 .property("table.datalake.format", lakeFormat)
                 .property("table.datalake.paimon.metastore", "filesystem")
-                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
-                .build());
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse");
+        if (lakeDatabaseName != null) {
+            lakeTable.property("table.datalake.database-name", lakeDatabaseName);
+        }
+        if (lakeTableName != null) {
+            lakeTable.property("table.datalake.table-name", lakeTableName);
+        }
+        adminOps.tableInfos.put(LAKE_TABLE, lakeTable.build());
         adminOps.tableInfos.put(PLAIN_TABLE, FlussTestTables.builder(PLAIN_TABLE)
                 .column("id", DataTypes.BIGINT())
                 .buckets(1)
@@ -94,7 +106,14 @@ public class FlussLakeTableTest {
      * — by asking each built sibling whether the handle is its own.
      */
     private FlussConnectorMetadata metadata(RecordingFlussAdminOps adminOps) {
-        return new FlussConnectorMetadata(adminOps, FlussTypeMapping.Options.DEFAULT, lakeOverrides,
+        return metadata(adminOps, (source, lake) -> {
+        });
+    }
+
+    private FlussConnectorMetadata metadata(RecordingFlussAdminOps adminOps,
+            BiConsumer<TablePath, TablePath> lakePathRecorder) {
+        return new FlussConnectorMetadata(adminOps, FlussTypeMapping.Options.DEFAULT,
+                Collections.emptyMap(), lakeOverrides,
                 properties -> {
                     RecordingLakeSibling sibling = new RecordingLakeSibling(properties);
                     builtSiblings.add(sibling);
@@ -107,7 +126,7 @@ public class FlussLakeTableTest {
                         }
                     }
                     return null;
-                });
+                }, lakePathRecorder);
     }
 
     private ConnectorTableHandle baseHandle(FlussConnectorMetadata metadata, TablePath tablePath) {
@@ -116,7 +135,15 @@ public class FlussLakeTableTest {
     }
 
     private ConnectorTableHandle lakeHandle(FlussConnectorMetadata metadata) {
-        return metadata.getSysTableHandle(session, baseHandle(metadata, LAKE_TABLE), "lake")
+        return lakeHandle(metadata, session);
+    }
+
+    private ConnectorTableHandle lakeHandle(FlussConnectorMetadata metadata,
+            ConnectorSession statementSession) {
+        ConnectorTableHandle base = metadata.getTableHandle(statementSession,
+                LAKE_TABLE.getDatabaseName(), LAKE_TABLE.getTableName())
+                .orElseThrow(AssertionError::new);
+        return metadata.getSysTableHandle(statementSession, base, "lake")
                 .orElseThrow(AssertionError::new);
     }
 
@@ -255,6 +282,34 @@ public class FlussLakeTableTest {
         Assertions.assertEquals(Arrays.asList("getTableHandle:db.lake_table", "resolveTimeTravel:7",
                 "applySnapshot:7:{}"), builtSiblings.get(0).calls);
         Assertions.assertEquals(7L, ((RecordingLakeSibling.Handle) handle).pinnedSnapshotId);
+    }
+
+    @Test
+    public void theLakeHandleUsesFlussResolvedPhysicalIdentity() {
+        assertLakeIdentity("archive", null, "archive", "lake_table");
+        assertLakeIdentity(null, "lake_table_v2", "db", "lake_table_v2");
+        assertLakeIdentity("archive", "lake_table_v2", "archive", "lake_table_v2");
+    }
+
+    private void assertLakeIdentity(String configuredDatabase, String configuredTable,
+            String expectedDatabase, String expectedTable) {
+        builtSiblings.clear();
+        List<String> recordedPaths = new ArrayList<>();
+        FlussConnectorMetadata metadata = metadata(
+                withLakeTable("paimon", configuredDatabase, configuredTable),
+                (source, lake) -> recordedPaths.add(source + "->" + lake));
+        ConnectorSession identitySession = new FlussTestSession(
+                7L, "lake-identity-" + expectedDatabase + "-" + expectedTable);
+
+        RecordingLakeSibling.Handle handle =
+                (RecordingLakeSibling.Handle) lakeHandle(metadata, identitySession);
+
+        Assertions.assertEquals(expectedDatabase, handle.dbName);
+        Assertions.assertEquals(expectedTable, handle.tableName);
+        Assertions.assertEquals(Collections.singletonList(
+                "db.lake_table->" + expectedDatabase + "." + expectedTable), recordedPaths);
+        Assertions.assertTrue(builtSiblings.get(0).calls.contains(
+                "getTableHandle:" + expectedDatabase + "." + expectedTable));
     }
 
     @Test
@@ -455,6 +510,26 @@ public class FlussLakeTableTest {
         Assertions.assertEquals(RecordingLakeSibling.ROW_COUNT,
                 metadata.getTableStatistics(session, lakeHandle(metadata))
                         .orElseThrow(AssertionError::new).getRowCount());
+    }
+
+    @Test
+    public void twoLakeAliasesInOneStatementKeepTheFirstReadableSnapshot() {
+        RecordingFlussAdminOps adminOps = withLakeTable();
+        FlussConnectorMetadata metadata = metadata(adminOps);
+
+        RecordingLakeSibling.Handle first =
+                (RecordingLakeSibling.Handle) lakeHandle(metadata, session);
+        adminOps.readableLakeSnapshot = new LakeSnapshot(8L, Collections.emptyMap());
+        RecordingLakeSibling.Handle second =
+                (RecordingLakeSibling.Handle) lakeHandle(metadata, session);
+
+        Assertions.assertNotSame(first, second, "each SQL alias owns its own sibling handle");
+        Assertions.assertEquals(7L, first.pinnedSnapshotId);
+        Assertions.assertEquals(7L, second.pinnedSnapshotId,
+                "one statement scope must not let a later alias advance its schema/data pin");
+        Assertions.assertEquals(1L, adminOps.calls.stream()
+                .filter(call -> call.startsWith("getReadableLakeSnapshot"))
+                .count(), adminOps.calls.toString());
     }
 
     @Test

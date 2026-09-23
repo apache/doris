@@ -53,12 +53,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.WeakHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -123,21 +124,34 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     private final Map<String, String> lakeOverrides;
     private final Function<Map<String, String>, Connector> lakeSiblingFactory;
     private final Function<ConnectorTableHandle, Connector> siblingOwner;
-    // Handles live for one query. Weak keys keep their schema pin available for that lifetime without
-    // retaining every resolved $lake handle for as long as the catalog is open.
+    private final BiConsumer<TablePath, TablePath> lakePathRecorder;
+    // Metadata itself lives for one statement. Strong identity keys avoid both failure modes of a
+    // WeakHashMap here: an equal sibling handle can replace the weakly held key without replacing its
+    // identity, and a handle still needed later in the statement can lose its schema pin after GC.
     private final Map<ConnectorTableHandle, ConnectorMvccSnapshot> lakePins =
-            Collections.synchronizedMap(new WeakHashMap<>());
+            Collections.synchronizedMap(new IdentityHashMap<>());
 
     public FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
             Map<String, String> rawCatalogProperties, Map<String, String> lakeOverrides,
             Function<Map<String, String>, Connector> lakeSiblingFactory,
             Function<ConnectorTableHandle, Connector> siblingOwner) {
+        this(adminOps, typeMappingOptions, rawCatalogProperties, lakeOverrides, lakeSiblingFactory,
+                siblingOwner, (source, lake) -> {
+                });
+    }
+
+    public FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
+            Map<String, String> rawCatalogProperties, Map<String, String> lakeOverrides,
+            Function<Map<String, String>, Connector> lakeSiblingFactory,
+            Function<ConnectorTableHandle, Connector> siblingOwner,
+            BiConsumer<TablePath, TablePath> lakePathRecorder) {
         this.adminOps = adminOps;
         this.typeMappingOptions = typeMappingOptions;
         this.rawCatalogProperties = rawCatalogProperties;
         this.lakeOverrides = lakeOverrides;
         this.lakeSiblingFactory = lakeSiblingFactory;
         this.siblingOwner = siblingOwner;
+        this.lakePathRecorder = lakePathRecorder;
     }
 
     FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
@@ -186,7 +200,12 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
         try {
-            return Optional.of(FlussTableHandle.of(tableInfo(session, TablePath.of(dbName, tableName))));
+            FlussTableHandle handle =
+                    FlussTableHandle.of(tableInfo(session, TablePath.of(dbName, tableName)));
+            if (handle.isDataLakeEnabled()) {
+                lakePathRecorder.accept(handle.toTablePath(), handle.toLakeTablePath());
+            }
+            return Optional.of(handle);
         } catch (TableNotExistException | DatabaseNotExistException e) {
             return Optional.empty();
         }
@@ -223,11 +242,12 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
     /**
      * Resolves the two halves of a tiered table.
      *
-     * <p>{@code tbl$lake} resolves to the paimon sibling's handle for the same {@code db.table} name — which
-     * is the name fluss's tiering service writes the lake table under. From here on that table IS a paimon
-     * table: the engine routes its scan by handle to the sibling's plan provider, and this metadata's
-     * guarded methods forward the rest. The sibling is configured from THIS table's properties, where the
-     * fluss coordinator puts the cluster's lake settings; see {@link PaimonSiblingProperties}.
+     * <p>{@code tbl$lake} resolves to the paimon sibling's handle for the physical lake path Fluss reports.
+     * That normally equals {@code db.table}, but either component may be overridden by the table's lake
+     * configuration. From here on that table IS a paimon table: the engine routes its scan by handle to the
+     * sibling's plan provider, and this metadata's guarded methods forward the rest. The sibling is
+     * configured from THIS table's properties, where the fluss coordinator puts the cluster's lake settings;
+     * see {@link PaimonSiblingProperties}.
      *
      * <p>{@code tbl$log} stays on this side: it is the same fluss table read from where the lake snapshot
      * ends, so it resolves to this handle re-read at {@link FlussTableHandle.ReadMode#LOG_ONLY} and is
@@ -283,7 +303,7 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         Connector sibling = lakeSiblingFactory.apply(PaimonSiblingProperties.synthesize(
                 rawCatalogProperties, flussHandle.getProperties(), lakeOverrides));
         Optional<ConnectorTableHandle> lakeHandle = forward(session, sibling, m -> m.getTableHandle(
-                session, flussHandle.getDatabaseName(), flussHandle.getTableName()));
+                session, flussHandle.getLakeDatabaseName(), flussHandle.getLakeTableName()));
         if (!lakeHandle.isPresent()) {
             // The lake table is created by the tiering service on its first commit, so "not there" means
             // nothing has been tiered yet — a state that resolves itself and is worth saying out loud.
@@ -324,8 +344,8 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     + flussHandle.getTableName() + "' has a primary key, so its log past the lake snapshot"
                     + " is a change stream rather than a set of rows and cannot be read as '$log'. Query '"
                     + flussHandle.getTableName() + "' itself for the merged view, or set '"
-                    + FlussCatalogProperties.UNION_READ_MODE + "' to disabled to read the whole table from"
-                    + " fluss alone.");
+                    + FlussCatalogProperties.UNION_READ_MODE + "' to disabled to read only the current"
+                    + " Fluss state.");
         }
         return flussHandle.asLogOnly();
     }

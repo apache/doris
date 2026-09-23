@@ -548,6 +548,20 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(7L, sibling.plannedHandle.pinnedSnapshotId);
         // The pin is expressed in the SPI's terms only: a snapshot id and no connector-specific options.
         Assertions.assertTrue(sibling.calls.contains("applySnapshot:7:{}"), sibling.calls.toString());
+        Assertions.assertFalse(sibling.calls.contains("resolveTimeTravel:7"),
+                "ordinary union pins data without rolling the current query schema back");
+    }
+
+    @Test
+    public void theLakeHalfUsesThePhysicalLakeIdentity() {
+        registerLakeTable(1, "archive", "log_tbl_lake");
+        lakeSnapshotAt(7L, offsets(2L));
+        latestOffsets(null, 5L);
+
+        plan(LOG_TABLE, catalog());
+
+        Assertions.assertTrue(sibling.calls.contains("getTableHandle:archive.log_tbl_lake"),
+                sibling.calls.toString());
     }
 
     /**
@@ -804,8 +818,8 @@ public class FlussSplitPlanTest {
 
     /**
      * Nothing tiered means there is no boundary for {@code $log} to start from, and "the log past the lake"
-     * would silently become "the whole table". A base-table scan may quietly settle for reading fluss alone
-     * because that still returns every row of the table it names; {@code $log} names something else.
+     * would silently become an unbounded Fluss scan. A base-table scan may use the current Fluss state;
+     * {@code $log} promises a specifically bounded segment instead.
      */
     @Test
     public void logSuffixFailsWhenNothingHasBeenTiered() {
@@ -823,7 +837,7 @@ public class FlussSplitPlanTest {
     /**
      * The union-read mode picks a PATH for reading a whole table. {@code $log} is not a whole table, so
      * there is no path to pick and the mode does not apply — under {@code disabled} it must still start at
-     * the lake boundary rather than degrade into the fluss-only read of everything.
+     * the lake boundary rather than degrade into a generic Fluss scan.
      */
     @Test
     public void logSuffixIsNotAffectedByTheUnionReadMode() {
@@ -833,7 +847,7 @@ public class FlussSplitPlanTest {
         lakeRanges(3);
         Map<String, String> disabled = catalog(FlussCatalogProperties.UNION_READ_MODE, "disabled");
 
-        // The base table under 'disabled' reads every bucket from the beginning: that IS the whole table.
+        // The base table under 'disabled' reads each bucket from its earliest retained Fluss offset.
         List<ConnectorScanRange> baseRanges = plan(LOG_TABLE, disabled);
         Assertions.assertEquals(2, baseRanges.size());
         assertLogRange(baseRanges.get(0), 0, LogScanner.EARLIEST_OFFSET, 9L);
@@ -1355,9 +1369,9 @@ public class FlussSplitPlanTest {
                 offsetCalls(), adminOps.calls.toString());
     }
 
-    /** A lake split without a matching fluss partition cannot safely be classified as unsuppressed. */
+    /** A partition expired from Fluss remains a valid, complete lake-only part of table history. */
     @Test
-    public void lakeSplitOfAPartitionThisScanDoesNotReadIsRefused() {
+    public void requiredModeKeepsRetainedLakeOnlyPartitions() {
         registerPartitionedPkLakeTable(1, "20260101");
         adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
         kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
@@ -1366,9 +1380,130 @@ public class FlussSplitPlanTest {
         lakeSplits(
                 RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
 
-        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog()));
-        Assertions.assertTrue(failure.getMessage().contains("no matching fluss partition"),
+        List<ConnectorScanRange> ranges = plan(PK_TABLE,
+                catalog(FlussCatalogProperties.UNION_READ_MODE, "required"));
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        Assertions.assertEquals(Collections.singletonMap("dt", "20251231"),
+                ranges.get(0).getPartitionValues());
+        assertTailRange(ranges.get(1), 0, 100L, 105L);
+    }
+
+    @Test
+    public void autoModeKeepsRetainedLakeOnlyPartitions() {
+        registerPartitionedPkLakeTable(1, "20260101");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        earliestOffsets("20260101", 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        assertTailRange(ranges.get(1), 0, 100L, 105L);
+    }
+
+    /** A live partition pruned by the engine must not come back through the sibling's independent plan. */
+    @Test
+    public void lakeSplitOfAPrunedButLivePartitionIsSkipped() {
+        registerPartitionedPkLakeTable(1, "20260101", "20260102");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L,
+                partitionedOffsets(new long[] {100L}, new long[] {200L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        earliestOffsets("20260101", 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(
+                        0, Collections.singletonMap("dt", "20260102")));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog(),
+                Collections.singletonList("dt=20260101"));
+
+        Assertions.assertEquals(1, ranges.size());
+        assertTailRange(ranges.get(0), 0, 100L, 105L);
+    }
+
+    /** A live-tail fallback reads that partition from Fluss but must retain expired lake history. */
+    @Test
+    public void truncatedTailFallbackKeepsRetainedLakeOnlyPartitions() {
+        registerPartitionedPkLakeTable(1, "20260101");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        earliestOffsets("20260101", 101L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(
+                adminOps, FlussCatalogProperties.of(catalog()), this::lakeSibling);
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                session, request(handle(PK_TABLE), Collections.emptyList()));
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        assertPkRange(ranges.get(1), 0, 1L, 10L, 105L);
+        StringBuilder output = new StringBuilder();
+        provider.appendExplainInfo(output, "", Collections.emptyMap());
+        Assertions.assertTrue(output.toString().contains("unionRead=yes"), output.toString());
+        Assertions.assertTrue(output.toString().contains("degraded=tail-truncated"), output.toString());
+    }
+
+    @Test
+    public void oversizedTailFallbackKeepsRetainedLakeOnlyPartitions() {
+        registerPartitionedPkLakeTable(1, "20260101");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        earliestOffsets("20260101", 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
+        Map<String, String> properties = catalog();
+        properties.put(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "4");
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, properties);
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        assertPkRange(ranges.get(1), 0, 1L, 10L, 105L);
+    }
+
+    /** A schema-level key fallback has the same retention obligation as a runtime tail fallback. */
+    @Test
+    public void unsupportedKeyFallbackKeepsRetainedLakeOnlyPartitions() {
+        registerPartitionedPkLakeTableKeyedBy(DataTypes.DOUBLE(), DataTypes.STRING(), "20260101");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+        kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
+        latestOffsets("20260101", 105L);
+        earliestOffsets("20260101", 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        assertPkRange(ranges.get(1), 0, 1L, 10L, 105L);
+    }
+
+    /** If partition values have no shared rendering, an unmatched split cannot safely be called history. */
+    @Test
+    public void unsupportedPartitionRenderingRefusesAnAmbiguousLakeOnlySplit() {
+        registerPartitionedPkLakeTable(1, DataTypes.INT(), "1");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
+        kvSnapshots("1", new long[] {1L}, new long[] {10L});
+        latestOffsets("1", 105L);
+        earliestOffsets("1", 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(
+                0, Collections.singletonMap("dt", "01")));
+
+        DorisConnectorException failure = Assertions.assertThrows(
+                DorisConnectorException.class, () -> plan(PK_TABLE, catalog()));
+
+        Assertions.assertTrue(failure.getMessage().contains("cannot be matched safely"),
                 failure.getMessage());
     }
 
@@ -2124,14 +2259,24 @@ public class FlussSplitPlanTest {
     }
 
     private void registerLakeTable(int buckets) {
-        adminOps.tableInfos.put(LOG_TABLE, FlussTestTables.builder(LOG_TABLE)
+        registerLakeTable(buckets, null, null);
+    }
+
+    private void registerLakeTable(int buckets, String lakeDatabaseName, String lakeTableName) {
+        FlussTestTables.Builder table = FlussTestTables.builder(LOG_TABLE)
                 .column("id", DataTypes.INT())
                 .buckets(buckets)
                 .property("table.datalake.enabled", "true")
                 .property("table.datalake.format", "paimon")
                 .property("table.datalake.paimon.metastore", "filesystem")
-                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
-                .build());
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse");
+        if (lakeDatabaseName != null) {
+            table.property("table.datalake.database-name", lakeDatabaseName);
+        }
+        if (lakeTableName != null) {
+            table.property("table.datalake.table-name", lakeTableName);
+        }
+        adminOps.tableInfos.put(LOG_TABLE, table.build());
         siblingExpected = true;
     }
 
@@ -2363,8 +2508,19 @@ public class FlussSplitPlanTest {
 
     private void registerPartitionedPkLakeTable(int buckets, DataType partitionType,
             String... partitionValues) {
+        registerPartitionedPkLakeTableKeyedBy(
+                buckets, DataTypes.INT(), partitionType, partitionValues);
+    }
+
+    private void registerPartitionedPkLakeTableKeyedBy(DataType keyType, DataType partitionType,
+            String... partitionValues) {
+        registerPartitionedPkLakeTableKeyedBy(1, keyType, partitionType, partitionValues);
+    }
+
+    private void registerPartitionedPkLakeTableKeyedBy(int buckets, DataType keyType,
+            DataType partitionType, String... partitionValues) {
         adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
-                .column("id", DataTypes.INT().copy(false))
+                .column("id", keyType.copy(false))
                 .column("dt", partitionType.copy(false))
                 .primaryKey("id", "dt")
                 .partitionedBy("dt")

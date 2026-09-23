@@ -102,6 +102,18 @@ under the License.
         </dependency>
 
         <!--
+          TEST ONLY: exercise synthesized sibling properties through the real Paimon catalog Options
+          assembler. This pins the consumer boundary for REST authentication keys instead of only
+          asserting the intermediate map produced by this module.
+        -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-paimon</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
           TEST ONLY: a real fluss cluster in the test JVM (coordinator + tablet servers + an embedded
           ZooKeeper), which is how the metadata mapping is tested against the actual server rather than
           against our own idea of what it returns. FlussClusterExtension lives in fluss-server's

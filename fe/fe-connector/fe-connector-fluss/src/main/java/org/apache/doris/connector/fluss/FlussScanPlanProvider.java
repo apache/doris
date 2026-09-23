@@ -23,7 +23,6 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -89,17 +88,16 @@ import java.util.function.Function;
  * offsets of that tail ({@code LAKE_SUPPRESS} rather than plain {@code LAKE}), and BE drops the lake rows
  * whose keys the tail names. The surviving state of the tail itself is contributed once, by a
  * {@code PK_TAIL} range. A bucket the lake has never seen is read whole from fluss, as {@code PK_FULL},
- * exactly as it would be without a lake. Every row is therefore produced exactly once, and the read
- * matches what fluss alone would return — which is what makes the fluss-only read the reference the
- * regression tests compare against.
+ * exactly as it would be without a lake. Every live-partition row is therefore produced exactly once;
+ * lake-only historical partitions are carried as plain lake ranges because Fluss has no current state
+ * with which to compare them.
  *
- * <p>Falling back to that fluss-only read is always safe for a primary-key table, in a way it is not for
- * a log table: fluss keeps such a table's state in full, so reading it alone returns the whole table,
- * only slower than reading the lake's columnar files would be. That is why {@code auto} answers every
- * question it cannot answer well — a key column it cannot compare exactly, a tail the log no longer
- * holds — by reading fluss alone rather than by failing, and why {@code required} answers the same
- * questions with an error: that mode exists to make "did this actually read the lake?" answerable in a
- * test.
+ * <p>Falling back to full Fluss reads is safe for every LIVE primary-key partition, in a way it is not for
+ * a log table: Fluss keeps each live partition's state in full. Historical partitions can outlive Fluss
+ * retention in the lake, so {@code auto} keeps those plain lake splits while reading live partitions from
+ * Fluss. That is how it answers a key it cannot compare exactly or a tail the log no longer holds without
+ * dropping history. {@code required} answers the same conditions with an error: that mode exists to make
+ * "did this actually key-merge the lake?" answerable in a test.
  */
 public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
 
@@ -209,13 +207,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private boolean unionReadModeFromSession;
 
     /**
-     * Why this scan gave up its lake half, or null when it did not. Only {@code auto} can get here — the
-     * same conditions are errors under {@code required} — and the plan that results is the fluss-only read
-     * {@code disabled} would have produced, which for a primary-key table is the whole table. It shows up
-     * in EXPLAIN because that is otherwise the only difference between "there is no lake to read" and
-     * "there is one and this query could not use it".
+     * Why this scan gave up key-merging its live lake half, or null when it did not. Only {@code auto} can
+     * get here. Live partitions fall back to full Fluss reads; retained lake-only partitions remain in the
+     * plan when present, because Fluss no longer owns those rows.
      */
     private String degradedReason;
+    /** Schema-level reason live PK partitions must be read whole from Fluss, if any. */
+    private String forcePkFlussOnlyReason;
+    /** Whether lake-only and live partitions cannot be distinguished safely by rendered values. */
+    private boolean unsafePartitionIdentity;
 
     /** {@link #degradedReason} when the log no longer holds the tail the lake snapshot stops before. */
     private static final String DEGRADED_TAIL_TRUNCATED = "tail-truncated";
@@ -344,15 +344,28 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     private List<ConnectorScanRange> planPrimaryKeyUnion(ConnectorSession session,
             FlussTableHandle handle, UnionRead union, ConnectorScanRequest request) {
         List<PartitionState> states = new ArrayList<>();
+        Set<Map<String, String>> livePartitionValues = new HashSet<>();
         if (handle.isPartitioned()) {
-            for (PartitionInfo partition : selectedPartitions(handle, request.getRequiredPartitions())) {
+            List<PartitionInfo> livePartitions = adminOps.listPartitionInfos(handle.toTablePath());
+            for (PartitionInfo partition : livePartitions) {
+                livePartitionValues.add(new LinkedHashMap<>(FlussPartitions.toScanPartition(
+                        partition, handle.getPartitionKeys()).getValues()));
+            }
+            for (PartitionInfo partition : selectedPartitions(
+                    handle, request.getRequiredPartitions(), livePartitions)) {
                 states.add(readPartitionState(handle, union,
                         FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
                         bucketsOf(handle, partition), partition.getPartitionName()));
             }
         } else {
+            livePartitionValues.add(Collections.emptyMap());
             states.add(readPartitionState(handle, union, FlussScanRange.Partition.NONE,
                     bucketsOf(handle, null), null));
+        }
+
+        if (forcePkFlussOnlyReason != null) {
+            return degradedPkRanges(session, union, request, states, livePartitionValues,
+                    forcePkFlussOnlyReason);
         }
 
         String truncated = firstTruncatedTail(states);
@@ -362,16 +375,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         + handle.getTableName() + "' cannot be read as its lake plus its log: " + truncated
                         + ". Fluss has already deleted part of the log the lake snapshot stops before, and a"
                         + " primary-key table's log cannot be re-read from the lake. Set "
-                        + unionReadModeSetting() + " to auto or disabled to read the"
-                        + " table from fluss alone, which still returns every row.");
+                        + unionReadModeSetting() + " to auto to read live partitions from Fluss while"
+                        + " retaining lake-only history, or disabled to read only the current Fluss state.");
             }
-            degradeToFlussOnly(DEGRADED_TAIL_TRUNCATED);
-            return pkRangesFromFlussAlone(states);
+            return degradedPkRanges(session, union, request, states, livePartitionValues,
+                    DEGRADED_TAIL_TRUNCATED);
         }
 
-        // The offsets fluss just reported say exactly how many log records each tail holds, so a read too
-        // large to hold in memory can be answered by a plan that does not need to hold it -- reading the
-        // table from fluss alone returns every row without caching a single tail. Doing it here rather
+        // The offset distance is a conservative upper bound on how many records each tail can hold, so a
+        // read estimated too large for memory can use a plan that does not cache a tail. Doing it here rather
         // than at read time also means the ceilings are reported once, from the numbers that tripped them,
         // instead of by whichever bucket happened to reach its limit first on some BE.
         String tooLarge = firstTailOverBudget(states);
@@ -379,17 +391,22 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             if (plannedUnionReadMode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                         + handle.getTableName() + "' cannot be read as its lake plus its log: " + tooLarge
-                        + ". Set " + unionReadModeSetting() + " to auto or disabled to"
-                        + " read the table from fluss alone, wait for tiering to move the tail into the"
-                        + " lake, or raise the ceiling.");
+                        + ". Set " + unionReadModeSetting() + " to auto to read live partitions from Fluss"
+                        + " while retaining lake-only history, set it to disabled to read only the current"
+                        + " Fluss state, wait for tiering to move the tail into the lake, or raise the"
+                        + " ceiling.");
             }
-            degradeToFlussOnly(DEGRADED_TAIL_TOO_LARGE);
-            return pkRangesFromFlussAlone(states);
+            return degradedPkRanges(session, union, request, states, livePartitionValues,
+                    DEGRADED_TAIL_TOO_LARGE);
         }
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (ConnectorScanRange lakeSplit : planLakeRanges(session, union, request)) {
-            ranges.add(bindTailToLakeSplit(handle, lakeSplit, states));
+            ConnectorScanRange classified = bindTailToLakeSplit(
+                    handle, lakeSplit, states, livePartitionValues);
+            if (classified != null) {
+                ranges.add(classified);
+            }
         }
         for (PartitionState state : states) {
             for (Map.Entry<Integer, BucketState> entry : state.buckets.entrySet()) {
@@ -406,6 +423,33 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 // lakeEnd == stop: the lake holds this bucket entirely and fluss adds nothing.
             }
         }
+        return ranges;
+    }
+
+    /**
+     * Falls back to full Fluss reads for live partitions while retaining historical partitions that now
+     * exist only in the lake. Dropping those plain lake splits would make an availability fallback return
+     * fewer rows than either source still owns.
+     */
+    private List<ConnectorScanRange> degradedPkRanges(ConnectorSession session, UnionRead union,
+            ConnectorScanRequest request, List<PartitionState> states,
+            Set<Map<String, String>> livePartitionValues, String reason) {
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        for (ConnectorScanRange lakeSplit : planLakeRanges(session, union, request)) {
+            if (!livePartitionValues.contains(lakeSplit.getPartitionValues())) {
+                if (unsafePartitionIdentity) {
+                    throw new DorisConnectorException("The paimon lake planned partition values "
+                            + lakeSplit.getPartitionValues() + " that cannot be matched safely to a live"
+                            + " fluss partition because this table's partition type has no stable shared"
+                            + " rendering. The split may be retained lake-only history or a live partition;"
+                            + " refusing it avoids either duplicate or missing rows");
+                }
+                ranges.add(FlussLakeRange.plain(lakeSplit));
+            }
+        }
+        boolean retainedLakeHistory = !ranges.isEmpty();
+        ranges.addAll(pkRangesFromFlussAlone(states));
+        recordDegradation(reason, retainedLakeHistory);
         return ranges;
     }
 
@@ -566,9 +610,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Gives up this scan's lake half for {@code reason}. Everything asked afterwards — the node
-     * properties, the scan-level params, EXPLAIN — then answers as a fluss-only read, because the field
-     * the answers come from is the one being cleared here.
+     * Records a live-partition fallback for {@code reason}. When no retained history remains, clear the
+     * lake half entirely; otherwise keep it so scan properties and EXPLAIN describe the plain lake ranges
+     * that are still part of the answer.
      *
      * <p>One question was asked earlier and cannot be taken back: {@link #getMustReadColumns}, at plan
      * translation time, may already have kept the key columns in the scan's tuple. That is harmless in
@@ -576,9 +620,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * reason this guard is allowed to run so late. The opposite order would not be harmless, which is why
      * the conditions that CAN be decided before translation (a key column's type) are decided there.
      */
-    private void degradeToFlussOnly(String reason) {
+    private void recordDegradation(String reason, boolean retainedLakeHistory) {
         degradedReason = reason;
-        unionRead = null;
+        if (!retainedLakeHistory) {
+            unionRead = null;
+        }
     }
 
     /**
@@ -593,12 +639,17 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * offset for means their metadata disagrees. Each would silently duplicate rows.
      */
     private ConnectorScanRange bindTailToLakeSplit(FlussTableHandle handle, ConnectorScanRange lakeSplit,
-            List<PartitionState> states) {
+            List<PartitionState> states, Set<Map<String, String>> livePartitionValues) {
         PartitionState state = matchingPartition(lakeSplit, states);
         if (state == null) {
-            throw new DorisConnectorException("The paimon lake planned a split whose partition has no"
-                    + " matching fluss partition in this scan. Its log tail cannot be identified, so"
-                    + " reading the split could return superseded rows twice");
+            if (livePartitionValues.contains(lakeSplit.getPartitionValues())) {
+                // The partition still exists in Fluss but the engine pruned it from this scan. Its lake
+                // split must be pruned too; treating it as retained history would defeat partition pruning.
+                return null;
+            }
+            // Fluss expires partitions independently of the lake. With no live partition there can be no
+            // post-snapshot tail to suppress, and the retained lake split is the only remaining copy.
+            return FlussLakeRange.plain(lakeSplit);
         }
         int bucket = lakeSplitBucket(handle, lakeSplit);
         BucketState bucketState = state.buckets.get(bucket);
@@ -743,11 +794,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // cannot parse is a request it cannot honour, whichever table the statement then reads.
         FlussCatalogProperties.UnionReadMode mode = resolveUnionReadMode(session);
         // A $log scan asks a different question of the same resolution, so it reads the mode differently.
-        // The union-read mode chooses a PATH for reading a whole table, and $log is not a whole table: it
+        // The union-read mode chooses a PATH for reading the base table, and $log is not the base table: it
         // is defined AS "the part past the lake snapshot", so there is no path here to choose and the mode
-        // does not apply. Where a whole-table read may quietly settle for reading fluss alone, $log has to
-        // fail instead — the fluss-only read returns the whole table, which is a different row set under
-        // the same name.
+        // does not apply. A base-table read may use only the state Fluss still retains, but $log cannot
+        // substitute such a scan: it must start at the lake boundary promised by its name.
         if (handle.isLogOnly()) {
             return resolveLakeBoundary(session, handle);
         }
@@ -763,19 +813,31 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             // only be known from the offsets is decided in planScan, where giving up is still safe.
             String rejection = keyColumnRejection(handle);
             String reason = DEGRADED_KEY_TYPE;
-            if (rejection == null) {
-                rejection = partitionColumnRejection(handle);
+            String partitionRejection = partitionColumnRejection(handle);
+            if (rejection == null && partitionRejection != null) {
+                rejection = partitionRejection;
                 reason = DEGRADED_PARTITION_TYPE;
             }
             if (rejection != null) {
                 if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                     throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                             + handle.getTableName() + "' cannot be read as its lake plus its change log: "
-                            + rejection + ". Reading it from fluss alone still returns every row, so set "
-                            + unionReadModeSetting() + " to auto or disabled.");
+                            + rejection + ". Set " + unionReadModeSetting()
+                            + " to auto to read live partitions from fluss, or disabled to explicitly"
+                            + " read only the current fluss state.");
                 }
+                if (!handle.isPartitioned()) {
+                    // With no partitions there is no retained lake-only history to preserve. A full PK
+                    // read from Fluss is the complete current table and needs no lake metadata at all.
+                    degradedReason = reason;
+                    return null;
+                }
+                forcePkFlussOnlyReason = reason;
+                unsafePartitionIdentity = partitionRejection != null;
+                // Record the schema-level fallback even when no readable lake snapshot exists yet.
+                // Otherwise EXPLAIN makes the same table look as though it took the ordinary no-snapshot
+                // fallback and hides the incompatibility that will still apply once tiering publishes one.
                 degradedReason = reason;
-                return null;
             }
         }
         LakeSnapshot snapshot;
@@ -790,7 +852,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         + "a fluss-only read. Wait for the tiering service to commit, or set it "
                         + "to auto or disabled.", e);
             }
-            // Nothing is in the lake, so the log holds everything: the fluss-only read is the whole table.
+            // There is no readable lake boundary to combine with the log, so auto uses current Fluss state.
             return null;
         }
         String lakeFormat = handle.getDataLakeFormat();
@@ -805,7 +867,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 catalogProperties.getLakeOverrides()));
         ConnectorTableHandle lakeHandle = LakeSibling.forward(session, sibling,
                 metadata -> metadata.getTableHandle(
-                        session, handle.getDatabaseName(), handle.getTableName()))
+                        session, handle.getLakeDatabaseName(), handle.getLakeTableName()))
                 .orElseThrow(() -> new DorisConnectorException("Fluss reports a readable lake snapshot for '"
                         + handle.getDatabaseName() + "." + handle.getTableName() + "' but its lake table"
                         + " does not exist. The lake warehouse and the fluss cluster disagree; check the"
@@ -813,15 +875,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // The lake half's ranges are planned by the sibling and mixed into this node's range list, where
         // they are told apart from fluss's by which connector owns them. Checked at birth; see requireOwned.
         LakeSibling.requireOwned(sibling, lakeHandle);
-        // Ask the sibling to resolve the id so the pin carries paimon's schema id as well as its data
-        // snapshot. Supplying a bare id would pin file planning but leave slot binding on the latest
-        // schema, which can make the two halves overlap or disagree after schema evolution.
-        ConnectorMvccSnapshot pin = LakeSibling.forward(session, sibling,
-                metadata -> metadata.resolveTimeTravel(session, lakeHandle,
-                        ConnectorTimeTravelSpec.snapshotId(String.valueOf(snapshot.getSnapshotId()))))
-                .orElseThrow(() -> new DorisConnectorException("Fluss reports readable lake snapshot "
-                        + snapshot.getSnapshotId() + " for '" + handle.getDatabaseName() + "."
-                        + handle.getTableName() + "', but the paimon lake no longer contains it"));
+        // This is a statement fence on DATA, not user-visible schema time travel. An empty-properties pin
+        // tells the paimon sibling to hold file planning at the Fluss-readable snapshot while retaining the
+        // current query schema, so a nullable column added since that snapshot is materialized as NULL for
+        // older lake rows. The explicit $lake view resolves time travel separately and keeps historical
+        // schema semantics.
+        ConnectorMvccSnapshot pin = ConnectorMvccSnapshot.builder()
+                .snapshotId(snapshot.getSnapshotId())
+                .build();
         ConnectorTableHandle pinnedHandle = LakeSibling.forward(session, sibling,
                 metadata -> metadata.applySnapshot(session, lakeHandle, pin));
         ConnectorScanPlanProvider siblingProvider = LakeSibling.call(sibling,
@@ -883,9 +944,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * lake, and it needs it absolutely.
      *
      * <p>Both failures below are the same failure seen twice: {@code $log} names the log PAST the lake, so
-     * without a lake there is no such segment. Answering with the whole log instead would be the one
-     * mistake that cannot be noticed downstream — the plan looks exactly like a correct one, and the query
-     * returns every row of the table under a name that promised a part of them.
+     * without a lake there is no such segment. Answering with an unbounded Fluss scan instead would be the
+     * one mistake that cannot be noticed downstream — the plan looks exactly like a correct one, but its
+     * rows are not constrained to the segment promised by the name.
      */
     private UnionRead resolveLakeBoundary(ConnectorSession session, FlussTableHandle handle) {
         if (!handle.isDataLakeEnabled()) {
@@ -958,7 +1019,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public Set<String> getMustReadColumns(ConnectorSession session, ConnectorTableHandle handle) {
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
-        if (!flussHandle.hasPrimaryKey() || resolveUnionRead(session, flussHandle) == null) {
+        if (!flussHandle.hasPrimaryKey() || resolveUnionRead(session, flussHandle) == null
+                || forcePkFlussOnlyReason != null) {
             return Collections.emptySet();
         }
         return new LinkedHashSet<>(flussHandle.getPhysicalPrimaryKeys());
@@ -1020,7 +1082,12 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * dropped between pruning and planning, and there is nothing left to read.
      */
     private List<PartitionInfo> selectedPartitions(FlussTableHandle handle, List<String> requiredPartitions) {
-        List<PartitionInfo> partitions = adminOps.listPartitionInfos(handle.toTablePath());
+        return selectedPartitions(
+                handle, requiredPartitions, adminOps.listPartitionInfos(handle.toTablePath()));
+    }
+
+    private static List<PartitionInfo> selectedPartitions(FlussTableHandle handle,
+            List<String> requiredPartitions, List<PartitionInfo> partitions) {
         if (requiredPartitions.isEmpty()) {
             return partitions;
         }
@@ -1210,7 +1277,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // sending the lake's scan-node properties to BE would configure a reader for ranges that are
         // not there.
         if (union != null && union.hasLakeHalf()) {
-            if (flussHandle.hasPrimaryKey()) {
+            if (flussHandle.hasPrimaryKey() && forcePkFlussOnlyReason == null) {
                 // What BE needs to suppress lake rows by key: which columns the key is made of, and how
                 // large a tail it may hold in memory while doing so. Both are node-level because both are
                 // the same for every range of the scan.

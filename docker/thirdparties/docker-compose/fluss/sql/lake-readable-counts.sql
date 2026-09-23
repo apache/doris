@@ -15,51 +15,25 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
--- Read the same fixtures through the Fluss catalog. Planning each source asks
--- the coordinator for getReadableLakeSnapshot; run-init-sql.sh also inspects
--- the corresponding JobManager log slice and rejects Fluss-only fallback.
+-- Header for the exact-readable-snapshot probe. run-init-sql.sh asks the
+-- ZooKeeper sidecar for the snapshot ID the Fluss coordinator has published
+-- for each fixture, appends one count with a scan.snapshot-id hint per table,
+-- then runs the resulting statement. Counting the latest Paimon snapshot would
+-- prove only that tiering committed; counting through the Fluss catalog would
+-- let an older readable snapshot plus its log tail satisfy the full row count.
 
 SET 'execution.runtime-mode' = 'batch';
 SET 'sql-client.execution.result-mode' = 'tableau';
 SET 'parallelism.default' = '1';
-SET 'pipeline.name' = 'fluss-readable-snapshot-probe';
 
-CREATE CATALOG fluss_catalog WITH (
-    'type' = 'fluss',
-    'bootstrap.servers' = '__FLUSS_BOOTSTRAP_SERVERS__',
-    'paimon.metastore' = 'filesystem',
-    'paimon.warehouse' = '__FLUSS_PAIMON_WAREHOUSE__',
-    'paimon.s3.endpoint' = '__FLUSS_LAKE_S3_ENDPOINT__',
-    'paimon.s3.path.style.access' = 'true',
-    'paimon.s3.access-key' = '__FLUSS_LAKE_S3_ACCESS_KEY__',
-    'paimon.s3.secret-key' = '__FLUSS_LAKE_S3_SECRET_KEY__'
+CREATE CATALOG paimon_catalog WITH (
+    'type' = 'paimon',
+    'warehouse' = '__FLUSS_PAIMON_WAREHOUSE__',
+    's3.endpoint' = '__FLUSS_LAKE_S3_ENDPOINT__',
+    's3.path.style.access' = 'true',
+    's3.access-key' = '__FLUSS_LAKE_S3_ACCESS_KEY__',
+    's3.secret-key' = '__FLUSS_LAKE_S3_SECRET_KEY__'
 );
 
-USE CATALOG fluss_catalog;
+USE CATALOG paimon_catalog;
 USE fluss_test;
-
-SELECT CONCAT('READABLE:lake_log=', CAST(COUNT(*) AS STRING)) AS marker FROM lake_log
-UNION ALL
-SELECT CONCAT('READABLE:lake_cold=', CAST(COUNT(*) AS STRING)) FROM lake_cold
-UNION ALL
-SELECT CONCAT('READABLE:lake_types=', CAST(COUNT(*) AS STRING)) FROM lake_types
-UNION ALL
-SELECT CONCAT('READABLE:lake_part=', CAST(COUNT(*) AS STRING)) FROM lake_part
-UNION ALL
-SELECT CONCAT('READABLE:lake_pk=', CAST(COUNT(*) AS STRING)) FROM lake_pk
-UNION ALL
-SELECT CONCAT('READABLE:lake_pk_multi=', CAST(COUNT(*) AS STRING)) FROM lake_pk_multi
-UNION ALL
-SELECT CONCAT('READABLE:lake_pk_part=', CAST(COUNT(*) AS STRING)) FROM lake_pk_part
-UNION ALL
-SELECT CONCAT('READABLE:lake_pk_cold=', CAST(COUNT(*) AS STRING)) FROM lake_pk_cold
-UNION ALL
-SELECT CONCAT('READABLE:lake_nested=', CAST(COUNT(*) AS STRING)) FROM lake_nested
-UNION ALL
-SELECT CONCAT('READABLE:lake_part_int=', CAST(COUNT(*) AS STRING)) FROM lake_part_int
-UNION ALL
-SELECT CONCAT('READABLE:lake_pk_part_int=', CAST(COUNT(*) AS STRING)) FROM lake_pk_part_int
-UNION ALL
-SELECT CONCAT('READABLE:big_log=', CAST(COUNT(*) AS STRING)) FROM big_log
-UNION ALL
-SELECT CONCAT('READABLE:big_pk=', CAST(COUNT(*) AS STRING)) FROM big_pk;

@@ -49,6 +49,8 @@ public class LakeStorageOptionsTest {
         lakeOptions.put("fs.obs.access.key", "obs-ak");
         lakeOptions.put("fs.obs.secret.key", "obs-sk");
         lakeOptions.put("fs.obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        lakeOptions.put("fs.s3a.session.token", "TOKEN");
+        lakeOptions.put("dfs.nameservices", "ns1");
 
         Map<String, String> expected = new HashMap<>();
         expected.put("s3.access_key", "AK");
@@ -62,6 +64,8 @@ public class LakeStorageOptionsTest {
         expected.put("obs.access_key", "obs-ak");
         expected.put("obs.secret_key", "obs-sk");
         expected.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        expected.put("s3.session_token", "TOKEN");
+        expected.put("dfs.nameservices", "ns1");
 
         Assertions.assertEquals(expected, LakeStorageOptions.toStorageProperties(lakeOptions));
     }
@@ -93,16 +97,13 @@ public class LakeStorageOptionsTest {
         lakeOptions.put("warehouse", "s3://bucket/lake");
         lakeOptions.put("metastore", "filesystem");
         lakeOptions.put("uri", "thrift://hms:9083");
-        // Spelled the way Hadoop spells it, and forwarded to the paimon sibling as such. It is not in the
-        // table, so it is not this connector's to translate — it keeps travelling with the lake catalog.
-        lakeOptions.put("fs.s3a.access.key", "AK");
 
         // The catalog's storage map is bound by fe-filesystem: a paimon catalog option in it would be
         // matched by no property class, so it would be neither used nor reported.
         Assertions.assertEquals(new HashMap<String, String>(),
                 LakeStorageOptions.toStorageProperties(lakeOptions));
         Assertions.assertFalse(LakeStorageOptions.isStorageOption("warehouse"));
-        Assertions.assertFalse(LakeStorageOptions.isStorageOption("fs.s3a.access.key"));
+        Assertions.assertFalse(LakeStorageOptions.isStorageOption("uri"));
     }
 
     @Test

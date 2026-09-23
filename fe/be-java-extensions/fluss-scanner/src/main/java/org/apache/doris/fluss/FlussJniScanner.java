@@ -26,7 +26,6 @@ import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
-import org.apache.fluss.client.table.scanner.batch.KvSnapshotAndLogBatchScanner;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
@@ -260,7 +259,7 @@ public class FlussJniScanner extends JniScanner {
      * snapshot is far behind costs the most.
      */
     private BatchScanner primaryKeyScanner(TableBucket tableBucket, int[] projection) {
-        return new KvSnapshotAndLogBatchScanner(
+        return new SafeKvSnapshotAndLogBatchScanner(
                 table, tableBucket, kvSnapshotId, logStartOffset, logStopOffset, projection);
     }
 

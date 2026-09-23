@@ -71,8 +71,8 @@ public class FlussTableHandle implements ConnectorTableHandle {
      *
      * <p>The names describe the data, not the freshness: {@link #LOG_ONLY} is "what is in the log", which
      * stays true however far behind tiering has fallen, whereas a name like "realtime" would be a lie the
-     * moment tiering stops. Path selection — reading a whole table from fluss alone versus as its lake
-     * plus its log — is a different question and is NOT expressed here; it is the catalog's (or the
+     * moment tiering stops. Path selection — reading the current Fluss state alone versus combining the
+     * lake with its log — is a different question and is NOT expressed here; it is the catalog's (or the
      * session's) union-read mode.
      */
     public enum ReadMode {
@@ -84,6 +84,8 @@ public class FlussTableHandle implements ConnectorTableHandle {
 
     private final String databaseName;
     private final String tableName;
+    private final String lakeDatabaseName;
+    private final String lakeTableName;
     private final long tableId;
     private final int schemaId;
     private final boolean hasPrimaryKey;
@@ -102,9 +104,21 @@ public class FlussTableHandle implements ConnectorTableHandle {
             boolean hasPrimaryKey, List<String> primaryKeys, List<String> bucketKeys, int bucketCount,
             List<String> partitionKeys, boolean dataLakeEnabled, String dataLakeFormat,
             Map<String, String> properties, Map<String, DataType> keyColumnTypes) {
+        this(databaseName, tableName, tableId, schemaId, hasPrimaryKey, primaryKeys, bucketKeys,
+                bucketCount, partitionKeys, dataLakeEnabled, dataLakeFormat, properties,
+                keyColumnTypes, databaseName, tableName);
+    }
+
+    public FlussTableHandle(String databaseName, String tableName, long tableId, int schemaId,
+            boolean hasPrimaryKey, List<String> primaryKeys, List<String> bucketKeys, int bucketCount,
+            List<String> partitionKeys, boolean dataLakeEnabled, String dataLakeFormat,
+            Map<String, String> properties, Map<String, DataType> keyColumnTypes,
+            String lakeDatabaseName, String lakeTableName) {
         this.readMode = ReadMode.DEFAULT;
         this.databaseName = Objects.requireNonNull(databaseName, "databaseName");
         this.tableName = Objects.requireNonNull(tableName, "tableName");
+        this.lakeDatabaseName = Objects.requireNonNull(lakeDatabaseName, "lakeDatabaseName");
+        this.lakeTableName = Objects.requireNonNull(lakeTableName, "lakeTableName");
         this.tableId = tableId;
         this.schemaId = schemaId;
         this.hasPrimaryKey = hasPrimaryKey;
@@ -131,6 +145,8 @@ public class FlussTableHandle implements ConnectorTableHandle {
         this.readMode = readMode;
         this.databaseName = source.databaseName;
         this.tableName = source.tableName;
+        this.lakeDatabaseName = source.lakeDatabaseName;
+        this.lakeTableName = source.lakeTableName;
         this.tableId = source.tableId;
         this.schemaId = source.schemaId;
         this.hasPrimaryKey = source.hasPrimaryKey;
@@ -147,6 +163,7 @@ public class FlussTableHandle implements ConnectorTableHandle {
     /** Snapshots {@code tableInfo} into a handle. */
     public static FlussTableHandle of(TableInfo tableInfo) {
         TablePath path = tableInfo.getTablePath();
+        TablePath lakePath = tableInfo.getLakeTablePath();
         DataLakeFormat lakeFormat = tableInfo.getTableConfig().getDataLakeFormat().orElse(null);
         return new FlussTableHandle(
                 path.getDatabaseName(),
@@ -161,7 +178,9 @@ public class FlussTableHandle implements ConnectorTableHandle {
                 tableInfo.getTableConfig().isDataLakeEnabled(),
                 lakeFormat == null ? null : lakeFormat.toString(),
                 tableInfo.getProperties().toMap(),
-                keyColumnTypes(tableInfo));
+                keyColumnTypes(tableInfo),
+                lakePath.getDatabaseName(),
+                lakePath.getTableName());
     }
 
     /**
@@ -186,12 +205,24 @@ public class FlussTableHandle implements ConnectorTableHandle {
         return TablePath.of(databaseName, tableName);
     }
 
+    public TablePath toLakeTablePath() {
+        return TablePath.of(lakeDatabaseName, lakeTableName);
+    }
+
     public String getDatabaseName() {
         return databaseName;
     }
 
     public String getTableName() {
         return tableName;
+    }
+
+    public String getLakeDatabaseName() {
+        return lakeDatabaseName;
+    }
+
+    public String getLakeTableName() {
+        return lakeTableName;
     }
 
     public long getTableId() {
@@ -295,12 +326,15 @@ public class FlussTableHandle implements ConnectorTableHandle {
                 && schemaId == that.schemaId
                 && readMode == that.readMode
                 && databaseName.equals(that.databaseName)
-                && tableName.equals(that.tableName);
+                && tableName.equals(that.tableName)
+                && lakeDatabaseName.equals(that.lakeDatabaseName)
+                && lakeTableName.equals(that.lakeTableName);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(databaseName, tableName, tableId, schemaId, readMode);
+        return Objects.hash(databaseName, tableName, lakeDatabaseName, lakeTableName,
+                tableId, schemaId, readMode);
     }
 
     @Override
@@ -310,6 +344,7 @@ public class FlussTableHandle implements ConnectorTableHandle {
                 + ", primaryKey=" + hasPrimaryKey + ", buckets=" + bucketCount
                 + ", partitionKeys=" + partitionKeys
                 + ", dataLake=" + (dataLakeEnabled ? dataLakeFormat : "disabled")
+                + ", lakeTable=" + lakeDatabaseName + "." + lakeTableName
                 + ", readMode=" + readMode + "}";
     }
 

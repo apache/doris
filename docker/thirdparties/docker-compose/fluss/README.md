@@ -100,6 +100,9 @@ read by Doris FE/BE through the Paimon connector. `data/paimon` remains only as
 the documented local-directory debugging fallback. `data/minio-control` is a
 small request/response directory used by the sql-client to ask MinIO's `mc` tool
 to remove a failed attempt's `fluss_test.db` prefix before retrying.
+`data/zookeeper-control` connects the SQL client to a read-only ZooKeeper
+sidecar that exports the exact lake snapshot IDs the Fluss coordinator has
+published as readable.
 
 ## Fixtures
 
@@ -145,8 +148,11 @@ reads such a table as empty — see the note in `sql/init.sql`.
 Building them takes three steps (`scripts/run-init-sql.sh`):
 
 1. `sql/init.sql` writes the rows that belong in paimon, tiering service running;
-2. `sql/lake-row-counts.sql` is polled until paimon holds every one of them and
-   Fluss exposes the committed snapshot as readable;
+2. `sql/lake-row-counts.sql` is polled until Paimon holds every one of them;
+   the ZooKeeper sidecar then reads each coordinator-published readable
+   snapshot ID, and `sql/lake-readable-counts.sql` is generated to count that
+   exact Paimon snapshot rather than Paimon's latest snapshot or Fluss's
+   snapshot-plus-log view;
 3. the tiering job is cancelled, and only then does `sql/init-lake-tail.sql`
    write the rows that must stay in the fluss log.
 
@@ -154,8 +160,14 @@ Both the counting and the cancelling are load-bearing. Left running, the tiering
 service would keep consuming the tail, and a suite asserting that a table is read
 as "lake plus log" would quietly become one asserting "lake only" — passing or
 failing by how long the environment had been up. And waiting for *a* paimon
-snapshot rather than for the *row counts* would freeze some fixtures half-tiered,
-which is the same flakiness one step earlier.
+snapshot rather than verifying the coordinator's *exact readable snapshot*
+would freeze some fixtures half-tiered: an older readable snapshot plus its log
+tail can still return the complete Fluss count.
+
+Fixture initialization has one 3000-second wall-clock deadline shared by
+startup, SQL probes, cleanup and all three retries. Every command and stage is
+capped by the remaining time, and the compose healthcheck stays in its startup
+period for that same budget before applying its retry window.
 
 ### Primary-key tables come with a kv snapshot
 

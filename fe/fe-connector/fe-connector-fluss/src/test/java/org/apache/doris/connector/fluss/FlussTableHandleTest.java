@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -49,6 +50,16 @@ public class FlussTableHandleTest {
                 Collections.singletonList("dt"), true, "paimon", properties, keyTypes);
     }
 
+    private static FlussTableHandle handle(String tableName, String lakeDatabaseName,
+            String lakeTableName) {
+        FlussTableHandle base = handle(tableName, 1L, 1);
+        return new FlussTableHandle(base.getDatabaseName(), base.getTableName(), base.getTableId(),
+                base.getSchemaId(), base.hasPrimaryKey(), base.getPrimaryKeys(), base.getBucketKeys(),
+                base.getBucketCount(), base.getPartitionKeys(), base.isDataLakeEnabled(),
+                base.getDataLakeFormat(), base.getProperties(), base.getKeyColumnTypes(),
+                lakeDatabaseName, lakeTableName);
+    }
+
     @Test
     public void survivesJavaSerializationWithEveryFieldIntact() {
         // A field that fails to serialize does not fail loudly here — it comes back null and the plan
@@ -58,6 +69,8 @@ public class FlussTableHandleTest {
 
         Assertions.assertEquals("db", restored.getDatabaseName());
         Assertions.assertEquals("pk_table", restored.getTableName());
+        Assertions.assertEquals("db", restored.getLakeDatabaseName());
+        Assertions.assertEquals("pk_table", restored.getLakeTableName());
         Assertions.assertEquals(7L, restored.getTableId());
         Assertions.assertEquals(3, restored.getSchemaId());
         Assertions.assertTrue(restored.hasPrimaryKey());
@@ -98,6 +111,15 @@ public class FlussTableHandleTest {
         // A table dropped and recreated under the same name is a different table.
         Assertions.assertNotEquals(handle("t", 1L, 1), handle("t", 2L, 1));
         Assertions.assertNotEquals(handle("t", 1L, 1), handle("other", 1L, 1));
+        Assertions.assertNotEquals(handle("t", "archive", "t"), handle("t", "db", "t"));
+        Assertions.assertNotEquals(handle("t", "db", "t_lake"), handle("t", "db", "t"));
+    }
+
+    @Test
+    public void tableInfoResolvesIndependentLakeDatabaseAndTableOverrides() {
+        assertLakePath("archive", null, "archive", "orders");
+        assertLakePath(null, "orders_lake", "db", "orders_lake");
+        assertLakePath("archive", "orders_lake", "archive", "orders_lake");
     }
 
     /**
@@ -125,6 +147,8 @@ public class FlussTableHandleTest {
         // same object-for-object, or the two halves would be planned against two different tables.
         Assertions.assertEquals(base.getDatabaseName(), logOnly.getDatabaseName());
         Assertions.assertEquals(base.getTableName(), logOnly.getTableName());
+        Assertions.assertEquals(base.getLakeDatabaseName(), logOnly.getLakeDatabaseName());
+        Assertions.assertEquals(base.getLakeTableName(), logOnly.getLakeTableName());
         Assertions.assertEquals(base.getTableId(), logOnly.getTableId());
         Assertions.assertEquals(base.getSchemaId(), logOnly.getSchemaId());
         Assertions.assertEquals(base.hasPrimaryKey(), logOnly.hasPrimaryKey());
@@ -146,8 +170,28 @@ public class FlussTableHandleTest {
      */
     @Test
     public void theSegmentSurvivesSerialization() {
-        Assertions.assertTrue(roundTrip(handle("t", 1L, 1).asLogOnly()).isLogOnly());
+        FlussTableHandle restored = roundTrip(handle("t", "archive", "t_lake").asLogOnly());
+        Assertions.assertTrue(restored.isLogOnly());
+        Assertions.assertEquals(TablePath.of("archive", "t_lake"), restored.toLakeTablePath());
         Assertions.assertFalse(roundTrip(handle("t", 1L, 1)).isLogOnly());
+    }
+
+    private static void assertLakePath(String lakeDatabase, String lakeTable,
+            String expectedDatabase, String expectedTable) {
+        FlussTestTables.Builder builder = FlussTestTables.builder(TablePath.of("db", "orders"))
+                .column("id", DataTypes.INT())
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.warehouse", "/tmp/lake");
+        if (lakeDatabase != null) {
+            builder.property("table.datalake.database-name", lakeDatabase);
+        }
+        if (lakeTable != null) {
+            builder.property("table.datalake.table-name", lakeTable);
+        }
+
+        FlussTableHandle resolved = FlussTableHandle.of(builder.build());
+        Assertions.assertEquals(TablePath.of(expectedDatabase, expectedTable), resolved.toLakeTablePath());
     }
 
     private static FlussTableHandle roundTrip(FlussTableHandle handle) {
