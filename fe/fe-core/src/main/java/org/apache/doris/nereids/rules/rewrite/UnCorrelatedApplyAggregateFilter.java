@@ -354,9 +354,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *   aggregation below them (here both HAVING clauses: the sum(x.c) > 2 of the subquery and the
      *   count(*) > 1 of the derived table); a filter whose predicate selects the rows of the
      *   domain of an outer row instead is not one of them, see selectsTheRowsOfTheDomain;
-     * - havingFilter: the deepest filter above the topAggregation, i.e. the first filter met when
-     *   walking down from the apply (here the filter of sum(x.c) > 2, which sits directly above
-     *   the aggregation of the sum);
+     * - havingFilter: the HAVING clause of the topAggregation, i.e. the deepest filter above that
+     *   aggregate: the walk meets the filters above the top aggregate from the top down and keeps
+     *   the last one it meets (here the filter of sum(x.c) > 2, which sits directly above the
+     *   aggregation of the sum), so a filter which the walk meets before that one is a filter
+     *   which the plan keeps above the HAVING clause of the subquery (see
+     *   hasFilterAboveHavingFilter);
      * - domainFilter: the filter which holds the predicates of the WHERE clause (here
      *   t2.c1 = t1.c1, which the walk finds when it stops below the deepest aggregate).
      *
@@ -374,7 +377,24 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         private final List<LogicalAggregate<?>> chain;
         /** every filter above the deepest aggregate, whose predicates decide on the aggregation rows */
         private final List<LogicalFilter<Plan>> filtersAboveTheAggregation;
-        /** the deepest filter above the top aggregate, which sits directly below the projections above it */
+        /**
+         * The HAVING clause of the top aggregation: the deepest filter above that aggregation, i.e.
+         * the filter which sits directly above the aggregate (through the projections which only
+         * carry the columns of the nodes below them through). The walk of locateAggregate overwrites
+         * this field with every filter it meets on its way down from the apply, so the filter which
+         * is kept is the one which is closest to the aggregation: the filters above it are the
+         * filters which the plan keeps above the HAVING clause of the subquery (see
+         * hasFilterAboveHavingFilter).
+         *
+         * The field is kept apart from filtersAboveTheAggregation because the two collections answer
+         * different questions: that list holds every filter whose predicates decide on the rows of
+         * the aggregation below it (the HAVING clauses of every aggregate of the chain, see
+         * CorrelatedAggregatePredicates), while this filter is the boundary between the HAVING clause
+         * of the top aggregation and the filters above it. A filter above that boundary is evaluated
+         * on the rows which the HAVING clause keeps, i.e. on the rows of the subquery of one outer
+         * row, so the subquery has a node above its aggregation which decides on its rows and the
+         * aggregation has to be built on the outer side (see keepsNodesAboveTheAggregation).
+         */
         private final Optional<LogicalFilter<Plan>> havingFilter;
         /** the filter which holds the predicates of the WHERE clause of the subquery */
         private final LogicalFilter<Plan> domainFilter;
@@ -464,6 +484,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         List<LogicalFilter<Plan>> filtersAboveTheAggregation = Lists.newArrayList();
         while (!(below instanceof LogicalAggregate)) {
             if (below instanceof LogicalFilter) {
+                // the filters above the top aggregate are met from the top down, so overwriting the
+                // remembered filter keeps the deepest one of them: the HAVING clause of the
+                // aggregation, which the walk of hasFilterAboveHavingFilter stops at (see the field
+                // of TheAggregation)
                 havingFilter = Optional.of((LogicalFilter<Plan>) below);
                 filtersAboveTheAggregation.add((LogicalFilter<Plan>) below);
             } else if (!(below instanceof LogicalProject)) {
@@ -1239,11 +1263,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
     /**
      * Whether an EXISTS subquery keeps a node above its aggregation which decides on the rows the
-     * subquery returns: the projection of its select list, or a filter which sits above the
-     * projection and above the HAVING clause of the subquery (see the two methods below). The
-     * rewrite keeps those nodes (see rebuildTheAggregationChain), and the aggregation of
-     * one outer row is the aggregation of the rows which they produce, so the aggregation is built
-     * on the outer side and the nodes are evaluated on the aggregation of one correlation key.
+     * subquery returns: the projection of its select list, or a filter which sits above the HAVING
+     * clause of the subquery (see the two methods below). The two checks are told apart on the plan
+     * which this rule receives: the projection of the select list is not always kept above the
+     * aggregation, and the filter above the HAVING clause is a node above the aggregation of its own
+     * even when no projection wraps that aggregation (see hasProjectionAboveAggregate and
+     * hasFilterAboveHavingFilter). The rewrite keeps those nodes (see rebuildTheAggregationChain),
+     * and the aggregation of one outer row is the aggregation of the rows which they produce, so the
+     * aggregation is built on the outer side and the nodes are evaluated on the aggregation of one
+     * correlation key.
      *
      * Only an EXISTS subquery is decided by the nodes above its aggregation this way: the value
      * which an IN or scalar subquery exposes is the output of the aggregation itself, which the
@@ -1299,17 +1327,35 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * Whether a filter sits between the apply and the HAVING clause of the subquery (the filter
-     * which holds the predicates of the HAVING clause which were not pulled into the apply), for
-     * example the filter of
+     * Whether the plan keeps a filter above the HAVING clause of the subquery. The walk starts at the
+     * right side of the apply and stops at the HAVING clause itself (the deepest filter above the top
+     * aggregation, see the field of TheAggregation), so every filter which it meets is a filter which
+     * sits above that clause: the walk does not stop at the filter which sits directly below the
+     * apply, and the filters above the HAVING clause are met before it whichever their number is. For
+     * example the plan
+     *
+     *     Filter(f1) - Filter(f2) - Filter(the HAVING clause) - Aggregate
+     *
+     * reports true for both f1 and f2, while a plan whose only filter is the HAVING clause reports
+     * false. Whether one of those filters is itself the predicate of a HAVING clause of a node above
+     * the aggregation (the WHERE clause of a derived table which reads the aggregation, for example)
+     * does not change that: the plan keeps it above the aggregation, so it is evaluated on the rows
+     * which the aggregation and its HAVING clause produce for one outer row, not on the rows of every
+     * outer row together.
+     *
+     * Such a filter decides on the rows which the subquery returns: it reads the projection of the
+     * select list or the output of the aggregation, and it can keep the row of an empty correlated
+     * domain (which the aggregation of the inner side cannot produce at all), so the subquery has a
+     * node above its aggregation which decides on its rows and the rewrite has to keep it and to
+     * build the aggregation on the outer side (see keepsNodesAboveTheAggregation). For example the
+     * filter of
      *
      *     select t1.c1 from t1 where exists (select x.c from (select count(*) as c, random() as r
      *         from t2 where t2.c1 = t1.c1 having count(*) = 0) x where x.r < -1)
      *
-     * Filter pushdown creates such a filter above the projection of the select list when a
-     * predicate reads a column of that projection which cannot be pushed below it (the volatile
-     * column r here), and the filter decides on the rows which the projection produces, so the
-     * rewrite has to keep it.
+     * Filter pushdown creates such a filter above the projection of the select list when a predicate
+     * reads a column of that projection which cannot be pushed below it (the volatile column r here),
+     * and the filter decides on the rows which the projection produces.
      */
     private static boolean hasFilterAboveHavingFilter(LogicalApply<?, ?> apply, LogicalFilter<Plan> havingFilter) {
         Plan below = apply.right();

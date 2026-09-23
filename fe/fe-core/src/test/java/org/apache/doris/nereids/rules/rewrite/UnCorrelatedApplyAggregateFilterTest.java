@@ -316,6 +316,69 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     @Test
+    public void testAFilterAboveTheHavingClauseWithoutAProjectionIsKept() {
+        // The filter above the HAVING clause reads the output of the aggregation itself (the plan
+        // holds no projection above the aggregation), so it is the only node above the aggregation
+        // which decides on the rows of the subquery: the check which sees the filters above the
+        // HAVING clause alone has to keep it (see hasFilterAboveHavingFilter)
+        Plan rewritten = rewriteWithFiltersAboveTheHavingClause(
+                slot -> new LessThan(slot, new BigIntLiteral(10)));
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the EXISTS subquery has to be rewritten");
+        Plan right = joins.stream().filter(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
+                .findFirst().get().right();
+        Assertions.assertTrue(havingConjunctsAboveAggregate(right).stream()
+                        .anyMatch(conjunct -> conjunct instanceof LessThan),
+                "the filter above the HAVING clause has to be kept");
+        assertJoinConditionsResolvable(rewritten);
+    }
+
+    @Test
+    public void testTwoFiltersAboveTheHavingClauseKeepTheNodesAboveTheAggregation() {
+        // Filter(count(*) < 10) - Filter(count(*) > -10) - Filter(count(*) = 0) - Aggregate: the
+        // HAVING clause of the subquery is the deepest filter above the aggregation, so both filters
+        // above it are filters which the plan keeps above the HAVING clause, whichever number of
+        // them sits between the apply and that clause (see hasFilterAboveHavingFilter)
+        Plan rewritten = rewriteWithFiltersAboveTheHavingClause(
+                slot -> new LessThan(slot, new BigIntLiteral(10)),
+                slot -> new GreaterThan(slot, new BigIntLiteral(-10)));
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the EXISTS subquery has to be rewritten");
+        Plan right = joins.stream().filter(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
+                .findFirst().get().right();
+        Assertions.assertEquals(3, havingConjunctsAboveAggregate(right).size(),
+                "the HAVING clause and both filters above it have to be kept");
+        assertJoinConditionsResolvable(rewritten);
+    }
+
+    @Test
+    public void testAVolatileFilterAboveTheHavingClauseWithoutAProjectionIsRejected() {
+        // A volatile predicate above the HAVING clause of a global aggregation is reported: the
+        // aggregation of the subquery computes the row of an empty correlated domain (the count 0 of
+        // the count(*) here), so the predicate is evaluated on that row as well, while the outer rows
+        // whose correlation keys are equal share the evaluation of the predicate in the rewrite
+        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithFiltersAboveTheHavingClause(
+                slot -> new LessThan(new Random(), new DoubleLiteral(0.5))));
+    }
+
+    @Test
+    public void testAVolatileFilterAboveTheHavingClauseOfAGroupedSubqueryIsRejected() {
+        // The rewrite of the inner side groups the inner rows by the correlation key, so the outer
+        // rows whose keys are equal share the evaluation of every node of the subquery: the volatile
+        // filter above the HAVING clause would be evaluated once for all of them, while the original
+        // subquery evaluates it once for every outer row. The filter above the HAVING clause is the
+        // only node above the aggregation here (the select list of the subquery carries the grouping
+        // column alone), so reporting the filters above the HAVING clause is what makes the rewrite
+        // report this subquery instead of building a plan which shares the evaluation of the filter
+        Assertions.assertThrows(AnalysisException.class,
+                UnCorrelatedApplyAggregateFilterTest::rewriteGroupedSubqueryWithAVolatileFilterAboveTheHavingClause);
+    }
+
+    @Test
     public void testHavingWhichRejectsTheNullOfSumKeepsThePlan() {
         Alias sum = new Alias(new Sum(new BigIntLiteral(1)), "s");
         // sum returns null for an empty input, so sum(...) is not null rejects the row of the
@@ -365,6 +428,71 @@ class UnCorrelatedApplyAggregateFilterTest {
                 new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
                         left, filterAboveHaving);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L exists (select 1 from (select count(*) c from R where r1 = x having count(*) = 0) x
+     *         where &lt;the expressions which the parameters build&gt;)
+     *
+     * whose aggregation is not wrapped by a projection (the projection of the select list only
+     * carries the count of the aggregation through, so it is merged into the nodes above it), so the
+     * filters above the HAVING clause of the subquery are the nodes above the aggregation which
+     * decide on its rows (see hasFilterAboveHavingFilter), and apply the rule.
+     */
+    @SafeVarargs
+    private static Plan rewriteWithFiltersAboveTheHavingClause(Function<Slot, Expression>... aboveTheHaving) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
+        Plan having = new LogicalFilter<>(ImmutableSet.of(new EqualTo(count.toSlot(), new BigIntLiteral(0))), agg);
+        for (Function<Slot, Expression> above : aboveTheHaving) {
+            having = new LogicalFilter<>(ImmutableSet.of(above.apply(count.toSlot())), having);
+        }
+        LogicalApply<LogicalOlapScan, Plan> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                        left, having);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L exists (select 1 from (select g from R where r1 = x group by g having count(*) > 0) x
+     *         where random() &lt; 0.5)
+     *
+     * whose aggregation is grouped (so the rewrite of the inner side is equivalent as long as the
+     * filter above the HAVING clause is not volatile) and whose select list carries the grouping
+     * column of the aggregation alone (so the plan holds no projection above the aggregation), and
+     * apply the rule.
+     */
+    private static Plan rewriteGroupedSubqueryWithAVolatileFilterAboveTheHavingClause() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        LogicalAggregate<LogicalFilter<LogicalOlapScan>> agg =
+                new LogicalAggregate<>(ImmutableList.of(r2), ImmutableList.of(r2, count), where);
+        Plan having = new LogicalFilter<>(ImmutableSet.of(new GreaterThan(count.toSlot(), new BigIntLiteral(0))), agg);
+        Plan volatileFilter = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(new Random(), new DoubleLiteral(0.5))), having);
+        LogicalApply<LogicalOlapScan, Plan> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                        left, volatileFilter);
         return applyTheRule(apply);
     }
 
