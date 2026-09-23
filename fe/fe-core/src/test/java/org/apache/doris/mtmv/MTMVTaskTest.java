@@ -592,6 +592,71 @@ public class MTMVTaskTest {
                 .map(Object::toString).collect(Collectors.toList()));
     }
 
+    /**
+     * A refresh that rebuilt a partition and then fell back out of the incremental attempt must not plan
+     * to refresh that partition again. The plan is computed from the snapshot the MV holds, which such a
+     * refresh has not published yet, so without the rebuild's own record the partition still looks unsynced
+     * and the fallback replaces the work the rebuild just did.
+     */
+    @Test
+    public void testFallbackPlanLeavesTheRebuiltPartitionsOut() throws Exception {
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
+                Mockito.nullable(Set.class))).thenReturn(false);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(poneName, ptwoName));
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+        // poneName was rebuilt by the partition executor before this attempt.
+        Deencapsulation.setField(task, "rebuiltPartitionSnapshots",
+                ImmutableMap.of(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class)));
+
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
+                Mockito.mock(MTMVRefreshContext.class), request);
+
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
+        Assertions.assertEquals(Lists.newArrayList(ptwoName),
+                Deencapsulation.getField(plan, "partitions"));
+    }
+
+    /**
+     * The rebuild's committed snapshots survive the incremental attempt that falls back after them: each
+     * phase resets the accumulator it writes into, and what the MV publishes at the end of the task is the
+     * whole task's work. Losing them would leave the next refresh finding those partitions unsynced and
+     * replacing them once more.
+     */
+    @Test
+    public void testFallbackKeepsTheSnapshotsOfThePartitionsTheRebuildReplaced() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVRefreshPartitionSnapshot rebuiltSnapshot = Mockito.mock(MTMVRefreshPartitionSnapshot.class);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(ptwoName));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
+                Mockito.nullable(Set.class))).thenReturn(Collections.emptyMap());
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+        Deencapsulation.setField(task, "rebuiltPartitionSnapshots", ImmutableMap.of(poneName, rebuiltSnapshot));
+
+        try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(
+                IvmIncrRefreshManager.class, (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(IvmIncrRefreshResult.fallback(
+                                IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, "forced")))) {
+            Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+            Object result = Deencapsulation.invoke(task, "executeIvmAttempt",
+                    Mockito.mock(MTMVRefreshContext.class), request, Mockito.mock(ConnectContext.class),
+                    Lists.newArrayList());
+            Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
+        }
+
+        Assertions.assertSame(rebuiltSnapshot,
+                ((Map<?, ?>) Deencapsulation.getField(task, "partitionSnapshots")).get(poneName));
+    }
+
     @Test
     public void testManualIvmWithOneRowRelationWithoutSnapshotUsesComplete() throws JobException {
         Mockito.when(mtmv.isIvm()).thenReturn(true);

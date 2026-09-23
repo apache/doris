@@ -22,7 +22,7 @@ SUCCESS	PARTIAL	1
 4	2026-02-20	400
 
 -- !rename_task --
-SUCCESS	NONE	0
+SUCCESS	COMPLETE	2
 
 -- !rename_mv --
 2	2026-02-10	200

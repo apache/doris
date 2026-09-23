@@ -117,7 +117,9 @@ public class MTMVRelationManager implements MTMVHookService {
             }
             boolean invalidated;
             if (allPartitionsChanged) {
-                mtmv.invalidateWholeMv(reason);
+                // Awaited here, where no MV lock is held: the DDL does not return until the invalidation is
+                // durable, which is what it was before the record was handed back to the caller.
+                mtmv.invalidateWholeMv(reason).await();
                 invalidated = true;
             } else {
                 invalidated = mtmv.invalidateIvmBaseline(baseTableInfo, changedPartitions, reason);
@@ -344,16 +346,16 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void dropTable(Table table) {
-        // A dropped base table is already caught by the IVM stream guard (the stream records the
-        // base table id, so it stops being usable once the table is gone), no need to re-analyze.
-        // Unlike a rename it stays an invalidation: the table is gone for good, so the state is not
-        // something a later alter can make obsolete.
-        processBaseTableChange(new BaseTableInfo(table), "The base table has been deleted:", false, false);
+        // The message below names the table and what became of it, which is what an MV that reads it has to
+        // know; the query check would replace that with the weaker "the query is no longer analyzable",
+        // because a dropped table is the one change whose query is gone beyond doubt. What the two record
+        // is the same state either way. Unlike a rename it stays an invalidation: the table is gone for
+        // good, so the state is not something a later alter can make obsolete.
+        processBaseTableChange(new BaseTableInfo(table), "The base table has been deleted:", false);
     }
 
     /**
-     * update mtmv status to `SCHEMA_CHANGE`, except for a rename of an IVM MV's base table, which leaves the
-     * state as it is -- see {@link #processBaseTableChange}.
+     * update mtmv status to `SCHEMA_CHANGE`.
      *
      * @param isReplace
      */
@@ -362,69 +364,45 @@ public class MTMVRelationManager implements MTMVHookService {
         // when replace, need deal two table
         if (isReplace) {
             // REPLACE TABLE already invalidates the IVM baseline explicitly, see Alter#processReplaceTable
-            processBaseTableChange(newTableInfo.get(), "The base table has been updated:", false, false);
+            processBaseTableChange(newTableInfo.get(), "The base table has been updated:", false);
         }
         boolean renamed = !isReplace && newTableInfo.isPresent()
                 && !Objects.equals(oldTableInfo.getTableName(), newTableInfo.get().getTableName());
-        // The invalidation runs first, while the dependencies are still registered under the name the
-        // rename is leaving: moving them first would make this lookup -- which is by the old name -- find
-        // nothing, and the rename would stop invalidating anything at all.
-        processBaseTableChange(oldTableInfo, "The base table has been updated:", !renamed, renamed);
-        if (renamed) {
-            renameBaseTable(oldTableInfo, newTableInfo.get());
-        }
+        // A rename is the one change whose query check is skipped: the MV query keeps spelling the old
+        // name, so it is unanalyzable by construction, and the reason it would be invalidated with --
+        // "the query is no longer analyzable" -- says less than the message this call records anyway.
+        boolean checkQueryUsable = !renamed;
+        processBaseTableChange(oldTableInfo, "The base table has been updated:", checkQueryUsable);
     }
+
 
     /**
-     * Move a renamed table's entries in the dependency maps to its new name.
-     *
-     * <p>The maps are keyed by {@link BaseTableInfo}, which compares by name, and an MV keeps the relation
-     * it was created against -- a rename leaves the MV query spelling the old name, so it no longer
-     * analyzes and the relation is not recomputed. Without this the maps would keep the old name, and a
-     * metadata-only change to the table under its new name -- a TRUNCATE, say, which emits no row binlog --
-     * would find no dependent MV to invalidate. Renaming the table back then restores an analyzable query
-     * whose MV still holds the rows that change removed, and nothing names the partition that would have
-     * to be rebuilt. Moving the entries is what a rename needs instead of the invalidation it used to
-     * carry: a rename changes no rows, so there is nothing to rebuild, only a lookup that has to keep
-     * working.
-     */
-    private void renameBaseTable(BaseTableInfo oldTableInfo, BaseTableInfo newTableInfo) {
-        moveRelationKey(tableMTMVs, oldTableInfo, newTableInfo);
-        moveRelationKey(tableMTMVsOneLevelAndFromView, oldTableInfo, newTableInfo);
-    }
-
-    private void moveRelationKey(Map<BaseTableInfo, Set<BaseTableInfo>> map,
-            BaseTableInfo oldTableInfo, BaseTableInfo newTableInfo) {
-        Set<BaseTableInfo> dependents = map.get(oldTableInfo);
-        if (CollectionUtils.isEmpty(dependents)) {
-            return;
-        }
-        // Registered under the new name before the old one is dropped: a concurrent base-table change
-        // either still finds the old name or already finds the new one, never neither. Merged rather than
-        // replaced, because a table dropped and re-created under this name registers its own dependents.
-        map.computeIfAbsent(newTableInfo, key -> Sets.newConcurrentHashSet()).addAll(dependents);
-        map.remove(oldTableInfo, dependents);
-    }
-
-    /**
-     * An IVM baseline is only valid while the MV query can still be analyzed against the current
-     * base table schema. Re-analyzing the MV query here (right after the alter was applied) is what
-     * detects a changed column identity: dropping or renaming a column the MV uses makes the query
-     * unanalyzable, and a column re-added with the same name is a different column, so pre-existing
-     * rows read its default value instead.
+     * An MV's query is only as good as the base table schema it was analyzed against. Re-analyzing the
+     * MV query here (right after the alter was applied) is what detects a changed column identity:
+     * dropping or renaming a column the MV uses makes the query unanalyzable, and a column re-added with
+     * the same name is a different column, so pre-existing rows read its default value instead.
      *
      * <p>Such a change is metadata-only for light schema changes and emits no binlog, so an
      * incremental refresh would consume an empty delta and report SUCCESS while silently keeping the
-     * rows computed under the old column epoch. Invalidating the baseline makes a strict INCREMENTAL
-     * refresh fail and tell the user to run a COMPLETE refresh instead.
+     * rows computed under the old column epoch. Invalidating the MV is what keeps that from being
+     * reported as current.
      *
-     * <p>Only IVM is covered: a plain MTMV keeps its previous behaviour (status only).
+     * <p>Every MV is checked, not only an IVM one: whether the query still analyzes is a property of
+     * the MV and of the base table it reads, not of how the MV refreshes, and the invalidation is the
+     * same one a change to that table records. What an IVM MV has on top of it is a per-partition
+     * requirement, and that is decided elsewhere, from a query that analyzed.
+     *
+     * @return whether the MV was invalidated. That is the whole record for this change: the invalidation
+     *         carries the reason, and the caller has nothing left to write -- a second record would land
+     *         on the same state, and MTMVStatus#updateStateAndDetail would overwrite the detail with the
+     *         blunter "the base table has been updated", which is what knowing the query is unusable is
+     *         for. It would also bump the version and drop the snapshot twice for one change.
      */
-    private void invalidateIvmBaselineIfQueryUnusable(BaseTableInfo baseTableInfo, Table mtmvTable) {
-        if (!(mtmvTable instanceof MTMV) || !((MTMV) mtmvTable).isIvm()) {
-            return;
+    private boolean invalidateMvIfQueryUnusable(BaseTableInfo baseTableInfo, Table mvTable) {
+        if (!(mvTable instanceof MTMV)) {
+            return false;
         }
-        MTMV mtmv = (MTMV) mtmvTable;
+        MTMV mtmv = (MTMV) mvTable;
         // Analyse in a context owned by this check, never the session that issued the alter: the check
         // must not disturb the running statement, and it has to work on threads that have no session.
         // Setting a thread local is how a context is made current, so restore the previous one.
@@ -433,9 +411,10 @@ public class MTMVRelationManager implements MTMVHookService {
             MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
                     MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK));
         } catch (Exception e) {
-            LOG.info("Invalidate IVM baseline, the MV query is no longer usable. baseTable={}, mtmv={}, "
-                    + "reason={}", baseTableInfo, mtmv.getName(), e.getMessage());
-            mtmv.invalidateWholeMv("The MV query is no longer analyzable: " + baseTableInfo);
+            LOG.info("Invalidate MV, the MV query is no longer usable. baseTable={}, mtmv={}, reason={}",
+                    baseTableInfo, mtmv.getName(), e.getMessage());
+            mtmv.invalidateWholeMv("The MV query is no longer analyzable: " + baseTableInfo).await();
+            return true;
         } finally {
             if (previousCtx != null) {
                 previousCtx.setThreadLocalInfo();
@@ -443,6 +422,7 @@ public class MTMVRelationManager implements MTMVHookService {
                 ConnectContext.remove();
             }
         }
+        return false;
     }
 
     @Override
@@ -504,8 +484,14 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
+    /**
+     * Puts every MV that reads this base table into {@code SCHEMA_CHANGE}.
+     *
+     * @param checkQueryUsable whether to re-analyze each MV's query first; see
+     *                         {@link #invalidateMvIfQueryUnusable}
+     */
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix,
-            boolean checkIvmQueryUsable, boolean renamed) {
+            boolean checkQueryUsable) {
         Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevelAndFromView(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
@@ -518,16 +504,10 @@ public class MTMVRelationManager implements MTMVHookService {
                 LOG.warn(e);
                 continue;
             }
-            if (checkIvmQueryUsable) {
-                invalidateIvmBaselineIfQueryUnusable(baseTableInfo, mtmv);
-            }
-            if (renamed && mtmv instanceof MTMV && ((MTMV) mtmv).isIvm()) {
-                // A rename leaves every column alone, and the failure it does cause -- the MV query still
-                // spells the old name -- is reported by the refresh itself: it resolves the base tables from
-                // the query (MTMVTask#run) before it looks at anything else, so the state is not what makes
-                // that failure visible. What the state does to an IVM MV is make the next refresh rebuild the
-                // whole MV (MTMVTask#buildAttempts), which a rename back would have it repeat for nothing. A
-                // non-IVM MV keeps the state it has always got, which is what its own refresh reads.
+            if (checkQueryUsable && invalidateMvIfQueryUnusable(baseTableInfo, mtmv)) {
+                // Invalidated with the reason, which is the more specific of the two messages and the one
+                // this change is worth recording: the state is the same one the generic record below
+                // would set, so writing it too would only bury the reason.
                 continue;
             }
             TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),

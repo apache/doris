@@ -128,8 +128,8 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         // ivm_mv selects dt, k1, v1. Dropping a column it does not use must leave the baseline alone: no
         // partition's requirement is raised, so no partition is sent to a rebuild. The MV state is not the
         // witness here -- a column change puts any MV into SCHEMA_CHANGE through the shared base-table hook,
-        // IVM or not (only a rename is excluded, see testRenameTableDoesNotMarkBaselineRebuild), so telling
-        // a referenced column from an unreferenced one is that hook's criterion to refine and not this one's.
+        // IVM or not (see testRenameTableMarksBaselineRebuild), so telling a referenced column from an
+        // unreferenced one is that hook's criterion to refine and not this one's.
         alignStatesOf(mtmv);
         Map<String, Long> before = latestEpochsOf(mtmv);
         executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
@@ -142,6 +142,46 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         // column. The baseline has to be invalidated instead.
         executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        // And the state is the only record: the invalidation stands for the change, so the detail names
+        // the reason rather than the alter that caused it.
+        assertUnanalyzableDetail(mtmv);
+    }
+
+    /**
+     * The query check belongs to the MV, not to IVM. A plain MV's query is taken away by the same base
+     * table change as an IVM MV's is, and it is left in the same state -- the state its refresh re-analyzes
+     * the query under, which is how it finds out. The detail is what the two have to agree on, and it has
+     * to say the query is gone: "the base table has been updated" is true of every alter, including the
+     * ones the query survives.
+     */
+    @Test
+    public void testDroppingAReadColumnInvalidatesANonIvmMv() throws Exception {
+        String db = "ivm_query_unusable_non_ivm";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        // A column this MV does not read leaves its query alone, so the MV is put into SCHEMA_CHANGE for
+        // the ordinary reason -- which is what the shared hook does for any column change, IVM or not --
+        // and not because its query went away. The detail is what tells the two apart here, because the
+        // state is the same either way.
+        executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
+        executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        Assertions.assertFalse(
+                mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
+                "a column the MV does not read leaves the query analyzable, was: "
+                        + mtmv.getStatus().getSchemaChangeDetail());
+
+        // A column it does read takes the query away, and that is what the MV is invalidated with.
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        assertUnanalyzableDetail(mtmv);
     }
 
     /**
@@ -651,7 +691,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     @Test
-    public void testRenameTableDoesNotMarkBaselineRebuild() throws Exception {
+    public void testRenameTableMarksBaselineRebuild() throws Exception {
         String db = "ivm_broken_rename_table";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
@@ -660,18 +700,20 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
 
-        // A rename leaves every column alone, so it must not raise any partition's requirement -- nothing
-        // the MV reads has changed -- and it must not invalidate the MV either: for an IVM MV the state is
-        // what makes the next refresh rebuild the whole MV, and a rename that is renamed back would have it
-        // rebuild for nothing.
+        // A rename leaves every column alone, so it raises no partition's requirement: no partition's rows
+        // have to be recomputed, and an epoch is not the place to record this change. What the rename does
+        // move is the MV state, through the shared base-table hook: the MV query still spells the old name,
+        // so it no longer analyzes, and the state is what sends the next refresh to a whole-MV COMPLETE
+        // rather than let it report SUCCESS over rows it can no longer recompute.
         Assertions.assertEquals(before, latestEpochsOf(mtmv));
-        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
-     * The rename exclusion is IVM's, and only IVM's. A non-IVM MV reads the state for its own reasons -- its
-     * refresh re-analyzes the query under it -- so a rename has to keep setting it there, which is what this
-     * pins: the exclusion is not a general statement about renames.
+     * The state a rename sets is the shared hook's, not IVM's: a non-IVM MV gets it for the same reason --
+     * its refresh re-analyzes the query under it -- and an IVM MV is not exempt. What an IVM MV has instead
+     * of a re-analysis is the epoch state, and that is untouched by a rename, which is the division of
+     * labour the two tests around this one pin.
      */
     @Test
     public void testRenameStillInvalidatesANonIvmMv() throws Exception {
@@ -691,7 +733,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     @Test
-    public void testRenameTableBackKeepsIncrementalRefreshStartable() throws Exception {
+    public void testRenameTableBackStillRequiresAWholeMvRefresh() throws Exception {
         String db = "ivm_broken_rename_table_back";
         createPartitionedIvmTableAndMv(db);
 
@@ -701,14 +743,15 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
         executeSql("ALTER TABLE ivm_base_renamed RENAME ivm_base");
 
-        // A rename changes no column, so it must not invalidate the baseline in either direction: once
-        // the table is renamed back, the MV query is analyzable again and a strict INCREMENTAL refresh
-        // has to be able to start -- as itself, not as a COMPLETE refresh the state would mandate. A
-        // requirement left behind by the rename would also reject every one of them until a COMPLETE
-        // refresh had run, even though nothing the MV depends on ever changed.
+        // Renaming the table back makes the MV query analyzable again, but the state stays where the first
+        // rename put it, and the second rename is why: the dependencies are registered under the name the MV
+        // query spells, so a rename of the table away from that name finds nothing to update and the rename
+        // back finds nothing to clear. The cost of the round trip is one whole-MV COMPLETE refresh, paid on
+        // the next refresh, which is what a rename is worth here -- the state is the only durable thing that
+        // can carry the fact that the MV was un-analyzable in between, and a strict INCREMENTAL refresh is
+        // not the way to find that out. Neither direction raises a partition requirement: no rows moved.
         Assertions.assertEquals(before, latestEpochsOf(mtmv));
-        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
-        Assertions.assertDoesNotThrow(() -> mtmv.validateIvmRefreshStart(mtmv.getSchemaChangeVersion()));
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     @Test
@@ -888,7 +931,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         String db = "ivm_stale_task_result";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
-        mtmv.invalidateWholeMv("seed");
+        mtmv.invalidateWholeMv("seed").await();
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
         long taskVersion = mtmv.getSchemaChangeVersion();
         Deencapsulation.setField(mtmv, "schemaChangeVersion", taskVersion + 1);
@@ -1048,6 +1091,16 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         return (MTMV) Env.getCurrentInternalCatalog()
                 .getDb(db).get()
                 .getTableOrMetaException("ivm_mv");
+    }
+
+    /**
+     * The detail a whole-MV invalidation records when the query can no longer be analyzed. It is the only
+     * record of that change, so the reason has to survive in it: a state alone cannot say why.
+     */
+    private void assertUnanalyzableDetail(MTMV mtmv) {
+        Assertions.assertTrue(
+                mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
+                "the detail must name the reason, was: " + mtmv.getStatus().getSchemaChangeDetail());
     }
 
     private Database getDb(String db) {

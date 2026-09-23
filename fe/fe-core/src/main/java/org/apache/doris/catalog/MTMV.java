@@ -410,6 +410,7 @@ public class MTMV extends OlapTable {
 
     public void alterMvProperties(AlterMTMV alterMTMV, boolean isReplay) {
         EditLogItem editLogItem;
+        EditLogItem invalidation = null;
         writeMvLock();
         try {
             Map<String, String> mvProperties = alterMTMV.getMvProperties();
@@ -444,12 +445,17 @@ public class MTMV extends OlapTable {
             }
             if (rebuildsWholeMv(oldExcludedTriggerTables, oldWindowLimits, oldSyncWindow)) {
                 // Journaled on its own record, ahead of the property change below; a replay applies both
-                // in that order.
-                invalidateWholeMv("The MV's refresh baseline changed with its properties");
+                // in that order. Submitted here and awaited below, outside the lock: the order is the
+                // enqueue order, which the lock already fixes, so there is nothing to gain by holding the
+                // lock across the flush.
+                invalidation = invalidateWholeMv("The MV's refresh baseline changed with its properties");
             }
             editLogItem = submitAlterLog(alterMTMV);
         } finally {
             writeMvUnlock();
+        }
+        if (invalidation != null) {
+            invalidation.await();
         }
         editLogItem.await();
     }
@@ -964,9 +970,27 @@ public class MTMV extends OlapTable {
         return published;
     }
 
-    public void invalidateWholeMv(String detail) {
-        Env.getCurrentEnv().alterMTMVStatus(new TableNameInfo(getQualifiedDbName(), getName()),
-                new MTMVStatus(MTMVState.SCHEMA_CHANGE, detail));
+    /**
+     * Invalidates the whole MV: the state the refresh reads, the version bump that discards a task result
+     * computed against the state being replaced, and the snapshot drop that stops the transparent rewrite
+     * serving rows from it.
+     *
+     * <p>Applies the change and submits its journal record, and hands back the write for the caller to
+     * await. The apply happens here, under whatever lock the caller holds, and before the record is
+     * enqueued, never after: the state is what a concurrent refresh reads, and it must not become visible
+     * behind the record that stands for it.
+     *
+     * <p>The caller awaits outside the MV lock. It does not have to hold the lock across the flush to keep
+     * the order -- the record is enqueued in call order, so submitting this one before the next one is what
+     * puts it first -- and holding the lock across a journal wait is what the rest of this class avoids.
+     */
+    public EditLogItem invalidateWholeMv(String detail) {
+        MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE, detail);
+        alterStatus(status);
+        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo(getQualifiedDbName(), getName()),
+                MTMVAlterOpType.ALTER_STATUS);
+        alterMTMV.setStatus(status);
+        return submitAlterLog(alterMTMV);
     }
 
     /**
@@ -1000,7 +1024,7 @@ public class MTMV extends OlapTable {
             // untouched, and those rows cannot be repaired later: the change emitted no row binlog. The
             // whole MV is invalidated instead, which says "every partition, including the ones partition
             // sync has not created yet" -- what a per-partition requirement cannot express.
-            invalidateWholeMv(reason);
+            invalidateWholeMv(reason).await();
             return true;
         }
         EditLogItem editLogItem;

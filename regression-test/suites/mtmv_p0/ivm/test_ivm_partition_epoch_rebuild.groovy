@@ -35,9 +35,9 @@ import static java.util.concurrent.TimeUnit.SECONDS
  *       rebuilds nothing (IvmRebuiltPartitions 0) and still applies its delta;</li>
  *   <li>a truncated base partition: its rows go away, the other partition's delta is applied, and the
  *       refresh reports the partition it had to rebuild;</li>
- *   <li>a rename of the base table: it changes no column, so it must leave the requirement -- and the MV
- *       state that would force a whole-MV rebuild -- alone, and a strict INCREMENTAL refresh after renaming
- *       the table back must run as itself;</li>
+ *   <li>a rename of the base table: it changes no column, so it raises no partition requirement -- an epoch
+ *       is not where a rename belongs -- but it does put the MV into SCHEMA_CHANGE, and that state is what
+ *       makes the strict INCREMENTAL refresh after it run as a whole-MV COMPLETE;</li>
  *   <li>a second truncated partition: the requirement keeps naming the partitions it belongs to.</li>
  * </ol>
  *
@@ -142,9 +142,15 @@ suite("test_ivm_partition_epoch_rebuild") {
     qt_truncate_task taskQuery(taskId)
     order_qt_truncate_mv """SELECT order_id, dt, amount FROM ${mvName} ORDER BY order_id"""
 
-    // A rename leaves every column alone and names nothing new to read, so it must not carry a requirement
-    // into the refresh that follows it: renaming the table back makes the MV query analyzable again, and a
-    // strict INCREMENTAL refresh then runs as itself instead of being widened to a whole-MV rebuild.
+    // A rename leaves every column alone and names nothing new to read, so it raises no partition
+    // requirement: an epoch is not where this change belongs. What it does move is the MV state. The
+    // shared base-table hook puts every MV that reads the table into SCHEMA_CHANGE -- the MV query still
+    // spells the old name, so it no longer analyzes -- and renaming the table back does not clear it: the
+    // dependencies are registered under the name the query spells, so the rename back finds nothing to
+    // update. The state is therefore what widens the strict INCREMENTAL below into a whole-MV COMPLETE.
+    // The rows it leaves are the same either way; the columns this query reports are not. The count is the
+    // size of the MV because the request was an INCREMENTAL that ran as a COMPLETE -- a request that was
+    // itself a COMPLETE reports 0, since rebuilding everything is what it asked for.
     sql """ALTER TABLE ${baseTable} RENAME ivm_epoch_renamed"""
     sql """ALTER TABLE ivm_epoch_renamed RENAME ${baseTable}"""
     sql """INSERT INTO ${baseTable} VALUES (5, '2026-02-21', 500)"""
