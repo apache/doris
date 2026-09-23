@@ -59,6 +59,9 @@ public:
     Status write_inverted_index();
     Status write_bloom_filter_index();
     uint64_t estimate_buffer_size();
+    // Sums `getter`, one of the ColumnWriter data bytes getters, over every column writer of this
+    // variant: the root, the materialized subcolumns and the sparse or doc value columns.
+    uint64_t get_total_data_pages_bytes(ColumnWriter::DataBytesGetter getter) const;
 
 private:
     Status _write_root(const IColumn* root_jsonb, int& column_id);
