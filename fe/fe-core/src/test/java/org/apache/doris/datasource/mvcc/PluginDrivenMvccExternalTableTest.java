@@ -43,6 +43,7 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -1194,6 +1195,31 @@ public class PluginDrivenMvccExternalTableTest {
                         .collect(Collectors.toList()));
     }
 
+    @Test
+    public void testSnapshotBlindHistoricalFilterDeclinesBeforeEmptyLatestListing() {
+        assertSnapshotBlindHistoricalFilterDeclined(Collections.emptyList());
+    }
+
+    @Test
+    public void testSnapshotBlindHistoricalFilterDeclinesBeforeNonEmptyLatestListing() {
+        assertSnapshotBlindHistoricalFilterDeclined(
+                Collections.singletonList(cpi("dt=2024-02-02", TS_2024_02_02)));
+    }
+
+    private void assertSnapshotBlindHistoricalFilterDeclined(List<ConnectorPartitionInfo> latestPartitions) {
+        Fixture f = Fixture.timeTravelConnectorPartitionPruning(latestPartitions);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
+        ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
+        Mockito.when(f.metadata.applyFilter(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.of(new FilterApplicationResult<>(f.pinnedHandle, predicate, false)));
+
+        Assertions.assertFalse(f.table.applyPartitionFilterForScan(Optional.of(pin), predicate).isPresent(),
+                "a snapshot-blind historical pin must decline connector-filtered materialization");
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     /**
      * The other half of the same decision: a connector whose listing IS snapshot-exact gets its real
      * partition set into the pin, listed on the SNAPSHOT-APPLIED handle. Without this the pin would carry
@@ -1223,8 +1249,15 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
                 f.table.getNameToPartitionItemsForScan(Optional.of(pin)).orElseThrow().keySet(),
                 "scan pruning must reuse the snapshot-consistent materialized view");
+        ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
+        Mockito.when(f.metadata.applyFilter(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.of(new FilterApplicationResult<>(f.pinnedHandle, predicate, false)));
+        Assertions.assertTrue(f.table.applyPartitionFilterForScan(Optional.of(pin), predicate).isPresent(),
+                "a snapshot-aware connector may materialize a filtered historical view");
         Mockito.verify(f.metadata).listPartitions(
-                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.of(predicate)));
         Mockito.verify(f.metadata, Mockito.never()).listPartitions(
                 Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         // The pinned schema is unaffected by which listing was used.
@@ -1790,9 +1823,13 @@ public class PluginDrivenMvccExternalTableTest {
         }
 
         static Fixture timeTravelConnectorPartitionPruning() {
-            return build(Arrays.asList(
+            return timeTravelConnectorPartitionPruning(Arrays.asList(
                     cpi("dt=2024-01-01", TS_2024_01_01),
-                    cpi("dt=2024-02-02", TS_2024_02_02)), true, Type.DATEV2, true);
+                    cpi("dt=2024-02-02", TS_2024_02_02)));
+        }
+
+        static Fixture timeTravelConnectorPartitionPruning(List<ConnectorPartitionInfo> partitions) {
+            return build(partitions, true, Type.DATEV2, true);
         }
 
         /**

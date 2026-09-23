@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -720,6 +721,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             }
         }
         return super.getNameToPartitionItemsForScan(snapshot);
+    }
+
+    @Override
+    public Optional<ConnectorFilteredPartitionView> applyPartitionFilterForScan(Optional<MvccSnapshot> snapshot,
+            ConnectorExpression partitionFilter) {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot
+                && ((PluginDrivenMvccSnapshot) snapshot.get()).isPartitionViewUnavailable()) {
+            return Optional.empty();
+        }
+        return super.applyPartitionFilterForScan(snapshot, partitionFilter);
     }
 
     /**
