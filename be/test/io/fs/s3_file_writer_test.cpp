@@ -61,6 +61,8 @@
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/indexed_column_writer.h"
+#include "storage/segment/page_io.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -1521,19 +1523,26 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
     // clang-format on
 }
 
-TEST_F(S3FileWriterTest, primary_key_bloom_filter_create_multipart_error) {
+class PrimaryKeyBloomFilterS3FailureTest : public S3FileWriterTest,
+                                           public testing::WithParamInterface<bool> {};
+
+TEST_P(PrimaryKeyBloomFilterS3FailureTest, CreateMultipartFailure) {
     constexpr size_t buffer_size = 5 * 1024 * 1024;
     constexpr size_t bytes_appended_before_failure = 5'203'052;
     constexpr size_t buffered_but_unaccounted_bytes = 39'828;
     static_assert(bytes_appended_before_failure + buffered_but_unaccounted_bytes == buffer_size);
+    const bool emulate_legacy = GetParam();
 
-    bool enable_file_cache = config::enable_file_cache;
+    auto enable_file_cache = config::enable_file_cache;
     auto s3_write_buffer_size = config::s3_write_buffer_size;
+    auto check_after_upload = config::enable_s3_object_check_after_upload;
     config::enable_file_cache = false;
     config::s3_write_buffer_size = buffer_size;
+    config::enable_s3_object_check_after_upload = false;
     Defer restore_config {[&]() {
         config::enable_file_cache = enable_file_cache;
         config::s3_write_buffer_size = s3_write_buffer_size;
+        config::enable_s3_object_check_after_upload = check_after_upload;
     }};
 
     auto [mock_client, file_writer] = create_s3_client("pk_bf_create_multipart_error");
@@ -1542,30 +1551,73 @@ TEST_F(S3FileWriterTest, primary_key_bloom_filter_create_multipart_error) {
     ASSERT_EQ(bytes_appended_before_failure, file_writer->bytes_appended());
     ASSERT_EQ(bytes_appended_before_failure, file_writer->_pending_buf->get_size());
 
+    const auto successful_upload_response = mock_client->default_upload_response;
     mock_client->default_upload_response = {
             .resp = {.status = {ObjStorageStatus::IO_ERROR, "injected CreateMultipartUpload error"},
                      .http_code = 500}};
 
-    BloomFilterOptions bf_options;
+    auto sp = SyncPoint::get_instance();
+    size_t failed_add_count = 0;
+    size_t zero_length_append_count = 0;
+    sp->set_call_back("PrimaryKeyBloomFilterIndexWriterImpl::finish_after_add", [&](auto&& args) {
+        auto* st = try_any_cast<Status*>(args.at(0));
+        auto* writer = try_any_cast<segment_v2::IndexedColumnWriter*>(args.at(1));
+        ASSERT_TRUE(st->is<ErrorCode::IO_ERROR>()) << *st;
+        EXPECT_TRUE(st->to_string().contains("injected CreateMultipartUpload error")) << *st;
+        ++failed_add_count;
+        EXPECT_EQ(1, writer->_num_values);
+        EXPECT_EQ(0, writer->_num_data_pages);
+        EXPECT_EQ(0, writer->_last_data_page.offset);
+        EXPECT_EQ(0, writer->_last_data_page.size);
+        if (emulate_legacy) {
+            // Reproduce the unchecked bf_writer.add() in the affected version.
+            *st = Status::OK();
+        }
+    });
+    if (emulate_legacy) {
+        sp->set_call_back("S3FileWriter::appendv_data_size", [&](auto&& args) {
+            auto* writer = try_any_cast<S3FileWriter*>(args.at(0));
+            auto* size = try_any_cast<size_t*>(args.at(1));
+            ASSERT_EQ(file_writer.get(), writer);
+            // Current master uses the logical file position here. Restore the old
+            // capacity-minus-buffer-size calculation without changing the counters.
+            *size = std::min(*size, writer->_pending_buf->get_capacaticy() -
+                                            writer->_pending_buf->get_size());
+            if (*size == 0) {
+                ++zero_length_append_count;
+                EXPECT_EQ(buffer_size, writer->_pending_buf->get_size());
+                EXPECT_EQ(bytes_appended_before_failure, writer->bytes_appended());
+            }
+        });
+    }
+    Defer clear_callbacks {[&]() {
+        sp->clear_call_back("PrimaryKeyBloomFilterIndexWriterImpl::finish_after_add");
+        sp->clear_call_back("S3FileWriter::appendv_data_size");
+    }};
+
+    segment_v2::BloomFilterOptions bf_options;
     bf_options.fpp = 0.05;
-    std::unique_ptr<BloomFilterIndexWriter> bloom_filter_writer;
+    std::unique_ptr<segment_v2::BloomFilterIndexWriter> bloom_filter_writer;
     ASSERT_EQ(Status::OK(),
-              PrimaryKeyBloomFilterIndexWriterImpl::create(
+              segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
                       bf_options, FieldType::OLAP_FIELD_TYPE_VARCHAR, &bloom_filter_writer));
 
-    constexpr size_t num_values = 50'000;
+    // The BF itself must exceed the 1 MiB IndexedColumn data-page limit so
+    // add(), rather than finish(), writes the page and encounters the injected error.
+    constexpr size_t num_values = 2'000'000;
     std::string key = "pk";
     std::vector<Slice> keys(num_values, Slice(key));
     ASSERT_EQ(Status::OK(), bloom_filter_writer->add_values(keys.data(), keys.size()));
     ASSERT_EQ(Status::OK(), bloom_filter_writer->flush());
-    ASSERT_GT(bloom_filter_writer->size(), buffered_but_unaccounted_bytes);
+    const auto* pk_writer = static_cast<segment_v2::PrimaryKeyBloomFilterIndexWriterImpl*>(
+            bloom_filter_writer.get());
+    ASSERT_EQ(1, pk_writer->_bfs.size());
+    ASSERT_GT(pk_writer->_bfs.front()->size(),
+              segment_v2::IndexedColumnWriterOptions {}.data_page_size);
 
-    ColumnIndexMetaPB index_meta;
+    segment_v2::ColumnIndexMetaPB index_meta;
     auto st = bloom_filter_writer->finish(file_writer.get(), &index_meta);
-    ASSERT_FALSE(st.ok());
-    EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
-    EXPECT_TRUE(st.to_string().contains("injected CreateMultipartUpload error")) << st;
-
+    ASSERT_EQ(1, failed_add_count);
     EXPECT_EQ(1, mock_client->create_multipart_count);
     EXPECT_EQ(0, mock_client->upload_part_count);
     EXPECT_EQ(0, mock_client->complete_multipart_count);
@@ -1574,10 +1626,81 @@ TEST_F(S3FileWriterTest, primary_key_bloom_filter_create_multipart_error) {
     EXPECT_EQ(bytes_appended_before_failure, file_writer->bytes_appended());
     EXPECT_EQ(buffered_but_unaccounted_bytes,
               file_writer->_pending_buf->get_size() - file_writer->bytes_appended());
-
+    EXPECT_EQ(1, file_writer->_cur_part_num);
+    EXPECT_TRUE(file_writer->upload_id().empty());
     ASSERT_TRUE(index_meta.has_bloom_filter_index());
-    EXPECT_FALSE(index_meta.bloom_filter_index().has_bloom_filter());
+
+    if (!emulate_legacy) {
+        // Master propagates the error, so no invalid BF root is published.
+        EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+        EXPECT_FALSE(index_meta.bloom_filter_index().has_bloom_filter());
+        EXPECT_EQ(0, zero_length_append_count);
+        return;
+    }
+
+    ASSERT_EQ(Status::OK(), st);
+    const auto& bf_meta = index_meta.bloom_filter_index().bloom_filter();
+    EXPECT_EQ(1, bf_meta.num_values());
+    ASSERT_TRUE(bf_meta.has_ordinal_index_meta());
+    const auto& ordinal_meta = bf_meta.ordinal_index_meta();
+    EXPECT_TRUE(ordinal_meta.is_root_data_page());
+    ASSERT_TRUE(ordinal_meta.has_root_page());
+    EXPECT_EQ(0, ordinal_meta.root_page().offset());
+    EXPECT_EQ(0, ordinal_meta.root_page().size());
+
+    // Preserve the actual failed BF prefix, then let CreateMultipartUpload recover.
+    const auto pending_data = file_writer->_pending_buf->get_string_view_data();
+    const std::string first_part(pending_data);
+    mock_client->default_upload_response = successful_upload_response;
+
+    // Write real PageIO pages after the failed BF page. Use enough data that both
+    // physical and logical sizes require two parts, as in the affected object.
+    const std::string body(64 * 1024, 'b');
+    segment_v2::PageFooterPB page_footer;
+    page_footer.set_type(segment_v2::DATA_PAGE);
+    page_footer.set_uncompressed_size(body.size());
+    page_footer.mutable_data_page_footer()->set_first_ordinal(0);
+    page_footer.mutable_data_page_footer()->set_num_values(1);
+    page_footer.mutable_data_page_footer()->set_nullmap_size(0);
+    segment_v2::PagePointer first_page;
+    ASSERT_EQ(Status::OK(), segment_v2::PageIO::write_page(file_writer.get(), {Slice(body)},
+                                                           page_footer, &first_page));
+    EXPECT_EQ(bytes_appended_before_failure, first_page.offset);
+    ASSERT_NE(nullptr, file_writer->_pending_buf);
+    EXPECT_EQ(bytes_appended_before_failure, file_writer->_pending_buf->get_file_offset());
+    EXPECT_EQ(1, zero_length_append_count);
+    EXPECT_EQ(2, mock_client->create_multipart_count);
+
+    segment_v2::PagePointer second_page;
+    ASSERT_EQ(Status::OK(), segment_v2::PageIO::write_page(file_writer.get(), {Slice(body)},
+                                                           page_footer, &second_page));
+    EXPECT_EQ(first_page.offset + first_page.size, second_page.offset);
+    ASSERT_EQ(Status::OK(), file_writer->close());
+    EXPECT_EQ(2, mock_client->upload_part_count);
+    EXPECT_EQ(1, mock_client->complete_multipart_count);
+    EXPECT_EQ(0, mock_client->put_object_count);
+
+    const auto& object = mock_client->objects.at(file_writer->path().native());
+    EXPECT_EQ(file_writer->bytes_appended() + buffered_but_unaccounted_bytes, object.size());
+    EXPECT_EQ(first_part, object.substr(0, buffer_size));
+    EXPECT_EQ(prefix, object.substr(0, prefix.size()));
+    EXPECT_EQ(buffer_size,
+              mock_client->parts
+                      .at(SimpleMockObjStorageClient::_part_key(file_writer->path().native(), 1))
+                      .size());
+    for (const auto& page : {first_page, second_page}) {
+        EXPECT_EQ(body, object.substr(page.offset + buffered_but_unaccounted_bytes, body.size()));
+        EXPECT_NE(body, object.substr(page.offset, body.size()));
+    }
+    LOG(INFO) << "Reproduced legacy PK BF corruption: root=(0,0), logical_size="
+              << file_writer->bytes_appended() << ", object_size=" << object.size()
+              << ", delta=" << object.size() - file_writer->bytes_appended();
 }
+
+INSTANTIATE_TEST_SUITE_P(S3Multipart, PrimaryKeyBloomFilterS3FailureTest, testing::Bool(),
+                         [](const testing::TestParamInfo<bool>& info) {
+                             return info.param ? "LegacyIgnoredError" : "MasterPropagatesError";
+                         });
 
 TEST_F(S3FileWriterTest, test_empty_file) {
     std::vector<StorePath> paths;

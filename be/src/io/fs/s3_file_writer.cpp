@@ -345,6 +345,8 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
             // and shouldn't be larger than buf
             data_size_to_append = std::min(data_size - pos, _pending_buf->get_file_offset() +
                                                                     buffer_size - _bytes_appended);
+            // Tests can restore the legacy calculation based on the buffer's physical size.
+            TEST_SYNC_POINT_CALLBACK("S3FileWriter::appendv_data_size", this, &data_size_to_append);
 
             // if the buffer has memory buf inside, the data would be written into memory first then S3 then file cache
             // it would be written to cache then S3 if the buffer doesn't have memory preserved

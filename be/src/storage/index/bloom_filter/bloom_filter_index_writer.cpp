@@ -28,6 +28,7 @@
 
 #include "core/packed_int128.h"
 #include "core/value/decimalv2_value.h"
+#include "cpp/sync_point.h"
 #include "storage/index/bloom_filter/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "storage/index/indexed_column_writer.h"
 #include "storage/index/primary_key_index.h"
@@ -227,7 +228,11 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        RETURN_IF_ERROR(bf_writer.add(&data));
+        auto st = bf_writer.add(&data);
+        // Tests can emulate older callers that ignored a failed page write.
+        TEST_SYNC_POINT_CALLBACK("PrimaryKeyBloomFilterIndexWriterImpl::finish_after_add", &st,
+                                 &bf_writer);
+        RETURN_IF_ERROR(st);
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
