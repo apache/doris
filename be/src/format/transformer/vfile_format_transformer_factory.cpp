@@ -25,7 +25,7 @@
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vjni_format_transformer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
 namespace doris {
 
@@ -79,7 +79,7 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
                 parquet_schemas.push_back(schema);
             }
         }
-        result->reset(new VParquetTransformer(
+        result->reset(new VParquetWriter(
                 state, file_writer, output_vexpr_ctxs, parquet_schemas, false,
                 {TParquetCompressionType::SNAPPY, TParquetVersion::PARQUET_1_0, false, false}));
         break;
