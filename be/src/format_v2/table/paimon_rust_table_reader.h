@@ -79,6 +79,10 @@ public:
             const std::unordered_set<size_t>& materialized_indices = {}) {
         return _fill_non_arrow_columns(block, rows, materialized_indices);
     }
+    // The direct-path bounded-string truncation, exposed for unit tests.
+    Status TEST_truncate_char_or_varchar_columns(Block* block) {
+        return _truncate_char_or_varchar_columns(block);
+    }
     void TEST_set_projected_columns(std::vector<format::ColumnDefinition> columns) {
         _projected_columns = std::move(columns);
     }
@@ -126,6 +130,14 @@ private:
     // constants, default expressions, or a default/NULL fill as a last resort.
     Status _fill_non_arrow_columns(Block* block, size_t rows,
                                    const std::unordered_set<size_t>& materialized_indices);
+    // Enforce truncate_char_or_varchar_columns on the direct Arrow path: the
+    // pinned rust reader maps paimon CHAR(n)/VARCHAR(n) to lengthless Arrow
+    // Utf8, so a column narrowed by schema evolution would return untruncated
+    // historical values here while the normal (finalize_chunk) path truncates.
+    // The block's own column types carry the table-side bounds (the reader
+    // builds them from the FE slot types); the arrow side is always boundless,
+    // so every bounded CHAR/VARCHAR column truncates to its declared length.
+    Status _truncate_char_or_varchar_columns(Block* block);
     // Evaluate a constant expression (VLiteral or default_expr) on a one-row
     // block and broadcast the result to `rows` as a ColumnConst.
     Status _materialize_constant_column(const VExprContextSPtr& expr, const DataTypePtr& type,
