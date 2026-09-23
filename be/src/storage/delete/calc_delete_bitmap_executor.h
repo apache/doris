@@ -124,8 +124,10 @@ public:
 
     std::unique_ptr<CalcDeleteBitmapToken> create_token();
 
-    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(LoadTaskPriority priority);
-    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(LoadTaskPriority priority,
+    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(int64_t load_id,
+                                                             LoadTaskPriority priority);
+    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(int64_t load_id,
+                                                             LoadTaskPriority priority,
                                                              std::shared_ptr<WorkloadGroup> wg);
 
 private:

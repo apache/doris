@@ -104,7 +104,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             }
             auto& token =
                     tokens.emplace_back(_engine.calc_delete_bitmap_executor()->create_load_token(
-                            LoadTaskPriority::HIGHEST, std::move(wg)));
+                            transaction_id, LoadTaskPriority::HIGHEST, std::move(wg)));
             const auto submit_time_us = MonotonicMicros();
             auto submit_st = token->submit_func(
                     [tablet_id, tablet_calc_delete_bitmap_ptr, this, submit_time_us]() {

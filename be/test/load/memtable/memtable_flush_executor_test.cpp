@@ -59,7 +59,7 @@ namespace {
 class FlushOrderTask final : public Runnable {
 public:
     explicit FlushOrderTask(std::vector<int>* order) : _order(order) {}
-    void run() override { _order->push_back(1); }
+    void run() override { _order->push_back(3); }
 
 private:
     std::vector<int>* _order;
@@ -339,20 +339,22 @@ void tear_down() {
                         .ok());
 }
 
-TEST(MemTableFlushExecutorTest, DuplicateFlushPrecedesWriteTimeBitmap) {
+TEST(MemTableFlushExecutorTest, FlushSharesItsTransactionTurnForEveryKeyType) {
     using namespace std::chrono_literals;
     for (auto keys_type : {DUP_KEYS, UNIQUE_KEYS, AGG_KEYS}) {
         std::unique_ptr<ThreadPool> pool;
-        ASSERT_TRUE(ThreadPoolBuilder("flush_priority_test").set_max_threads(1).build(&pool).ok());
+        ASSERT_TRUE(ThreadPoolBuilder("flush_load_fifo_test").set_max_threads(1).build(&pool).ok());
         std::atomic<int> flush_count = 0;
         auto writer = std::make_shared<MockRowsetWriter>(&flush_count);
         RowsetWriterContext context;
+        context.txn_id = 1;
         context.tablet_schema = std::make_shared<TabletSchema>();
         context.tablet_schema->_keys_type = keys_type;
         ASSERT_TRUE(writer->init(context).ok());
         auto flush = FlushToken::create_shared(pool.get(), nullptr);
         flush->set_rowset_writer(writer);
-        auto bitmap = pool->new_load_token(LoadTaskPriority::MID);
+        auto own_bitmap = pool->new_load_token(context.txn_id, LoadTaskPriority::MID);
+        auto other_bitmap = pool->new_load_token(2, LoadTaskPriority::HIGHEST);
         CountDownLatch entered(1), release(1);
         std::vector<int> order;
         Defer unblock = [&] { release.count_down(); };
@@ -361,14 +363,15 @@ TEST(MemTableFlushExecutorTest, DuplicateFlushPrecedesWriteTimeBitmap) {
                             release.wait();
                         }).ok());
         EXPECT_TRUE(entered.wait_for(5s));
-        // Exercise the real flush submission's schema-based priority selection.
-        EXPECT_TRUE(flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order)})
+        EXPECT_TRUE(flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order),
+                                                          std::make_shared<FlushOrderTask>(&order)})
                             .ok());
-        EXPECT_TRUE(bitmap->submit_func([&] { order.push_back(2); }).ok());
+        EXPECT_TRUE(other_bitmap->submit_func([&] { order.push_back(2); }).ok());
+        EXPECT_TRUE(own_bitmap->submit_func([&] { order.push_back(1); }).ok());
         release.count_down();
         pool->wait();
-        EXPECT_EQ(order,
-                  keys_type == DUP_KEYS ? (std::vector<int> {1, 2}) : (std::vector<int> {2, 1}));
+        // Our bitmap precedes our flushes, but another load gets the next turn.
+        EXPECT_EQ(order, (std::vector<int> {1, 2, 3, 3}));
     }
 }
 

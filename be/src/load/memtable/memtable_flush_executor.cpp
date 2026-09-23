@@ -132,11 +132,6 @@ SharedMemtable::~SharedMemtable() {
 
 Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                                      std::vector<std::shared_ptr<Runnable>> sub_tasks) {
-    // DUP loads have no bitmap work, so their flushes share P1 with write-end
-    // bitmap reconciliation. A group's data schema also determines binlog priority.
-    const auto priority = _rowset_writer->context().tablet_schema->keys_type() == DUP_KEYS
-                                  ? LoadTaskPriority::HIGH
-                                  : LoadTaskPriority::LOW;
     for (int i = 0; i < sub_tasks.size(); ++i) {
         {
             std::shared_lock rdlk(_flush_status_lock);
@@ -150,7 +145,8 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                 return _flush_status;
             }
         }
-        Status submit_st = pool->submit_load(std::move(sub_tasks[i]), priority);
+        Status submit_st = pool->submit_load(
+                std::move(sub_tasks[i]), _rowset_writer->context().txn_id, LoadTaskPriority::LOW);
         if (UNLIKELY(!submit_st.ok())) {
             {
                 std::lock_guard wrlk(_flush_status_lock);
@@ -506,8 +502,8 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
     static_cast<void>(_flush_pool->set_min_threads(min_threads));
 }
 
-// Foreground load tasks use global priority within each resource domain;
-// is_high_priority no longer selects a separate pool.
+// Each resource domain shares workers across foreground load tasks. Stage priority is
+// applied within a load; is_high_priority no longer selects a separate pool.
 Status MemTableFlushExecutor::create_flush_token(
         std::shared_ptr<FlushToken>& flush_token, std::shared_ptr<RowsetWriter> rowset_writer,
         bool /*is_high_priority*/, std::shared_ptr<WorkloadGroup> wg_sptr,

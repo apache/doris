@@ -92,6 +92,7 @@ TEST_P(CloudTabletsChannelContextTest, EmptyRowsetCommitInheritsLoadContext) {
             CloudStorageEngine engine {EngineOptions {}};
             engine.init_calc_delete_bitmap_executor_for_UT();
             WriteRequest req;
+            req.txn_id = 123;
             req.tablet_id = 10;
             req.partition_id = 20;
             req.index_id = 30;
@@ -122,8 +123,9 @@ TEST_P(CloudTabletsChannelContextTest, EmptyRowsetCommitInheritsLoadContext) {
                 EXPECT_EQ(signal::query_id_hi, task_id.hi);
                 EXPECT_EQ(signal::query_id_lo, task_id.lo);
                 auto token = engine.calc_delete_bitmap_executor()->create_load_token(
-                        LoadTaskPriority::HIGH);
+                        req.txn_id, LoadTaskPriority::HIGH);
                 EXPECT_EQ(token->_thread_token->_pool, wg->get_memtable_flush_pool());
+                EXPECT_EQ(token->_thread_token->_load_id, req.txn_id);
                 RETURN_IF_ERROR(token->submit_func([&] {
                     EXPECT_EQ(thread_context()->resource_ctx(), ctx);
                     EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),

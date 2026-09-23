@@ -132,7 +132,7 @@ ThreadPoolToken::~ThreadPoolToken() {
 }
 
 Status ThreadPoolToken::submit(std::shared_ptr<Runnable> r) {
-    return _pool->do_submit(std::move(r), this, _load_priority);
+    return _pool->do_submit(std::move(r), this, _load_id, _load_priority);
 }
 
 Status ThreadPoolToken::submit_func(std::function<void()> f) {
@@ -151,9 +151,9 @@ void ThreadPoolToken::shutdown() {
     if (!_is_load_token || (_active_threads != 0 && !join_bitmap_leaves)) {
         _pool->check_not_pool_thread_unlocked();
     }
-    if (_is_load_token) {
+    if (_is_load_token && _queued_load_tasks != 0) {
         removed_load_tasks = _pool->_load_queue->remove_if(
-                [this](const auto& entry) { return entry.token == this; });
+                _load_id, [this](const auto& entry) { return entry.token == this; });
         _pool->_total_queued_tasks -= removed_load_tasks.size();
         _queued_load_tasks = 0;
     }
@@ -300,7 +300,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
           _total_queued_tasks(0),
           _cgroup_cpu_ctl(builder._cgroup_cpu_ctl),
           _tokenless(new_token(ExecutionMode::CONCURRENT)),
-          _load_tokenless(new_load_token(LoadTaskPriority::LOW)),
+          _load_tokenless(new_load_token(0, LoadTaskPriority::LOW)),
           _id(UniqueId::gen_uid()) {}
 
 ThreadPool::~ThreadPool() {
@@ -454,15 +454,18 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int m
     return t;
 }
 
-std::unique_ptr<ThreadPoolToken> ThreadPool::new_load_token(LoadTaskPriority priority) {
+std::unique_ptr<ThreadPoolToken> ThreadPool::new_load_token(int64_t load_id,
+                                                            LoadTaskPriority priority) {
     auto token = new_token(ExecutionMode::CONCURRENT);
     token->_is_load_token = true;
+    token->_load_id = load_id;
     token->_load_priority = priority;
     return token;
 }
 
-Status ThreadPool::submit_load(std::shared_ptr<Runnable> r, LoadTaskPriority priority) {
-    return do_submit(std::move(r), _load_tokenless.get(), priority);
+Status ThreadPool::submit_load(std::shared_ptr<Runnable> r, int64_t load_id,
+                               LoadTaskPriority priority) {
+    return do_submit(std::move(r), _load_tokenless.get(), load_id, priority);
 }
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
@@ -480,7 +483,7 @@ Status ThreadPool::submit_func(std::function<void()> f) {
     return submit(std::make_shared<FunctionRunnable>(std::move(f)));
 }
 
-Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token,
+Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token, int64_t load_id,
                              LoadTaskPriority priority) {
     DCHECK(token);
 
@@ -539,7 +542,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     ThreadPoolToken::State state = token->state();
     DCHECK(state == ThreadPoolToken::State::IDLE || state == ThreadPoolToken::State::RUNNING);
     if (token->_is_load_token) {
-        _load_queue->push(static_cast<size_t>(priority), {token, std::move(task)});
+        _load_queue->push(load_id, static_cast<size_t>(priority), {token, std::move(task)});
         ++token->_queued_load_tasks;
         if (state == ThreadPoolToken::State::IDLE) {
             token->transition(ThreadPoolToken::State::RUNNING);
