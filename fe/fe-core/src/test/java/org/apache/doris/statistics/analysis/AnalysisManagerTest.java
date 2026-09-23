@@ -661,6 +661,41 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(count.get() <= 20);
     }
 
+    @Test
+    public void testReplayOfTruncateFollowsTheRecordedStatsTransition() {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(30001L);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+
+        // A truncation of a table which already had a record resets it, and a concurrent whole table
+        // DROP STATS journals OP_DELETE_TABLE_STATS before the truncate entry. The replay applies the
+        // deletion first and the truncate entry must not resurrect the record.
+        manager.replayUpdateTableStatsStatus(new TableStatsMeta(table));
+        manager.removeTableStats(30001L);
+        manager.replayResetTableStats(table, false);
+        Assertions.assertNull(manager.findTableStatsStatus(30001L));
+
+        // A truncation of a table which had no record creates one, and the truncate entry records that, so
+        // the replay creates it as well and the rows loaded after the truncation stay accounted for.
+        OlapTable otherTable = Mockito.mock(OlapTable.class);
+        Mockito.when(otherTable.getId()).thenReturn(30002L);
+        Mockito.when(otherTable.getDatabase()).thenReturn(db);
+        manager.replayResetTableStats(otherTable, true);
+        Assertions.assertNotNull(manager.findTableStatsStatus(30002L));
+        Assertions.assertEquals(0, manager.findTableStatsStatus(30002L).updatedRows.get());
+
+        // And a truncate entry which did not create the record must not create one either.
+        OlapTable thirdTable = Mockito.mock(OlapTable.class);
+        Mockito.when(thirdTable.getId()).thenReturn(30003L);
+        Mockito.when(thirdTable.getDatabase()).thenReturn(db);
+        manager.replayResetTableStats(thirdTable, false);
+        Assertions.assertNull(manager.findTableStatsStatus(30003L));
+    }
+
     private AnalyzeTableCommand mockAnalyzeCommand(AnalysisMethod analysisMethod, ScheduleType scheduleType,
             boolean hasCollectHotValue, boolean collectHotValue) {
         AnalyzeTableCommand command = Mockito.mock(AnalyzeTableCommand.class);

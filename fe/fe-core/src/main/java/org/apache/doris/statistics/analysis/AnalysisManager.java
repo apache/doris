@@ -1499,10 +1499,37 @@ public class AnalysisManager implements Writable {
      * entry is not atomic with the truncate entry, and a crash in between would replay a zeroed record
      * onto the data which was never truncated.
      */
-    public void resetTableStats(OlapTable table) {
+    public boolean resetTableStats(OlapTable table) {
+        synchronized (idToTblStats) {
+            TableStatsMeta tableStats = idToTblStats.get(table.getId());
+            boolean recordCreated = false;
+            if (tableStats == null) {
+                tableStats = new TableStatsMeta(table);
+                idToTblStats.put(table.getId(), tableStats);
+                recordCreated = true;
+            }
+            tableStats.reset(table);
+            return recordCreated;
+        }
+    }
+
+    /**
+     * Apply the transition which the given truncate entry recorded, instead of the one this frontend would
+     * apply now.
+     *
+     * <p>A truncate creates the statistics record of a table which has none, and that creation is not a
+     * journal entry of its own. The truncate entry therefore carries whether the truncate created the record,
+     * so that the replay reproduces exactly what the master did and a truncate entry never resurrects a
+     * record which another journaled transition, for instance a whole table DROP STATS or the cleanup of an
+     * empty table by the analyzer, removed around it.
+     */
+    public void replayResetTableStats(OlapTable table, boolean recordCreated) {
         synchronized (idToTblStats) {
             TableStatsMeta tableStats = idToTblStats.get(table.getId());
             if (tableStats == null) {
+                if (!recordCreated) {
+                    return;
+                }
                 tableStats = new TableStatsMeta(table);
                 idToTblStats.put(table.getId(), tableStats);
             }

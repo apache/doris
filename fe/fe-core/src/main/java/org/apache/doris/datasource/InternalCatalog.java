@@ -3903,8 +3903,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             long versionTimeMs = Config.isNotCloudMode() ? System.currentTimeMillis() : 0L;
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
                     truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTimeMs);
+            boolean tableStatsRecordCreated = false;
             if (truncateEntireTable) {
-                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
+                tableStatsRecordCreated = Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
             } else {
                 Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
                         updateRecords, db.getId(), olapTable.getId(), 0);
@@ -3914,7 +3915,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs);
+                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs,
+                            tableStatsRecordCreated);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3985,9 +3987,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     info.getVersion(), info.getVersionTimeMs());
             if (info.isEntireTable()) {
                 // Keep the stats record of the truncated table instead of dropping it, so that the rows
-                // loaded after the truncation are still accounted for. This is the transition the DDL path
-                // applies as well, the truncate entry carries it for every frontend.
-                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
+                // loaded after the truncation are still accounted for. The entry carries what the truncate
+                // did to the record, so every frontend reproduces the same transition.
+                Env.getCurrentEnv().getAnalysisManager()
+                        .replayResetTableStats(olapTable, info.isTableStatsRecordCreated());
             }
 
             // add tablet to inverted index
