@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
@@ -1196,6 +1197,17 @@ public class TypeCoercionUtilsTest {
                 coercedArg.getDataType().equals(DoubleType.INSTANCE) || coercedArg.getDataType().isNumericType(),
                 "The argument of AVG should be of a numeric type after type coercion."
         );
+    }
+
+    @Test
+    public void testProcessSum0JsonArgument() {
+        SlotReference jsonCol = new SlotReference("c_json", JsonType.INSTANCE);
+        Expression coerced = TypeCoercionUtils.processBoundFunction(new Sum0(jsonCol));
+        Assertions.assertEquals(DoubleType.INSTANCE, coerced.child(0).getDataType());
+
+        SlotReference bitmapCol = new SlotReference("c_bitmap", BitmapType.INSTANCE);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processBoundFunction(new Sum0(bitmapCol)));
     }
 
     @Test
