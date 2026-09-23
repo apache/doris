@@ -17,6 +17,11 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
@@ -40,11 +45,14 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class IcebergPartitionNameConflictTest {
     private static final Schema SCHEMA = new Schema(
@@ -107,6 +115,61 @@ public class IcebergPartitionNameConflictTest {
         Assertions.assertEquals("record_key_1000", partition.field(1003).name());
         Assertions.assertEquals("record_key_1000_", partition.field(1004).name());
         Assertions.assertDoesNotThrow(() -> new Schema(partition.fields()));
+    }
+
+    @Test
+    void caseOnlyNamesRemainUsableInSchemaAndPredicates() {
+        Table table = createTable(2);
+        table.updateSpec().removeField("record_key").commit();
+        table.updateSpec().addField("key_alias", Expressions.ref("record_key")).commit();
+        table.updateSpec().renameField("key_alias", "RECORD_KEY")
+                .addField(Expressions.truncate("record_key", 4)).commit();
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata connector = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        for (MetadataTableType type : Arrays.asList(MetadataTableType.FILES, MetadataTableType.PARTITIONS)) {
+            Schema schema = MetadataTableUtils.createMetadataTableInstance(table, type).schema();
+            Assertions.assertEquals(1001, schema.caseInsensitiveFindField("partition.record_key").fieldId());
+            Assertions.assertEquals(1000, schema.caseInsensitiveFindField("PARTITION.RECORD_KEY_1000").fieldId());
+
+            IcebergTableHandle handle = IcebergTableHandle.forSystemTable(
+                    "db", "events", type.name().toLowerCase(Locale.ROOT), -1L, null, -1L);
+            ConnectorType partitionType = connector.getTableSchema(null, handle).getColumns().stream()
+                    .filter(column -> column.getName().equals("partition"))
+                    .findFirst().get().getType();
+            Assertions.assertEquals(Arrays.asList("record_key_1000", "RECORD_KEY", "record_key_trunc_4"),
+                    partitionType.getFieldNames());
+            // Doris folds nested field names when constructing its struct type.
+            Assertions.assertEquals(partitionType.getFieldNames().size(), partitionType.getFieldNames().stream()
+                    .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toSet()).size());
+
+            IcebergPredicateConverter converter = new IcebergPredicateConverter(schema, ZoneOffset.UTC);
+            for (String name : Arrays.asList("partition.record_key", "PARTITION.RECORD_KEY_1000")) {
+                Assertions.assertDoesNotThrow(() -> converter.convert(new ConnectorComparison(
+                        ConnectorComparison.Operator.EQ,
+                        new ConnectorColumnRef(name, ConnectorType.of("BIGINT")),
+                        new ConnectorLiteral(ConnectorType.of("BIGINT"), 7L))));
+                Assertions.assertDoesNotThrow(() -> new Evaluator(
+                        schema.asStruct(), Expressions.equal(name, 7L), false));
+            }
+        }
+    }
+
+    @Test
+    void generatedNamesReserveCaseVariants() {
+        Table table = createTable(2);
+        evolve(table);
+        table.updateSpec().addField("RECORD_KEY_1000", Expressions.bucket("record_key", 8))
+                .addField("Record_Key_1000_", Expressions.bucket("record_key", 16)).commit();
+
+        Types.StructType partition = Partitioning.partitionType(table);
+        Assertions.assertEquals("record_key_1000__", partition.field(1000).name());
+        Assertions.assertEquals("RECORD_KEY_1000", partition.field(1003).name());
+        Assertions.assertEquals("Record_Key_1000_", partition.field(1004).name());
+        Assertions.assertEquals(1000, new Schema(partition.fields())
+                .caseInsensitiveFindField("RECORD_KEY_1000__").fieldId());
     }
 
     @Test

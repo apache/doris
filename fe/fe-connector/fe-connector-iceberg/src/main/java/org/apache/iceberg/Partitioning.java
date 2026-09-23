@@ -21,6 +21,7 @@ package org.apache.iceberg;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -316,13 +317,17 @@ public class Partitioning {
     // Different field IDs can reuse a name across specs. Keep the newest field's name and
     // disambiguate older fields without losing their IDs or historical partition values.
     // Reserve all original names first so a generated suffix cannot shadow another real field.
-    Set<String> reservedNames = Sets.newHashSet(nameMap.values());
+    // Doris struct fields and Iceberg's case-insensitive binder fold names with Locale.ROOT.
+    Set<String> reservedNames =
+        nameMap.values().stream()
+            .map(name -> name.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toSet());
     Set<String> assignedNames = Sets.newHashSet();
     for (int fieldId : fieldMap.keySet()) {
       String name = nameMap.get(fieldId);
-      if (!assignedNames.add(name)) {
+      if (!assignedNames.add(name.toLowerCase(Locale.ROOT))) {
         String uniqueName = name + "_" + fieldId;
-        while (!reservedNames.add(uniqueName)) {
+        while (!reservedNames.add(uniqueName.toLowerCase(Locale.ROOT))) {
           uniqueName += "_";
         }
         nameMap.put(fieldId, uniqueName);
