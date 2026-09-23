@@ -48,7 +48,6 @@
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
-#include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "runtime/file_scan_profile.h"
@@ -184,8 +183,6 @@ std::string file_format_to_string(FileFormat format) {
         return "TEXT";
     case FileFormat::JNI:
         return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
     case FileFormat::WAL:
@@ -1202,14 +1199,17 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::validate_variant_file_mappings(FileFormat format,
                                                    const std::vector<ColumnMapping>& mappings) {
-    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
+    // WAL stores Doris blocks directly and therefore supports Variant without the external-file
+    // format restrictions applied here.
+    if (format == FileFormat::PARQUET || format == FileFormat::WAL ||
+        !std::ranges::any_of(mappings, mapping_reads_variant)) {
         return Status::OK();
     }
     // Gate on a physical mapping, not the table schema: an older file may legitimately omit a
     // Variant field added by schema evolution, in which case the mapper synthesizes NULL.
     return Status::NotSupported(
-            "External Variant is supported only for Parquet files in FileScannerV2; file format "
-            "{} is not supported",
+            "Variant is supported only for Parquet files and WAL in FileScannerV2; file format {} "
+            "is not supported",
             file_format_to_string(format));
 }
 
@@ -1687,11 +1687,6 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _scan_params, _current_file_range_desc, *_file_slot_descs,
                 _current_range_compress_type, _current_range_load_id);
-        return Status::OK();
-    }
-    if (_format == FileFormat::NATIVE) {
-        *reader = std::make_unique<format::native::NativeReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",

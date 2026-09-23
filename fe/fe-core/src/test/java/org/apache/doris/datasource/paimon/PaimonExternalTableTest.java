@@ -551,12 +551,11 @@ public class PaimonExternalTableTest {
     }
 
     @Test
-    public void testFetchRowCountCapsAcceptedManifestParallelismBeforePlanning() {
+    public void testFetchRowCountCapsAcceptedManifestParallelismWithoutPlanning() {
         int localCapacity = Runtime.getRuntime().availableProcessors();
         org.junit.Assume.assumeTrue(localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
         FileStoreTable rawTable = Mockito.mock(FileStoreTable.class);
         FileStoreTable cappedTable = Mockito.mock(FileStoreTable.class);
-        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class, Mockito.RETURNS_DEEP_STUBS);
         Mockito.when(rawTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity + 1)));
         Mockito.when(rawTable.copyWithoutTimeTravel(ArgumentMatchers.argThat(options ->
@@ -565,8 +564,8 @@ public class PaimonExternalTableTest {
                 .thenReturn(cappedTable);
         Mockito.when(cappedTable.options()).thenReturn(ImmutableMap.of(
                 CoreOptions.SCAN_MANIFEST_PARALLELISM.key(), String.valueOf(localCapacity)));
-        Mockito.when(cappedTable.newReadBuilder()).thenReturn(readBuilder);
-        Mockito.when(readBuilder.newScan().plan().splits()).thenReturn(Collections.emptyList());
+        CoreOptions cappedOptions = CoreOptions.fromMap(cappedTable.options());
+        Mockito.when(cappedTable.coreOptions()).thenReturn(cappedOptions);
         PaimonExternalTable externalTable = Mockito.mock(
                 PaimonExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Mockito.doNothing().when(externalTable).makeSureInitialized();
@@ -576,6 +575,7 @@ public class PaimonExternalTableTest {
             Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT, externalTable.fetchRowCount());
         }
         Mockito.verify(rawTable).copyWithoutTimeTravel(ArgumentMatchers.anyMap());
+        Mockito.verify(cappedTable, Mockito.never()).newReadBuilder();
     }
 
     @Test

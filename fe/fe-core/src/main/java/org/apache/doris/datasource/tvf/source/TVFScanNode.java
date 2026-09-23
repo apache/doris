@@ -30,10 +30,10 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
-import org.apache.doris.datasource.lance.LanceStorageOptions;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
+import org.apache.doris.datasource.lance.source.LanceSplitBuilder;
+import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -55,7 +55,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -201,7 +200,7 @@ public class TVFScanNode extends FileQueryScanNode {
             // A local dataset is visible to its selected BE, not to FE. Keep exactly one
             // whole-dataset split; BE resolves version zero to latest when it opens the dataset.
             return Collections.singletonList(
-                    LanceSplit.wholeDatasetAtLatest(tableValuedFunction.getFilePath()));
+                    LanceSplit.scanLatestDataset(tableValuedFunction.getFilePath()));
         }
 
         long version = tableValuedFunction.getLanceDatasetVersion();
@@ -209,21 +208,8 @@ public class TVFScanNode extends FileQueryScanNode {
             throw new UserException(
                     "S3 Lance TVF metadata was not initialized with a fixed dataset version");
         }
-        List<LanceFragmentInfo> fragments = tableValuedFunction.getLanceFragments();
-        // Mirror LanceScanNode: use the largest fragment as one standard split so smaller fragments
-        // keep their relative physical-row weight, keeping the catalog and S3/file TVF paths in sync.
-        long targetRows = 1;
-        for (LanceFragmentInfo fragment : fragments) {
-            targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
-        }
-        List<Split> splits = new ArrayList<>(fragments.size());
-        for (LanceFragmentInfo fragment : fragments) {
-            LanceSplit split = LanceSplit.forFragment(tableValuedFunction.getFilePath(), version,
-                    fragment.getId(), fragment.getPhysicalRows());
-            split.setTargetSplitSize(targetRows);
-            splits.add(split);
-        }
-        return splits;
+        return LanceSplitBuilder.buildFragmentSplits(tableValuedFunction.getFilePath(), version,
+                tableValuedFunction.getLanceFragments(), 1);
     }
 
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {

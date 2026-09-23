@@ -281,6 +281,154 @@ TEST(EMBED_TEST, embed_function_test) {
     }
 }
 
+TEST(EMBED_TEST, prefer_embed_resource_properties) {
+    TQueryOptions query_options = create_fake_query_options();
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("invalid://general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("http://localhost");
+    ai_resource.__set_embed_provider_type("MOCK");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+    ai_resource.__set_temperature(0.5);
+    ai_resource.__set_max_tokens(16);
+    ai_resource.__set_max_retries(1);
+    ai_resource.__set_retry_delay_second(1);
+    ai_resource.__set_dimensions(514);
+    query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"embed_resource", ai_resource}});
+
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string> {"embed_resource"});
+    auto col_text =
+            ColumnHelper::create_column<DataTypeString>(std::vector<std::string> {"test input"});
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+
+    auto embed_func = FunctionEmbed::create();
+    Status exec_status = embed_func->execute_impl(ctx.get(), block, {0, 1}, 2, 1);
+
+    ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
+}
+
+TEST(EMBED_TEST, select_resource_properties_by_input_type) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("embed-endpoint");
+    ai_resource.__set_embed_provider_type("QWEN");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+    ai_resource.__set_embed_mm_endpoint("multimodal-endpoint");
+    ai_resource.__set_embed_mm_provider_type("GEMINI");
+    ai_resource.__set_embed_mm_model_name("multimodal-model");
+    ai_resource.__set_embed_mm_api_key("multimodal-api-key");
+
+    FunctionEmbed embed_function;
+    AIResource text_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "embed-endpoint");
+    EXPECT_EQ(text_resource.provider_type, "QWEN");
+
+    AIResource multimodal_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(multimodal_resource.endpoint, "multimodal-endpoint");
+    EXPECT_EQ(multimodal_resource.provider_type, "GEMINI");
+}
+
+TEST(EMBED_TEST, multimodal_resource_fallback) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("embed-endpoint");
+    ai_resource.__set_embed_provider_type("QWEN");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+
+    FunctionEmbed embed_function;
+    AIResource embed_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(embed_resource.endpoint, "embed-endpoint");
+
+    TAIResource general_resource;
+    general_resource.__set_endpoint("general-endpoint");
+    general_resource.__set_provider_type("OPENAI");
+    general_resource.__set_model_name("general-model");
+    general_resource.__set_api_key("general-api-key");
+    AIResource fallback_resource =
+            embed_function.select_ai_resource(general_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(fallback_resource.endpoint, "general-endpoint");
+
+    general_resource.__set_embed_mm_endpoint("multimodal-endpoint");
+    general_resource.__set_embed_mm_provider_type("GEMINI");
+    general_resource.__set_embed_mm_model_name("multimodal-model");
+    general_resource.__set_embed_mm_api_key("multimodal-api-key");
+    AIResource text_resource =
+            embed_function.select_ai_resource(general_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "general-endpoint");
+}
+
+TEST(EMBED_TEST, incomplete_dedicated_resource_fallback) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("incomplete-embed-endpoint");
+
+    FunctionEmbed embed_function;
+    AIResource text_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "general-endpoint");
+    EXPECT_EQ(text_resource.provider_type, "OPENAI");
+
+    ai_resource.__set_embed_provider_type("QWEN");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+    ai_resource.__set_embed_mm_endpoint("incomplete-multimodal-endpoint");
+    AIResource multimodal_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(multimodal_resource.endpoint, "incomplete-embed-endpoint");
+    EXPECT_EQ(multimodal_resource.provider_type, "QWEN");
+}
+
+TEST(EMBED_TEST, empty_dedicated_resource_properties_fallback) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("");
+    ai_resource.__set_embed_provider_type("");
+    ai_resource.__set_embed_model_name("");
+    ai_resource.__set_embed_api_key("");
+
+    FunctionEmbed embed_function;
+    AIResource text_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "general-endpoint");
+    EXPECT_EQ(text_resource.provider_type, "OPENAI");
+}
+
 TEST(EMBED_TEST, embed_function_text_multi_rows) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
@@ -951,6 +1099,49 @@ TEST(EMBED_TEST, local_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[0][1], 0.7F);
 }
 
+TEST(EMBED_TEST, local_adapter_rejects_non_object_data_item) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"data":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_numeric_data_embedding) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"data":[{"embedding":[0.1,"bad"]}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_array_embeddings_item) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embeddings":[0.1,0.2]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_numeric_embeddings_item) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embeddings":[[0.1,"bad"]]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, local_adapter_rejects_non_numeric_embedding) {
+    LocalAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embedding":[0.1,"bad"]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, mock_adapter_rejects_non_numeric_embedding) {
+    MockAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embedding":[0.1,"bad"]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(EMBED_TEST, openai_adapter_embedding_request) {
     OpenAIAdapter adapter;
     TAIResource config;
@@ -1117,6 +1308,21 @@ TEST(EMBED_TEST, qwen_embedding_request) {
     ASSERT_EQ(doc["dimension"].GetInt(), config.dimensions);
 }
 
+TEST(EMBED_TEST, qwen_adapter_rejects_non_object_embedding_item) {
+    QwenAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"output":{"embeddings":[1]}})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, qwen_adapter_rejects_non_numeric_embedding) {
+    QwenAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(
+            R"({"output":{"embeddings":[{"embedding":[0.1,"bad"]}]}})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(EMBED_TEST, gemini_adapter_embedding_request) {
     GeminiAdapter adapter;
     TAIResource config;
@@ -1240,6 +1446,29 @@ TEST(EMBED_TEST, gemini_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[1][2], 2.3F);
 }
 
+TEST(EMBED_TEST, gemini_adapter_rejects_non_object_embedding_item) {
+    GeminiAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"embeddings":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, gemini_adapter_rejects_non_numeric_batch_embedding) {
+    GeminiAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"embeddings":[{"values":[0.1,"bad"]}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, gemini_adapter_rejects_non_numeric_single_embedding) {
+    GeminiAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"embedding":{"values":[0.1,"bad"]}})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(EMBED_TEST, voyageai_adapter_embedding_request) {
     VoyageAIAdapter adapter;
     TAIResource config;
@@ -1325,6 +1554,21 @@ TEST(EMBED_TEST, voyageai_adapter_parse_embedding_response) {
     ASSERT_FLOAT_EQ(results[0][2], 0.3F);
     ASSERT_FLOAT_EQ(results[1][0], 0.4F);
     ASSERT_FLOAT_EQ(results[1][1], 0.5F);
+}
+
+TEST(EMBED_TEST, voyageai_adapter_rejects_non_object_data_item) {
+    VoyageAIAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st = adapter.parse_embedding_response(R"({"data":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(EMBED_TEST, voyageai_adapter_rejects_non_numeric_embedding) {
+    VoyageAIAdapter adapter;
+    std::vector<std::vector<float>> results;
+    Status st =
+            adapter.parse_embedding_response(R"({"data":[{"embedding":[0.1,"bad"]}]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {

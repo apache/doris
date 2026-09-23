@@ -343,6 +343,16 @@ public class MaterializedViewUtils {
     public static Plan rewriteByRules(
             CascadesContext cascadesContext, Function<CascadesContext, Plan> planRewriter,
             Plan rewrittenPlan, Plan originPlan, boolean mvRewrite) {
+        return rewriteByRules(cascadesContext, planRewriter, rewrittenPlan, originPlan, mvRewrite, false);
+    }
+
+    /**
+     * Optimize by rules, this support optimize by custom rules by define different rewriter according to different
+     * rules, this method is only for materialized view rewrite
+     */
+    public static Plan rewriteByRules(
+            CascadesContext cascadesContext, Function<CascadesContext, Plan> planRewriter,
+            Plan rewrittenPlan, Plan originPlan, boolean mvRewrite, boolean materializedViewRewritePlanFragment) {
         if (originPlan == null || rewrittenPlan == null) {
             return null;
         }
@@ -358,6 +368,7 @@ public class MaterializedViewUtils {
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
+        rewrittenPlanContext.setMaterializedViewRewritePlanFragment(materializedViewRewritePlanFragment);
         // Tmp old disable rule variable
         Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
                 .getSessionVariable()

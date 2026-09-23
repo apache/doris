@@ -53,7 +53,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.PartitionField;
@@ -109,9 +108,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
-                MvccUtil.getSnapshotFromContext(this), this);
-        return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
+        return Optional.of(IcebergUtils.withSnapshotCacheValue(
+                MvccUtil.getSnapshotFromContext(this), this,
+                snapshotValue -> IcebergUtils.getSchemaCacheValue(this, snapshotValue)));
     }
 
     @Override
@@ -147,10 +146,6 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public Table getIcebergTable() {
         return IcebergUtils.getIcebergTable(this);
-    }
-
-    public Table getWritableIcebergTable() {
-        return IcebergUtils.getWritableIcebergTable(this);
     }
 
     @Override
@@ -244,37 +239,20 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * And the column couldn't change to another column during partition evolution.
      */
     @Override
-    public boolean isValidRelatedTable() {
+    public synchronized boolean isValidRelatedTable() {
         makeSureInitialized();
         if (isValidRelatedTableCached) {
             return isValidRelatedTable;
         }
-        isValidRelatedTable = false;
-        Set<String> allFields = Sets.newHashSet();
-        Table table = getIcebergTable();
-        for (PartitionSpec spec : table.specs().values()) {
-            if (spec == null) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            List<PartitionField> fields = spec.fields();
-            if (fields.size() != 1) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            PartitionField partitionField = spec.fields().get(0);
-            String transformName = partitionField.transform().toString();
-            if (!IcebergUtils.YEAR.equals(transformName)
-                    && !IcebergUtils.MONTH.equals(transformName)
-                    && !IcebergUtils.DAY.equals(transformName)
-                    && !IcebergUtils.HOUR.equals(transformName)) {
-                isValidRelatedTableCached = true;
-                return false;
-            }
-            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
+        return IcebergUtils.withIcebergTable(this, this::isValidRelatedTable);
+    }
+
+    synchronized boolean isValidRelatedTable(Table table) {
+        if (isValidRelatedTableCached) {
+            return isValidRelatedTable;
         }
+        isValidRelatedTable = IcebergUtils.isValidRelatedTable(table);
         isValidRelatedTableCached = true;
-        isValidRelatedTable = allFields.size() == 1;
         return isValidRelatedTable;
     }
 
@@ -301,13 +279,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
+        return IcebergUtils.withSnapshotCacheValue(snapshot, this, this::projectFullSchema);
+    }
+
+    private List<Column> projectFullSchema(IcebergSnapshotCacheValue snapshotValue) {
+        List<Column> schema = IcebergUtils.getSchemaCacheValue(this, snapshotValue).getSchema();
         schema = new ArrayList<>(schema);
 
-        Optional<Table> snapshotTable = snapshot
-                .filter(IcebergMvccSnapshot.class::isInstance)
-                .map(IcebergMvccSnapshot.class::cast)
-                .flatMap(value -> value.getSnapshotCacheValue().getIcebergTable());
+        Optional<Table> snapshotTable = snapshotValue.getIcebergTable();
         // Row-lineage fields are part of the pinned schema generation, not the refreshable table.
         return appendHiddenColumns(schema, snapshotTable.orElseGet(this::getIcebergTable));
     }
@@ -322,16 +301,18 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             return getBaseSchema(full);
         }
         try {
-            return catalog.getExecutionAuthenticator().execute(() -> {
-                // Schema-only changes need not advance the current snapshot. Resolve the current
-                // table schema and hidden columns from one retained metadata generation.
-                Table table = IcebergSnapshotCacheValue.retainTableGeneration(getIcebergTable());
-                List<Column> schema = IcebergUtils.parseSchemaForDisplay(table.schema(),
-                        catalog.getEnableMappingVarbinary(), catalog.getEnableMappingTimestampTz());
-                new SchemaCacheValue(schema).validateSchema();
-                schema = appendHiddenColumns(schema, table);
-                return full ? schema : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
-            });
+            return IcebergUtils.withIcebergTableGeneration(this,
+                    (table, enableMappingVarbinary, enableMappingTimestampTz) -> {
+                        // Schema-only changes need not advance the current snapshot. Resolve the current
+                        // table schema and hidden columns from one retained metadata generation.
+                        Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(table);
+                        List<Column> schema = IcebergUtils.parseSchemaForDisplay(retainedTable.schema(),
+                                enableMappingVarbinary, enableMappingTimestampTz);
+                        new SchemaCacheValue(schema).validateSchema();
+                        schema = appendHiddenColumns(schema, retainedTable);
+                        return full ? schema
+                                : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+                    });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
@@ -452,8 +433,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             View icebergView = getIcebergView();
             return icebergView.location();
         } else {
-            Table icebergTable = getIcebergTable();
-            return icebergTable.location();
+            return IcebergUtils.withIcebergTable(this, Table::location);
         }
     }
 
@@ -466,16 +446,14 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             View icebergView = getIcebergView();
             return icebergView.properties();
         } else {
-            Table icebergTable = getIcebergTable();
-            return icebergTable.properties();
+            return IcebergUtils.withIcebergTable(this, table -> new HashMap<>(table.properties()));
         }
     }
 
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
-        Table table = getIcebergTable();
-        return table.spec().isPartitioned();
+        return IcebergUtils.withIcebergTable(this, table -> table.spec().isPartitioned());
     }
 
     /**
@@ -483,7 +461,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return SQL string representing ORDER BY clause, or empty string if no sort order
      */
     public String getSortOrderSql() {
-        return getSortOrderSql(getIcebergTable());
+        return IcebergUtils.withIcebergTable(this, this::getSortOrderSql);
     }
 
     /** Return the sort order SQL for an already resolved Iceberg metadata generation. */

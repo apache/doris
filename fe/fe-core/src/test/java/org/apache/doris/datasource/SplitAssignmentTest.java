@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SplitAssignmentTest {
 
@@ -79,6 +80,31 @@ public class SplitAssignmentTest {
                 pathPartitionKeys,
                 true
         );
+    }
+
+    @Test
+    void testCloseableRegisteredAfterStopIsClosedImmediately() {
+        splitAssignment.stop();
+        AtomicBoolean closed = new AtomicBoolean();
+
+        splitAssignment.addCloseable(() -> closed.set(true));
+
+        Assertions.assertTrue(closed.get());
+    }
+
+    @Test
+    void testStopAfterPlanningFailureClosesEveryResourceWithoutThrowing() {
+        AtomicBoolean firstClosed = new AtomicBoolean();
+        AtomicBoolean secondClosed = new AtomicBoolean();
+        splitAssignment.addCloseable(() -> firstClosed.set(true));
+        splitAssignment.addCloseable(() -> secondClosed.set(true));
+        splitAssignment.setException(new UserException("planning failed"));
+
+        Assertions.assertDoesNotThrow(splitAssignment::stop);
+
+        Assertions.assertTrue(firstClosed.get());
+        Assertions.assertTrue(secondClosed.get());
+        Assertions.assertTrue(splitAssignment.isStop());
     }
 
     // ==================== init() method tests ====================

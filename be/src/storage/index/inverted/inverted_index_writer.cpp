@@ -162,7 +162,20 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     (*field)->setOmitTermFreqAndPositions(
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    (*field)->setOmitNorms(false);
+    // An analyzed index writes norms unless its "norms" property says otherwise. Norms cost one byte
+    // per segment row, including rows without a value, and a variant path index (a field_pattern
+    // index, or the copy inherited by one extracted subcolumn, which carries the path as its index
+    // suffix) is one of possibly thousands in a segment, so their norms can dwarf the data.
+    // inverted_index_skip_norms_for_variant drops norms for those indexes whatever their property
+    // says, so that a cluster can reclaim that space without rewriting its index definitions.
+    const bool variant_path_index =
+            !_index_meta->get_index_suffix().empty() || !_index_meta->field_pattern().empty();
+    const bool skipped_by_config =
+            variant_path_index && config::inverted_index_skip_norms_for_variant;
+    if (_should_analyzer && !skipped_by_config &&
+        get_index_norms_from_properties(_index_meta->properties())) {
+        (*field)->setOmitNorms(false);
+    }
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_field_v3", {
         if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

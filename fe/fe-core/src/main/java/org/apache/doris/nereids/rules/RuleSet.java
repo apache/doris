@@ -28,8 +28,6 @@ import org.apache.doris.nereids.rules.exploration.join.JoinExchangeBothProject;
 import org.apache.doris.nereids.rules.exploration.join.LogicalJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInnerOuterJoin;
-import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateOnNoneAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
@@ -63,9 +61,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalBlackholeSinkToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEConsumerToPhysicalCTEConsumer;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEProducerToPhysicalCTEProducer;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink;
-import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalDictionarySinkToPhysicalDictionarySink;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
@@ -109,7 +104,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalWorkTableReferenceTo
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
-import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
@@ -160,8 +154,6 @@ public class RuleSet {
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
-            .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
-            .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
             .addAll(new PushDownTopNThroughJoin().buildRules())
             .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
@@ -170,7 +162,6 @@ public class RuleSet {
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
             new MaxMinFilterPushDown(),
-            new CreatePartitionTopNFromWindow(),
             new PushDownFilterThroughProject(),
             new PushDownFilterThroughSort(),
             new PushDownFilterThroughVectorSearchTopN(),
@@ -209,7 +200,6 @@ public class RuleSet {
             .add(new LogicalJoinToHashJoin())
             .add(new LogicalJoinToNestedLoopJoin())
             .add(new LogicalOlapScanToPhysicalOlapScan())
-            .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalHudiScanToPhysicalHudiScan())
             .add(new LogicalFileScanToPhysicalFileScan())
@@ -222,7 +212,6 @@ public class RuleSet {
             .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
-            .add(new LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN())
             .add(new LogicalPartitionTopNToPhysicalPartitionTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
             .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
@@ -249,7 +238,6 @@ public class RuleSet {
             .add(new LogicalJdbcTableSinkToPhysicalJdbcTableSink())
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
-            .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
             .add(new LogicalDictionarySinkToPhysicalDictionarySink())
             .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
             .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())

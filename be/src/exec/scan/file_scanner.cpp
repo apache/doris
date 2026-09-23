@@ -63,7 +63,6 @@
 #include "format/avro/avro_jni_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/hive_reader.h"
@@ -576,8 +575,14 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(
-                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+            Status st = _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof);
+            // Lazy open may surface NOT_FOUND on the first read; skip as above.
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            RETURN_IF_ERROR(st);
         }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
@@ -1257,13 +1262,6 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
-            break;
-        }
-        case TFileFormatType::FORMAT_NATIVE: {
-            auto reader = NativeReader::create_unique(_profile, *_params, range, _io_ctx, _state);
-            init_status = reader->init_reader();
-            _cur_reader = std::move(reader);
-            need_to_get_parsed_schema = false;
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {

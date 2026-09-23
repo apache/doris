@@ -733,6 +733,30 @@ TEST(TEST_VEXPR, LITERALTEST) {
                 create_texpr_node_from((*ctn.column)[0], TYPE_STRING, 0, 0), true);
         EXPECT_EQ(s, node->value());
     }
+    // varbinary
+    {
+        const std::vector<std::string> values = {std::string("bin\0ary", 7),
+                                                 std::string("0123456789abc\0xyz", 17)};
+        for (const auto& value : values) {
+            auto field = Field::create_field<TYPE_VARBINARY>(
+                    StringView(value.data(), cast_set<uint32_t>(value.size())));
+            auto texpr_node = create_texpr_node_from(field, TYPE_VARBINARY, 0, 0);
+            EXPECT_EQ(TExprNodeType::VARBINARY_LITERAL, texpr_node.node_type);
+            EXPECT_EQ(value, texpr_node.varbinary_literal.value);
+
+            VLiteral literal(texpr_node);
+            EXPECT_EQ(value, literal.value());
+
+            Block block;
+            int result = -1;
+            ASSERT_TRUE(literal.execute(nullptr, &block, &result).ok());
+            const auto& result_column = block.safe_get_by_position(result).column;
+            // The view borrows the Field's owned bytes, so keep the Field alive for the assertion.
+            const auto result_field = (*result_column)[0];
+            const auto& sv = result_field.get<TYPE_VARBINARY>();
+            EXPECT_EQ(value, std::string(sv.data(), sv.size()));
+        }
+    }
     // decimalv2
     {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));

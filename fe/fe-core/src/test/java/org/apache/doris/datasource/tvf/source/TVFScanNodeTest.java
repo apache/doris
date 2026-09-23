@@ -30,7 +30,7 @@ import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;

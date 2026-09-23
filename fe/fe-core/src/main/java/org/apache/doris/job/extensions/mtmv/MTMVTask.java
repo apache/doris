@@ -256,6 +256,17 @@ public class MTMVTask extends AbstractTask {
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
+            try {
+                // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
+                // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
+                // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
+                context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+            } catch (Exception e) {
+                // Preloading is only a batching optimization. Retrying through the existing per-group load below
+                // preserves completed-group progress when a later chunk of the union fails.
+                LOG.warn("Failed to preload partition snapshots for mv={}, taskId={}; "
+                        + "falling back to per-group loading", mtmv.getName(), getTaskId(), e);
+            }
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                     % refreshPartitionNum) > 0 ? 1 : 0);
@@ -725,9 +736,11 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
-        // An incomplete baseline cannot be checked by isMTMVSync, because the current exclude rules may
-        // skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it with a full refresh.
-        if (!mtmv.hasCompleteRefreshSnapshot()) {
+        // A baseline that was invalidated as a whole cannot be checked by isMTMVSync, because the current
+        // exclude rules may skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it
+        // with a full refresh. A partition that partition sync has just added is not such a case: it has no
+        // snapshot yet but is still compared per partition below, so only the new partition gets refreshed.
+        if (!mtmv.hasRefreshSnapshot()) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
         // check if data is fresh

@@ -1867,7 +1867,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
 
     ctx.write_file_cache = should_cache_compaction_output();
-    ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
+    ctx.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
 
     // Set fine-grained control: only write index files to cache if configured

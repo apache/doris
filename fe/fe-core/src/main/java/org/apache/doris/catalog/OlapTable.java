@@ -65,7 +65,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -75,16 +74,12 @@ import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TEncryptionAlgorithm;
-import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
-import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTable;
-import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPatternType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
@@ -106,7 +101,6 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,6 +121,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -189,6 +184,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @SerializedName(value = "itp", alternate = {"idToPartition"})
     @Getter
     protected ConcurrentHashMap<Long, Partition> idToPartition = new ConcurrentHashMap<>();
+    // Incremented only when the formal partition id set changes. Prepared short-circuit point query cache uses this
+    // to invalidate stale partition pruning metadata without reacting to ordinary data writes. This is transient and
+    // rebuilt from zero after deserialization because prepared statement cache is also in-memory.
+    private transient AtomicLong partitionTopologyVersion = new AtomicLong(0L);
     // handled in postgsonprocess
     @Getter
     protected Map<String, Partition> nameToPartition = Maps.newTreeMap();
@@ -1292,8 +1291,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void addPartition(Partition partition) {
-        idToPartition.put(partition.getId(), partition);
+        Partition previousPartition = idToPartition.put(partition.getId(), partition);
         nameToPartition.put(partition.getName(), partition);
+        if (previousPartition == null) {
+            bumpPartitionTopologyVersion();
+        }
     }
 
     // This is a private method.
@@ -1309,6 +1311,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
+            bumpPartitionTopologyVersion();
             RecyclePartitionParam recyclePartitionParam = new RecyclePartitionParam();
             fillInfo(partition, recyclePartitionParam);
             dropPartitionCommon(dbId, isForceDrop, recyclePartitionParam, partition, reserveTablets);
@@ -1592,6 +1595,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public List<Long> getPartitionIds() {
         return new ArrayList<>(idToPartition.keySet());
+    }
+
+    public long getPartitionTopologyVersion() {
+        return partitionTopologyVersion.get();
+    }
+
+    private void bumpPartitionTopologyVersion() {
+        partitionTopologyVersion.incrementAndGet();
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -2024,6 +2035,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public void gsonPostProcess() throws IOException {
+        partitionTopologyVersion = new AtomicLong(0L);
 
         // HACK: the index id in MaterializedIndexMeta is not equals to the index id
         // saved in OlapTable, because the table restore from snapshot is not reset
@@ -2178,6 +2190,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         idToPartition.put(newPartition.getId(), newPartition);
         nameToPartition.put(newPartition.getName(), newPartition);
+        bumpPartitionTopologyVersion();
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
         ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(oldPartition.getId());
@@ -3172,48 +3185,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     public AutoIncrementGenerator getAutoIncrementGenerator() {
         return autoIncrementGenerator;
-    }
-
-    /**
-     * generate two phase read fetch option from this olap table.
-     *
-     * @param selectedIndexId the index want to scan
-     */
-    public TFetchOption generateTwoPhaseReadOption(long selectedIndexId) {
-        boolean useStoreRow = this.storeRowColumn()
-                && CollectionUtils.isEmpty(getTableProperty().getCopiedRowStoreColumns());
-        TFetchOption fetchOption = new TFetchOption();
-        fetchOption.setFetchRowStore(useStoreRow);
-        fetchOption.setUseTwoPhaseFetch(true);
-
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            context = new ConnectContext();
-        }
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
-                .needQueryAvailable()
-                .setRequireAliveBe()
-                .build();
-
-        TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
-        ComputeGroup computeGroup = context.getComputeGroupSafely();
-
-        if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
-            throw new RuntimeException(ComputeGroup.INVALID_COMPUTE_GROUP_ERR_MSG);
-        }
-
-        for (Backend backend : policy.getCandidateBackends(computeGroup.getBackendList())) {
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
-        }
-
-        fetchOption.setNodesInfo(nodesInfo);
-
-        if (!useStoreRow) {
-            List<TColumn> columnsDesc = Lists.newArrayList();
-            getColumnDesc(selectedIndexId, columnsDesc, null, null);
-            fetchOption.setColumnDesc(columnsDesc);
-        }
-        return fetchOption;
     }
 
     public void getColumnDesc(long selectedIndexId, List<TColumn> columnsDesc, List<String> keyColumnNames,

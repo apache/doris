@@ -3100,6 +3100,10 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_python_udf = true;
 
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
+
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
                     + "默认为 false，如果 Image 文件中包含未知的模块，Doris 将会抛出异常。"
@@ -4224,6 +4228,13 @@ public class Config extends ConfigBase {
                     + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
                     + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
     public static boolean enable_adaptive_random_bucket_load = true;
+
+    @ConfField(description = {"每个 Lance catalog client 代际共享的 Java Arrow 内存上限，单位字节，必须大于 0。"
+            + "刷新期间新旧代际可短暂并存；不包含 Rust Session 缓存及独立索引检查任务。",
+            "Shared Java Arrow memory limit in bytes per Lance catalog client generation; must be positive. "
+                    + "Generations may overlap during refresh. Excludes Rust Session caches and independent "
+                    + "index inspection tasks."})
+    public static long lance_catalog_arrow_memory_limit_bytes = 256L * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的 admission。默认关闭;"

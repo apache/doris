@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -34,6 +36,7 @@ import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.info.PartitionNamesInfo;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -77,6 +80,67 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 // CHECKSTYLE OFF
 public class AnalysisManagerTest {
+    @Test
+    public void testBuildAnalysisJobInfoCollectHotValueDefault() {
+        AnalysisManager manager = new AnalysisManager();
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getNextId()).thenReturn(1L, 2L, 3L, 4L);
+
+            AnalysisInfo fullOnce = manager.buildAnalysisJobInfo(
+                    mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.ONCE, false, false));
+            Assertions.assertFalse(fullOnce.collectHotValue);
+
+            AnalysisInfo samplePeriod = manager.buildAnalysisJobInfo(
+                    mockAnalyzeCommand(AnalysisMethod.SAMPLE, ScheduleType.PERIOD, false, true));
+            Assertions.assertTrue(samplePeriod.collectHotValue);
+
+            AnalysisInfo automatic = manager.buildAnalysisJobInfo(
+                    mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.AUTOMATIC, false, true));
+            Assertions.assertFalse(automatic.collectHotValue);
+
+            AnalysisInfo automaticSample = manager.buildAnalysisJobInfo(
+                    mockAnalyzeCommand(AnalysisMethod.SAMPLE, ScheduleType.AUTOMATIC, false, true));
+            Assertions.assertTrue(automaticSample.collectHotValue);
+
+            AnalysisInfo explicitAutomatic = manager.buildAnalysisJobInfo(
+                    mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.AUTOMATIC, true, false));
+            Assertions.assertFalse(explicitAutomatic.collectHotValue);
+        }
+    }
+
+    @Test
+    public void testBuildAnalysisJobInfoAutoSampleCommandCollectsHotValue() {
+        AnalysisManager manager = new AnalysisManager();
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getNextId()).thenReturn(1L);
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put(AnalyzeProperties.PROPERTY_SYNC, "false");
+            properties.put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisType.FUNDAMENTALS.toString());
+            properties.put(AnalyzeProperties.PROPERTY_AUTOMATIC, "true");
+            properties.put(AnalyzeProperties.PROPERTY_SAMPLE_ROWS, "100");
+            AnalyzeTableCommand command = Mockito.spy(new AnalyzeTableCommand(
+                    new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME, "testDb", "testTbl"),
+                    null, ImmutableList.of("testCol"), new AnalyzeProperties(properties)));
+            TableIf table = Mockito.mock(TableIf.class);
+            Mockito.when(table.getId()).thenReturn(30001L);
+            Mockito.when(table.getColumnIndexPairs(Mockito.any()))
+                    .thenReturn(Collections.singleton(Pair.of("testTbl", "testCol")));
+            Mockito.doReturn(table).when(command).getTable();
+            Mockito.doReturn(10001L).when(command).getCatalogId();
+            Mockito.doReturn(20001L).when(command).getDbId();
+
+            AnalysisInfo analysisInfo = manager.buildAnalysisJobInfo(command);
+            Assertions.assertEquals(ScheduleType.AUTOMATIC, analysisInfo.scheduleType);
+            Assertions.assertEquals(AnalysisMethod.SAMPLE, analysisInfo.analysisMethod);
+            Assertions.assertTrue(analysisInfo.collectHotValue);
+        }
+    }
+
     @Test
     public void testUpdateTaskStatus(@Mocked BaseAnalysisTask task1,
             @Mocked BaseAnalysisTask task2) {
@@ -429,7 +493,7 @@ public class AnalysisManagerTest {
         PaimonExternalTable table = Mockito.spy(new TestPaimonExternalTable(catalog, database));
         Mockito.doReturn(-1L).when(table).getRowCount();
         Mockito.doReturn(Collections.emptySet()).when(table).getColumnIndexPairs(Mockito.any());
-        AnalyzeTableCommand command = mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.ONCE);
+        AnalyzeTableCommand command = mockAnalyzeCommand(AnalysisMethod.FULL, ScheduleType.ONCE, false, false);
         Mockito.when(command.getTable()).thenReturn(table);
         AnalysisManager manager = new AnalysisManager();
         Env env = Mockito.mock(Env.class);
@@ -475,11 +539,26 @@ public class AnalysisManagerTest {
         Assertions.assertTrue(count.get() <= 20);
     }
 
-    private AnalyzeTableCommand mockAnalyzeCommand(AnalysisMethod analysisMethod, ScheduleType scheduleType) {
+    private static class TestPaimonExternalTable extends PaimonExternalTable {
+        private TestPaimonExternalTable(PaimonExternalCatalog catalog, PaimonExternalDatabase database) {
+            super(30001L, "table", "table", catalog, database);
+        }
+
+        @Override
+        protected synchronized void makeSureInitialized() {
+        }
+    }
+
+    private AnalyzeTableCommand mockAnalyzeCommand(AnalysisMethod analysisMethod, ScheduleType scheduleType,
+            boolean hasCollectHotValue, boolean collectHotValue) {
         AnalyzeTableCommand command = Mockito.mock(AnalyzeTableCommand.class);
         TableIf table = Mockito.mock(TableIf.class);
+        Map<String, String> properties = new HashMap<>();
+        if (hasCollectHotValue) {
+            properties.put(AnalyzeProperties.PROPERTY_COLLECT_HOT_VALUE, String.valueOf(collectHotValue));
+        }
+        AnalyzeProperties analyzeProperties = new AnalyzeProperties(properties);
         Mockito.when(table.getId()).thenReturn(30001L);
-        Mockito.when(table.getColumnIndexPairs(Mockito.any())).thenReturn(Collections.emptySet());
         Mockito.when(command.getTable()).thenReturn(table);
         Mockito.when(command.getColumnNames()).thenReturn(Collections.emptySet());
         Mockito.when(command.isPartitionOnly()).thenReturn(false);
@@ -497,16 +576,7 @@ public class AnalysisManagerTest {
         Mockito.when(command.getPartitionNames()).thenReturn(Collections.emptySet());
         Mockito.when(command.forceFull()).thenReturn(false);
         Mockito.when(command.usingSqlForExternalTable()).thenReturn(false);
+        Mockito.when(command.getAnalyzeProperties()).thenReturn(analyzeProperties);
         return command;
-    }
-
-    private static class TestPaimonExternalTable extends PaimonExternalTable {
-        private TestPaimonExternalTable(PaimonExternalCatalog catalog, PaimonExternalDatabase database) {
-            super(30001L, "table", "table", catalog, database);
-        }
-
-        @Override
-        protected synchronized void makeSureInitialized() {
-        }
     }
 }

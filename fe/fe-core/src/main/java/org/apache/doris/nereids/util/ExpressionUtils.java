@@ -26,6 +26,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -55,8 +56,10 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
@@ -68,12 +71,14 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -946,17 +951,41 @@ public class ExpressionUtils {
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Expression predicate : filterCheapPredicatesForNotNull(predicates)) {
+        Set<Slot> targetSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
             for (Slot slot : predicate.getInputSlots()) {
-                Map<Expression, Expression> replaceMap = new HashMap<>();
-                Literal nullLiteral = new NullLiteral(slot.getDataType());
-                replaceMap.put(slot, nullLiteral);
-                Expression evalExpr = FoldConstantRule.evaluate(
-                        ExpressionUtils.replace(predicate, replaceMap),
-                        new ExpressionRewriteContext(cascadesContext)
-                );
-                if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
+                if (!(slot instanceof MarkJoinSlotReference)) {
+                    targetSlots.add(slot);
+                }
+            }
+        }
+        return inferNotNullSlots(predicates, targetSlots, cascadesContext);
+    }
+
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given target slots.
+     */
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, Set<Slot> targetSlots,
+            CascadesContext cascadesContext) {
+        ImmutableSet.Builder<Slot> notNullSlots = ImmutableSet.builderWithExpectedSize(targetSlots.size());
+        Set<Slot> inputSlots = new HashSet<>();
+        for (Expression predicate : predicates) {
+            if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
+                    || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
+                continue;
+            }
+            Set<Slot> predicateInputSlots = predicate.getInputSlots();
+            Set<Slot> candidateSlots = Sets.intersection(predicateInputSlots, targetSlots);
+            if (candidateSlots.isEmpty()) {
+                continue;
+            }
+            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsWithinLimit(inputSlots, predicateInputSlots);
+            if (!mergedInputSlots.isPresent()) {
+                continue;
+            }
+            inputSlots = mergedInputSlots.get();
+            for (Slot slot : candidateSlots) {
+                if (isNullRejecting(predicate, slot, cascadesContext)) {
                     notNullSlots.add(slot);
                 }
             }
@@ -964,45 +993,17 @@ public class ExpressionUtils {
         return notNullSlots.build();
     }
 
-    /**
-     * Return whether all predicates are cheap enough for not-null inference.
-     */
-    public static boolean isCheapEnoughToInferNotNull(Collection<? extends Expression> predicates) {
-        Set<Slot> inputSlots = new HashSet<>();
-        for (Expression predicate : predicates) {
-            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
-            if (!mergedInputSlots.isPresent()) {
-                return false;
-            }
-            inputSlots = mergedInputSlots.get();
-        }
-        return true;
+    private static boolean isNullRejecting(Expression predicate, Slot slot, CascadesContext cascadesContext) {
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        Literal nullLiteral = new NullLiteral(slot.getDataType());
+        replaceMap.put(slot, nullLiteral);
+        Expression evalExpr = FoldConstantRule.evaluate(
+                ExpressionUtils.replace(predicate, replaceMap),
+                new ExpressionRewriteContext(cascadesContext));
+        return evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr);
     }
 
-    /**
-     * Filter predicates that are cheap enough for not-null inference.
-     */
-    public static Set<Expression> filterCheapPredicatesForNotNull(
-            Collection<? extends Expression> predicates) {
-        Set<Slot> inputSlots = new HashSet<>();
-        Set<Expression> cheapPredicates = Sets.newLinkedHashSet();
-        for (Expression predicate : predicates) {
-            Optional<Set<Slot>> mergedInputSlots = mergeInputSlotsIfCheap(predicate, inputSlots);
-            if (!mergedInputSlots.isPresent()) {
-                continue;
-            }
-            inputSlots = mergedInputSlots.get();
-            cheapPredicates.add(predicate);
-        }
-        return cheapPredicates;
-    }
-
-    private static Optional<Set<Slot>> mergeInputSlotsIfCheap(Expression predicate, Set<Slot> inputSlots) {
-        if (predicate.getWidth() > MAX_INFER_NOT_NULL_EXPR_WIDTH
-                || predicate.getDepth() > MAX_INFER_NOT_NULL_EXPR_DEPTH) {
-            return Optional.empty();
-        }
-        Set<Slot> predicateInputSlots = predicate.getInputSlots();
+    private static Optional<Set<Slot>> mergeInputSlotsWithinLimit(Set<Slot> inputSlots, Set<Slot> predicateInputSlots) {
         if (predicateInputSlots.size() > MAX_INFER_NOT_NULL_INPUT_SLOTS) {
             return Optional.empty();
         }
@@ -1021,20 +1022,6 @@ public class ExpressionUtils {
         ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
         for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
             newPredicates.add(new Not(new IsNull(slot), false));
-        }
-        return newPredicates.build();
-    }
-
-    /**
-     * infer notNulls slot from predicate but these slots must be in the given slots.
-     */
-    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots,
-            CascadesContext cascadesContext) {
-        ImmutableSet.Builder<Expression> newPredicates = ImmutableSet.builderWithExpectedSize(predicates.size());
-        for (Slot slot : inferNotNullSlots(predicates, cascadesContext)) {
-            if (slots.contains(slot)) {
-                newPredicates.add(new Not(new IsNull(slot), true));
-            }
         }
         return newPredicates.build();
     }
@@ -1171,6 +1158,15 @@ public class ExpressionUtils {
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
                 builder.put((Slot) expression.child(0), expression.child(1));
+            } else {
+                // length(str_col)=0 => str_col=''
+                if (expression.child(0) instanceof Length
+                        && expression.child(1).equals(new IntegerLiteral(0))) {
+                    Length len = (Length) expression.child(0);
+                    if (len.child() instanceof Slot && len.child().getDataType().isStringLikeType()) {
+                        builder.put((Slot) len.child(), new StringLiteral(""));
+                    }
+                }
             }
         }
         return builder.build();
@@ -1184,6 +1180,24 @@ public class ExpressionUtils {
     // if the input is unique,  the output of agg is unique, too
     public static boolean isInjectiveAgg(Expression agg) {
         return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+    }
+
+    /**
+     * Whether a single-row group always produces the same aggregate result.
+     *
+     * <p>COUNT(*) always consumes its only row. Argument-based COUNT and NDV consume the row only
+     * when every argument is non-null, so nullable arguments may produce either zero or one across
+     * otherwise single-row groups. Keep the proof conservative and inspect the complete argument
+     * expressions rather than only their input slots.</p>
+     */
+    public static boolean isUniformAgg(Expression agg) {
+        if (agg instanceof Count && ((Count) agg).isCountStar()) {
+            return true;
+        }
+        if (!(agg instanceof Count || agg instanceof Ndv)) {
+            return false;
+        }
+        return agg.getArguments().stream().allMatch(Expression::notNullable);
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,
@@ -1411,6 +1425,30 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /**
+     * Try to substitute the uniform constant values of {@code childTrait} into {@code expr}. If all
+     * input slots of {@code expr} have a known uniform constant value in {@code childTrait} and the
+     * substituted expression is a constant, return it. e.g. for a project expression
+     * `days_sub(begin_time, 1)` over a child where `begin_time` is a uniform constant slot, returns
+     * `days_sub('2026-07-28 00:00:00', 1)`, so the projected slot can also be registered as a
+     * uniform constant and downstream constant propagation can fold predicates over it.
+     */
+    public static Optional<Expression> foldToConstantByUniformValues(Expression expr, DataTrait childTrait) {
+        Set<Slot> inputSlots = expr.getInputSlots();
+        if (inputSlots.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<Expression, Expression> replaceMap = new HashMap<>();
+        for (Slot slot : inputSlots) {
+            if (!childTrait.isUniformAndHasConstValue(slot)) {
+                return Optional.empty();
+            }
+            replaceMap.put(slot, childTrait.getUniformValue(slot).get());
+        }
+        Expression constantExpr = replace(expr, replaceMap);
+        return constantExpr.isConstant() ? Optional.of(constantExpr) : Optional.empty();
     }
 
     /** check constant value the expression */

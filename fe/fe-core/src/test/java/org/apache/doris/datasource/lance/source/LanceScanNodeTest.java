@@ -25,15 +25,24 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
-import org.apache.doris.datasource.lance.LanceIndexSegmentInfo;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.lance.index.LanceIndexSegmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.lance.profile.LanceMetadataMetrics;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -58,40 +67,83 @@ import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
 import java.security.InvalidParameterException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public class LanceScanNodeTest {
 
-    // Verifies additional Lance encodings cannot run on a smooth-upgrade source BE.
     @Test
-    public void testAdditionalTypesRejectSmoothUpgradeSourceBackend() throws Exception {
-        Backend currentBackend = Mockito.mock(Backend.class);
-        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
-        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
-        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10001L);
+    public void testSplitPlanningReportsSuccessAndFailureToQueryProfile() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        SummaryProfile summary = new SummaryProfile();
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getSummaryProfile()).thenReturn(summary);
+        context.setExecutor(executor);
+        context.setThreadLocalInfo();
+        try {
+            LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                    new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, vectorSchema(),
+                    Collections.singletonList(new LanceFragmentInfo(1, 8, 8)));
+            SessionVariable variables = new SessionVariable();
+            LanceScanNode node = newNode(variables);
+            setMetadata(node, metadata);
+            Assert.assertEquals(1, node.getSplits(1).size());
+            variables.lanceFragmentsPerSplit = -1;
+            Assert.assertThrows(UserException.class, () -> node.getSplits(1));
+            RuntimeProfile group = summary.getExecutionSummary().getChildMap().get(LanceMetadataMetrics.GROUP_NAME);
+            Assert.assertEquals(2, group.getCounterMap().get("SplitPlanningCalls").getValue());
+            Assert.assertEquals(1, group.getCounterMap().get("SplitPlanningFailures").getValue());
+            Assert.assertFalse(group.getCounterMap().containsKey("MetadataReadTime"));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
 
-        LanceScanNode.checkAdditionalTypeBackendCompatibility(
-                true, Arrays.asList(currentBackend));
-        LanceScanNode.checkAdditionalTypeBackendCompatibility(
-                false, Arrays.asList(currentBackend, smoothUpgradeSource));
-        UserException exception = Assert.assertThrows(UserException.class,
-                () -> LanceScanNode.checkAdditionalTypeBackendCompatibility(
-                        true, Arrays.asList(currentBackend, smoothUpgradeSource)));
+    @Test
+    public void testBackendAssignmentCanShuffleSplitsWithoutChangingStoredPlan() throws Exception {
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, vectorSchema(),
+                Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7),
+                        new LanceFragmentInfo(3, 6, 6), new LanceFragmentInfo(4, 5, 5)));
+        LanceScanNode node = newNode();
+        setMetadata(node, metadata);
+        List<Split> schedulingSplits = node.getSplits(2);
+        List<Split> manifestOrder = new ArrayList<>(schedulingSplits);
 
-        Assert.assertTrue(exception.getMessage().contains("10001"));
+        // Exercise the real scheduler: it shuffles the caller's list before assigning backends.
+        FederationBackendPolicy policy = new FederationBackendPolicy();
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        java.lang.reflect.Field backendMap = FederationBackendPolicy.class.getDeclaredField("backendMap");
+        backendMap.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, List<Backend>> candidates = (Map<String, List<Backend>>) backendMap.get(policy);
+        candidates.put(backend.getHost(), Collections.singletonList(backend));
+        policy.getAssignedWeightPerBackend().put(backend, 0L);
+        Assert.assertEquals(schedulingSplits.size(), policy.computeScanRangeAssignment(schedulingSplits).size());
+
+        java.lang.reflect.Field planField = LanceScanNode.class.getDeclaredField("scanPlan");
+        planField.setAccessible(true);
+        LanceScanPlan plan = (LanceScanPlan) planField.get(node);
+        Assert.assertEquals(manifestOrder, plan.createSchedulingSplits());
+        Assert.assertNotSame(schedulingSplits, plan.createSchedulingSplits());
     }
 
     @Test
     public void testLabelListSegmentsForAlreadyPushedArrayFilter() {
         UUID first = UUID.fromString("11111111-2222-3333-4444-555555555555");
         UUID second = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/labels.lance", 42,
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/labels.lance", Collections.emptyMap()), 42,
                 new Schema(Collections.singletonList(new Field("labels",
                         FieldType.nullable(ArrowType.List.INSTANCE),
                         Collections.singletonList(Field.nullable("item", new ArrowType.Int(64, true)))))),
@@ -99,8 +151,7 @@ public class LanceScanNodeTest {
                         new LanceFragmentInfo(3, 30, 30)),
                 Collections.singletonMap("labels", 9),
                 Arrays.asList(scalarSegment(first, IndexType.LABEL_LIST, Collections.singletonList(1L)),
-                        scalarSegment(second, IndexType.LABEL_LIST, Collections.singletonList(2L))),
-                Collections.emptyMap());
+                        scalarSegment(second, IndexType.LABEL_LIST, Collections.singletonList(2L))));
         Map<Long, LanceFragmentInfo> fragments = new LinkedHashMap<>();
         metadata.getFragments().forEach(fragment -> fragments.put(fragment.getId(), fragment));
         // This checks the planner's pushed-predicate contract. Array predicate conversion
@@ -112,12 +163,12 @@ public class LanceScanNodeTest {
         Assert.assertNotNull(plan);
         Assert.assertEquals("key_idx", plan.indexName);
         plan.splits.addUncoveredFragments(fragments.values(), 1);
-        List<Split> splits = plan.splits.buildFragmentSplits(20, fragments);
+        List<Split> splits = plan.splits.buildSplits();
         Assert.assertEquals(3, splits.size());
-        Assert.assertEquals(Collections.singletonList(first), ((LanceSplit) splits.get(0)).getIndexSegmentUuids());
-        Assert.assertEquals(Collections.singletonList(second), ((LanceSplit) splits.get(1)).getIndexSegmentUuids());
+        Assert.assertEquals(Optional.of(first), ((LanceSplit) splits.get(0)).getIndexSegmentUuid());
+        Assert.assertEquals(Optional.of(second), ((LanceSplit) splits.get(1)).getIndexSegmentUuid());
         Assert.assertEquals(Collections.singletonList(3L), ((LanceSplit) splits.get(2)).getFragmentIds());
-        Assert.assertFalse(((LanceSplit) splits.get(2)).hasIndexSegmentUuids());
+        Assert.assertFalse(((LanceSplit) splits.get(2)).getIndexSegmentUuid().isPresent());
     }
 
     @Test
@@ -196,7 +247,7 @@ public class LanceScanNodeTest {
             setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.AND, filter, predicate));
             List<Split> splits = node.getSplits(20);
             Assert.assertEquals(1, splits.size());
-            Assert.assertTrue(((LanceSplit) splits.get(0)).hasIndexSegmentUuids());
+            Assert.assertTrue(((LanceSplit) splits.get(0)).getIndexSegmentUuid().isPresent());
         }
     }
 
@@ -211,7 +262,7 @@ public class LanceScanNodeTest {
         List<Split> splits = node.getSplits(20);
         Assert.assertEquals(4, splits.size());
         for (Split split : splits) {
-            Assert.assertFalse(((LanceSplit) split).hasIndexSegmentUuids());
+            Assert.assertFalse(((LanceSplit) split).getIndexSegmentUuid().isPresent());
         }
     }
 
@@ -244,11 +295,11 @@ public class LanceScanNodeTest {
     }
 
     private static LanceTableMetadata scalarMetadata(List<LanceIndexSegmentInfo> segments) {
-        return LanceTableMetadata.withIndexSegments("s3://bucket/scalar.lance", 42,
+        return LanceTableMetadata.createSnapshotWithIndexes(new LanceTableAccess("s3://bucket/scalar.lance", Collections.emptyMap()), 42,
                 new Schema(Collections.singletonList(Field.nullable("key", new ArrowType.Int(64, true)))),
                 Arrays.asList(new LanceFragmentInfo(1, 10, 12), new LanceFragmentInfo(2, 20, 20),
                         new LanceFragmentInfo(3, 30, 30), new LanceFragmentInfo(4, 40, 40)),
-                Collections.singletonMap("key", 9), segments, Collections.emptyMap());
+                Collections.singletonMap("key", 9), segments);
     }
 
     private static void setPushedConjuncts(LanceScanNode node, Expr predicate) {
@@ -263,15 +314,14 @@ public class LanceScanNodeTest {
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.lanceFragmentsPerSplit = 2;
         LanceScanNode node = newNode(sessionVariable);
-        setMetadata(node, LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42, new Schema(Collections.emptyList()),
+        setMetadata(node, LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(7, 10, 1000),
                         new LanceFragmentInfo(11, 250, 250),
                         new LanceFragmentInfo(13, 0, 0),
                         new LanceFragmentInfo(17, 499, 499),
-                        new LanceFragmentInfo(23, 125, 125)),
-                Collections.emptyMap()));
+                        new LanceFragmentInfo(23, 125, 125))));
 
         List<Split> splits = node.getSplits(2);
 
@@ -307,10 +357,9 @@ public class LanceScanNodeTest {
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.lanceFragmentsPerSplit = Integer.MAX_VALUE;
         LanceScanNode node = newNode(sessionVariable);
-        setMetadata(node, LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42, new Schema(Collections.emptyList()),
-                Arrays.asList(new LanceFragmentInfo(7, 0, 0), new LanceFragmentInfo(11, 0, 0)),
-                Collections.emptyMap()));
+        setMetadata(node, LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, new Schema(Collections.emptyList()),
+                Arrays.asList(new LanceFragmentInfo(7, 0, 0), new LanceFragmentInfo(11, 0, 0))));
 
         List<Split> splits = node.getSplits(2);
 
@@ -319,9 +368,9 @@ public class LanceScanNodeTest {
         Assert.assertEquals(2L, ((LanceSplit) splits.get(0)).getSelfSplitWeight());
         Assert.assertEquals(100L, splits.get(0).getSplitWeight().getRawValue());
 
-        setMetadata(node, LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 43, new Schema(Collections.emptyList()),
-                Collections.emptyList(), Collections.emptyMap()));
+        setMetadata(node, LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 43, new Schema(Collections.emptyList()),
+                Collections.emptyList()));
         Assert.assertTrue(node.getSplits(2).isEmpty());
     }
 
@@ -338,15 +387,14 @@ public class LanceScanNodeTest {
 
     @Test
     public void testFragmentRowsDetermineSplitWeights() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(7, 1000, 1000),
                         new LanceFragmentInfo(11, 250, 250),
-                        new LanceFragmentInfo(13, 0, 0)),
-                Collections.emptyMap());
+                        new LanceFragmentInfo(13, 0, 0)));
         LanceScanNode node = newNode();
         setMetadata(node, metadata);
 
@@ -364,14 +412,13 @@ public class LanceScanNodeTest {
         // row count is only 10. The pinned BE legacy reader still scans all physical rows, so
         // both fragments must keep the standard weight instead of underweighting the
         // tombstone-heavy one to the minimum.
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(7, 1000, 1000),
-                        new LanceFragmentInfo(11, 10, 1000)),
-                Collections.emptyMap());
+                        new LanceFragmentInfo(11, 10, 1000)));
         LanceScanNode node = newNode();
         setMetadata(node, metadata);
 
@@ -384,15 +431,14 @@ public class LanceScanNodeTest {
 
     @Test
     public void testCountSplitsPinVersionAndKeepFallbackRangesDisjoint() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(7, 6000, 6001),
                         new LanceFragmentInfo(11, 5000, 5001),
-                        new LanceFragmentInfo(13, 4000, 4001)),
-                Collections.emptyMap());
+                        new LanceFragmentInfo(13, 4000, 4001)));
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.parallelExecInstanceNum = 1;
         LanceScanNode node = newNode(sessionVariable);
@@ -409,14 +455,13 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchUsesFragmentSplits() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(7, 1000, 1000),
-                        new LanceFragmentInfo(11, 250, 250)),
-                Collections.emptyMap());
+                        new LanceFragmentInfo(11, 250, 250)));
         TExternalSearchRequest request = vectorSearchRequest(5, 2);
         LanceScanNode node = newSearchNode(metadata, request);
 
@@ -434,12 +479,11 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchRejectsNonPositiveSnapshotVersionInFrontend() {
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 0,
                 new Schema(Collections.emptyList()),
-                Collections.singletonList(new LanceFragmentInfo(7, 1000, 1000)),
-                Collections.emptyMap());
+                Collections.singletonList(new LanceFragmentInfo(7, 1000, 1000)));
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
         UserException exception = Assert.assertThrows(UserException.class,
@@ -450,16 +494,15 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchUsesFragmentRowsForSplitWeights() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(7, 1000, 1000),
                         new LanceFragmentInfo(11, 250, 250),
                         new LanceFragmentInfo(13, 800, 800),
-                        new LanceFragmentInfo(17, 100, 100)),
-                Collections.emptyMap());
+                        new LanceFragmentInfo(17, 100, 100)));
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
         List<Split> splits = node.getSplits(3);
@@ -477,16 +520,15 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchUsesOneSplitPerFragmentRegardlessOfBackendCount() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 new Schema(Collections.emptyList()),
                 Arrays.asList(
                         new LanceFragmentInfo(1, 8, 8),
                         new LanceFragmentInfo(2, 7, 7),
                         new LanceFragmentInfo(3, 6, 6),
-                        new LanceFragmentInfo(4, 5, 5)),
-                Collections.emptyMap());
+                        new LanceFragmentInfo(4, 5, 5)));
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
         List<Split> splits = node.getSplits(2);
@@ -503,8 +545,8 @@ public class LanceScanNodeTest {
             throws Exception {
         UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
         UUID secondSegment = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(
@@ -520,11 +562,13 @@ public class LanceScanNodeTest {
                                 IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(secondSegment, "vector_idx",
                                 Collections.singletonList(9), Arrays.asList(3L, 4L),
-                                IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                IndexType.VECTOR, "L2")));
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
         List<Split> splits = node.getSplits(3);
+
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("lanceVectorIndexStatus=USED"));
 
         Assert.assertEquals(3, splits.size());
         assertIndexSplit(splits.get(0), firstSegment, Arrays.asList(1L, 2L), 15, 100);
@@ -543,8 +587,8 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchUseIndexFalseKeepsFragmentSplits() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(
@@ -554,13 +598,15 @@ public class LanceScanNodeTest {
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
                                 Collections.singletonList(9), Arrays.asList(1L, 2L),
-                                IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                IndexType.VECTOR, "L2")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.setVectorSearchOptions(new TVectorSearchOptions().setUseIndex(false));
         LanceScanNode node = newSearchNode(metadata, request);
 
         List<Split> splits = node.getSplits(2);
+
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("lanceVectorIndexStatus=DISABLED"));
 
         Assert.assertEquals(2, splits.size());
         assertSplit(splits.get(0), 1, 8, 100);
@@ -571,8 +617,8 @@ public class LanceScanNodeTest {
     public void testFullTextSearchUsesOneSplitPerCommittedIndexSegment() throws Exception {
         UUID firstSegment = UUID.fromString("11111111-2222-3333-4444-555555555555");
         UUID secondSegment = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 fullTextSchema(),
                 Arrays.asList(
@@ -586,8 +632,7 @@ public class LanceScanNodeTest {
                                 IndexType.INVERTED, null),
                         new LanceIndexSegmentInfo(secondSegment, "body_fts",
                                 Collections.singletonList(7), Collections.singletonList(3L),
-                                IndexType.INVERTED, null)),
-                Collections.emptyMap());
+                                IndexType.INVERTED, null)));
         TExternalSearchRequest request = fullTextSearchRequest(
                 5, 2, TFtsCoverageMode.STRICT);
         LanceScanNode node = newSearchNode(metadata, request);
@@ -649,8 +694,8 @@ public class LanceScanNodeTest {
     @Test
     public void testFullTextSearchCoverageModesHandleUnindexedFragments() throws Exception {
         UUID segment = UUID.fromString("11111111-2222-3333-4444-555555555555");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 fullTextSchema(),
                 Arrays.asList(
@@ -661,8 +706,7 @@ public class LanceScanNodeTest {
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(segment, "body_fts",
                                 Collections.singletonList(7), Arrays.asList(1L, 2L),
-                                IndexType.INVERTED, null)),
-                Collections.emptyMap());
+                                IndexType.INVERTED, null)));
 
         LanceScanNode strictNode = newSearchNode(metadata,
                 fullTextSearchRequest(10, 0, TFtsCoverageMode.STRICT));
@@ -679,8 +723,8 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchFallsBackToFragmentSplitsForMetricMismatch() throws Exception {
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(
@@ -690,13 +734,15 @@ public class LanceScanNodeTest {
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
                                 Collections.singletonList(9), Arrays.asList(1L, 2L),
-                                IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                IndexType.VECTOR, "L2")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
         LanceScanNode node = newSearchNode(metadata, request);
 
         List<Split> splits = node.getSplits(2);
+
+        Assert.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("lanceVectorIndexStatus=METRIC_MISMATCH"));
 
         Assert.assertEquals(2, splits.size());
         assertSplit(splits.get(0), 1, 8, 100);
@@ -707,8 +753,8 @@ public class LanceScanNodeTest {
     public void testExternalSearchSelectsLaterMetricCompatibleIndex() throws Exception {
         UUID l2Segment = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID cosineSegment = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
@@ -717,8 +763,7 @@ public class LanceScanNodeTest {
                         new LanceIndexSegmentInfo(l2Segment, "a_l2", Collections.singletonList(9),
                                 Arrays.asList(1L, 2L), IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE")),
-                Collections.emptyMap());
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
 
@@ -732,8 +777,8 @@ public class LanceScanNodeTest {
     public void testExternalSearchSelectsMetricCompatibleIndexRegardlessOfMetadataOrder() throws Exception {
         UUID cosineSegment = UUID.fromString("33333333-3333-3333-3333-333333333333");
         UUID l2Segment = UUID.fromString("44444444-4444-4444-4444-444444444444");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
@@ -742,8 +787,7 @@ public class LanceScanNodeTest {
                         new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
                                 Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE"),
                         new LanceIndexSegmentInfo(l2Segment, "a_l2", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "L2")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
 
@@ -758,8 +802,8 @@ public class LanceScanNodeTest {
         UUID laterSegment = UUID.fromString("55555555-5555-5555-5555-555555555555");
         UUID firstSegment = UUID.fromString("66666666-6666-6666-6666-666666666666");
         UUID secondSegment = UUID.fromString("77777777-7777-7777-7777-777777777777");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(
@@ -773,8 +817,7 @@ public class LanceScanNodeTest {
                         new LanceIndexSegmentInfo(firstSegment, "a_l2", Collections.singletonList(9),
                                 Collections.singletonList(1L), IndexType.VECTOR, "L2"),
                         new LanceIndexSegmentInfo(secondSegment, "a_l2", Collections.singletonList(9),
-                                Collections.singletonList(2L), IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                Collections.singletonList(2L), IndexType.VECTOR, "L2")));
 
         List<Split> splits = newSearchNode(metadata, vectorSearchRequest(5, 0)).getSplits(2);
 
@@ -787,16 +830,15 @@ public class LanceScanNodeTest {
     @Test
     public void testExternalSearchDefaultMetricSelectsL2Index() throws Exception {
         UUID l2Segment = UUID.fromString("99999999-9999-9999-9999-999999999999");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Collections.singletonList(new LanceFragmentInfo(1, 8, 8)),
                 Collections.singletonMap("vector", 9),
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(l2Segment, "l2", Collections.singletonList(9),
-                                Collections.singletonList(1L), IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                Collections.singletonList(1L), IndexType.VECTOR, "L2")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.DEFAULT);
 
@@ -810,8 +852,8 @@ public class LanceScanNodeTest {
     public void testExternalSearchSkipsIndexGroupWithoutFragmentBitmap() throws Exception {
         UUID incompleteSegment = UUID.fromString("77777777-7777-7777-7777-777777777777");
         UUID cosineSegment = UUID.fromString("88888888-8888-8888-8888-888888888888");
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Arrays.asList(new LanceFragmentInfo(1, 8, 8), new LanceFragmentInfo(2, 7, 7)),
@@ -820,8 +862,7 @@ public class LanceScanNodeTest {
                         new LanceIndexSegmentInfo(incompleteSegment, "a_incomplete",
                                 Collections.singletonList(9), null, IndexType.VECTOR, "COSINE"),
                         new LanceIndexSegmentInfo(cosineSegment, "z_cosine", Collections.singletonList(9),
-                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE")),
-                Collections.emptyMap());
+                                Arrays.asList(1L, 2L), IndexType.VECTOR, "COSINE")));
         TExternalSearchRequest request = vectorSearchRequest(5, 0);
         request.getSearchQuery().getVectorSearch().setMetric(TVectorMetric.COSINE);
 
@@ -833,8 +874,8 @@ public class LanceScanNodeTest {
 
     @Test
     public void testExternalSearchRejectsMissingFieldIdForIndexSegmentPlanning() {
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance",
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
                 42,
                 vectorSchema(),
                 Collections.singletonList(new LanceFragmentInfo(1, 8, 8)),
@@ -842,8 +883,7 @@ public class LanceScanNodeTest {
                 Collections.singletonList(
                         new LanceIndexSegmentInfo(UUID.randomUUID(), "vector_idx",
                                 Collections.singletonList(9), Collections.singletonList(1L),
-                                IndexType.VECTOR, "L2")),
-                Collections.emptyMap());
+                                IndexType.VECTOR, "L2")));
         LanceScanNode node = newSearchNode(metadata, vectorSearchRequest(5, 0));
 
         UserException exception = Assert.assertThrows(UserException.class,
@@ -868,14 +908,39 @@ public class LanceScanNodeTest {
     }
 
     @Test
+    public void testMultiVectorSplitRetainsMatrixAndProtocolVersion() throws Exception {
+        TExternalSearchRequest logical = vectorSearchRequest(5, 2);
+        org.apache.doris.thrift.TSearchVector matrix = new org.apache.doris.thrift.TSearchVector()
+                .setElementType(org.apache.doris.thrift.TVectorElementType.FLOAT32)
+                .setDimension(2).setNumVectors(2).setValues(new byte[16]);
+        logical.setSchemaVersion(1);
+        logical.getSearchQuery().getVectorSearch().setQueryVector(matrix);
+        logical.getSearchQuery().getVectorSearch().unsetMetric();
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logical, new SessionVariable());
+        TExternalSearchRequest split = node.createSplitSearchRequest();
+        Assert.assertEquals(1, split.getSchemaVersion());
+        Assert.assertEquals(TVectorMetric.L2, split.getSearchQuery().getVectorSearch().getMetric());
+        Assert.assertEquals(matrix, split.getSearchQuery().getVectorSearch().getQueryVector());
+        Assert.assertEquals(7, split.getSearchQuery().getVectorSearch().getTopK());
+        Assert.assertEquals(0, split.getSearchQuery().getVectorSearch().getOffset());
+        TExternalSearchRequest decoded = new TExternalSearchRequest();
+        new org.apache.thrift.TDeserializer().deserialize(decoded, new org.apache.thrift.TSerializer().serialize(split));
+        Assert.assertEquals(split, decoded);
+    }
+
+    @Test
     public void testLanceSplitRejectsInvalidRangeFieldsInFrontend() {
-        assertInvalidSplit(() -> LanceSplit.forFragments("s3://bucket/table.lance", 42,
-                Collections.emptyList(), 1), "Lance fragment split must contain fragments");
-        assertInvalidSplit(() -> LanceSplit.forFragment("", 42, 1, 1),
+        assertInvalidSplit(() -> LanceSplit.scanFragments("s3://bucket/table.lance", 42,
+                Collections.emptyList(), 1), "Lance scan split must contain fragments");
+        assertInvalidSplit(() -> LanceSplit.scanFragments("", 42, Collections.singletonList(1L), 1),
                 "Lance dataset URI must not be empty");
-        assertInvalidSplit(() -> LanceSplit.forFragment("s3://bucket/table.lance", -1, 1, 1),
-                "Lance dataset version must be non-negative");
-        assertInvalidSplit(() -> LanceSplit.forFragment("s3://bucket/table.lance", 42, -1, 1),
+        assertInvalidSplit(() -> LanceSplit.scanFragments("s3://bucket/table.lance", 0, Collections.singletonList(1L), 1),
+                "Lance snapshot version must be positive");
+        assertInvalidSplit(() -> LanceSplit.scanFragments("s3://bucket/table.lance", -1, Collections.singletonList(1L), 1),
+                "Lance snapshot version must be positive");
+        assertInvalidSplit(() -> LanceSplit.scanFragments("s3://bucket/table.lance", 42, Collections.singletonList(-1L), 1),
                 "Lance fragment id must be non-negative");
     }
 
@@ -901,8 +966,10 @@ public class LanceScanNodeTest {
         // Ordinary-scan grouping must not change any vector or full-text split expectations.
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.lanceFragmentsPerSplit = 8;
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        desc.setTable(Mockito.mock(TableIf.class));
         return LanceScanNode.forExternalSearch(
-                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                new PlanNodeId(0), desc, null,
                 metadata, searchFieldId, request, sessionVariable);
     }
 
@@ -915,7 +982,7 @@ public class LanceScanNodeTest {
     private static void assertSplit(Split split, long fragmentId, long targetRows, long weight) {
         LanceSplit lanceSplit = (LanceSplit) split;
         Assert.assertEquals(Collections.singletonList(fragmentId), lanceSplit.getFragmentIds());
-        Assert.assertTrue(lanceSplit.getIndexSegmentUuids().isEmpty());
+        Assert.assertFalse(lanceSplit.getIndexSegmentUuid().isPresent());
         Assert.assertEquals(targetRows, lanceSplit.getTargetSplitSize().longValue());
         Assert.assertEquals(weight, lanceSplit.getSplitWeight().getRawValue());
     }
@@ -924,7 +991,7 @@ public class LanceScanNodeTest {
             long targetRows, long weight) {
         LanceSplit lanceSplit = (LanceSplit) split;
         Assert.assertEquals(fragmentIds, lanceSplit.getFragmentIds());
-        Assert.assertEquals(Collections.singletonList(segmentUuid), lanceSplit.getIndexSegmentUuids());
+        Assert.assertEquals(Optional.of(segmentUuid), lanceSplit.getIndexSegmentUuid());
         Assert.assertEquals(targetRows, lanceSplit.getTargetSplitSize().longValue());
         Assert.assertEquals(weight, lanceSplit.getSplitWeight().getRawValue());
     }

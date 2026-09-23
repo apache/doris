@@ -24,6 +24,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.lance.index.LanceIndexInspection;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
@@ -261,8 +263,8 @@ public final class LanceIndexAdmission {
      */
     private static boolean matchesExistingDefinition(LanceIndexAdmissionSnapshot snapshot,
             String storedName, IndexDefinition def) {
-        LanceLogicalIndex logical = null;
-        for (LanceLogicalIndex index : snapshot.getLogicalIndexes()) {
+        LanceShowIndexInfo logical = null;
+        for (LanceShowIndexInfo index : snapshot.getLogicalIndexes()) {
             if (index.getName().equals(storedName)) {
                 logical = index;
                 break;
@@ -295,7 +297,7 @@ public final class LanceIndexAdmission {
         // raw spelling, so the request column is formatted with the same rule before both sides
         // pass name normalization — otherwise such columns are falsely rejected as a mismatch.
         String requestColumn = LanceIndexNameNormalizer.normalize(
-                LanceIndexMetadataLoader.formatFieldPathSegment(def.getCols().get(0)));
+                LanceIndexInspection.formatFieldPathSegment(def.getCols().get(0)));
         if (!LanceIndexNameNormalizer.normalize(logical.getColumns().get(0)).equals(requestColumn)) {
             return false;
         }
@@ -308,7 +310,7 @@ public final class LanceIndexAdmission {
      * compares as the always-persisted 8). num_partitions is never compared (section 2.2).
      * BTREE/BITMAP carry no user build properties, so the comparison is vacuous for them.
      */
-    private static boolean whitelistPropertiesMatch(LanceLogicalIndex logical, IndexDefinition def) {
+    private static boolean whitelistPropertiesMatch(LanceShowIndexInfo logical, IndexDefinition def) {
         if (def.getLanceIndexType() != null) {
             return true;
         }
@@ -500,7 +502,7 @@ public final class LanceIndexAdmission {
 
     private static List<String> logicalIndexNames(LanceIndexAdmissionSnapshot snapshot) {
         List<String> names = new ArrayList<>(snapshot.getLogicalIndexes().size());
-        for (LanceLogicalIndex index : snapshot.getLogicalIndexes()) {
+        for (LanceShowIndexInfo index : snapshot.getLogicalIndexes()) {
             names.add(index.getName());
         }
         return names;

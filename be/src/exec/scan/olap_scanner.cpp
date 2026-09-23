@@ -292,7 +292,7 @@ Status OlapScanner::prepare() {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
         auto io_ctx = build_score_runtime_collection_io_context(
-                _state, ReaderType::READER_QUERY, tablet->ttl_seconds(),
+                _state, ReaderType::READER_QUERY, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(

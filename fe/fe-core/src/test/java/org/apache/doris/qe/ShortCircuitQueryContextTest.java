@@ -17,11 +17,22 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.thrift.TStorageType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
 
 public class ShortCircuitQueryContextTest {
     private OlapTable table(String name, int schemaVersion) {
@@ -54,5 +65,25 @@ public class ShortCircuitQueryContextTest {
                 new ShortCircuitQueryContext(table("tbl", 11), 10, 0);
 
         Assertions.assertFalse(context.isReusable(connectContext(0)));
+    }
+
+    @Test
+    public void testReusableRequiresSamePartitionTopologyVersion() {
+        long baseIndexId = 2L;
+        Column key = new Column("k", PrimitiveType.INT);
+        key.setIsKey(true);
+        List<Column> baseSchema = Collections.singletonList(key);
+        OlapTable table = new OlapTable(1L, "tbl", baseSchema, KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(1));
+        table.setIndexMeta(baseIndexId, "tbl", baseSchema, 10, 0, (short) 1,
+                TStorageType.COLUMN, KeysType.DUP_KEYS);
+        table.setBaseIndexId(baseIndexId);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, 10, -1);
+
+        Assertions.assertTrue(context.isReusable(connectContext(-1)));
+        table.addPartition(new Partition(3L, "p1",
+                new MaterializedIndex(baseIndexId, MaterializedIndex.IndexState.NORMAL),
+                new RandomDistributionInfo(1)));
+        Assertions.assertFalse(context.isReusable(connectContext(-1)));
     }
 }

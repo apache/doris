@@ -109,6 +109,7 @@ public class CascadesContext implements ScheduleContext {
     private Optional<Scope> outerScope = Optional.empty();
 
     private boolean isRewriteRoot;
+    private boolean isMaterializedViewRewritePlanFragment;
     private volatile boolean isTimeout = false;
 
     // current process subtree, represent outer plan if empty
@@ -270,7 +271,7 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        this.memo = new Memo(getConnectContext(), plan);
+        this.memo = new Memo(getConnectContext(), plan, statementContext.getCostWeight());
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
         if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly
@@ -407,6 +408,14 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean isRewriteRoot() {
         return isRewriteRoot;
+    }
+
+    public void setMaterializedViewRewritePlanFragment(boolean materializedViewRewritePlanFragment) {
+        isMaterializedViewRewritePlanFragment = materializedViewRewritePlanFragment;
+    }
+
+    public boolean isMaterializedViewRewritePlanFragment() {
+        return isMaterializedViewRewritePlanFragment;
     }
 
     public Optional<Scope> getOuterScope() {

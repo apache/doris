@@ -99,7 +99,8 @@ TEST(TableReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
     const auto orc_status =
             VariantValidationTableReader::validate(FileFormat::ORC, {physical_variant});
     EXPECT_TRUE(orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_status;
-    EXPECT_NE(orc_status.to_string().find("supported only for Parquet"), std::string::npos);
+    EXPECT_NE(orc_status.to_string().find("supported only for Parquet files and WAL"),
+              std::string::npos);
     EXPECT_TRUE(
             VariantValidationTableReader::validate(FileFormat::PARQUET, {physical_variant}).ok());
 
@@ -119,6 +120,14 @@ TEST(TableReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
     const auto nested_orc_status =
             VariantValidationTableReader::validate(FileFormat::ORC, {projected_struct});
     EXPECT_TRUE(nested_orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << nested_orc_status;
+}
+
+TEST(TableReaderTest, VariantFormatGateAllowsWal) {
+    ColumnMapping physical_variant;
+    physical_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    physical_variant.file_local_id = 0;
+
+    EXPECT_TRUE(VariantValidationTableReader::validate(FileFormat::WAL, {physical_variant}).ok());
 }
 
 TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {
@@ -3219,10 +3228,8 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
     ASSERT_TRUE(reader.close().ok());
 
     const std::vector<FileFormat> formats {FileFormat::ORC,  FileFormat::CSV, FileFormat::JSON,
-                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::NATIVE,
-                                           FileFormat::ARROW};
-    const std::vector<std::string> format_names {"ORC", "CSV",    "JSON", "TEXT",
-                                                 "JNI", "NATIVE", "ARROW"};
+                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::ARROW};
+    const std::vector<std::string> format_names {"ORC", "CSV", "JSON", "TEXT", "JNI", "ARROW"};
     for (size_t idx = 0; idx < formats.size(); ++idx) {
         TableReader enum_reader;
         ASSERT_TRUE(enum_reader

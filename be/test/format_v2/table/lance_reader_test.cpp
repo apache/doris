@@ -35,6 +35,7 @@
 #include <array>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <lance/lance.hpp>
@@ -298,6 +299,14 @@ Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
     });
 }
 
+Status convert_record_batch_for_test(RuntimeState* runtime_state, const Columns& projected_columns,
+                                     const std::shared_ptr<arrow::RecordBatch>& record_batch,
+                                     Block* block, size_t* rows) {
+    LanceRecordBatchConverter converter;
+    RETURN_IF_ERROR(converter.init(runtime_state, projected_columns, SearchKind::NORMAL));
+    return converter.convert_record_batch_to_block(record_batch, block, std::nullopt, rows);
+}
+
 Status prepare_range(LanceTableReader* reader, TFileRangeDesc range,
                      std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt) {
     // Assign after value initialization so adding optional split state cannot break this fixture's
@@ -466,6 +475,60 @@ TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadin
 
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("query vector byte size"), std::string::npos);
+}
+
+TEST(LanceTableReaderVectorSearchTest, ValidatesMultiVectorWireShapeBeforeDatasetAccess) {
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    auto valid = make_float32_vector_search_params({1.0F, 0.0F, 0.0F}, 4, 0);
+    auto& request = valid.lance_scan_params.external_search_request;
+    request.__set_schema_version(1);
+    auto& query = request.search_query.vector_search.query_vector;
+    query.__set_dimension(3);
+    query.__set_num_vectors(1);
+    const auto check = [&](TFileScanRangeParams params, bool expected) {
+        RuntimeProfile profile("multi_vector_validation");
+        LanceTableReader reader;
+        EXPECT_EQ(expected, init_reader(&reader, columns, &state, &profile, &params).ok());
+    };
+    check(valid, true);
+    auto excessive_work = valid;
+    excessive_work.lance_scan_params.external_search_request.search_query.vector_search.__set_top_k(
+            100001);
+    check(excessive_work, false);
+    excessive_work.lance_scan_params.external_search_request.search_query.vector_search.__set_top_k(
+            1);
+    excessive_work.lance_scan_params.external_search_request.vector_search_options
+            .__set_refine_factor(std::numeric_limits<int32_t>::max());
+    check(excessive_work, false);
+    for (const int count : {0, -1, 2, std::numeric_limits<int32_t>::max()}) {
+        auto invalid = valid;
+        invalid.lance_scan_params.external_search_request.search_query.vector_search.query_vector
+                .__set_num_vectors(count);
+        check(invalid, false);
+    }
+    auto unsupported_version = valid;
+    unsupported_version.lance_scan_params.external_search_request.__set_schema_version(2);
+    check(unsupported_version, false);
+    auto missing_count = valid;
+    missing_count.lance_scan_params.external_search_request.search_query.vector_search.query_vector
+            .__isset.num_vectors = false;
+    // Without num_vectors, the same payload is an ordinary single-vector request.
+    check(missing_count, true);
+    auto hamming = valid;
+    hamming.lance_scan_params.external_search_request.search_query.vector_search.__set_metric(
+            TVectorMetric::HAMMING);
+    check(hamming, false);
+    for (const auto type : {TVectorElementType::INT8, TVectorElementType::UINT8}) {
+        auto integer = valid;
+        auto& q = integer.lance_scan_params.external_search_request.search_query.vector_search
+                          .query_vector;
+        q.__set_element_type(type);
+        q.__set_values(std::string(3, '\0'));
+        check(integer, false);
+    }
 }
 
 TEST(LanceTableReaderFullTextSearchTest, ValidatesRequestAndScoreTypeBeforeDatasetAccess) {
@@ -759,6 +822,383 @@ GlobalRowLoacationV2 decode_lance_row_id(const ColumnString& column, size_t row)
         std::memcpy(&location, encoded.data, sizeof(location));
     }
     return location;
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexedCoverage) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    ASSERT_EQ(2, fixture.fragment_ids.size());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    TQueryOptions options;
+    options.__set_batch_size(1);
+    state.set_query_options(options);
+    for (const auto type :
+         {TVectorElementType::FLOAT16, TVectorElementType::FLOAT32, TVectorElementType::FLOAT64}) {
+        const size_t width = type == TVectorElementType::FLOAT16   ? 2
+                             : type == TVectorElementType::FLOAT32 ? 4
+                                                                   : 8;
+        const std::string column = type == TVectorElementType::FLOAT16   ? "vectors16"
+                                   : type == TVectorElementType::FLOAT32 ? "vectors32"
+                                                                         : "vectors64";
+        std::string bytes(4 * width, '\0');
+        for (const size_t i : {0U, 3U}) {
+            if (width == 2) LittleEndian::Store16(bytes.data() + i * width, 0x3c00);
+            if (width == 4)
+                LittleEndian::Store32(bytes.data() + i * width, std::bit_cast<uint32_t>(1.0F));
+            if (width == 8)
+                LittleEndian::Store64(bytes.data() + i * width, std::bit_cast<uint64_t>(1.0));
+        }
+        for (const bool indexed : {false, true}) {
+            for (const bool filtered : {false, true}) {
+                SCOPED_TRACE(column + " indexed=" + std::to_string(indexed) +
+                             " filtered=" + std::to_string(filtered));
+                RuntimeProfile profile("multi_vector_search");
+                auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+                auto& request = params.lance_scan_params.external_search_request;
+                request.__set_schema_version(1);
+                request.vector_search_options.__set_use_index(indexed);
+                request.vector_search_options.__set_nprobes(1);
+                auto& search = request.search_query.vector_search;
+                search.__set_column(column);
+                search.__set_metric(indexed ? TVectorMetric::COSINE : TVectorMetric::L2);
+                auto& q = search.query_vector;
+                q.__set_dimension(2);
+                q.__set_num_vectors(2);
+                q.__set_element_type(type);
+                q.__set_values(bytes);
+                if (filtered) {
+                    TSearchFilter filter;
+                    filter.__set_format(TSearchFilterFormat::SQL);
+                    filter.__set_payload("row_id >= 2");
+                    request.__set_search_filter(filter);
+                    search.__set_offset(1);
+                    search.__set_top_k(2);
+                }
+                LanceTableReader reader;
+                ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+                ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+                Block block;
+                add_output_columns(&block, columns);
+                auto rows = read_vector_search_rows(&reader, &block);
+                ASSERT_EQ(filtered ? 2 : 4, rows.size());
+                // L2 is sum of per-query nearest squared distances; null/empty rows never rank.
+                if (!indexed) {
+                    const std::vector<std::pair<int64_t, float>> expected =
+                            filtered ? std::vector<std::pair<int64_t, float>> {{2, 6.0F}, {3, 8.0F}}
+                                     : std::vector<std::pair<int64_t, float>> {
+                                               {1, 0.0F}, {6, 2.0F}, {2, 6.0F}, {3, 8.0F}};
+                    EXPECT_EQ(expected, rows);
+                } else {
+                    std::sort(rows.begin(), rows.end());
+                    const std::vector<std::pair<int64_t, float>> expected =
+                            filtered ? std::vector<
+                                               std::pair<int64_t, float>> {{2, 1.0F},
+                                                                           {6,
+                                                                            2.0F - std::sqrt(2.0F)}}
+                                     : std::vector<std::pair<int64_t, float>> {
+                                               {1, 0.0F},
+                                               {2, 1.0F},
+                                               {3, 0.0F},
+                                               {6, 2.0F - std::sqrt(2.0F)}};
+                    // Row 6 was appended after index creation and must use the same score scale.
+                    for (size_t i = 0; i < rows.size(); ++i) {
+                        EXPECT_EQ(expected[i].first, rows[i].first);
+                        EXPECT_NEAR(expected[i].second, rows[i].second, 1e-5);
+                    }
+                }
+                EXPECT_TRUE(reader.close().ok());
+            }
+        }
+    }
+}
+
+std::vector<float> representative_multi_vector(int id, int subvector) {
+    std::vector<float> result(128);
+    for (int j = 0; j < 128; ++j) {
+        result[j] = ((id * 17 + subvector * 29 + j * 13 + j * j * 7 + id * j * 3) % 1009 - 504) /
+                    512.0F;
+    }
+    return result;
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentGlobalOracle) {
+    const auto first = representative_multi_vector(7, 0);
+    const auto second = representative_multi_vector(11, 1);
+    std::vector<float> query = first;
+    query.insert(query.end(), second.begin(), second.end());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const auto* kind : {"flat", "pq"}) {
+        const std::filesystem::path uri = std::string("./be/test/format_v2/table/lance/data/") +
+                                          "multivector_ivf_" + kind + ".lance";
+        LanceFixtureInfo fixture;
+        ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+        ASSERT_EQ(3, fixture.fragment_ids.size());
+        std::vector<std::string> segments;
+        ASSERT_TRUE(get_index_segment_uuids(uri, "vectors_idx", &segments).ok());
+        ASSERT_EQ(2, segments.size());
+        for (const bool filtered : {false, true}) {
+            std::vector<std::pair<int64_t, float>> oracle;
+            for (int id = 1; id <= 768; ++id) {
+                if (filtered && id % 5 != 0) continue;
+                double score = 0;
+                for (const auto& q : {first, second}) {
+                    double best = std::numeric_limits<double>::infinity();
+                    for (int sub = 0; sub < 1 + id % 4; ++sub) {
+                        const auto v = representative_multi_vector(id, sub);
+                        double dot = 0, q_norm = 0, v_norm = 0;
+                        for (size_t j = 0; j < v.size(); ++j) {
+                            dot += static_cast<double>(q[j]) * v[j];
+                            q_norm += static_cast<double>(q[j]) * q[j];
+                            v_norm += static_cast<double>(v[j]) * v[j];
+                        }
+                        best = std::min(best, 1.0 - dot / std::sqrt(q_norm * v_norm));
+                    }
+                    score += best;
+                }
+                oracle.emplace_back(id, static_cast<float>(score));
+            }
+            const auto order = [](const auto& a, const auto& b) {
+                return std::tie(a.second, a.first) < std::tie(b.second, b.first);
+            };
+            std::sort(oracle.begin(), oracle.end(), order);
+            for (const int batch_size : {1, 64}) {
+                TQueryOptions options;
+                options.__set_batch_size(batch_size);
+                state.set_query_options(options);
+                std::vector<std::pair<int64_t, float>> candidates;
+                for (int split = 0; split < 3; ++split) {
+                    SCOPED_TRACE(std::string(kind) + " split=" + std::to_string(split) +
+                                 " filtered=" + std::to_string(filtered) +
+                                 " batch=" + std::to_string(batch_size));
+                    RuntimeProfile profile("multi_vector_segment_topk");
+                    // FE sends top_k + offset to each split, and applies offset only after merging.
+                    auto params = make_float32_vector_search_params({0, 0, 0}, 20, 0);
+                    auto& request = params.lance_scan_params.external_search_request;
+                    request.__set_schema_version(1);
+                    request.vector_search_options.__set_use_index(split < 2);
+                    request.vector_search_options.__set_nprobes(4);
+                    request.vector_search_options.__set_refine_factor(64);
+                    auto& search = request.search_query.vector_search;
+                    search.__set_column("vectors");
+                    search.__set_metric(TVectorMetric::COSINE);
+                    search.query_vector.__set_dimension(128);
+                    search.query_vector.__set_num_vectors(2);
+                    std::string bytes(query.size() * sizeof(float), '\0');
+                    for (size_t j = 0; j < query.size(); ++j) {
+                        LittleEndian::Store32(bytes.data() + j * sizeof(float),
+                                              std::bit_cast<uint32_t>(query[j]));
+                    }
+                    search.query_vector.__set_values(bytes);
+                    if (filtered) {
+                        TSearchFilter filter;
+                        filter.__set_format(TSearchFilterFormat::SQL);
+                        filter.__set_payload("row_id % 5 = 0");
+                        request.__set_search_filter(filter);
+                    }
+                    auto range =
+                            make_lance_range(uri, fixture.version, {fixture.fragment_ids[split]});
+                    if (split < 2) {
+                        range.table_format_params.lance_params.__set_index_segment_uuids(
+                                {segments[split]});
+                    }
+                    LanceTableReader reader;
+                    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+                    ASSERT_TRUE(prepare_range(&reader, range).ok());
+                    Block block;
+                    add_output_columns(&block, columns);
+                    auto rows = read_vector_search_rows(&reader, &block);
+                    ASSERT_EQ(20, rows.size());
+                    for (const auto& row : rows) EXPECT_EQ(split, (row.first - 1) % 3);
+                    candidates.insert(candidates.end(), rows.begin(), rows.end());
+                    EXPECT_TRUE(reader.close().ok());
+                }
+                std::sort(candidates.begin(), candidates.end(), order);
+                std::set<int64_t> unique;
+                for (const auto& row : candidates) ASSERT_TRUE(unique.insert(row.first).second);
+                for (int offset : {0, 7}) {
+                    for (int j = 0; j < 13; ++j) {
+                        EXPECT_EQ(oracle[offset + j].first, candidates[offset + j].first);
+                        EXPECT_NEAR(oracle[offset + j].second, candidates[offset + j].second, 2e-5);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBatchIndependence) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const int batch_size : {1, 2, 1024}) {
+        TQueryOptions options;
+        options.__set_batch_size(batch_size);
+        state.set_query_options(options);
+        for (const bool indexed : {false, true}) {
+            SCOPED_TRACE("batch_size=" + std::to_string(batch_size) +
+                         " indexed=" + std::to_string(indexed));
+            auto params = make_float32_vector_search_params({0, 0, 0}, 1, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(1);
+            request.vector_search_options.__set_use_index(indexed);
+            request.vector_search_options.__set_nprobes(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column(indexed ? "batch_vectors" : "tiny_vectors");
+            search.__set_metric(indexed ? TVectorMetric::COSINE : TVectorMetric::L2);
+            auto& query = search.query_vector;
+            query.__set_dimension(2);
+            query.__set_num_vectors(indexed ? 2 : 1);
+            std::string values(indexed ? 16 : 8, '\0');
+            if (indexed) {
+                LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+                LittleEndian::Store32(values.data() + 12, std::bit_cast<uint32_t>(1.0F));
+            }
+            query.__set_values(values);
+            RuntimeProfile profile("multi_vector_top_one");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            auto rows = read_vector_search_rows(&reader, &block);
+            ASSERT_EQ(1, rows.size());
+            EXPECT_EQ(indexed ? 3 : 2, rows[0].first);
+            EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
+                        indexed ? 1e-6F : 1e-13F);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector_zero.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const bool indexed : {false, true}) {
+        for (const bool zero_query : {false, true}) {
+            auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(1);
+            request.vector_search_options.__set_use_index(indexed);
+            request.vector_search_options.__set_nprobes(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column("vectors");
+            search.__set_metric(TVectorMetric::COSINE);
+            auto& query = search.query_vector;
+            query.__set_dimension(2);
+            query.__set_num_vectors(2);
+            std::string values(16, '\0');
+            if (!zero_query) {
+                LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+            }
+            LittleEndian::Store32(values.data() + 12, std::bit_cast<uint32_t>(1.0F));
+            query.__set_values(values);
+            RuntimeProfile profile("multi_vector_cosine_zero_norm");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            auto rows = read_vector_search_rows(&reader, &block);
+            std::sort(rows.begin(), rows.end());
+            // Undefined pairs cannot poison valid matches in the same row or other fragments.
+            const std::vector<std::pair<int64_t, float>> expected =
+                    zero_query ? std::vector<std::pair<int64_t, float>> {}
+                               : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
+            EXPECT_EQ(expected, rows);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcrossFragments) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    std::vector<std::pair<int64_t, float>> all_rows;
+    for (const auto fragment : fixture.fragment_ids) {
+        auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+        auto& request = params.lance_scan_params.external_search_request;
+        request.__set_schema_version(1);
+        request.vector_search_options.__set_use_index(true);
+        auto& search = request.search_query.vector_search;
+        search.__set_column("vectors32");
+        search.__isset.metric = false;
+        auto& query = search.query_vector;
+        query.__set_dimension(2);
+        query.__set_num_vectors(1);
+        std::string values(8, '\0');
+        LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+        query.__set_values(values);
+        RuntimeProfile profile("multi_vector_default_metric");
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, {fragment}).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        auto rows = read_vector_search_rows(&reader, &block);
+        all_rows.insert(all_rows.end(), rows.begin(), rows.end());
+        EXPECT_TRUE(reader.close().ok());
+    }
+    std::sort(all_rows.begin(), all_rows.end());
+    EXPECT_EQ((std::vector<std::pair<int64_t, float>> {{1, 0}, {2, 1}, {3, 4}, {6, 1}}), all_rows);
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorRejectsActualNullAndNonFiniteElements) {
+    const std::filesystem::path uri =
+            "./be/test/format_v2/table/lance/data/multivector_invalid_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const auto& [bits, type, width] : {std::tuple {16, TVectorElementType::FLOAT16, 2},
+                                            std::tuple {32, TVectorElementType::FLOAT32, 4},
+                                            std::tuple {64, TVectorElementType::FLOAT64, 8}}) {
+        for (const auto* prefix : {"null", "nan", "inf"}) {
+            const auto column = std::string(prefix) + std::to_string(bits);
+            SCOPED_TRACE(column);
+            auto params = make_float32_vector_search_params({0, 0, 0}, 1, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column(column);
+            search.query_vector.__set_dimension(3);
+            search.query_vector.__set_element_type(type);
+            search.query_vector.__set_num_vectors(1);
+            search.query_vector.__set_values(std::string(3 * width, '\0'));
+            RuntimeProfile profile("multi_vector_invalid_values");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            bool eos = false;
+            auto status = reader.get_block(&block, &eos);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("finite, non-null elements"), std::string::npos);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
 }
 
 TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistance) {
@@ -1870,7 +2310,7 @@ TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
 
     const auto& null_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
@@ -1945,7 +2385,7 @@ TEST(LanceTableReaderTypeTest, ReadsSlicedDurationAndJsonValues) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
 
     const auto& duration = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
@@ -2012,7 +2452,7 @@ TEST(LanceTableReaderTypeTest, ReadsRegisteredJsonNestedInSlicedList) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(1, rows);
 
     const auto& nullable_list =
@@ -2261,7 +2701,7 @@ TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedMap) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(1, rows);
 
     const auto& nullable_map = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
@@ -2308,7 +2748,7 @@ TEST(LanceTableReaderTypeTest, ReadsLanceJsonLargeBinaryValues) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(2, rows);
     const auto& json_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     EXPECT_EQ((ColumnUInt8::Container {0, 1}), json_values.get_null_map_data());
@@ -2340,7 +2780,7 @@ TEST(LanceTableReaderTypeTest, ReadsDurationBoundaryValues) {
     Block block;
     add_output_columns(&block, columns);
     size_t rows = 0;
-    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_TRUE(convert_record_batch_for_test(&state, columns, record_batch, &block, &rows).ok());
     ASSERT_EQ(5, rows);
     const auto& durations = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
     const auto& duration_values = assert_cast<const ColumnInt64&>(durations.get_nested_column());

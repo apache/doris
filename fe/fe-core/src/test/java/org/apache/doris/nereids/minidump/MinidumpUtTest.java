@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.minidump;
 
+import org.apache.doris.qe.ConnectContext;
+
 import org.json.JSONObject;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -41,9 +44,10 @@ class MinidumpUtTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        Assertions.assertNotNull(minidump);
         MinidumpUtils.setConnectContext(minidump);
-        JSONObject resultPlan = MinidumpUtils.executeSql("select * from t1 where l1 = 1");
-        assert (minidump != null);
-        assert (resultPlan != null);
+        Assertions.assertNull(ConnectContext.get().getStatementContext());
+        JSONObject resultPlan = MinidumpUtils.executeSql("select 1");
+        Assertions.assertNotNull(resultPlan);
     }
 }

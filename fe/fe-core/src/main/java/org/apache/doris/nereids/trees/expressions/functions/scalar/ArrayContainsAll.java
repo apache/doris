@@ -56,6 +56,11 @@ public class ArrayContainsAll extends ScalarFunction implements ExplicitlyCastab
         super(functionParams);
     }
 
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
+    }
+
     /**
      * withChildren.
      */

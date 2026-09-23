@@ -39,6 +39,7 @@ import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -130,6 +131,8 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
+    private CostWeight costWeight;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -149,6 +152,7 @@ public class StatementContext implements Closeable {
 
     private boolean isDpHyp = false;
 
+    private boolean isDelete = false;
     private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
@@ -204,6 +208,11 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+    // Resources that must outlive planning and remain valid until the statement itself finishes.
+    // Keep these separate from plannerResources: NereidsPlanner releases planner resources as soon as
+    // physical planning completes, while external split planning can still use statement-scoped objects.
+    private final Map<Object, CloseableResource> statementResources = new LinkedHashMap<>();
+    private boolean statementResourcesClosed;
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -326,8 +335,6 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
-    private boolean skipPrunePredicate = false;
-
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
     // For Iceberg rewrite operations: store file scan tasks to be used by
@@ -521,6 +528,9 @@ public class StatementContext implements Closeable {
 
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+        // Prepared statements reuse their StatementContext across executions. Each execution must
+        // capture the weights currently effective in the owning ConnectContext.
+        this.costWeight = null;
     }
 
     public void setHasNondeterministic(boolean hasNondeterministic) {
@@ -533,6 +543,14 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /** Get the cost weights shared by all cost calculations in this statement. */
+    public CostWeight getCostWeight() {
+        if (costWeight == null) {
+            costWeight = CostWeight.get(connectContext.getSessionVariable());
+        }
+        return costWeight;
     }
 
     public Set<String> getUsedAIResourceNames() {
@@ -980,11 +998,56 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Returns one closeable resource per statement key and closes it when this statement is closed.
+     * The supplier is invoked at most once for a key. This is intentionally independent from planner locks,
+     * whose lifetime ends at the end of Nereids planning.
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized <T extends Closeable> T getOrRegisterStatementResource(
+            Object resourceKey, java.util.function.Supplier<T> supplier) {
+        if (statementResourcesClosed) {
+            throw new IllegalStateException("Statement resources are already closed");
+        }
+        CloseableResource existing = statementResources.get(resourceKey);
+        if (existing != null) {
+            return (T) existing.resource;
+        }
+        T resource = supplier.get();
+        statementResources.put(resourceKey, new CloseableResource(
+                String.valueOf(resourceKey), Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, resource));
+        return resource;
+    }
+
+    private synchronized void releaseStatementResources() {
+        if (statementResourcesClosed) {
+            return;
+        }
+        statementResourcesClosed = true;
+        Throwable throwable = null;
+        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
+        statementResources.clear();
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            try {
+                resources.get(i).close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release statement resource failed", throwable);
+        }
+    }
+
     // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
-        if (!plannerResources.isEmpty()) {
-            String msg = "Resources leak: " + plannerResources;
+        if (!plannerResources.isEmpty() || !statementResources.isEmpty()) {
+            String msg = "Resources leak: planner=" + plannerResources + ", statement=" + statementResources;
             LOG.error(msg);
             throw new IllegalStateException(msg);
         }
@@ -994,7 +1057,11 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         clearExternalScanTasks();
-        releasePlannerResources();
+        try {
+            releaseStatementResources();
+        } finally {
+            releasePlannerResources();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {
@@ -1728,14 +1795,6 @@ public class StatementContext implements Closeable {
         return this.useGatherForIcebergRewrite;
     }
 
-    public boolean isSkipPrunePredicate() {
-        return skipPrunePredicate;
-    }
-
-    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
-        this.skipPrunePredicate = skipPrunePredicate;
-    }
-
     public boolean hasNestedColumns() {
         return hasNestedColumns;
     }
@@ -1768,6 +1827,14 @@ public class StatementContext implements Closeable {
 
     public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {
         return icebergWriteSchemaContext;
+    }
+
+    public boolean isDelete() {
+        return isDelete;
+    }
+
+    public void setIsDelete(boolean del) {
+        isDelete = del;
     }
 
     public void setIcebergWriteSchemaContext(

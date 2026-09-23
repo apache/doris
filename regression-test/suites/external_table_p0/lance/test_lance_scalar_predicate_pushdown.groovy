@@ -155,7 +155,15 @@ suite("test_lance_scalar_predicate_pushdown", "p0,external") {
             quickTest("select_${typeName}_and", andQuery)
 
             String orQuery = """ SELECT row_id FROM ${tableName} WHERE ${columnName} = ${values.orLeft} OR ${columnName} = ${values.orRight} ORDER BY row_id; """
-            verifyFullyPushedDown(orQuery, columnName)
+            if (values.orLeft == "''") {
+                // branch-4.2: StringEmptyToLengthRule (meta path series) rewrites `<col> = ''` into
+                // `length(<col>) = 0`, which the Lance Substrait converter cannot translate, so this
+                // particular OR predicate is evaluated as a Doris-side residual filter instead of
+                // being pushed into Lance.
+                verifyResidual(orQuery, "length(${columnName}")
+            } else {
+                verifyFullyPushedDown(orQuery, columnName)
+            }
             quickTest("select_${typeName}_or", orQuery)
 
             String notQuery = """ SELECT row_id FROM ${tableName} WHERE NOT (${columnName} < ${values.threshold}) ORDER BY row_id; """

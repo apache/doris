@@ -23,7 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.LanceFileFormatProperties;
 import org.apache.doris.thrift.TFileFormatType;
@@ -161,16 +162,19 @@ public class ExternalFileTableValuedFunctionTest {
                 new FieldType(true, ArrowType.Utf8.INSTANCE, null,
                         Collections.singletonMap("ARROW:extension:name", "arrow.json")),
                 Collections.emptyList());
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 1L,
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 1L,
                 new Schema(Arrays.asList(
                         jsonField,
                         Field.nullable("null_value", ArrowType.Null.INSTANCE),
                         Field.nullable("duration_value",
                                 new ArrowType.Duration(TimeUnit.MILLISECOND)),
                         Field.nullable("ordinary", ArrowType.Utf8.INSTANCE))),
-                Collections.emptyList(), Collections.emptyMap());
+                Collections.emptyList());
 
+        java.lang.reflect.Field csvSchema = ExternalFileTableValuedFunction.class.getDeclaredField("csvSchema");
+        csvSchema.setAccessible(true);
+        csvSchema.set(tvf, Collections.emptyList());
         tvf.setLanceTableMetadata(metadata);
 
         Assert.assertTrue(tvf.requiresCurrentLanceReader("JSON_VALUE"));

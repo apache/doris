@@ -26,7 +26,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.lance.LanceExternalTable;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -100,10 +101,11 @@ public class LanceLazyMaterializationUpgradeTest {
         String scoreName = vector ? "_distance" : "_score";
         Field nestedNull = new Field("nested_null", FieldType.nullable(ArrowType.List.INSTANCE),
                 Collections.singletonList(Field.nullable("item", ArrowType.Null.INSTANCE)));
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42,
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()),
+                42,
                 new Schema(Arrays.asList(nestedNull, Field.nullable("ordinary", ArrowType.Utf8.INSTANCE))),
-                Collections.emptyList(), Collections.emptyMap());
+                Collections.emptyList());
         Column score = new Column(scoreName, Type.DOUBLE);
         Column payload = new Column("nested_null", ArrayType.create(Type.NULL, true));
         Column ordinary = new Column("ordinary", Type.STRING);
