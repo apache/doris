@@ -145,13 +145,12 @@ struct RegexpExtractEngine {
                 return; // No capturing groups
             }
 
+            const re2::StringPiece input(data, size);
             size_t pos = 0;
             while (pos < size) {
-                const char* str_pos = data + pos;
-                size_t str_size = size - pos;
                 std::vector<re2::StringPiece> matches(max_matches);
-                bool success = re2_regex->Match(re2::StringPiece(str_pos, str_size), 0, str_size,
-                                                re2::RE2::UNANCHORED, matches.data(), max_matches);
+                bool success = re2_regex->Match(input, pos, size, re2::RE2::UNANCHORED,
+                                                matches.data(), max_matches);
                 if (!success) {
                     break;
                 }
@@ -164,9 +163,7 @@ struct RegexpExtractEngine {
                     results.emplace_back(matches[1].data(), matches[1].size());
                 }
                 // Move position forward
-                auto offset = std::string(str_pos, str_size)
-                                      .find(std::string(matches[0].data(), matches[0].size()));
-                pos += offset + matches[0].size();
+                pos = matches[0].data() - data + matches[0].size();
             }
         } else if (is_boost()) {
             const char* search_start = data;
@@ -224,13 +221,11 @@ struct RegexpCountImpl {
         const auto str = str_col.value_at(index_now);
         int count = 0;
         size_t pos = 0;
+        const re2::StringPiece input(str.data, str.size);
         while (pos < str.size) {
-            auto str_pos = str.data + pos;
-            auto str_size = str.size - pos;
-            re2::StringPiece str_sp_current = re2::StringPiece(str_pos, str_size);
             re2::StringPiece match;
 
-            bool success = re->Match(str_sp_current, 0, str_size, re2::RE2::UNANCHORED, &match, 1);
+            bool success = re->Match(input, pos, str.size, re2::RE2::UNANCHORED, &match, 1);
             if (!success) {
                 break;
             }
@@ -239,8 +234,7 @@ struct RegexpCountImpl {
                 continue;
             }
             count++;
-            size_t match_start = match.data() - str_sp_current.data();
-            pos += match_start + match.size();
+            pos = match.data() - str.data + match.size();
         }
 
         return count;
