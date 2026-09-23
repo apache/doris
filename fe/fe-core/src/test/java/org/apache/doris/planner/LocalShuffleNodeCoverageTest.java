@@ -106,6 +106,84 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertEquals(TDistributionHashType.IDENTITY, fragment.toThrift().getDistributionHashType());
     }
 
+    /**
+     * A fragment whose subtree mixes IDENTITY and CRC32 bucket layouts must be rejected instead
+     * of silently serializing without a hash type: BE-native bucket local exchanges would then
+     * fall back to CRC32 and mis-bucket the identity-routed rows.
+     */
+    @Test
+    public void testFragmentRejectsMixedStorageHashTypes() {
+        TrackingPlanNode identityScan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+
+            @Override
+            protected HashDistributionInfo.HashType getOwnStorageHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        TrackingPlanNode crc32Scan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+
+            @Override
+            protected HashDistributionInfo.HashType getOwnStorageHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+        };
+        // A set operation over two layouts: getStorageDistributionHashType() is null (mixed), and
+        // the collector sees both opinions, so serialization must refuse the fragment.
+        UnionNode mixed = new UnionNode(nextPlanNodeId(), new TupleId(123));
+        mixed.addChild(identityScan);
+        mixed.addChild(crc32Scan);
+        Assertions.assertNull(mixed.getStorageDistributionHashType());
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), mixed, DataPartition.UNPARTITIONED);
+        IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class,
+                fragment::toThrift);
+        Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"),
+                rejected.getMessage());
+    }
+
+    /**
+     * A fragment without any bucketed storage (no node declares a layout) still serializes: the
+     * mixed-layout rejection must not fire for layout-less fragments, and the serialized hash
+     * type stays at the thrift default (CRC32).
+     */
+    @Test
+    public void testFragmentWithoutStorageLayoutStillSerializes() {
+        TrackingPlanNode layoutless = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        Assertions.assertNull(layoutless.getStorageDistributionHashType());
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), layoutless, DataPartition.UNPARTITIONED);
+        Assertions.assertEquals(TDistributionHashType.CRC32,
+                fragment.toThrift().getDistributionHashType());
+    }
+
+    /**
+     * collectStorageHashTypes de-duplicates: a unary chain of passthrough local exchanges over
+     * one identity scan contributes exactly one opinion, so a null root derivation caused by a
+     * multi-input node with one silent child is not misreported as mixed when it is not.
+     */
+    @Test
+    public void testCollectStorageHashTypesDeduplicatesUnaryChain() {
+        TrackingPlanNode identityScan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), identityScan,
+                LocalExchangeType.PASSTHROUGH, null);
+        java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
+        passthrough.collectStorageHashTypes(collected);
+        Assertions.assertEquals(Collections.singleton(HashDistributionInfo.HashType.IDENTITY), collected);
+    }
+
     @Test
     public void testBroadcastJoinPreservesProbeStorageHashType() {
         TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {

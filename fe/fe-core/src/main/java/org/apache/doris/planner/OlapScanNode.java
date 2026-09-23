@@ -377,6 +377,11 @@ public class OlapScanNode extends ScanNode {
                 : null;
     }
 
+    @Override
+    protected HashDistributionInfo.HashType getOwnStorageHashType() {
+        return getStorageDistributionHashType();
+    }
+
     public String getTableNameInPlan() {
         return tableNameInPlan;
     }

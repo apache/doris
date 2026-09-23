@@ -322,6 +322,19 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public TPlanFragment toThrift() {
         TPlanFragment result = new TPlanFragment();
         if (planRoot != null) {
+            // Reject a genuinely mixed-layout fragment before serializing its plan: a null root
+            // derivation can mean either "no bucketed storage here" (schema scans, empty sets)
+            // or "both CRC32 and IDENTITY under this root". Only the mixed case is dangerous:
+            // without a fragment-level hash type, BE-native bucket local exchanges fall back to
+            // CRC32 and would silently mis-bucket identity-routed rows.
+            if (planRoot.getStorageDistributionHashType() == null) {
+                Set<HashDistributionInfo.HashType> declared = new HashSet<>();
+                planRoot.collectStorageHashTypes(declared);
+                Preconditions.checkState(declared.size() <= 1,
+                        "fragment mixes distribution hash types %s; bucket local exchanges need one "
+                                + "unambiguous storage layout, re-align the inputs explicitly",
+                        declared);
+            }
             result.setPlan(planRoot.treeToThrift());
         }
         if (outputExprs != null) {

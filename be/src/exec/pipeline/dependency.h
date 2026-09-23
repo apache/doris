@@ -791,14 +791,13 @@ struct DataDistribution {
     DataDistribution(TLocalPartitionType::type type) : distribution_type(type) {}
     DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_)
             : distribution_type(type), partition_exprs(partition_exprs_) {}
-    DataDistribution(TLocalPartitionType::type type, const std::vector<TExpr>& partition_exprs_,
-                     TDistributionHashType::type distribution_hash_type_)
-            : distribution_type(type),
-              partition_exprs(partition_exprs_),
-              distribution_hash_type(distribution_hash_type_) {}
     DataDistribution(const DataDistribution& other) = default;
     bool need_local_exchange() const { return distribution_type != TLocalPartitionType::NOOP; }
     DataDistribution& operator=(const DataDistribution& other) = default;
+    // Hash type is fragment-scoped by design: PipelineFragmentContext::_add_local_exchange_impl
+    // stamps the fragment's distribution_hash_type onto every BUCKET_HASH_SHUFFLE local exchange
+    // (FE derives it from the fragment root and rejects mixed-layout fragments before sending),
+    // so per-operator construction never needs to carry one.
     TLocalPartitionType::type distribution_type;
     std::vector<TExpr> partition_exprs;
     TDistributionHashType::type distribution_hash_type = TDistributionHashType::CRC32;

@@ -1204,6 +1204,30 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
+     * Collect every distinct storage hash type declared by nodes in this subtree that have a
+     * definite layout opinion (OLAP scans, exchanges, local exchanges; nodes without one, like
+     * schema scans or empty-set nodes, stay silent). Used to distinguish a genuinely mixed
+     * subtree (both CRC32 and IDENTITY) from one that simply has no bucketed storage at all.
+     */
+    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
+        HashDistributionInfo.HashType own = getOwnStorageHashType();
+        if (own != null) {
+            hashTypes.add(own);
+        }
+        for (PlanNode child : children) {
+            child.collectStorageHashTypes(hashTypes);
+        }
+    }
+
+    /**
+     * The layout this node itself contributes, or null when the node only aggregates its
+     * children's layouts (the default) or has no bucket layout at all.
+     */
+    protected HashDistributionInfo.HashType getOwnStorageHashType() {
+        return null;
+    }
+
+    /**
      * Create a LocalExchangeNode wrapping child with the given exchange type.
      * No child-type skip — matches BE's _add_local_exchange which inserts LE for any child
      * type without checking instanceof.

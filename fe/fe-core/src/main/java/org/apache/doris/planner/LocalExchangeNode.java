@@ -117,6 +117,11 @@ public class LocalExchangeNode extends PlanNode {
         return distributionHashType;
     }
 
+    @Override
+    protected HashDistributionInfo.HashType getOwnStorageHashType() {
+        return distributionHashType;
+    }
+
     private List<Expr> distributeExprLists() {
         if (distributeExprLists == null) {
             return Collections.emptyList();
