@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
@@ -694,6 +695,60 @@ public class AnalysisManagerTest {
         Mockito.when(thirdTable.getDatabase()).thenReturn(db);
         manager.replayResetTableStats(thirdTable, false);
         Assertions.assertNull(manager.findTableStatsStatus(30003L));
+    }
+
+    @Test
+    public void testStatsTransitionAndItsJournalEntryStayOrdered() throws Exception {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getId()).thenReturn(30001L);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        Mockito.when(table.getDatabase()).thenReturn(db);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        AtomicInteger truncateEntries = new AtomicInteger();
+        AtomicInteger deletionEntries = new AtomicInteger();
+        // The entry has to describe the record as it is at the moment the entry is written, otherwise a
+        // follower which replays the journal ends up with a different record than the master.
+        Mockito.doAnswer(invocation -> {
+            TruncateTableInfo info = invocation.getArgument(0);
+            Assertions.assertEquals(info.isTableStatsRecordCreated(),
+                    manager.findTableStatsStatus(30001L) != null,
+                    "the truncate entry was written before the record was created or reset");
+            truncateEntries.incrementAndGet();
+            return 1L;
+        }).when(editLog).logTruncateTable(Mockito.any());
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertNull(manager.findTableStatsStatus(30001L),
+                    "the deletion entry was written before the record was removed");
+            deletionEntries.incrementAndGet();
+            return 1L;
+        }).when(editLog).logDeleteTableStats(Mockito.any());
+
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+            // The truncation of a table which has no record creates it, and its entry records that.
+            TruncateTableInfo creation = new TruncateTableInfo();
+            manager.resetTableStats(table, creation);
+            Assertions.assertTrue(creation.isTableStatsRecordCreated());
+            Assertions.assertNotNull(manager.findTableStatsStatus(30001L));
+
+            // A whole table DROP STATS removes the record and journals the deletion.
+            manager.removeTableStatsAndLog(30001L);
+            Assertions.assertNull(manager.findTableStatsStatus(30001L));
+
+            // The next truncation creates the record again, and its entry says so.
+            TruncateTableInfo recreation = new TruncateTableInfo();
+            manager.resetTableStats(table, recreation);
+            Assertions.assertTrue(recreation.isTableStatsRecordCreated());
+            Assertions.assertEquals(2, truncateEntries.get());
+            Assertions.assertEquals(1, deletionEntries.get());
+        }
     }
 
     private AnalyzeTableCommand mockAnalyzeCommand(AnalysisMethod analysisMethod, ScheduleType scheduleType,

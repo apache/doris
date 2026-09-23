@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class TableStatsMetaTest {
 
@@ -217,6 +218,47 @@ class TableStatsMetaTest {
         meta.userInjected = false;
         Assertions.assertEquals(0, meta.getBaseIndexDeltaRowCount(table));
         Assertions.assertEquals(5, meta.getRowCount(BASE_INDEX_ID) + meta.getBaseIndexDeltaRowCount(table));
+    }
+
+
+    @Test
+    void testRowCountSnapshotIsCoherent() throws Exception {
+        OlapTable table = mockOlapTable();
+        TableStatsMeta meta = new TableStatsMeta();
+        meta.addIndexRowForTest(BASE_INDEX_ID, 100);
+        meta.updatedRows.set(100);
+        meta.update(analyzeJob(), table);
+        // 50 rows were loaded after the analysis, the table has 150 rows.
+        meta.updatedRows.set(150);
+
+        AtomicBoolean incoherent = new AtomicBoolean(false);
+        AtomicBoolean stop = new AtomicBoolean(false);
+        Thread reader = new Thread(() -> {
+            while (!stop.get()) {
+                long rowCount = meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID);
+                // Every state the writer goes through reports the 150 rows the table really holds, except the
+                // state right after a truncation, which reports the empty table.
+                if (rowCount != 0 && rowCount != 150) {
+                    incoherent.set(true);
+                }
+            }
+        });
+        reader.start();
+        // Only transitions which really happen are performed: TRUNCATE TABLE, then 150 rows are loaded into
+        // the emptied table, then an analysis which collected 100 of those 150 rows completes. The table never
+        // holds more than 150 rows, so a planner which reads the row count of the table without holding its
+        // lock must never see more than 150 rows either.
+        for (int i = 0; i < 5000; i++) {
+            meta.reset(table);
+            meta.updatedRows.set(150);
+            meta.update(analyzeJob(), table);
+        }
+        stop.set(true);
+        reader.join();
+        // 250 is what an unsettled publication produces: the 100 rows collected by the analysis plus the 150
+        // rows of the table counted as delta rows, because the reader paired the collected row count of one of
+        // them with the baseline of the other.
+        Assertions.assertFalse(incoherent.get(), "the reader saw a row count of neither state");
     }
 
 }

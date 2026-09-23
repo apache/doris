@@ -169,6 +169,10 @@ public class TruncateTableInfo implements Writable {
         return tableStatsRecordCreated;
     }
 
+    public void setTableStatsRecordCreated(boolean tableStatsRecordCreated) {
+        this.tableStatsRecordCreated = tableStatsRecordCreated;
+    }
+
     public long getVersion() {
         return version;
     }

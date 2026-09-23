@@ -6197,7 +6197,9 @@ public class Env {
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
             AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-            manager.removeTableStats(table.getId());
+            // The removal and its journal entry are written together, so that this transition is ordered
+            // with a concurrent truncation which resets the same record.
+            manager.removeTableStatsAndLog(table.getId());
             manager.dropStats(table, null);
         }
     }

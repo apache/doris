@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -758,8 +759,7 @@ public class AnalysisManager implements Writable {
         // Remove tableMetaStats if drop whole table stats.
         if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNamesInfo == null
                 || partitionNamesInfo.isStar() || partitionNamesInfo.getPartitionNames() == null)) {
-            removeTableStats(tblId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+            removeTableStatsAndLog(tblId);
         }
         invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNamesInfo);
         // Drop stats ddl is master only operation.
@@ -1488,18 +1488,34 @@ public class AnalysisManager implements Writable {
     }
 
     /**
+     * Remove the statistics record of a table and write the journal entry of the removal while holding the
+     * monitor of the statistics records, so that this transition and a concurrent truncation, which writes
+     * its own entry under the same monitor, are ordered the same way in memory and in the journal. Replay
+     * paths, which must not journal, use {@link #removeTableStats(long)}.
+     */
+    public void removeTableStatsAndLog(long tableId) {
+        synchronized (idToTblStats) {
+            idToTblStats.remove(tableId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tableId));
+        }
+    }
+
+    /**
      * TRUNCATE TABLE removes all the data of the table, but the table itself stays and can be loaded
      * immediately. The stats record must be kept, otherwise the row count of the newly loaded data can
      * never be reported: the backends report the row count of the new empty tablets with a delay of up to
      * {@code tablet_stat_update_interval_second}, and without a record there is nothing to accumulate the
      * loaded rows into. So reset the record to the state of an empty table instead of removing it.
      *
-     * <p>The transition is journaled by the truncate itself: the master DDL path and
-     * {@link InternalCatalog#replayTruncateTable} both apply it. It must not be journaled here, a separate
-     * entry is not atomic with the truncate entry, and a crash in between would replay a zeroed record
-     * onto the data which was never truncated.
+     * <p>The reset and the journal entry of the truncation are written while holding the monitor of the
+     * statistics records, and so is the deletion of a record, so that the order of two concurrent
+     * transitions between the states of a record is the same in memory and in the journal: otherwise a
+     * truncation and a deletion which do not share a table lock could be applied in one order and replayed
+     * in the other, leaving the followers with a record the master removed (or the reverse).
+     *
+     * @return whether the record had to be created, i.e. the table had no statistics record
      */
-    public boolean resetTableStats(OlapTable table) {
+    public boolean resetTableStats(OlapTable table, TruncateTableInfo truncateInfo) {
         synchronized (idToTblStats) {
             TableStatsMeta tableStats = idToTblStats.get(table.getId());
             boolean recordCreated = false;
@@ -1508,7 +1524,10 @@ public class AnalysisManager implements Writable {
                 idToTblStats.put(table.getId(), tableStats);
                 recordCreated = true;
             }
+            // The entry records what this truncation did to the record, so that the replay reproduces it.
+            truncateInfo.setTableStatsRecordCreated(recordCreated);
             tableStats.reset(table);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(truncateInfo);
             return recordCreated;
         }
     }

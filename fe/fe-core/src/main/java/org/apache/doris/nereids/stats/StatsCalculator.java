@@ -478,7 +478,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
+                    // The collected row count and the rows loaded since it was collected are read as one
+                    // snapshot, a truncation of the table may run concurrently with this plan.
+                    rowCount = tableMeta.getRowCountWithDeltaRows(olapTable, olapScan.getSelectedIndexId());
                 }
             }
         }

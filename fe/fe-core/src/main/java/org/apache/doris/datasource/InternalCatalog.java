@@ -1058,7 +1058,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof BaseTableStream) {
             Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
         }
-        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+        Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
@@ -3903,21 +3903,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             long versionTimeMs = Config.isNotCloudMode() ? System.currentTimeMillis() : 0L;
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
                     truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTimeMs);
-            boolean tableStatsRecordCreated = false;
-            if (truncateEntireTable) {
-                tableStatsRecordCreated = Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
-            } else {
-                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
-                        updateRecords, db.getId(), olapTable.getId(), 0);
-            }
-
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs,
-                            tableStatsRecordCreated);
-            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs);
+            if (truncateEntireTable) {
+                // The stats record is reset and the entry which describes the transition is written together,
+                // so that this transition cannot be ordered differently from a concurrent record deletion,
+                // which journals under the same monitor.
+                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable, info);
+            } else {
+                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
+                        updateRecords, db.getId(), olapTable.getId(), 0);
+                Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+            }
         } catch (DdlException e) {
             failedCleanCallback.run();
             throw e;

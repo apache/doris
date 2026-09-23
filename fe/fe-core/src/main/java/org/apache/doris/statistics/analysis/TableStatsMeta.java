@@ -158,16 +158,22 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
      * TRUNCATE TABLE removes all the data of the table. Reset this record back to the state of an empty
      * table instead of dropping it, so that the rows loaded after the truncation can still be accumulated
      * into {@link #updatedRows} and be reported as the row count of the table.
+     * <p>
+     * The transition runs under the monitor of this record, which {@link #getRowCountWithDeltaRows} also
+     * takes, so a planner which reads the row count of the table without holding its lock either sees the
+     * whole transition or none of it. The order the fields are published in matters for the readers which
+     * don't take the monitor, for instance SHOW TABLE STATS: the baseline first makes the delta empty while
+     * the collected row count is still the one of the removed data, so the emptied row count is only
+     * published once no row of the removed data is counted as a delta row anymore.
      */
-    public void reset(OlapTable table) {
-        rowCount = 0;
-        updatedRows.set(0);
-        // Nothing has been collected for the emptied table, so none of the rows loaded from now on is
-        // included in the collected row count. They are all delta rows.
-        updatedRowsBase.set(0);
-        partitionUpdateRows.clear();
-        // All the data is removed, so the base index is known to be empty.
+    public synchronized void reset(OlapTable table) {
+        updatedRowsBase.set(updatedRows.get());
         indexesRowCount = buildEmptyIndexRowCount(table);
+        updatedRows.set(0);
+        // None of the rows loaded from now on is included in the collected row count. They are all delta rows.
+        updatedRowsBase.set(0);
+        rowCount = 0;
+        partitionUpdateRows.clear();
         // Drop the column statistics baseline: the row count captured by the previous analysis described
         // the removed data, it must not cancel out the rows loaded after the truncation.
         colToColStatsMeta.clear();
@@ -221,7 +227,12 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         return colToColStatsMeta.keySet();
     }
 
-    public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
+    /**
+     * Apply the outcome of an analyze job to this record. Like {@link #reset}, the transition runs under the
+     * monitor of this record so that a planner reading the row count of the table without holding its lock
+     * doesn't pair the collected row count of this analysis with the baseline of another one.
+     */
+    public synchronized void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
         lastAnalyzeTime = analyzedJob.createTime;
         if (analyzedJob.userInject) {
@@ -254,11 +265,14 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
-                indexesRowCount.putAll(analyzedJob.indexesRowCount);
-                // The collected row count above already includes the rows which had been loaded when the
-                // job was built, remember how many they were, they are not delta rows. The baseline may
-                // only advance together with the collected base index row count, an analysis of another
-                // index (a materialized view) doesn't touch it.
+                // The collected row counts published below already include the rows which had been loaded when
+                // the job was built, remember how many they were, they are not delta rows. The baseline may
+                // only advance together with the collected base index row count, an analysis of another index
+                // (a materialized view) doesn't touch it.
+                // NOTICE: the baseline is published before the collected counts. They are both read without
+                // the table lock by the planner, and a reader which pairs the collected count of this analysis
+                // with the baseline of the previous one counts the rows loaded since that previous analysis
+                // twice.
                 if (analyzedJob.indexesRowCount.containsKey(olapTable.getBaseIndexId())) {
                     // A row count supplied by the user replaces the collected one and describes the table as
                     // of now, so the rows loaded so far are part of it and the baseline has to move to the
@@ -266,6 +280,7 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                     // clears userInjected.
                     updatedRowsBase.set(analyzedJob.userInject ? updatedRows.get() : analyzedJob.updateRows);
                 }
+                indexesRowCount.putAll(analyzedJob.indexesRowCount);
                 clearStaleIndexRowCount(olapTable);
                 if (analyzedJob.jobColumns.containsAll(
                         olapTable.getColumnIndexPairs(olapTable.getSchemaAllIndexes(false)
@@ -357,6 +372,24 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
             }
         }
         return updatedRows.get() - maxUpdateRows;
+    }
+
+    /**
+     * The row count of the index together with the rows loaded since it was collected, i.e. the row count of
+     * the table. Both are read by the planner without the table lock, for instance while it plans a direct
+     * scan of a materialized view, so they have to come from the same state of this record: a collected row
+     * count paired with the baseline of another analysis, or of a truncation, would count rows twice or miss
+     * them. The rows loaded while this call runs are not part of the snapshot, whichever state reads them
+     * accumulates them in {@link #updatedRows} and reports them as delta rows.
+     */
+    public synchronized long getRowCountWithDeltaRows(OlapTable table, long indexId) {
+        long rowCount = getRowCount(indexId);
+        if (indexId != table.getBaseIndexId()) {
+            // The delta rows are the rows of the base index. A rollup or an aggregate index has its own
+            // collected row count, which is smaller than the one of the base index by design.
+            return rowCount;
+        }
+        return rowCount + getBaseIndexDeltaRowCount(table);
     }
 
     public boolean isColumnsStatsEmpty() {
