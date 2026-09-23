@@ -53,6 +53,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
     private final String location;
     private final List<String> partitionKeyNames;
     private final Map<String, String> partitionKeyTypes;
+    private final Map<String, String> partitionKeyHiveTypes;
     private final Map<String, String> sdParameters;
     private final Map<String, String> tableParameters;
     // Whether the table's first column is a STRING, precomputed at handle build time (the metastore table is
@@ -78,6 +79,10 @@ public class HiveTableHandle implements ConnectorTableHandle {
         this.partitionKeyTypes = builder.partitionKeyTypes != null
                 ? Collections.unmodifiableMap(new HashMap<>(builder.partitionKeyTypes))
                 : Collections.emptyMap();
+        this.partitionKeyHiveTypes = builder.partitionKeyHiveTypes != null
+                && !builder.partitionKeyHiveTypes.isEmpty()
+                ? Collections.unmodifiableMap(new HashMap<>(builder.partitionKeyHiveTypes))
+                : this.partitionKeyTypes;
         this.sdParameters = builder.sdParameters != null
                 ? Collections.unmodifiableMap(builder.sdParameters)
                 : Collections.emptyMap();
@@ -127,6 +132,10 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
     public Map<String, String> getPartitionKeyTypes() {
         return partitionKeyTypes;
+    }
+
+    public Map<String, String> getPartitionKeyHiveTypes() {
+        return partitionKeyHiveTypes;
     }
 
     public Map<String, String> getSdParameters() {
@@ -200,6 +209,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         b.location = this.location;
         b.partitionKeyNames = this.partitionKeyNames;
         b.partitionKeyTypes = this.partitionKeyTypes;
+        b.partitionKeyHiveTypes = this.partitionKeyHiveTypes;
         b.sdParameters = this.sdParameters;
         b.tableParameters = this.tableParameters;
         b.firstColumnIsString = this.firstColumnIsString;
@@ -226,6 +236,7 @@ public class HiveTableHandle implements ConnectorTableHandle {
         private String location;
         private List<String> partitionKeyNames;
         private Map<String, String> partitionKeyTypes;
+        private Map<String, String> partitionKeyHiveTypes;
         private Map<String, String> sdParameters;
         private Map<String, String> tableParameters;
         private boolean firstColumnIsString;
@@ -261,6 +272,11 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
         public Builder partitionKeyTypes(Map<String, String> val) {
             this.partitionKeyTypes = val;
+            return this;
+        }
+
+        public Builder partitionKeyHiveTypes(Map<String, String> val) {
+            this.partitionKeyHiveTypes = val;
             return this;
         }
 

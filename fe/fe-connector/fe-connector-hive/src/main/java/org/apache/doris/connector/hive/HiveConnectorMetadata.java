@@ -493,6 +493,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .location(tableInfo.getLocation())
                 .partitionKeyNames(partKeyNames)
                 .partitionKeyTypes(partKeyTypes)
+                .partitionKeyHiveTypes(tableInfo.getPartitionKeyHiveTypes())
                 .sdParameters(tableInfo.getSdParameters())
                 .tableParameters(tableInfo.getParameters())
                 .firstColumnIsString(firstColumnIsString(tableInfo))
@@ -1288,7 +1289,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         String hmsFilter = buildHmsPartitionFilter(partKeyNames, hiveHandle.getPartitionKeyTypes(),
-                partitionPredicates);
+                hiveHandle.getPartitionKeyHiveTypes(), partitionPredicates);
         if (hmsFilter != null) {
             int predicateValueCount = partitionPredicates.values().stream().mapToInt(List::size).sum();
             if (LOG.isDebugEnabled()) {
@@ -2606,7 +2607,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     private static String buildHmsPartitionFilter(List<String> partKeyNames, Map<String, String> partKeyTypes,
-            Map<String, List<String>> partitionPredicates) {
+            Map<String, String> partKeyHiveTypes, Map<String, List<String>> partitionPredicates) {
         List<String> filters = new ArrayList<>();
         for (String partKeyName : partKeyNames) {
             List<String> values = partitionPredicates.get(partKeyName);
@@ -2614,6 +2615,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 continue;
             }
             if (!isHmsFilterIdentifier(partKeyName)) {
+                return null;
+            }
+            if (isHmsStringType(partKeyTypes.get(partKeyName))
+                    && !isHmsStringType(partKeyHiveTypes.get(partKeyName))) {
                 return null;
             }
             List<String> valueFilters = new ArrayList<>();
@@ -2701,7 +2706,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     private static boolean isHmsStringType(String typeName) {
-        return "STRING".equals(typeName.toUpperCase(Locale.ROOT));
+        return typeName != null && "STRING".equals(typeName.toUpperCase(Locale.ROOT));
     }
 
     private static boolean isIntegralLiteral(String value) {

@@ -882,8 +882,11 @@ public class ThriftHmsClient implements HmsClient {
         StorageDescriptor sd = table.getSd();
         List<ConnectorColumn> columns = convertFieldSchemas(
                 sd != null ? sd.getCols() : Collections.emptyList());
-        List<ConnectorColumn> partKeys = convertFieldSchemas(
-                table.getPartitionKeys());
+        List<FieldSchema> rawPartKeys = table.getPartitionKeys();
+        List<ConnectorColumn> partKeys = convertFieldSchemas(rawPartKeys);
+        Map<String, String> partitionKeyHiveTypes = rawPartKeys == null
+                ? Collections.emptyMap()
+                : rawPartKeys.stream().collect(Collectors.toMap(FieldSchema::getName, FieldSchema::getType));
 
         HmsTableInfo.Builder builder = HmsTableInfo.builder()
                 .dbName(table.getDbName())
@@ -896,7 +899,8 @@ public class ThriftHmsClient implements HmsClient {
                 .viewOriginalText(table.getViewOriginalText())
                 .viewExpandedText(table.getViewExpandedText())
                 .columns(columns)
-                .partitionKeys(partKeys);
+                .partitionKeys(partKeys)
+                .partitionKeyHiveTypes(partitionKeyHiveTypes);
 
         if (sd != null) {
             builder.location(sd.getLocation())
