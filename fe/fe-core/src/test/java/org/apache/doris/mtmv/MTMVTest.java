@@ -859,23 +859,6 @@ public class MTMVTest {
     }
 
     @Test
-    public void testDirtyPartitionsAreTheRefreshedOnesBehindTheirRequirement() {
-        MTMV mtmv = Mockito.spy(buildSerializableMTMV());
-        mtmv.getIvmInfo().setEnableIvm(true);
-        Mockito.doReturn(Sets.newHashSet("p202601", "p202602")).when(mtmv).getPartitionNames();
-        mtmv.alterPartitionStates(Maps.newHashMap(Map.of(
-                "p202601", new MTMVPartitionState(1, 2),
-                "p202602", new MTMVPartitionState(2, 2),
-                "p202603", new MTMVPartitionState(1, 2))));
-
-        // Only the partition that holds rows and is behind its requirement. One that reached its
-        // requirement is out, and so is one the MV no longer has: a partition can be dropped while a task
-        // is deciding, and its state goes with it -- until then, rebuilding it is what the stale entry
-        // would ask for.
-        Assertions.assertEquals(Sets.newHashSet("p202601"), mtmv.getDirtyPartitions());
-    }
-
-    @Test
     public void testTaskResultLeavesTheSnapshotOfADirtyPartitionOut() {
         MTMV mtmv = Mockito.spy(buildSerializableMTMV());
         mtmv.getIvmInfo().setEnableIvm(true);
@@ -926,7 +909,7 @@ public class MTMVTest {
 
         Assertions.assertEquals(Sets.newHashSet("p202601"), mtmv.getPartitionStates().keySet());
         Assertions.assertEquals(1, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
-        Assertions.assertTrue(mtmv.getPartitionStates().get("p202601").isNeverRefreshed());
+        Assertions.assertEquals(0, mtmv.getPartitionStates().get("p202601").getRefreshEpoch());
     }
 
     @Test
@@ -976,9 +959,10 @@ public class MTMVTest {
         // let a later invalidation raising latestEpoch go unnoticed.
         Assertions.assertTrue(new MTMVPartitionState(0, 1).isDirty());
         Assertions.assertTrue(new MTMVPartitionState(0, 2).isDirty());
-        // "Never refreshed" stays a separate fact about the past, which the escalation reads.
-        Assertions.assertTrue(new MTMVPartitionState(0, 2).isNeverRefreshed());
-        Assertions.assertTrue(MTMVPartitionState.initial().isNeverRefreshed());
+        // Which leaves "never refreshed" as a description of the past and no longer a category of its own:
+        // an aligned entry is (0, 1), so a refreshEpoch of 0 can never be the reason a partition is clean.
+        Assertions.assertEquals(0, MTMVPartitionState.initial().getRefreshEpoch());
+        Assertions.assertTrue(MTMVPartitionState.initial().isDirty());
         Assertions.assertEquals(1, MTMVPartitionState.initial().getLatestEpoch());
     }
 

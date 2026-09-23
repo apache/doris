@@ -260,7 +260,11 @@ public class MTMVTask extends AbstractTask {
     // Written by the executing (Disruptor worker) thread via the executeCommand consumer
     // callback and read by the cancel (command) thread, so it must be volatile.
     private volatile StmtExecutor executor;
-    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+    // What this task has committed, per MV partition: the snapshot each partition's rows were read at.
+    // One accumulator for the whole task rather than one per phase, because that is what the MV publishes
+    // at the end of it -- a phase that started from empty would publish its own work and drop the work of
+    // the phases before it, leaving partitions a preceding rebuild replaced looking unsynced.
+    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = Maps.newConcurrentMap();
     // The requirement each refreshed partition was read under, captured before the base tables were read
     // and recorded only once that batch's data committed (see commitCapturedEpochs). In memory only: the
     // journal carries the resulting states, and a replay applies those instead of recomputing anything.
@@ -278,12 +282,6 @@ public class MTMVTask extends AbstractTask {
     private long mtmvSchemaChangeVersion;
     // Published only after a signature-mismatch fallback succeeds and its task result is accepted.
     private transient String refreshedIvmPlanSignature;
-    // The snapshots of the partitions this task's rebuild phase replaced, and which its batches committed.
-    // Held on the task, not inside the attempt that produced them, because a fallback out of that attempt
-    // has to see them: its plan is computed from the snapshot the MV holds -- which this task has not
-    // published yet -- so the partitions just rebuilt still look unsynced to it and it would replace them
-    // all over again, and the record of the rebuild would be lost with the attempt that made it.
-    private transient Map<String, MTMVRefreshPartitionSnapshot> rebuiltPartitionSnapshots = Maps.newHashMap();
 
     private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -571,27 +569,22 @@ public class MTMVTask extends AbstractTask {
         if (request.refreshMode == RefreshMode.COMPLETE) {
             return;
         }
-        ivmRebuiltPartitions = Math.max(ivmRebuiltPartitions, rebuiltPartitions);
+        ivmRebuiltPartitions = rebuiltPartitions;
     }
 
     /**
-     * Whether every MV partition is dirty or was never refreshed, and at least one is dirty.
+     * Whether every MV partition needs a rebuild, which is when COMPLETE does nothing the per-partition
+     * routing would not.
      *
-     * <p>A partition that holds data and does not need a rebuild is what makes this false: COMPLETE would
-     * recompute it for nothing, which is the waste the per-partition routing exists to avoid. A partition
-     * that was never refreshed does not count against it -- COMPLETE fills it, which its routing branch
-     * would do as well.
+     * <p>A partition that holds data and does not need one makes this false: COMPLETE would recompute it
+     * for nothing, which is the waste the per-partition routing exists to avoid. A partition that was
+     * never refreshed does not count against it -- COMPLETE fills it, which its routing branch would do as
+     * well -- and it needs no clause of its own: an aligned entry is {@code {0, 1}}, so it is behind its
+     * requirement already. An MV with no partitions is not an escalation either.
      */
     private boolean shouldEscalateToComplete() {
-        boolean anyDirty = false;
-        for (MTMVPartitionState state : mtmv.getPartitionStates().values()) {
-            if (state.isDirty()) {
-                anyDirty = true;
-            } else if (!state.isNeverRefreshed()) {
-                return false;
-            }
-        }
-        return anyDirty;
+        Map<String, MTMVPartitionState> states = mtmv.getPartitionStates();
+        return !states.isEmpty() && states.values().stream().allMatch(MTMVPartitionState::isDirty);
     }
 
     private boolean shouldUseCompleteForInitialIvmRefresh(boolean containsOneRowRelation) {
@@ -640,43 +633,30 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * Takes the partitions this task's rebuild phase already replaced out of a planned set.
+     * Takes the partitions this task has already replaced out of a planned set.
      *
      * <p>The plan is computed from the snapshot the MV holds, which this task has not published yet, so a
-     * partition the rebuild has just filled still looks unsynced to it. Refreshing it here would replace
-     * the rebuild's rows with a second read of the same base table, and would do it in the one case that
-     * has already paid for a rebuild: the same refresh falling back out of the incremental attempt.
+     * partition this task has just filled still looks unsynced to it. Refreshing it here would replace the
+     * rows it holds with a second read of the same base table, and would do it in the one case that has
+     * already paid for it: the same refresh falling back out of the incremental attempt. What the
+     * accumulator holds at this point is exactly those partitions -- the fallback runs after an attempt
+     * that committed nothing, and a plan is built before anything is written.
      *
      * <p>An explicit partition list is left alone. It is the request itself rather than an inference from
      * the MV's snapshot, and the rebuild phase does not take partitions out of it either: what the request
      * names is refreshed, and at worst it is refreshed twice within one task.
      */
     private List<String> excludingRebuiltPartitions(List<String> plannedPartitions) {
-        if (rebuiltPartitionSnapshots.isEmpty()) {
+        if (partitionSnapshots.isEmpty()) {
             return plannedPartitions;
         }
         List<String> remaining = Lists.newArrayListWithCapacity(plannedPartitions.size());
         for (String partitionName : plannedPartitions) {
-            if (!rebuiltPartitionSnapshots.containsKey(partitionName)) {
+            if (!partitionSnapshots.containsKey(partitionName)) {
                 remaining.add(partitionName);
             }
         }
         return remaining;
-    }
-
-    /**
-     * The accumulator a phase writes its committed partition snapshots into.
-     *
-     * <p>Started from the partitions this task's rebuild phase already replaced, not from empty. What the
-     * MV publishes at the end of the task is the whole task's work, and each phase resets this accumulator
-     * to keep its own account of what it committed: without the rebuild's entries, a refresh that rebuilt a
-     * partition and then fell back out of the incremental attempt would publish a result that does not
-     * mention it, and the next refresh would find that partition unsynced and replace it again.
-     */
-    private Map<String, MTMVRefreshPartitionSnapshot> newSnapshotAccumulator() {
-        Map<String, MTMVRefreshPartitionSnapshot> accumulator = Maps.newConcurrentMap();
-        accumulator.putAll(rebuiltPartitionSnapshots);
-        return accumulator;
     }
 
     private MTMVRefreshContext buildRefreshContext(List<TableIf> tableIfs) throws AnalysisException {
@@ -691,10 +671,9 @@ public class MTMVTask extends AbstractTask {
     private void executeCompleteAttempt(MTMVRefreshContext context, ConnectContext ctx)
             throws JobException, AnalysisException {
         this.needRefreshPartitions = Lists.newArrayList(mtmv.getPartitionNames());
-        // A whole-MV rebuild replaces every partition, so there is nothing for a captured epoch to be
-        // clamped against: whatever this refresh read is what it repaired. Dropped rather than kept so a
-        // refresh that planned partition work and then fell back to COMPLETE does not leave the partitions
-        // it did rebuild looking like they still owe one.
+        // Nothing to clamp a captured epoch against: a whole-MV rebuild replaces every partition, so what
+        // this refresh read is what it repaired. Dropped rather than kept, so the partitions an earlier
+        // partial rebuild did replace do not stay looking like they still owe one.
         this.ivmPlannedEpochs = Maps.newHashMap();
         this.refreshMode = generateRefreshMode(needRefreshPartitions);
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
@@ -770,9 +749,9 @@ public class MTMVTask extends AbstractTask {
                 // that failed part-way through the rebuild must not report partitions it never replaced.
                 recordRebuiltPartitions(request, partitionSnapshots.size());
             }
-            rebuiltPartitionSnapshots.putAll(partitionSnapshots);
-            // Kept before the incremental attempt resets the accumulators to its own scope: both phases
-            // belong to this refresh, so the progress it reports is the union of the two.
+            // Kept before the incremental attempt resets the accumulators it reports through: both phases
+            // belong to this refresh, so the progress it reports is the union of the two. The snapshots
+            // need no such treatment -- they are one accumulator for the whole task.
             rebuildScope.addAll(needRefreshPartitions);
             rebuildCompleted.addAll(completedPartitions);
         }
@@ -821,7 +800,6 @@ public class MTMVTask extends AbstractTask {
             Set<String> dirtyPartitions)
             throws JobException {
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
-        this.partitionSnapshots = newSnapshotAccumulator();
         // Determine which partitions need refresh, same as partition-based flow. The partitions the
         // rebuild above handled are taken out: an incremental refresh of one of them would record it as
         // caught up while its rows are exactly what the rebuild had to replace.
@@ -909,10 +887,9 @@ public class MTMVTask extends AbstractTask {
 
     /**
      * Commits the captured epochs of a batch whose data has landed, so its work is not repeated after a
-     * restart.
-     *
-     * <p>A partition read by two phases of one task keeps the higher value: that is the requirement in
-     * force when the data that survived was read.
+     * restart; see {@link #captureLatestEpochs} for what a captured value is. A partition read by two
+     * phases of one task keeps the higher value, which is the requirement its surviving data was read
+     * under.
      */
     private void commitCapturedEpochs(Map<String, Long> capturedEpochs) {
         for (Entry<String, Long> entry : capturedEpochs.entrySet()) {
@@ -921,15 +898,12 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * The epoch to record for a captured partition: the one it was read at, or the one it was planned at
-     * when that is lower.
+     * The epoch to record for a captured partition: the one it was read at, or the one the routing decision
+     * saw when that is lower -- see {@link #captureLatestEpochs} for the rule this serves.
      *
-     * <p>The planned value is the one the routing decision was made on. An invalidation that arrives after
-     * that decision but before this batch is read would otherwise be captured here and written back as
-     * satisfied, while the delta this refresh applies cannot remove the rows the invalidation made
-     * unusable -- the partition holds them still, and only a rebuild replaces them. Recording the planned
-     * value leaves the partition dirty, so the next refresh rebuilds it. Rebuilding once more than
-     * strictly needed is the safe direction; keeping rows nothing can remove is not.
+     * <p>The clamp is what keeps an invalidation that lands between that decision and this read from being
+     * recorded as satisfied: the delta cannot remove the rows it made unusable, so the partition has to
+     * stay dirty for the next refresh to rebuild.
      */
     private long plannedCeiling(Entry<String, Long> captured) {
         Long planned = ivmPlannedEpochs.get(captured.getKey());
@@ -1034,7 +1008,6 @@ public class MTMVTask extends AbstractTask {
         // plan that has changed; until then this condition stays narrow. Non-IVM MVs produce no signature.
         boolean capturePlanSignature = refreshMode == RefreshMode.COMPLETE
                 && IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name().equals(ivmFallbackReason);
-        this.partitionSnapshots = newSnapshotAccumulator();
         IvmPlanSignature refreshedPlanSignature = null;
         for (int i = 0; i < execNum; i++) {
             int start = i * refreshPartitionNum;

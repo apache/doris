@@ -608,9 +608,11 @@ public class MTMVTaskTest {
                 .thenReturn(Lists.newArrayList(poneName, ptwoName));
         MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
                 RefreshMode.INCREMENTAL, true, null));
-        // poneName was rebuilt by the partition executor before this attempt.
-        Deencapsulation.setField(task, "rebuiltPartitionSnapshots",
-                ImmutableMap.of(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class)));
+        // poneName was rebuilt by the partition executor before this attempt, so the task's accumulator
+        // already holds it.
+        Map<String, MTMVRefreshPartitionSnapshot> accumulated = Maps.newConcurrentMap();
+        accumulated.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Deencapsulation.setField(task, "partitionSnapshots", accumulated);
 
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
@@ -622,10 +624,10 @@ public class MTMVTaskTest {
     }
 
     /**
-     * The rebuild's committed snapshots survive the incremental attempt that falls back after them: each
-     * phase resets the accumulator it writes into, and what the MV publishes at the end of the task is the
-     * whole task's work. Losing them would leave the next refresh finding those partitions unsynced and
-     * replacing them once more.
+     * The partitions an earlier phase replaced survive the incremental attempt that falls back after them.
+     * The task keeps one accumulator for the whole of it, because that is what the MV publishes: a phase
+     * that started from empty would drop the work of the phases before it, and the next refresh would find
+     * those partitions unsynced and replace them once more.
      */
     @Test
     public void testFallbackKeepsTheSnapshotsOfThePartitionsTheRebuildReplaced() throws Exception {
@@ -640,7 +642,9 @@ public class MTMVTaskTest {
                 Mockito.nullable(Set.class))).thenReturn(Collections.emptyMap());
         MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
                 RefreshMode.INCREMENTAL, true, null));
-        Deencapsulation.setField(task, "rebuiltPartitionSnapshots", ImmutableMap.of(poneName, rebuiltSnapshot));
+        Map<String, MTMVRefreshPartitionSnapshot> accumulated = Maps.newConcurrentMap();
+        accumulated.put(poneName, rebuiltSnapshot);
+        Deencapsulation.setField(task, "partitionSnapshots", accumulated);
 
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(
                 IvmIncrRefreshManager.class, (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))

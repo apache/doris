@@ -855,7 +855,7 @@ public class MTMV extends OlapTable {
                 }
             }
             if (changed) {
-                editLogItem = submitPartitionStatesChange();
+                editLogItem = submitPartitionStatesChange(Collections.emptySet());
             }
         } finally {
             writeMvUnlock();
@@ -863,33 +863,6 @@ public class MTMV extends OlapTable {
         if (editLogItem != null) {
             editLogItem.await();
         }
-    }
-
-    /**
-     * The MV partitions whose data has to be rebuilt instead of caught up incrementally: their rows were
-     * read before a change of a base table that emits no row binlog, so no delta can remove them.
-     *
-     * <p>Intersected with the partitions the MV has, because one can be dropped while a task decides.
-     * The read lock is enough: a requirement only ever grows, so a value read here is at most the one in
-     * force when the caller acts, and what is written back is the value the refresh captured, not this.
-     */
-    public Set<String> getDirtyPartitions() {
-        Set<String> res = Sets.newLinkedHashSet();
-        // Neither of these needs the lock: the names come from the table, which its own lock protects,
-        // and the selection is built from the state map read under the lock below.
-        Set<String> livePartitionNames = getPartitionNames();
-        readMvLock();
-        try {
-            for (Entry<String, MTMVPartitionState> entry : partitionStates.entrySet()) {
-                if (entry.getValue().isDirty()) {
-                    res.add(entry.getKey());
-                }
-            }
-        } finally {
-            readMvUnlock();
-        }
-        res.retainAll(livePartitionNames);
-        return res;
     }
 
     /**
@@ -1298,17 +1271,12 @@ public class MTMV extends OlapTable {
             if (!changed) {
                 return;
             }
-            editLogItem = submitPartitionStatesChange();
+            editLogItem = submitPartitionStatesChange(Collections.emptySet());
         } finally {
             writeMvUnlock();
         }
         editLogItem.await();
     }
-
-    private EditLogItem submitPartitionStatesChange() {
-        return submitPartitionStatesChange(Collections.emptySet());
-    }
-
 
     /**
      * Journals the current states, and the MV partitions whose snapshots the same change dropped.

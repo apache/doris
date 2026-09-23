@@ -84,18 +84,12 @@ public class MTMVPartitionState {
      * rows nothing can remove. Without the exemption the cut closes on its own: {@code 2 > 0} is dirty.
      *
      * <p>The cost is that a fresh MV's first refresh rebuilds every partition instead of skipping the
-     * partitions whose base partitions have no rows. That is the safe direction, and it is the same
-     * reading the whole-MV escalation already used ("every partition is dirty or never refreshed").
+     * partitions whose base partitions have no rows. That is the safe direction.
      */
     public boolean isDirty() {
         return latestEpoch > refreshEpoch;
     }
 
-
-    /** Whether the partition was never refreshed, which means it holds no rows. */
-    public boolean isNeverRefreshed() {
-        return refreshEpoch == 0;
-    }
 
     /**
      * Deep-copies a state map, or returns null for null.
