@@ -346,8 +346,8 @@ struct EncryptionAndDecryptMultiImpl {
                 offsets_list[i] = &col_str->get_offsets();
                 chars_list[i] = &col_str->get_chars();
             }
-            vector_vector(offsets_list, chars_list, input_rows_count, result_data, result_offset,
-                          result_null_map_column->get_data());
+            RETURN_IF_ERROR(vector_vector(offsets_list, chars_list, input_rows_count, result_data,
+                                          result_offset, result_null_map_column->get_data()));
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
@@ -390,10 +390,10 @@ struct EncryptionAndDecryptMultiImpl {
         }
     }
 
-    static void vector_vector(std::vector<const ColumnString::Offsets*>& offsets_list,
-                              std::vector<const ColumnString::Chars*>& chars_list,
-                              size_t input_rows_count, ColumnString::Chars& result_data,
-                              ColumnString::Offsets& result_offset, NullMap& null_map) {
+    static Status vector_vector(std::vector<const ColumnString::Offsets*>& offsets_list,
+                                std::vector<const ColumnString::Chars*>& chars_list,
+                                size_t input_rows_count, ColumnString::Chars& result_data,
+                                ColumnString::Offsets& result_offset, NullMap& null_map) {
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -424,6 +424,12 @@ struct EncryptionAndDecryptMultiImpl {
                 }
             }
 
+            if constexpr (arg_num == 5) {
+                if (!EncryptionUtil::is_gcm_mode(encryption_mode)) {
+                    return Status::InvalidArgument("only GCM mode support AAD(the 5th arg)");
+                }
+            }
+
             int aad_size = 0;
             const char* aad = nullptr;
             if constexpr (arg_num == 5) {
@@ -435,6 +441,7 @@ struct EncryptionAndDecryptMultiImpl {
                                                     iv_raw, iv_size, result_data, result_offset,
                                                     null_map, aad, aad_size);
         }
+        return Status::OK();
     }
 };
 

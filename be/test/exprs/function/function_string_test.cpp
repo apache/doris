@@ -2462,6 +2462,20 @@ TEST(function_string_test, function_aes_encrypt_test) {
     }
 }
 
+TEST(function_string_test, function_aes_encrypt_dynamic_mode_aad_test) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                      PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                      PrimitiveType::TYPE_VARCHAR};
+    const DataSet data_set = {
+            {{std::string("abc"), std::string("key"), std::string("1234567890123456"),
+              std::string("AES_128_CBC"), std::string("aad")},
+             Null()}};
+
+    const auto status = check_function<DataTypeString, true>("aes_encrypt", input_types, data_set,
+                                                             -1, -1, true);
+    EXPECT_FALSE(status.ok());
+}
+
 TEST(function_string_test, function_aes_decrypt_test) {
     std::string func_name = "aes_decrypt";
     {
