@@ -1420,10 +1420,6 @@ public class StmtExecutor {
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
-            if (planner instanceof NereidsPlanner) {
-                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
-            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
