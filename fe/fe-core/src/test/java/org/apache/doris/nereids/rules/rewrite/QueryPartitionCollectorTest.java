@@ -97,7 +97,7 @@ public class QueryPartitionCollectorTest {
                     .isEnablePreloadExternalMetadata(), "this test must stay on the default preload switch");
             statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
 
-            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
             // Everything after this point runs while the statement holds its internal table read locks.
             Mockito.clearInvocations(table);
 
