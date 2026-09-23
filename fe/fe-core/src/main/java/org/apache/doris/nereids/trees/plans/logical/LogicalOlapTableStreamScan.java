@@ -250,7 +250,7 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
 
     @Override
     public LogicalOlapTableStreamScan withOperativeSlots(Collection<Slot> operativeSlots) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        LogicalOlapTableStreamScan scan = AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
                         groupExpression, Optional.of(getLogicalProperties()),
                         selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
@@ -259,6 +259,8 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
                         scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                         scanParams, readMode));
+        scan.markOperativeSlotsDerived();
+        return scan;
     }
 
     /**
