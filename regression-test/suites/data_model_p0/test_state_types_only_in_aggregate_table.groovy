@@ -17,8 +17,8 @@
 
 suite("test_state_types_only_in_aggregate_table") {
     context.reconnectToMasterFe()
-    withGlobalLock("allow_non_aggregate_table_state_types") {
-        setFeConfigTemporary([allow_non_aggregate_table_state_types: false]) {
+    withGlobalLock("enable_non_aggregate_table_state_types") {
+        setFeConfigTemporary([enable_non_aggregate_table_state_types: false]) {
             sql "set enable_agg_state=true"
             // SHOW executes an internal query, but must not exempt subsequent user DDL.
             sql "show table status"
@@ -96,7 +96,7 @@ suite("test_state_types_only_in_aggregate_table") {
                 properties("replication_num" = "1")
             """
 
-            setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
+            setFeConfigTemporary([enable_non_aggregate_table_state_types: true]) {
                 sql "drop table if exists state_type_compatibility_dup"
                 sql """
                     create table state_type_compatibility_dup (

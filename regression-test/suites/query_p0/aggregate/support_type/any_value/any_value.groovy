@@ -16,8 +16,8 @@
 // under the License.
 
 suite("any_value") {
-    withGlobalLock("allow_non_aggregate_table_state_types") {
-    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
+    withGlobalLock("enable_non_aggregate_table_state_types") {
+    setFeConfigTemporary([enable_non_aggregate_table_state_types: true]) {
     sql "set enable_decimal256 = true;"
     sql """
         drop table if exists d_table;

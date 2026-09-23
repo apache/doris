@@ -447,8 +447,8 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithHllBloomFilterIndex() {
-        boolean originalValue = Config.allow_non_aggregate_table_state_types;
-        Config.allow_non_aggregate_table_state_types = true;
+        boolean originalValue = Config.enable_non_aggregate_table_state_types;
+        Config.enable_non_aggregate_table_state_types = true;
         try {
             ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                     " HLL is not supported in bloom filter index. invalid column: k1",
@@ -463,7 +463,7 @@ public class CreateTableWithBloomFilterIndexTest extends TestWithFeService {
                             + "\"replication_num\" = \"1\"\n"
                             + ");"));
         } finally {
-            Config.allow_non_aggregate_table_state_types = originalValue;
+            Config.enable_non_aggregate_table_state_types = originalValue;
         }
     }
 

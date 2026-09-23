@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_join_on", "query_p0") {
-    withGlobalLock("allow_non_aggregate_table_state_types") {
-    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
+    withGlobalLock("enable_non_aggregate_table_state_types") {
+    setFeConfigTemporary([enable_non_aggregate_table_state_types: true]) {
 
     sql "DROP TABLE IF EXISTS join_on"
     sql """

@@ -426,10 +426,10 @@ public class ColumnDefinition {
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
-                && !Config.allow_non_aggregate_table_state_types) {
+                && !Config.enable_non_aggregate_table_state_types) {
             throw new AnalysisException(String.format(
                     "%s type is only supported in aggregate key tables, column: %s. "
-                            + "Set FE config 'allow_non_aggregate_table_state_types' to true to temporarily allow it",
+                            + "Set FE config 'enable_non_aggregate_table_state_types' to true to temporarily allow it",
                     type.toSql(), name));
         }
         if (type.isArrayType()) {

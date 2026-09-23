@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_unique_table_hll") {
-    withGlobalLock("allow_non_aggregate_table_state_types") {
-    setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
+    withGlobalLock("enable_non_aggregate_table_state_types") {
+    setFeConfigTemporary([enable_non_aggregate_table_state_types: true]) {
 
     for (def enable_mow : [true, false]) {
         sql "sync;"

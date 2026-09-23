@@ -41,12 +41,12 @@ public class ColumnDefinitionTest {
 
     @BeforeEach
     public void setUp() {
-        Config.allow_non_aggregate_table_state_types = false;
+        Config.enable_non_aggregate_table_state_types = false;
     }
 
     @AfterEach
     public void tearDown() {
-        Config.allow_non_aggregate_table_state_types = false;
+        Config.enable_non_aggregate_table_state_types = false;
     }
 
     @Test
@@ -86,7 +86,7 @@ public class ColumnDefinitionTest {
 
     @Test
     public void testTemporaryConfigAllowsStateTypesInNonAggregateTable() {
-        Config.allow_non_aggregate_table_state_types = true;
+        Config.enable_non_aggregate_table_state_types = true;
 
         for (KeysType keysType : ImmutableList.of(KeysType.DUP_KEYS, KeysType.UNIQUE_KEYS)) {
             for (DataType type : aggregateTableOnlyTypes()) {

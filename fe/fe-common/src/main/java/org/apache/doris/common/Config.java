@@ -1860,7 +1860,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Temporary compatibility switch that allows HLL, "
             + "QUANTILE_STATE, and AGG_STATE columns in non-aggregate key tables. Disabled by default. This switch "
             + "is intended only for migration and will be removed after the compatibility transition period.")
-    public static boolean allow_non_aggregate_table_state_types = false;
+    public static boolean enable_non_aggregate_table_state_types = false;
 
     /*---------------------- JOB CONFIG START------------------------*/
     /**

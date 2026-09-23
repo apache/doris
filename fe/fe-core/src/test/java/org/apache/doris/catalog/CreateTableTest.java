@@ -54,10 +54,10 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testInternalQueryStateDoesNotExemptUserTable() {
-        boolean originalAllowStateTypes = Config.allow_non_aggregate_table_state_types;
+        boolean originalAllowStateTypes = Config.enable_non_aggregate_table_state_types;
         boolean originalInternal = connectContext.getState().isInternal();
         boolean originalEnableAggState = connectContext.getSessionVariable().enableAggState;
-        Config.allow_non_aggregate_table_state_types = false;
+        Config.enable_non_aggregate_table_state_types = false;
         connectContext.getSessionVariable().enableAggState = true;
         // An ordinary SHOW can leave the internal-query flag set on a user connection.
         connectContext.getState().setInternal(true);
@@ -74,7 +74,7 @@ public class CreateTableTest extends TestWithFeService {
                 }
             }
         } finally {
-            Config.allow_non_aggregate_table_state_types = originalAllowStateTypes;
+            Config.enable_non_aggregate_table_state_types = originalAllowStateTypes;
             connectContext.getState().setInternal(originalInternal);
             connectContext.getSessionVariable().enableAggState = originalEnableAggState;
         }
