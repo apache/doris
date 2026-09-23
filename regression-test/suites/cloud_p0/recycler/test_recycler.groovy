@@ -18,6 +18,8 @@ import groovy.json.JsonOutput
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_recycler") {
+    enableRecyclerCaseTimeout()
+
     // create table
     def token = "greedisgood9999"
     def instanceId = context.config.instanceId;
@@ -25,6 +27,8 @@ suite("test_recycler") {
     def caseStartTime = System.currentTimeMillis()
     def recyclerLastSuccessTime = -1
     def recyclerLastFinishTime = -1
+    def waitTimeoutMs = 30 * 60 * 1000L
+    def recyclerWaitDeadline = caseStartTime + waitTimeoutMs
 
     // Make sure to complete at least one round of recycling
     def getRecycleJobInfo = {
@@ -61,6 +65,12 @@ suite("test_recycler") {
         if (recyclerLastFinishTime > caseStartTime) {
             break
         }
+        if (System.currentTimeMillis() >= recyclerWaitDeadline) {
+            throw new IllegalStateException(
+                    "Timed out waiting for recycler job after ${waitTimeoutMs / 1000}s: " +
+                    "caseStartTime=${caseStartTime}, recyclerLastFinishTime=${recyclerLastFinishTime}, " +
+                    "recyclerLastSuccessTime=${recyclerLastSuccessTime}")
+        }
     } while (true)
     assertEquals(recyclerLastFinishTime, recyclerLastSuccessTime)
 
@@ -86,6 +96,8 @@ suite("test_recycler") {
     // Make sure to complete at least one round of checking
     def checkerLastSuccessTime = -1
     def checkerLastFinishTime = -1
+    def checkerWaitStartTime = System.currentTimeMillis()
+    def checkerWaitDeadline = checkerWaitStartTime + waitTimeoutMs
 
     def triggerChecker = {
         def triggerCheckerApi = { checkFunc ->
@@ -138,6 +150,13 @@ suite("test_recycler") {
         logger.info("checkerLastFinishTime=${checkerLastFinishTime}, checkerLastSuccessTime=${checkerLastSuccessTime}")
         if (checkerLastSuccessTime > recyclerLastSuccessTime) {
             break
+        }
+        if (System.currentTimeMillis() >= checkerWaitDeadline) {
+            throw new IllegalStateException(
+                    "Timed out waiting for checker job after ${waitTimeoutMs / 1000}s: " +
+                    "recyclerLastSuccessTime=${recyclerLastSuccessTime}, " +
+                    "checkerLastFinishTime=${checkerLastFinishTime}, " +
+                    "checkerLastSuccessTime=${checkerLastSuccessTime}")
         }
     } while (true)
     assertEquals(checkerLastFinishTime, checkerLastSuccessTime)
