@@ -195,7 +195,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     private boolean isSkew(List<Expression> groupBy, Statistics inputStatistics) {
         for (int i = 0; i < groupBy.size(); ++i) {
             Expression expr = groupBy.get(i);
-            ColumnStatistic colStat = inputStatistics.findColumnStatistics(expr);
+            ColumnStatistic colStat = inputStatistics.findColumnStatisticsOrNull(expr);
             if (colStat == null || colStat.isUnKnown) {
                 continue;
             }
@@ -252,7 +252,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         double highCardThreshold = sv.bucketedAggHighCardThreshold;
         if (highCardThreshold > 0) {
             for (Expression groupByKey : aggregate.getGroupByExpressions()) {
-                ColumnStatistic colStat = inputStats.findColumnStatistics(groupByKey);
+                ColumnStatistic colStat = inputStats.findColumnStatisticsOrNull(groupByKey);
                 if (colStat != null && !colStat.isUnKnown
                         && colStat.ndv > rows * highCardThreshold) {
                     return false;

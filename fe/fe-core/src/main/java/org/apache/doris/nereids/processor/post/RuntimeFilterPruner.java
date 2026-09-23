@@ -300,12 +300,12 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         }
         Slot leftSlot = leftSlots.iterator().next();
         Slot rightSlot = rightSlots.iterator().next();
-        ColumnStatistic probeColumnStat = leftStats.findColumnStatistics(leftSlot);
-        ColumnStatistic buildColumnStat = rightStats.findColumnStatistics(rightSlot);
+        ColumnStatistic probeColumnStat = leftStats.findColumnStatisticsOrNull(leftSlot);
+        ColumnStatistic buildColumnStat = rightStats.findColumnStatisticsOrNull(rightSlot);
         //TODO remove these code when we ensure left child if from probe side
         if (probeColumnStat == null || buildColumnStat == null) {
-            probeColumnStat = leftStats.findColumnStatistics(rightSlot);
-            buildColumnStat = rightStats.findColumnStatistics(leftSlot);
+            probeColumnStat = leftStats.findColumnStatisticsOrNull(rightSlot);
+            buildColumnStat = rightStats.findColumnStatisticsOrNull(leftSlot);
             if (probeColumnStat == null || buildColumnStat == null) {
                 return false;
             }

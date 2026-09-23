@@ -121,7 +121,7 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
                     return false;
                 }
                 List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
-                        .map(partitionKey -> stats.findColumnStatistics(partitionKey))
+                        .map(partitionKey -> stats.findColumnStatisticsOrNull(partitionKey))
                         .filter(Objects::nonNull)
                         .filter(e -> !e.isUnKnown)
                         .collect(Collectors.toList());
