@@ -514,6 +514,11 @@ message TxnIndexPB {
     optional int64 parent_txn_id = 2;
 }
 
+// Current-state commit TSO fence. This key is intentionally not versioned.
+message TxnTsoFencePB {
+    optional int64 fence_tso = 1;
+}
+
 message TxnInfoPB {
     optional int64 db_id = 1;
     repeated int64 table_ids = 2;
@@ -736,6 +741,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional bool enable_mow_light_delete = 14;
     optional int32 vertical_compaction_num_columns_per_group = 15;
     optional string group_commit_mode = 16;
+    optional doris.BinlogConfigPB binlog_config = 17;
 }
 
 message TabletCompactionJobPB {
@@ -1085,6 +1091,8 @@ message CommitTxnRequest {
     optional string request_ip = 12;
     optional int64 commit_tso = 13;
     repeated TableStreamUpdatePB table_stream_updates = 14;
+    // Whether Meta Service should reject commit_tso values at or below its current fence.
+    optional bool enable_check_commit_tso_fence = 15;
 }
 
 message SubTxnInfo {
@@ -1115,6 +1123,8 @@ message CommitTxnResponse {
     // The lazy commit has only completed its first phase. FE must not notify BE to make
     // temporary rowsets visible until BE observes the final metadata from meta-service.
     optional bool is_lazy_commit_incomplete = 9;
+    // The current master fence when commit_tso is rejected as stale.
+    optional int64 tso_fence = 10;
 }
 
 message AbortTxnRequest {
@@ -1254,6 +1264,18 @@ message CheckTxnConflictResponse {
     optional MetaServiceResponseStatus status = 1;
     optional bool finished = 2;
     repeated TxnInfoPB conflict_txns = 3;
+}
+
+message AdvanceTsoFenceRequest {
+    optional string cloud_unique_id = 1; // For auth
+    // Inclusive upper bound rejected by transaction commit.
+    optional int64 proposed_fence_tso = 2;
+    optional string request_ip = 3;
+}
+
+message AdvanceTsoFenceResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional int64 tso_fence = 2;
 }
 
 message CleanTxnLabelRequest {
@@ -1949,6 +1971,8 @@ enum MetaServiceCode {
     STALE_TABLET_CACHE = 2012;
     STALE_PREPARE_ROWSET = 2013;
     TXN_ALREADY_COMMITED = 2014;
+    // The transaction commit TSO is no longer valid.
+    TXN_COMMIT_TSO_EXPIRED = 2015;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
@@ -2004,6 +2028,17 @@ message DeleteBitmapStoragePB {
     optional PackedSliceLocationPB packed_slice_location = 3;
 }
 
+message PreRowsetDeleteBitmapStatsPB {
+    message DeleteBitmapStatPB {
+        optional uint32 segment_id = 1;
+        optional int64 version = 2;
+        optional uint64 delete_bitmap_size = 3;
+    }
+
+    optional string rowset_id = 1;
+    repeated DeleteBitmapStatPB delete_bitmap_stats = 2;
+}
+
 message UpdateDeleteBitmapRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 table_id = 2;
@@ -2029,6 +2064,14 @@ message UpdateDeleteBitmapRequest {
     optional int64 pre_rowset_agg_end_version = 17;
     // when update delete_bitmap of pre rowsets, check the rowset exists
     repeated int64 pre_rowset_versions = 18;
+    // remove pre-rowset delete bitmaps in [end_version, end_version] before writing aggregated
+    // delete bitmaps; true: point delete; false or unset: range delete
+    optional bool enable_remove_agg_pre_rowsets_delete_bitmap_by_keys = 19;
+    // remove pre-rowset delete bitmaps in [start_version, end_version):
+    // true: point delete; false or unset: range delete
+    optional bool enable_remove_pre_rowsets_delete_bitmap_by_keys = 20;
+    // stats of pre-rowset delete bitmaps in [start_version, end_version) used for point delete
+    repeated PreRowsetDeleteBitmapStatsPB pre_rowset_delete_bitmap_stats = 21;
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
@@ -2408,6 +2451,7 @@ service MetaService {
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
     rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);
+    rpc advance_tso_fence(AdvanceTsoFenceRequest) returns (AdvanceTsoFenceResponse);
     rpc clean_txn_label(CleanTxnLabelRequest) returns (CleanTxnLabelResponse);
     rpc get_txn_id(GetTxnIdRequest) returns (GetTxnIdResponse);
     rpc begin_sub_txn(BeginSubTxnRequest) returns (BeginSubTxnResponse);

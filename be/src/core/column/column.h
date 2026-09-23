@@ -113,7 +113,7 @@ public:
         return nullptr;
     }
 
-    // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
+    // Only used by columns that need special lifecycle handling.
     virtual void finalize() {}
 
     // Only used on ColumnDictionary

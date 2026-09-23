@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
+import org.apache.doris.nereids.parser.NereidsParser;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -165,17 +165,23 @@ public class TypeTest {
     }
 
     @Test
-    public void testVariantToThriftUsesGlobalV2Config() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Assertions.assertFalse(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
+    public void testVariantFieldCommentToSqlRoundTrip() {
+        String comment = "O'Reilly \"quoted\" a\\b";
+        ArrayList<VariantField> fields = new ArrayList<>();
+        fields.add(new VariantField("price", Type.INT, comment));
+        String sql = new VariantType(fields, 0, false, 10000, 1, false, 0L, 64, false).toSql();
 
-            Config.enable_variant_v2 = true;
-            Assertions.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType(sql);
+        Assertions.assertEquals(comment, parsed.getPredefinedFields().get(0).getComment());
+        org.apache.doris.nereids.types.VariantType reparsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType("variant<" + parsed.getPredefinedFields().get(0).toSql() + ">");
+        Assertions.assertEquals(comment, reparsed.getPredefinedFields().get(0).getComment());
+    }
+
+    @Test
+    public void testVariantToThriftUsesV2() {
+        Assertions.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
     }
 
     // ===================== Mixed Nesting & Precision =====================

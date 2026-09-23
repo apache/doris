@@ -325,7 +325,7 @@ public class JdbcResource extends Resource {
             // legacy JDBC consumers call it directly, with no create/alter or replay context), so it
             // deliberately applies no new restriction here: an unmodified historical catalog must keep
             // resolving exactly as before. The mandatory bare-name grammar is enforced only when a
-            // catalog is created or altered, in JdbcDorisConnector.checkDriverUrlSecurityRule.
+            // catalog is created or altered, in JdbcDriverUrlSecurity.check.
             return checkAndReturnDefaultDriverUrl(driverUrl);
         }
 

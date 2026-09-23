@@ -403,6 +403,13 @@ class Suite implements GroovyInterceptable {
             context.threadLocalConn.remove()
             actionSupplier.call()
         } finally {
+            // The connection the action opened to the docker cluster is unreachable once the original
+            // one is put back, so close it rather than leave it to the suite's end. (Still the
+            // original one when the cluster failed to start before the action ran.)
+            ConnectionInfo dockerConnection = context.threadLocalConn.get()
+            if (dockerConnection != null && !dockerConnection.is(originConnection)) {
+                context.closeDorisConnection(dockerConnection.conn, "docker cluster connection")
+            }
             if (originConnection == null) {
                 context.threadLocalConn.remove()
             } else {
@@ -536,13 +543,18 @@ class Suite implements GroovyInterceptable {
             // Wait for BE to report
             Thread.sleep(5000)
 
-            Connection originConnection = context.threadLocalConn.get()
+            ConnectionInfo originConnection = context.threadLocalConn.get()
             context.threadLocalConn.remove()
             context.isMultiDockerClusterRunning = true
             try {
                 actionSupplier.call(clusters)
             } finally {
                 context.isMultiDockerClusterRunning = false
+                // As in dockerImpl: the action's connection to a docker cluster is closed here.
+                ConnectionInfo dockerConnection = context.threadLocalConn.get()
+                if (dockerConnection != null && !dockerConnection.is(originConnection)) {
+                    context.closeDorisConnection(dockerConnection.conn, "docker cluster connection")
+                }
                 if (originConnection == null) {
                     context.threadLocalConn.remove()
                 } else {
@@ -1727,8 +1739,10 @@ class Suite implements GroovyInterceptable {
         return result
     }
 
-    // rowConverter: { row -> convertedRow }
+    // rowConverter: { row -> convertedRow }, or { row, meta -> convertedRow } to inspect the result
+    // metadata, for example to mask a column whose value depends on the deployment mode.
     void quickRunTest(String tag, Object arg, boolean isOrder = false, Closure rowConverter = null) {
+        boolean converterNeedsMeta = rowConverter != null && rowConverter.maximumNumberOfParameters > 1
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
@@ -1763,7 +1777,9 @@ class Suite implements GroovyInterceptable {
             }
             def (result, meta) = tupleResult
             if (rowConverter != null) {
-                result = result.collect { rowConverter.call(it) }
+                result = result.collect {
+                    converterNeedsMeta ? rowConverter.call(it, meta) : rowConverter.call(it)
+                }
             }
             if (isOrder) {
                 result = sortByToString(result)
@@ -1815,7 +1831,9 @@ class Suite implements GroovyInterceptable {
             }
             def (realResults, meta) = tupleResult
             if (rowConverter != null) {
-                realResults = realResults.collect { rowConverter.call(it) }
+                realResults = realResults.collect {
+                    converterNeedsMeta ? rowConverter.call(it, meta) : rowConverter.call(it)
+                }
             }
             if (isOrder) {
                 realResults = sortByToString(realResults)

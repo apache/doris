@@ -18,19 +18,20 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.auth2.FlightAuthResult;
+import org.apache.doris.arrowflight.sessions.FlightSessionsInConnectPool;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.service.ExecuteEnv;
-import org.apache.doris.service.arrowflight.sessions.FlightSessionsWithTokenManager;
-import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
-import org.apache.doris.service.arrowflight.tokens.FlightTokenManager;
 
+import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.FlightStatusCode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -48,8 +49,6 @@ public class ConnectionExceedTest {
     private Env mockEnv = Mockito.mock(Env.class);
     private InternalCatalog mockCatalog = Mockito.mock(InternalCatalog.class);
     private StreamConnection mockConnection = Mockito.mock(StreamConnection.class);
-    private FlightTokenManager mockTokenManager = Mockito.mock(FlightTokenManager.class);
-    private ExecuteEnv mockExecuteEnv = Mockito.mock(ExecuteEnv.class);
 
     @Test
     public void testHandleConnectionExceed() throws Exception {
@@ -102,11 +101,13 @@ public class ConnectionExceedTest {
     public void testHandleReadEventRejectedExecution() throws Exception {
         try (MockedStatic<XnioIoThread> mockedIoThread = Mockito.mockStatic(XnioIoThread.class)) {
             ConnectContext context = Mockito.mock(ConnectContext.class);
+            MysqlProtocolAdapter protocol = Mockito.mock(MysqlProtocolAdapter.class);
             QueryState queryState = Mockito.mock(QueryState.class);
             ConnectProcessor processor = Mockito.mock(ConnectProcessor.class);
             ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
             XnioWorker worker = Mockito.mock(XnioWorker.class);
 
+            Mockito.when(context.getProtocolAdapter()).thenReturn(protocol);
             Mockito.when(context.getState()).thenReturn(queryState);
             Mockito.when(channel.getWorker()).thenReturn(worker);
             Mockito.doThrow(new RejectedExecutionException("queue full"))
@@ -115,8 +116,8 @@ public class ConnectionExceedTest {
             ReadListener listener = new ReadListener(context, processor);
             listener.handleEvent(channel);
 
-            InOrder contextInOrder = Mockito.inOrder(context);
-            contextInOrder.verify(context).suspendAcceptQuery();
+            InOrder contextInOrder = Mockito.inOrder(protocol, context);
+            contextInOrder.verify(protocol).suspendAcceptQuery();
             contextInOrder.verify(context).setThreadLocalInfo();
             contextInOrder.verify(context).setKilled();
             contextInOrder.verify(context).cleanup();
@@ -125,58 +126,49 @@ public class ConnectionExceedTest {
         }
     }
 
+    // An Arrow Flight SQL session is a connection of the one pool: refused at the pool's limit, the
+    // user's limit or the Flight sub-quota, in the words a MySQL client is refused in, as the
+    // RESOURCE_EXHAUSTED status of the handshake that would have opened it - and no bearer token
+    // is issued for it, since there is no session it could name.
     @Test
     public void testFlightSessionConnectionExceed() throws Exception {
-        try (MockedStatic<ExecuteEnv> mockedExecEnv = Mockito.mockStatic(ExecuteEnv.class)) {
-            // Create a scheduler with small max connections
+        try (MockedStatic<Env> mockedEnvStatic = Mockito.mockStatic(Env.class)) {
+            // A pool of 1000 with a Flight sub-quota of 2
             ConnectScheduler scheduler = new ConnectScheduler(1000, 2);
 
             // Setup expectations
             Mockito.when(mockEnv.getInternalCatalog()).thenReturn(mockCatalog);
             Mockito.when(mockCatalog.getName()).thenReturn("internal");
-            mockedExecEnv.when(ExecuteEnv::getInstance).thenReturn(mockExecuteEnv);
-            Mockito.when(mockExecuteEnv.getScheduler()).thenReturn(scheduler);
+            Mockito.when(mockAuth.getMaxConn(Mockito.anyString())).thenReturn(100L);
+            Mockito.when(mockEnv.getAuth()).thenReturn(mockAuth);
+            // The session the sessions manager builds takes its Env from Env.getCurrentEnv().
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
 
             UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
-            FlightTokenDetails tokenDetails = new FlightTokenDetails(
-                    "test_token",
-                    "test_user",
-                    System.currentTimeMillis(),
-                    System.currentTimeMillis() + 3600000, // expires in 1 hour
-                    userIdentity,
-                    "127.0.0.1"
-            );
-            Mockito.when(mockTokenManager.validateToken("test_token")).thenReturn(tokenDetails);
+            FlightAuthResult authResult = FlightAuthResult.of("test_user", userIdentity, "127.0.0.1");
 
-            // Create first context and register
-            ConnectContext context1 = new ConnectContext();
-            context1.setEnv(mockEnv);
-            context1.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assertions.assertTrue(scheduler.submit(context1));
-            Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context1));
-
-            // Create second context and register
-            ConnectContext context2 = new ConnectContext();
-            context2.setEnv(mockEnv);
-            context2.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
-            Assertions.assertTrue(scheduler.submit(context2));
-            Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context2));
-
-            // Create FlightSessionsWithTokenManager and try to create a new connection
-            FlightSessionsWithTokenManager manager = new FlightSessionsWithTokenManager(mockTokenManager);
-            try {
-                manager.createConnectContext("test_token");
-                Assertions.fail("Should throw IllegalArgumentException");
-            } catch (IllegalArgumentException e) {
-                // Verify error message is set correctly
-                String expectedMsg = String.format(
-                        "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
-                                + "bearer tokens should be equal to arrow flight sql max connections, "
-                                + "max connections: %d, used: %d.",
-                        scheduler.getFlightSqlConnectPoolMgr().getMaxConnections(),
-                        scheduler.getConnectionNum());
-                Assertions.assertEquals(expectedMsg, e.getMessage());
+            // Two Flight sessions fill the sub-quota, next to a MySQL connection of the same user: the
+            // refusal has to tell the Flight usage from the pool's count.
+            ConnectContext mysql = new ConnectContext();
+            mysql.setEnv(mockEnv);
+            mysql.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
+            Assertions.assertTrue(scheduler.submit(mysql));
+            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
+            FlightSessionsInConnectPool manager = new FlightSessionsInConnectPool(scheduler);
+            for (int i = 0; i < 2; i++) {
+                String token = manager.openSession(authResult);
+                Assertions.assertSame(scheduler.getContextWithPeerIdentity(token), manager.getConnectContext(token));
             }
+            Assertions.assertEquals(2, scheduler.getConnectPoolMgr().getFlightConnectionNum());
+
+            FlightRuntimeException refused = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> manager.openSession(authResult));
+            Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
+            Assertions.assertEquals(
+                    "Reach limit of connections. Total: 1000, User: 100, Current: 3, Arrow Flight SQL: 2 (current: 2)",
+                    refused.status().description());
+            Assertions.assertEquals(3, scheduler.getConnectionNum());
+            Assertions.assertEquals(2, scheduler.getConnectPoolMgr().getFlightConnectionNum());
         }
     }
 }

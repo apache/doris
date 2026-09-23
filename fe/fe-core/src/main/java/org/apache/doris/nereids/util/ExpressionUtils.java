@@ -56,8 +56,10 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeBitmap;
@@ -1127,10 +1129,10 @@ public class ExpressionUtils {
     }
 
     /** deapAnyMatch */
-    public static boolean deapAnyMatch(
+    public static boolean deepAnyMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return true;
             }
         }
@@ -1138,10 +1140,10 @@ public class ExpressionUtils {
     }
 
     /** deapNoneMatch */
-    public static boolean deapNoneMatch(
+    public static boolean deepNoneMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return false;
             }
         }
@@ -1205,9 +1207,45 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique, the output of agg is unique, too
+    /**
+     * Whether this aggregate preserves the uniqueness of its argument for single-row groups.
+     *
+     * <p>The argument must trace back to one slot through injective casts only. MIN and MAX then
+     * return that argument value unchanged. SUM and AVG can additionally coerce the argument to
+     * their result type, so that conversion must also be injective over the original slot type.</p>
+     */
     public static boolean isInjectiveAgg(Expression agg) {
-        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+        if (!(agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min)) {
+            return false;
+        }
+
+        Expression source = getExpressionCoveredBySafetyCast(agg.child(0));
+        if (!(source instanceof Slot)) {
+            return false;
+        }
+
+        if (agg instanceof Max || agg instanceof Min) {
+            return true;
+        }
+        return source.getDataType().isInjectiveCastTo(agg.getDataType());
+    }
+
+    /**
+     * Whether a single-row group always produces the same aggregate result.
+     *
+     * <p>COUNT(*) always consumes its only row. Argument-based COUNT and NDV consume the row only
+     * when every argument is non-null, so nullable arguments may produce either zero or one across
+     * otherwise single-row groups. Keep the proof conservative and inspect the complete argument
+     * expressions rather than only their input slots.</p>
+     */
+    public static boolean isUniformAgg(Expression agg) {
+        if (agg instanceof Count && ((Count) agg).isCountStar()) {
+            return true;
+        }
+        if (!(agg instanceof Count || agg instanceof Ndv)) {
+            return false;
+        }
+        return agg.getArguments().stream().allMatch(Expression::notNullable);
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,

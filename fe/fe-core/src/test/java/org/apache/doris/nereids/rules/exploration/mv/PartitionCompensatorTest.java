@@ -489,6 +489,84 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
     @SuppressWarnings("unchecked")
     @Test
+    public void testCalcInvalidPartitionsCompensatesWholeIntersectingRollupBucket()
+            throws Exception {
+        DatabaseIf<?> baseDb = mockDatabase("cat", 1L, "db", 2L);
+        MTMVRelatedTableIf relatedTable = mockRelatedTableIf(
+                "base_t", 10L, ImmutableList.of("cat", "db", "base_t"), baseDb);
+        BaseColInfo colInfo = new BaseColInfo("dt", new BaseTableInfo(relatedTable));
+
+        DatabaseIf<?> mvDb = mockDatabase("internal", 3L, "mv_db", 4L);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getName()).thenReturn("mv1");
+        Mockito.when(mtmv.getId()).thenReturn(100L);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
+                .thenReturn(ImmutableList.of(1L));
+
+        long validMvPartitionId = 101L;
+        long partiallyStaleMvPartitionId = 102L;
+        long disjointMvPartitionId = 103L;
+        Partition validMvPartition = mockPartition(validMvPartitionId, "mv_valid");
+        Partition partiallyStaleMvPartition = mockPartition(partiallyStaleMvPartitionId, "mv_partially_stale");
+        Partition disjointMvPartition = mockPartition(disjointMvPartitionId, "mv_disjoint");
+        Mockito.when(mtmv.getPartition(validMvPartitionId)).thenReturn(validMvPartition);
+        Mockito.when(mtmv.getPartition(partiallyStaleMvPartitionId)).thenReturn(partiallyStaleMvPartition);
+        Mockito.when(mtmv.getPartition(disjointMvPartitionId)).thenReturn(disjointMvPartition);
+
+        PartitionInfo mvPartitionInfo = Mockito.mock(PartitionInfo.class);
+        Mockito.when(mtmv.getPartitionInfo()).thenReturn(mvPartitionInfo);
+        Mockito.when(mvPartitionInfo.getType()).thenReturn(PartitionType.RANGE);
+        MTMVPartitionInfo mvPctInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(mvPctInfo);
+        Mockito.when(mvPctInfo.getPctTables()).thenReturn(ImmutableSet.of(relatedTable));
+        Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo));
+
+        Map<String, Set<String>> relatedPartitionMapping = new HashMap<>();
+        relatedPartitionMapping.put("mv_valid", ImmutableSet.of("p3"));
+        relatedPartitionMapping.put("mv_partially_stale", ImmutableSet.of("p1", "p2"));
+        relatedPartitionMapping.put("mv_disjoint", ImmutableSet.of("p4", "p5"));
+        Map<MTMVRelatedTableIf, Map<String, Set<String>>> partitionMappings = new HashMap<>();
+        partitionMappings.put(relatedTable, relatedPartitionMapping);
+
+        AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
+        Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
+        Mockito.when(matCtx.calculatePartitionMappings(ArgumentMatchers.any())).thenReturn(partitionMappings);
+
+        Map<BaseTableInfo, Collection<Partition>> canRewriteMap = new HashMap<>();
+        canRewriteMap.put(new BaseTableInfo(mtmv), ImmutableList.of(validMvPartition));
+        StatementContext stmtCtx = Mockito.mock(StatementContext.class);
+        Mockito.when(stmtCtx.getMvCanRewritePartitionsMap()).thenReturn(canRewriteMap);
+        CascadesContext cascadesCtx = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesCtx.getStatementContext()).thenReturn(stmtCtx);
+
+        LogicalOlapScan selectedMvScan = Mockito.mock(LogicalOlapScan.class);
+        Mockito.when(selectedMvScan.getTable()).thenReturn(mtmv);
+        Mockito.when(selectedMvScan.getSelectedPartitionIds())
+                .thenReturn(ImmutableList.of(
+                        validMvPartitionId, partiallyStaleMvPartitionId, disjointMvPartitionId));
+        Plan rewrittenPlan = Mockito.mock(Plan.class);
+        Mockito.when(rewrittenPlan.collectToList(ArgumentMatchers.any()))
+                .thenReturn(ImmutableList.of(selectedMvScan));
+
+        // The query touches p1 in the stale roll-up bucket and p3 in a valid bucket. Once the stale
+        // MV partition is removed, its complete {p1, p2} mapping must be compensated atomically.
+        // The completely disjoint {p4, p5} bucket is removed from the MV scan but is not compensated.
+        Map<List<String>, Set<String>> queryUsedPartitions = new HashMap<>();
+        queryUsedPartitions.put(relatedTable.getFullQualifiers(), ImmutableSet.of("p1", "p3"));
+
+        Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> result =
+                PartitionCompensator.calcInvalidPartitions(
+                        queryUsedPartitions, rewrittenPlan, matCtx, cascadesCtx);
+
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(ImmutableSet.of("mv_partially_stale", "mv_disjoint"),
+                result.key().get(new BaseTableInfo(mtmv)));
+        Assertions.assertEquals(ImmutableSet.of("p1", "p2"), result.value().get(colInfo));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
     public void testCalcInvalidPartitionsDoesNotCompensateBasePartitionsUnusedByQuery()
             throws Exception {
         DatabaseIf<?> baseDb = mockDatabase("cat", 1L, "db", 2L);

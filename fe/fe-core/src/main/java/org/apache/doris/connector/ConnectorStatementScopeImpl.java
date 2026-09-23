@@ -34,8 +34,11 @@ import java.util.function.Supplier;
  * partition-batch) reuse the single {@link org.apache.doris.connector.spi.ConnectorSession} built on the
  * request thread and so reach this same scope concurrently. {@code computeIfAbsent} gives every caller of
  * a key the same instance — required for the shared table object and for the delete supply map that scan
- * and write both mutate. The loaders used by connectors do not re-enter this scope, so the map's
- * single-key atomicity is safe here.</p>
+ * and write both mutate. Loaders MUST NOT re-enter this scope: a recursive {@code computeIfAbsent}
+ * can throw {@code IllegalStateException} on a same-bin collision or silently drop entries during a
+ * mid-computation resize. Connectors that need scope-backed state during scan planning nest a
+ * separate connector-private memo map inside the scope, avoiding re-entry and preserving the
+ * String-key SPI contract.</p>
  */
 public class ConnectorStatementScopeImpl implements ConnectorStatementScope {
 

@@ -305,10 +305,6 @@ protected:
                             ColumnUInt8::Container& result, LikeState* state,
                             size_t input_rows_count) const;
 
-    Status execute_substring(const ColumnString::Chars& values,
-                             const ColumnString::Offsets& value_offsets,
-                             ColumnUInt8::Container& result, LikeSearchState* search_state) const;
-
     template <bool LIKE_PATTERN>
     static VPatternSearchStateSPtr pattern_type_recognition(const ColumnString& patterns);
 

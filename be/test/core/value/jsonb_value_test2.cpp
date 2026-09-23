@@ -23,6 +23,7 @@
 #include "core/block/block.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "gtest/gtest_pred_impl.h"

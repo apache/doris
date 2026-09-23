@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 package org.apache.doris.udf;
-import org.apache.log4j.Logger;
 
-import com.carrotsearch.hppc.DoubleByteAssociativeContainer;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -26,7 +24,6 @@ import java.util.*;
 
 
 public class MySumReturnMapIntDou {
-    private static final Logger LOG = Logger.getLogger(MySumReturnMapIntDou.class);
     public static class State {
         public HashMap<Integer,Double> counter = new HashMap<>();
     }

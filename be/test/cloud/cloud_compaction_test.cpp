@@ -389,6 +389,56 @@ TEST_F(CloudCompactionTest, generate_cloud_binlog_compaction_tasks_updates_only_
     ASSERT_EQ(metrics->tablet_time_series_max_compaction_score->value(), 103);
 }
 
+TEST_F(CloudCompactionTest, binlog_compaction_producer_ignores_ccr_switch) {
+    const bool old_enable_feature_binlog = config::enable_feature_binlog;
+    const bool old_disable_auto_compaction = config::disable_auto_compaction;
+    const int32_t old_binlog_compaction_task_num_per_disk =
+            config::binlog_compaction_task_num_per_disk;
+    Defer restore_config {[&]() {
+        config::enable_feature_binlog = old_enable_feature_binlog;
+        config::disable_auto_compaction = old_disable_auto_compaction;
+        config::binlog_compaction_task_num_per_disk = old_binlog_compaction_task_num_per_disk;
+    }};
+
+    ASSERT_TRUE(ThreadPoolBuilder("BaseCompactionTaskThreadPoolTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&_engine._base_compaction_thread_pool)
+                        .ok());
+    ASSERT_TRUE(ThreadPoolBuilder("CumuCompactionTaskThreadPoolTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&_engine._cumu_compaction_thread_pool)
+                        .ok());
+    ASSERT_TRUE(ThreadPoolBuilder("BinlogCompactionTaskThreadPoolTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&_engine._binlog_compaction_thread_pool)
+                        .ok());
+
+    auto binlog_meta = std::make_shared<TabletMeta>(*_tablet_meta);
+    binlog_meta->_tablet_id = 11004;
+    binlog_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    auto binlog_tablet = std::make_shared<CloudTablet>(_engine, binlog_meta);
+    binlog_tablet->tablet_meta()->tablet_schema()->set_disable_auto_compaction(false);
+    binlog_tablet->_approximate_cumu_num_deltas = 7;
+    _engine.tablet_mgr().put_tablet_for_UT(binlog_tablet);
+
+    config::enable_feature_binlog = false;
+    config::disable_auto_compaction = false;
+    config::binlog_compaction_task_num_per_disk = 0;
+    auto* metric = DorisMetrics::instance()->tablet_binlog_max_compaction_score;
+    metric->set_value(0);
+    _engine._stop_background_threads_latch.count_down();
+    _engine._binlog_compaction_tasks_producer_callback();
+    EXPECT_EQ(metric->value(), 7);
+
+    config::disable_auto_compaction = true;
+    metric->set_value(11);
+    _engine._binlog_compaction_tasks_producer_callback();
+    EXPECT_EQ(metric->value(), 11);
+}
+
 TEST_F(CloudCompactionTest, generate_cloud_compaction_tasks_clears_metrics_without_tablets) {
     auto* metrics = DorisMetrics::instance();
     metrics->tablet_cumulative_max_compaction_score->set_value(101);
@@ -456,7 +506,7 @@ TEST_F(CloudCompactionTest, cumulative_global_lock_failure_keeps_thread_count_ba
         std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock);
     }
-    tablet->last_sync_time_s = 1;
+    tablet->last_sync_rowsets_time_s = 1;
     tablet->_approximate_num_rowsets = 0;
 
     ASSERT_TRUE(ThreadPoolBuilder("CumuCompactionTaskThreadPoolTest")
@@ -579,16 +629,16 @@ public:
 TEST_F(CloudCompactionTest, cumulative_result_requires_next_counter) {
     auto tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
     tablet->set_cumulative_compaction_cnt(1);
-    tablet->last_sync_time_s = 1;
+    tablet->last_sync_rowsets_time_s = 1;
     TestableCloudCompaction compaction(_engine, tablet);
 
     std::unique_lock lock(tablet->get_header_lock());
     EXPECT_FALSE(compaction.test_should_apply_cumulative_compaction_result(1));
-    EXPECT_EQ(tablet->last_sync_time_s, 1);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 1);
     EXPECT_TRUE(compaction.test_should_apply_cumulative_compaction_result(2));
-    EXPECT_EQ(tablet->last_sync_time_s, 1);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 1);
     EXPECT_FALSE(compaction.test_should_apply_cumulative_compaction_result(3));
-    EXPECT_EQ(tablet->last_sync_time_s, 0);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 0);
 }
 
 class TestableCloudCumulativeCompaction : public CloudCumulativeCompaction {
@@ -627,7 +677,7 @@ static CloudTabletSPtr create_cloud_tablet_with_rowsets(CloudStorageEngine& engi
     tablet->set_cumulative_layer_point(cumulative_point);
     tablet->fetch_add_approximate_num_rowsets(static_cast<int64_t>(num_rowsets) -
                                               tablet->fetch_add_approximate_num_rowsets(0));
-    tablet->last_sync_time_s = 1;
+    tablet->last_sync_rowsets_time_s = 1;
     return tablet;
 }
 
@@ -694,7 +744,7 @@ TEST_F(CloudCompactionTest, base_result_with_newer_cumulative_point_forces_sync)
 
         ASSERT_TRUE(compaction.modify_rowsets().ok());
         EXPECT_EQ(tablet->cumulative_layer_point(), 6);
-        EXPECT_EQ(tablet->last_sync_time_s, expected_sync_time);
+        EXPECT_EQ(tablet->last_sync_rowsets_time_s, expected_sync_time);
     };
 
     run_case(10008, 8, 0);
@@ -903,7 +953,7 @@ TEST_F(CloudCompactionTest, parallel_pick_keeps_mode_after_dynamic_config_change
     EXPECT_TRUE(commit_called);
     EXPECT_EQ(tablet->cumulative_compaction_cnt(), 0);
     EXPECT_EQ(tablet->cumulative_layer_point(), 2);
-    EXPECT_EQ(tablet->last_sync_time_s, 0);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 0);
 }
 
 TEST_F(CloudCompactionTest, parallel_pick_advances_continuous_low_prefix_through_delete) {

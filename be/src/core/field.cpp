@@ -22,6 +22,8 @@
 
 #include "common/compare.h"
 #include "core/accurate_comparison.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -91,6 +93,50 @@ bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys)
     return dec_less_or_equal<TYPE_DECIMAL128I>(x, y, xs, ys);
 }
 
+namespace {
+// Expression literals can outlive decoder pages and source columns.
+// Keep the view first for Field::get(), and fit ownership into the existing Field storage.
+struct OwnedBinaryField {
+    StringView view;
+    char* bytes = nullptr;
+    size_t byte_size = 0;
+
+    explicit OwnedBinaryField(const StringView& value) {
+        // Inline views already own their bytes; preserve their allocation-free representation.
+        if (value.isInline()) {
+            view = value;
+            return;
+        }
+        // Charge retained payloads and deep-copy peaks through Doris's checked allocator.
+        // Keep a standard-layout owner so the leading view remains accessible via Field::get().
+        bytes = static_cast<char*>(Allocator<false> {}.alloc(value.size()));
+        byte_size = value.size();
+        memcpy(bytes, value.data(), value.size());
+        view = StringView(bytes, value.size());
+    }
+    OwnedBinaryField(const OwnedBinaryField&) = delete;
+    OwnedBinaryField& operator=(const OwnedBinaryField&) = delete;
+    OwnedBinaryField& operator=(OwnedBinaryField&& other) noexcept {
+        release_bytes();
+        view = other.view;
+        bytes = std::exchange(other.bytes, nullptr);
+        byte_size = std::exchange(other.byte_size, 0);
+        return *this;
+    }
+    ~OwnedBinaryField() { release_bytes(); }
+
+private:
+    void release_bytes() const {
+        if (bytes != nullptr) {
+            // Field::get() exposes a mutable view; release the original allocation size.
+            Allocator<false> {}.free(bytes, byte_size);
+        }
+    }
+};
+static_assert(std::is_standard_layout_v<OwnedBinaryField>);
+static_assert(offsetof(OwnedBinaryField, view) == 0);
+} // namespace
+
 template <PrimitiveType Type>
 void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
     // In both Field and PODArray, small types may be stored as wider types,
@@ -99,7 +145,12 @@ void Field::create_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
     // we must initialize the entire wide stored type, and not just the
     // nominal type.
     using StorageType = typename PrimitiveTypeTraits<Type>::CppType;
-    new (&storage) StorageType(std::move(x));
+    if constexpr (Type == TYPE_VARBINARY) {
+        static_assert(sizeof(OwnedBinaryField) <= sizeof(storage));
+        new (&storage) OwnedBinaryField(x);
+    } else {
+        new (&storage) StorageType(std::move(x));
+    }
     type = Type;
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
 }
@@ -112,7 +163,11 @@ void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x
     // we must initialize the entire wide stored type, and not just the
     // nominal type.
     using StorageType = typename PrimitiveTypeTraits<Type>::CppType;
-    new (&storage) StorageType(x);
+    if constexpr (Type == TYPE_VARBINARY) {
+        new (&storage) OwnedBinaryField(x);
+    } else {
+        new (&storage) StorageType(x);
+    }
     type = Type;
     DCHECK_NE(type, PrimitiveType::INVALID_TYPE);
 }
@@ -241,6 +296,8 @@ Field& Field::operator=(const Field& rhs) {
     if (this != &rhs) {
         if (type != rhs.type) {
             destroy();
+            // A failed allocation while changing types must leave a destructible Field.
+            type = TYPE_NULL;
             create(rhs);
         } else {
             assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
@@ -646,12 +703,20 @@ void Field::assign(const Field& field) {
 /// Assuming same types.
 template <PrimitiveType Type>
 void Field::assign_concrete(typename PrimitiveTypeTraits<Type>::CppType&& x) {
+    if constexpr (Type == TYPE_VARBINARY) {
+        *reinterpret_cast<OwnedBinaryField*>(&storage) = OwnedBinaryField(x);
+        return;
+    }
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<Type>::CppType*>(&storage);
     *ptr = std::forward<typename PrimitiveTypeTraits<Type>::CppType>(x);
 }
 
 template <PrimitiveType Type>
 void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::CppType& x) {
+    if constexpr (Type == TYPE_VARBINARY) {
+        *reinterpret_cast<OwnedBinaryField*>(&storage) = OwnedBinaryField(x);
+        return;
+    }
     auto* MAY_ALIAS ptr = reinterpret_cast<typename PrimitiveTypeTraits<Type>::CppType*>(&storage);
     *ptr = std::forward<const typename PrimitiveTypeTraits<Type>::CppType>(x);
 }
@@ -683,6 +748,10 @@ const typename PrimitiveTypeTraits<T>::CppType& Field::get() const {
 
 template <PrimitiveType T>
 void Field::destroy() {
+    if constexpr (T == TYPE_VARBINARY) {
+        reinterpret_cast<OwnedBinaryField*>(&storage)->~OwnedBinaryField();
+        return;
+    }
     using TargetType = typename PrimitiveTypeTraits<T>::CppType;
     DCHECK(T == type || ((is_string_type(type) && is_string_type(T))))
             << "Type mismatch: requested " << type_to_string(T) << ", actual " << get_type_name();

@@ -382,9 +382,10 @@ public:
                     col_to->get_data()[i].from_datetime(datetime);
             if (!converted) {
                 if constexpr (CastMode == CastModeType::StrictMode) {
+                    // The session-local year may be unrepresentable even though UTC is valid.
                     return Status::InvalidArgument(
                             "can not cast timestamptz {} to TIMESTAMP_NS in timezone {}",
-                            source.to_string(local_time_zone), context->state()->timezone());
+                            source.utc_dt().to_string(source_scale), context->state()->timezone());
                 }
                 col_null->get_data()[i] = true;
             }

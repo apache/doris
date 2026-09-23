@@ -1481,6 +1481,7 @@ The Apache Software License, Version 2.0
     * aws sdk: 1.9.211
     * benchmark: 1.8.0
     * simdjson: 3.0.1
+    * simdutf: 9.2.0
     * libhdfs3: 2.3.8
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
