@@ -34,6 +34,7 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -856,6 +857,104 @@ TEST(VariantPathBuilderTest, StringifiesArrayWithoutTreatingExistingNullAsCastFa
     ColumnPtr materialized;
     ASSERT_TRUE(builder.materialize(&materialized).ok());
     EXPECT_EQ(builder.type()->to_string(*materialized, 0), "[1,null]");
+}
+
+// Appends `rows` of `values` to one path, converts it to a typed path's declared type, and renders
+// every row of the batch in that type; a value the conversion drops renders as NULL.
+static std::vector<std::string> convert_typed_path_rows(const VariantBatchBuilder& values,
+                                                        const std::vector<size_t>& rows,
+                                                        size_t num_rows,
+                                                        const DataTypePtr& declared_type) {
+    segment_v2::VariantPathBuilder builder(PathInData("typed"));
+    for (size_t row : rows) {
+        EXPECT_TRUE(builder.append(values.value_at(row), row).ok());
+    }
+    EXPECT_TRUE(builder.complete_rows(num_rows).ok());
+    const Status status = builder.convert_to(declared_type);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    ColumnPtr materialized;
+    EXPECT_TRUE(builder.materialize(&materialized).ok());
+    std::vector<std::string> rendered;
+    for (size_t row = 0; row < num_rows; ++row) {
+        rendered.push_back(builder.type()->to_string(*materialized, row));
+    }
+    return rendered;
+}
+
+TEST(VariantPathBuilderTest, TypedConversionDoesNotDependOnOtherValueKindsInBatch) {
+    VariantBatchBuilder value_builder;
+    const auto add_string = [&](std::string_view text) {
+        auto row = value_builder.begin_row();
+        row.add_string(StringRef(text.data(), text.size()));
+        row.finish();
+    };
+    add_string("2024-01-01 10:00:00.123456");
+    {
+        auto row = value_builder.begin_row();
+        row.add_int(5);
+        row.finish();
+    }
+    add_string("2024-01-02");
+    add_string("not a date");
+    {
+        auto row = value_builder.begin_row();
+        row.add_double(1.5);
+        row.finish();
+    }
+    const VariantBatchBuilder values = value_builder.finish_batch();
+    const std::vector<size_t> all_rows {0, 1, 2, 3, 4};
+
+    // Strings and numbers in one batch leave the path JSONB. Each value must still convert the way
+    // it does in a batch holding only its own kind.
+    for (const DataTypePtr& declared_type :
+         {DataTypePtr(std::make_shared<DataTypeDateV2>()),
+          DataTypePtr(std::make_shared<DataTypeDateTimeV2>(3)),
+          DataTypePtr(std::make_shared<DataTypeInt32>()),
+          DataTypePtr(std::make_shared<DataTypeDecimal128>(38, 2)),
+          DataTypePtr(std::make_shared<DataTypeString>())}) {
+        SCOPED_TRACE(declared_type->get_name());
+        const std::vector<std::string> mixed =
+                convert_typed_path_rows(values, all_rows, all_rows.size(), declared_type);
+        for (size_t row : all_rows) {
+            SCOPED_TRACE(testing::Message() << "row=" << row);
+            EXPECT_EQ(mixed[row],
+                      convert_typed_path_rows(values, {row}, all_rows.size(), declared_type)[row]);
+        }
+    }
+    EXPECT_EQ(convert_typed_path_rows(values, all_rows, all_rows.size(),
+                                      std::make_shared<DataTypeDateV2>()),
+              (std::vector<std::string> {"2024-01-01", "NULL", "2024-01-02", "NULL", "NULL"}));
+    EXPECT_EQ(convert_typed_path_rows(values, all_rows, all_rows.size(),
+                                      std::make_shared<DataTypeDateTimeV2>(3)),
+              (std::vector<std::string> {"2024-01-01 10:00:00.123", "NULL",
+                                         "2024-01-02 00:00:00.000", "NULL", "NULL"}));
+}
+
+TEST(VariantPathBuilderTest, TypedArrayConversionDoesNotDependOnOtherElementKindsInBatch) {
+    VariantBatchBuilder value_builder;
+    {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        row.add_string(StringRef("2024-01-01"));
+        row.add_int(5);
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        row.add_string(StringRef("2024-01-02"));
+        array.finish();
+        row.finish();
+    }
+    const VariantBatchBuilder values = value_builder.finish_batch();
+    const DataTypePtr declared_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeDateV2>()));
+
+    const std::vector<std::string> mixed =
+            convert_typed_path_rows(values, {0, 1}, 2, declared_type);
+    EXPECT_EQ(mixed[1], convert_typed_path_rows(values, {1}, 2, declared_type)[1]);
+    EXPECT_EQ(mixed, (std::vector<std::string> {"[\"2024-01-01\", null]", "[\"2024-01-02\"]"}));
 }
 
 TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
@@ -2682,6 +2781,71 @@ TEST_F(VariantColumnWriterReaderTest, v2_missing_and_json_null_typed_paths_are_n
     EXPECT_EQ(actual, (std::vector<std::optional<std::string>> {
                               R"({"hot":1})",
                               R"({"hot":2})",
+                      }));
+}
+
+static TabletColumn make_datelike_typed_path_template(std::string_view path, std::string_view type,
+                                                      int32_t frac) {
+    ColumnPB column_pb;
+    column_pb.set_unique_id(-1);
+    column_pb.set_name(std::string(path));
+    column_pb.set_type(std::string(type));
+    column_pb.set_is_nullable(true);
+    column_pb.set_frac(frac);
+    column_pb.set_pattern_type(PatternTypePB::MATCH_NAME);
+
+    TabletColumn column;
+    column.init_from_pb(column_pb);
+    return column;
+}
+
+TEST_F(VariantColumnWriterReaderTest, v2_typed_date_paths_keep_strings_batched_with_numbers) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v");
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    auto datetime_path = make_datelike_typed_path_template("ts", "DATETIMEV2", 3);
+    auto date_path = make_datelike_typed_path_template("d", "DATEV2", 0);
+    auto int_path = make_int_typed_path_template("i");
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(datetime_path);
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(date_path);
+    _tablet_schema->mutable_column_by_uid(1).add_sub_column(int_path);
+    init_tablet_from_current_schema(11019);
+
+    // Row 1 puts numbers on the typed paths of row 0 in the same batch. Only its own values may be
+    // dropped; row 0 must convert as it does when written alone.
+    const std::vector<std::string> jsons {
+            R"({"d":"2024-01-01","i":"5","ts":"2024-01-01 10:00:00.123456"})",
+            R"({"d":5,"i":"x","ts":5})",
+    };
+    ColumnPtr source;
+    DataTypePtr source_type;
+    ASSERT_TRUE(create_variant_writer_source(VariantWriterInput::V2, jsons, 3, false, {}, &source,
+                                             &source_type)
+                        .ok());
+
+    SegmentFooterPB footer;
+    std::string file_path;
+    ASSERT_TRUE(
+            write_variant_segment(source, source_type, "v2_typed_dates", &footer, &file_path).ok());
+
+    std::vector<std::string> dates;
+    ASSERT_TRUE(read_variant_path_rows(footer, file_path, "d", FieldType::OLAP_FIELD_TYPE_DATEV2,
+                                       &dates)
+                        .ok());
+    EXPECT_EQ(dates, (std::vector<std::string> {"2024-01-01", "NULL"}));
+    std::vector<std::string> integers;
+    ASSERT_TRUE(read_variant_path_rows(footer, file_path, "i", FieldType::OLAP_FIELD_TYPE_INT,
+                                       &integers)
+                        .ok());
+    EXPECT_EQ(integers, (std::vector<std::string> {"5", "NULL"}));
+
+    std::vector<std::optional<std::string>> actual;
+    ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, (std::vector<std::optional<std::string>> {
+                              R"({"d":"2024-01-01","i":5,"ts":"2024-01-01 10:00:00.123000"})",
+                              "{}",
                       }));
 }
 

@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
@@ -971,6 +972,15 @@ Status replace_array_nothing(const DataTypePtr& source_type, const IColumn& sour
     return Status::OK();
 }
 
+// Variant CAST converts each value from its own kind, the way a column of only that kind converts.
+Status cast_through_variant(const ColumnWithTypeAndName& source, const DataTypePtr& target_type,
+                            ColumnPtr* result) {
+    static const DataTypePtr variant_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    ColumnPtr variant;
+    RETURN_IF_ERROR(variant_util::cast_column(source, variant_type, &variant));
+    return variant_util::cast_column({variant, variant_type, source.name}, target_type, result);
+}
+
 size_t dotted_path_depth(const PathInData& path) {
     return path.get_parts().size();
 }
@@ -1077,6 +1087,16 @@ struct VariantPathBuilder::Impl {
             RETURN_IF_ERROR(replace_array_nothing(nullable_type, *column, make_nullable(target),
                                                   &materialized));
             promoted = std::move(materialized);
+        } else if (target->get_primitive_type() != TYPE_JSONB &&
+                   remove_nullable(variant_util::get_base_type_of_array(type))
+                                   ->get_primitive_type() == TYPE_JSONB) {
+            // JSONB holds values that no single concrete type holds, usually because this batch
+            // mixed value kinds. CAST(JSONB -> T) has rules of its own and rejects date-like
+            // targets, so a value would convert differently depending on the other rows of the
+            // batch. Convert each value from its own kind instead.
+            RETURN_IF_ERROR(
+                    cast_through_variant({column->get_ptr(), nullable_type, path.get_path()},
+                                         make_nullable(target), &promoted));
         } else {
             RETURN_IF_ERROR(
                     variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
