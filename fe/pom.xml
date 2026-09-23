@@ -248,7 +248,7 @@ under the License.
     <properties>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
         <avro.version>1.12.1</avro.version>
-        <parquet.version>1.17.0</parquet.version>
+        <parquet.version>1.18.0</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>1.0.2</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
@@ -306,13 +306,13 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.24.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.4</log4j2.version>
+        <log4j2.version>2.25.5</log4j2.version>
         <log4j-1.2.version>2.25.4</log4j-1.2.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
-        <netty-all.version>4.2.15.Final</netty-all.version>
+        <netty-all.version>4.2.17.Final</netty-all.version>
         <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
              baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
@@ -384,7 +384,7 @@ under the License.
         <!-- HttpClient 5.5.2 can leak pooled connections on decode errors (CVE-2026-64607),
              and HttpCore 5.3.6 is affected by HTTP/1 and HTTP/2 memory-exhaustion issues
              (CVE-2026-54399 and CVE-2026-54428). Use their fixed maintenance releases. -->
-        <httpclient5.version>5.6.3</httpclient5.version>
+        <httpclient5.version>5.6.4</httpclient5.version>
         <httpcore5.version>5.4.3</httpcore5.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
@@ -393,8 +393,8 @@ under the License.
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
-        <hbase.version>2.6.3</hbase.version>
-        <jline.version>3.30.6</jline.version>
+        <hbase.version>2.6.6</hbase.version>
+        <jline.version>3.30.14</jline.version>
         <hbase-shaded-gson.version>4.1.7</hbase-shaded-gson.version>
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
@@ -408,7 +408,7 @@ under the License.
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
-        <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
+        <ranger-plugins-common.version>2.9.0</ranger-plugins-common.version>
         <!-- Matches the jersey-core the FE already carries; only the Ranger plugins ask for it. -->
         <jersey.version>1.19.4</jersey.version>
         <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
@@ -2029,6 +2029,15 @@ under the License.
                     </exclusion>
                     <exclusion>
                         <artifactId>bootstrap</artifactId>
+                        <groupId>io.airlift</groupId>
+                    </exclusion>
+                    <!-- Same reasoning as be-java-extensions/trino-connector-scanner: TrinoBootstrap
+                         only wires FeaturesConfig/TypeRegistry/ConnectorServicesProvider for query
+                         planning, never io.airlift.bootstrap.Bootstrap or io.airlift.http.server -
+                         FE never starts Trino's own HTTP server. Excludes jetty-servlet and the
+                         http2-client/http2-server it brings along with it. -->
+                    <exclusion>
+                        <artifactId>http-server</artifactId>
                         <groupId>io.airlift</groupId>
                     </exclusion>
                     <exclusion>
