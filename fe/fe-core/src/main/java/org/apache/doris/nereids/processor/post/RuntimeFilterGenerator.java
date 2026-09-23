@@ -854,7 +854,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return -1L;
         }
         long buildNdvOrRowCount = (long) stats.getRowCount();
-        ColumnStatistic colStats = stats.findColumnStatistics(sourceExpression);
+        ColumnStatistic colStats = stats.findColumnStatisticsOrNull(sourceExpression);
         if (colStats != null && !colStats.isUnKnown) {
             buildNdvOrRowCount = Math.max(1, (long) colStats.ndv);
         }
