@@ -33,8 +33,7 @@ namespace doris::snii::query {
 namespace {
 
 // A term the resident filter or the sampled term index rules out is dropped without a read. The
-// other distinct terms resolve together, one read per wave of dictionary blocks, and a block
-// several terms share is read and decoded once.
+// other distinct terms resolve together, one read per wave of dictionary blocks.
 Status resolve_or_postings(const reader::LogicalIndexReader& idx,
                            const std::vector<std::string>& terms,
                            std::vector<internal::ResolvedDocidPosting>* postings) {

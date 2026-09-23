@@ -19,6 +19,10 @@
 
 #include "storage/index/inverted/query_v2/weight.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 class Query {
@@ -27,6 +31,11 @@ public:
     virtual ~Query() = default;
 
     virtual WeightPtr weight(bool enable_scoring) = 0;
+
+    // The rows the query matches when they are known before it runs, or null.
+    virtual const roaring::Roaring* known_rows() const { return nullptr; }
+    // The rows a query with known rows leaves UNKNOWN, or null when there are none.
+    virtual const roaring::Roaring* known_null_rows() const { return nullptr; }
 };
 using QueryPtr = std::shared_ptr<Query>;
 

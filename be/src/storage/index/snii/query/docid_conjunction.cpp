@@ -853,18 +853,21 @@ Status resolve_query_terms_batch(const LogicalIndexReader& idx,
                                  const std::vector<std::string>& terms,
                                  std::vector<ResolvedQueryTerm>* resolved,
                                  std::vector<uint8_t>* found) {
-    DCHECK(std::ranges::is_sorted(terms));
-    DCHECK(std::adjacent_find(terms.begin(), terms.end()) == terms.end());
+    std::vector<std::string> distinct = terms;
+    std::ranges::sort(distinct);
+    distinct.erase(std::ranges::unique(distinct).begin(), distinct.end());
+    std::vector<LogicalIndexReader::BatchLookupResult> lookup_results;
+    RETURN_IF_ERROR(idx.lookup_batch(distinct, &lookup_results));
     resolved->assign(terms.size(), ResolvedQueryTerm {});
     found->assign(terms.size(), 0);
-    std::vector<LogicalIndexReader::BatchLookupResult> lookup_results;
-    RETURN_IF_ERROR(idx.lookup_batch(terms, &lookup_results));
     for (size_t i = 0; i < terms.size(); ++i) {
-        (*found)[i] = lookup_results[i].found;
-        if (lookup_results[i].found) {
-            (*resolved)[i].entry = std::move(lookup_results[i].entry);
-            (*resolved)[i].frq_base = lookup_results[i].frq_base;
-            (*resolved)[i].prx_base = lookup_results[i].prx_base;
+        const auto slot = std::ranges::lower_bound(distinct, terms[i]) - distinct.begin();
+        const auto& result = lookup_results[static_cast<size_t>(slot)];
+        (*found)[i] = result.found;
+        if (result.found) {
+            (*resolved)[i] = {.entry = result.entry,
+                              .frq_base = result.frq_base,
+                              .prx_base = result.prx_base};
         }
     }
     return Status::OK();
@@ -873,7 +876,6 @@ Status resolve_query_terms_batch(const LogicalIndexReader& idx,
 Status resolve_all_query_terms(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                                std::vector<ResolvedQueryTerm>* resolved, bool* all_present) {
     *all_present = false;
-    resolved->clear();
     for (const std::string& term : terms) {
         bool maybe_present = false;
         RETURN_IF_ERROR(idx.may_contain(term, &maybe_present));
@@ -881,21 +883,9 @@ Status resolve_all_query_terms(const LogicalIndexReader& idx, const std::vector<
             return Status::OK();
         }
     }
-    std::vector<std::string> distinct = terms;
-    std::ranges::sort(distinct);
-    distinct.erase(std::ranges::unique(distinct).begin(), distinct.end());
-    std::vector<ResolvedQueryTerm> distinct_resolved;
     std::vector<uint8_t> found;
-    RETURN_IF_ERROR(resolve_query_terms_batch(idx, distinct, &distinct_resolved, &found));
-    if (std::ranges::any_of(found, [](uint8_t present) { return present == 0; })) {
-        return Status::OK();
-    }
-    resolved->reserve(terms.size());
-    for (const std::string& term : terms) {
-        const auto slot = std::ranges::lower_bound(distinct, term) - distinct.begin();
-        resolved->push_back(distinct_resolved[static_cast<size_t>(slot)]);
-    }
-    *all_present = true;
+    RETURN_IF_ERROR(resolve_query_terms_batch(idx, terms, resolved, &found));
+    *all_present = std::ranges::all_of(found, [](uint8_t present) { return present != 0; });
     return Status::OK();
 }
 

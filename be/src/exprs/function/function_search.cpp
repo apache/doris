@@ -57,7 +57,6 @@
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
-#include "storage/index/inverted/query_v2/materialized_query.h"
 #include "storage/index/query/logical/node.h"
 #include "storage/index/query/logical/search_lowering.h"
 #include "storage/olap_common.h"
@@ -447,16 +446,15 @@ Status compile_clauses(const logical::Bool& boolean, const Clauses& clauses,
                 domain.has_value() && passes_domain(*domain, ctx.num_rows) ? &*domain : nullptr;
         RETURN_IF_ERROR(compile_node(*clauses[i].second, clause_ctx, resolver, &(*queries)[i],
                                      &(*keys)[i]));
-        const auto* known =
-                narrows && is_required(boolean, clauses[i].first)
-                        ? dynamic_cast<const query_v2::MaterializedQuery*>((*queries)[i].get())
-                        : nullptr;
+        const roaring::Roaring* known = narrows && is_required(boolean, clauses[i].first)
+                                                ? (*queries)[i]->known_rows()
+                                                : nullptr;
         if (known == nullptr) {
             continue;
         }
-        roaring::Roaring possible = known->rows();
-        if (known->null_rows() != nullptr) {
-            possible |= *known->null_rows();
+        roaring::Roaring possible = *known;
+        if (const roaring::Roaring* unknown = (*queries)[i]->known_null_rows()) {
+            possible |= *unknown;
         }
         domain = domain.has_value() ? *domain & possible : std::move(possible);
     }

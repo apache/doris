@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <roaring/roaring.hh>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,11 +32,17 @@
 #include "storage/index/query/spi/io_batch.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/prefix_query.h"
+#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/reader/batch_lookup_results.h"
 #include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
 #include "testutil/benchmark_control.h"
@@ -1522,6 +1529,150 @@ void benchmark_lookup(const LookupBenchSpec& spec) {
         EXPECT_EQ(counting.bytes(), expected_bytes * iterations) << label;
         benchmark::report_sample(label, sample, iterations, elapsed, checksum);
     }
+}
+
+// Four terms in documents 0-3, each at its own position so "alpha bravo charlie delta" is a
+// phrase of every document, written with one dictionary block per term and opened with the
+// dictionary on demand. The postings are inline, so every read a query makes is a dictionary
+// read.
+class SniiTermResolutionIoTest : public ::testing::Test {
+protected:
+    void open_index() {
+        writer::SniiIndexInput input;
+        input.index_id = kIndexId;
+        input.index_suffix = kIndexSuffix;
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = 4;
+        input.target_dict_block_bytes = 1;
+        const std::vector<std::string> terms = {"alpha", "bravo", "charlie", "delta"};
+        for (uint32_t position = 0; position < terms.size(); ++position) {
+            input.terms.push_back(
+                    make_term(terms[position], {{.docid = 0, .positions = {position}},
+                                                {.docid = 1, .positions = {position}},
+                                                {.docid = 2, .positions = {position}},
+                                                {.docid = 3, .positions = {position}}}));
+        }
+        input.encoded_norms.assign(input.doc_count, encode_norm(terms.size()));
+        writer::SniiCompoundWriter compound_writer(&_file);
+        assert_ok(compound_writer.add_logical_index(input));
+        assert_ok(compound_writer.finish());
+
+        assert_ok(reader::SniiSegmentReader::open(&_counter, &_segment_reader));
+        assert_ok(_segment_reader.open_index(kIndexId, kIndexSuffix, &_index));
+        ASSERT_EQ(_index.n_dict_blocks(), terms.size());
+        _counter.reset_counts();
+    }
+
+    ScopedEnv _dictionary_on_demand {"SNII_DICT_RESIDENT_MAX", "0"};
+    MemoryFile _file;
+    CountingReader _counter {&_file};
+    reader::SniiSegmentReader _segment_reader;
+    reader::LogicalIndexReader _index;
+};
+
+const std::vector<uint32_t> kAllDocs = {0, 1, 2, 3};
+
+// Blocks next to each other in the file are read as one range, so "charlie" and "delta" share one.
+TEST_F(SniiTermResolutionIoTest, OrReadsItsColdDictionaryBlocksInOneRound) {
+    open_index();
+    std::vector<uint32_t> docids;
+    assert_ok(boolean_or(_index, {"alpha", "charlie", "delta"}, &docids));
+
+    EXPECT_EQ(docids, kAllDocs);
+    EXPECT_EQ(_counter.rounds(), 1U);
+    EXPECT_EQ(_counter.ranges(), 2U);
+}
+
+TEST_F(SniiTermResolutionIoTest, AndReadsItsColdDictionaryBlocksInOneRound) {
+    open_index();
+    std::vector<uint32_t> docids;
+    assert_ok(boolean_and(_index, {"alpha", "charlie", "delta"}, &docids));
+
+    EXPECT_EQ(docids, kAllDocs);
+    EXPECT_EQ(_counter.rounds(), 1U);
+    EXPECT_EQ(_counter.ranges(), 2U);
+}
+
+// A term the dictionary rules out without reading ("aaa" sorts before every term) ends the
+// conjunction before any dictionary block is read.
+TEST_F(SniiTermResolutionIoTest, AndWithATermRuledOutReadsNoDictionaryBlock) {
+    open_index();
+    std::vector<uint32_t> docids;
+    assert_ok(boolean_and(_index, {"alpha", "aaa", "charlie"}, &docids));
+
+    EXPECT_TRUE(docids.empty());
+    EXPECT_EQ(_counter.rounds(), 0U);
+    EXPECT_EQ(_counter.ranges(), 0U);
+}
+
+TEST_F(SniiTermResolutionIoTest, PhraseReadsItsColdDictionaryBlocksInOneRound) {
+    open_index();
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(_index, {"alpha", "bravo", "charlie"}, &docids));
+
+    EXPECT_EQ(docids, kAllDocs);
+    EXPECT_EQ(_counter.rounds(), 1U);
+    EXPECT_EQ(_counter.ranges(), 1U);
+}
+
+// The exact terms of a phrase prefix cost one round on top of what expanding the tail costs.
+TEST_F(SniiTermResolutionIoTest, PhrasePrefixResolvesItsExactTermsInOneRound) {
+    open_index();
+    std::vector<uint32_t> tail_docids;
+    assert_ok(prefix_query(_index, "cha", &tail_docids));
+    const uint64_t tail_rounds = _counter.rounds();
+    ASSERT_GT(tail_rounds, 0U);
+    _counter.reset_counts();
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(_index, {"alpha", "bravo", "cha"}, &docids));
+
+    EXPECT_EQ(docids, kAllDocs);
+    EXPECT_EQ(_counter.rounds(), tail_rounds + 1);
+}
+
+// Without the resident filter a term missing from its block is only found by reading it, so the
+// other blocks of the conjunction come in the same round instead of not at all.
+TEST_F(SniiTermResolutionIoTest, AndWithoutTheFilterReadsEveryCandidateBlockInOneRound) {
+    ScopedEnv filter_off("SNII_BSBF_RESIDENT_MAX", "0");
+    open_index();
+    std::vector<uint32_t> docids;
+    assert_ok(boolean_and(_index, {"alphz", "charlie", "delta"}, &docids));
+
+    EXPECT_TRUE(docids.empty());
+    EXPECT_EQ(_counter.rounds(), 1U);
+    EXPECT_EQ(_counter.ranges(), 2U);
+}
+
+// Scoring resolves its distinct terms together, and a repeated term still scores once per clause.
+TEST_F(SniiTermResolutionIoTest, ScoringReadsItsColdDictionaryBlocksInOneRound) {
+    open_index();
+    stats::SniiStatsProvider segment_stats;
+    assert_ok(stats::SniiStatsProvider::open(&_index, &segment_stats));
+    const std::vector<CollectionScoringTerm> clauses = {{.physical_term = "alpha", .idf = 0.5},
+                                                        {.physical_term = "charlie", .idf = 1.5},
+                                                        {.physical_term = "alpha", .idf = 0.5},
+                                                        {.physical_term = "delta", .idf = 2.5}};
+    roaring::Roaring candidates;
+    candidates.addRange(0, kAllDocs.size());
+    constexpr double kCollectionAvgdl = 4.0;
+    _counter.reset_counts();
+    std::vector<ScoredDoc> scored;
+    assert_ok(scoring_query_candidates(_index, segment_stats, clauses, candidates, kCollectionAvgdl,
+                                       Bm25Params {}, &scored));
+
+    double expected = 0.0;
+    for (const CollectionScoringTerm& clause : clauses) {
+        expected += ScorerContext::from_idf(clause.idf)
+                            .score(1, encode_norm(4), kCollectionAvgdl, Bm25Params {});
+    }
+    ASSERT_EQ(scored.size(), kAllDocs.size());
+    for (size_t i = 0; i < scored.size(); ++i) {
+        EXPECT_EQ(scored[i].docid, kAllDocs[i]);
+        EXPECT_DOUBLE_EQ(scored[i].score, expected);
+    }
+    EXPECT_EQ(_counter.rounds(), 1U);
+    EXPECT_EQ(_counter.ranges(), 2U);
 }
 
 TEST(SniiQueryTermResolutionBatch, DISABLED_DictionaryLookupBenchmark) {

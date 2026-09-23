@@ -33,6 +33,7 @@
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
+#include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/reader/windowed_posting.h"
 
 namespace doris::snii::query {
@@ -336,31 +337,26 @@ Status scoring_query_candidates(const LogicalIndexReader& idx,
     }
     std::vector<double> candidate_scores(candidate_docids.size(), 0.0);
 
-    // The distinct terms resolve together, one read per wave of dictionary blocks. The clauses
-    // then add their scores in the caller's order, a repeated term once per clause.
-    std::vector<std::string> distinct;
-    distinct.reserve(terms.size());
+    // The terms resolve together, one read per wave of dictionary blocks. The clauses then add
+    // their scores in the caller's order, a repeated term once per clause.
+    std::vector<std::string> physical_terms;
+    physical_terms.reserve(terms.size());
     for (const auto& term : terms) {
-        distinct.push_back(term.physical_term);
+        physical_terms.push_back(term.physical_term);
     }
-    std::ranges::sort(distinct);
-    distinct.erase(std::ranges::unique(distinct).begin(), distinct.end());
-    std::vector<LogicalIndexReader::BatchLookupResult> resolved;
-    RETURN_IF_ERROR(idx.lookup_batch(distinct, &resolved));
+    std::vector<internal::ResolvedQueryTerm> resolved;
+    std::vector<uint8_t> found;
+    RETURN_IF_ERROR(internal::resolve_query_terms_batch(idx, physical_terms, &resolved, &found));
 
-    for (const auto& term : terms) {
-        const auto slot = std::ranges::lower_bound(distinct, term.physical_term) - distinct.begin();
-        const LogicalIndexReader::BatchLookupResult& resolved_term =
-                resolved[static_cast<size_t>(slot)];
-        if (!resolved_term.found) {
+    for (size_t i = 0; i < terms.size(); ++i) {
+        if (found[i] == 0) {
             continue;
         }
 
-        const ScorerContext scorer = ScorerContext::from_idf(term.idf);
+        const ScorerContext scorer = ScorerContext::from_idf(terms[i].idf);
         RETURN_IF_ERROR(accumulate_resolved_candidate_scores(
-                idx, segment_stats, resolved_term.entry, resolved_term.frq_base,
-                resolved_term.prx_base, candidate_docids, scorer, collection_avgdl, params,
-                &candidate_scores));
+                idx, segment_stats, resolved[i].entry, resolved[i].frq_base, resolved[i].prx_base,
+                candidate_docids, scorer, collection_avgdl, params, &candidate_scores));
     }
 
     std::vector<ScoredDoc> scored_candidates;

@@ -21,12 +21,11 @@
 
 #include "roaring/roaring.hh"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_weight.h"
-#include "storage/index/inverted/query_v2/materialized_query.h"
 #include "storage/index/inverted/query_v2/query.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class BitSetQuery : public Query, public MaterializedQuery {
+class BitSetQuery : public Query {
 public:
     explicit BitSetQuery(std::shared_ptr<roaring::Roaring> bitmap) : _bitmap(std::move(bitmap)) {}
     BitSetQuery(std::shared_ptr<roaring::Roaring> bitmap,
@@ -40,8 +39,8 @@ public:
         return std::make_shared<BitSetWeight>(_bitmap, _null_bitmap);
     }
 
-    const roaring::Roaring& rows() const override { return *_bitmap; }
-    const roaring::Roaring* null_rows() const override { return _null_bitmap.get(); }
+    const roaring::Roaring* known_rows() const override { return _bitmap.get(); }
+    const roaring::Roaring* known_null_rows() const override { return _null_bitmap.get(); }
 
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
