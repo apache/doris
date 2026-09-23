@@ -71,11 +71,12 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena& arena, bool agg_many) const override {
-        for (size_t i = 0; i < batch_size; ++i) {
-            //the range is [i, i]
-            _function->deserialize_and_merge_from_column_range(places[i] + place_offset,
-                                                               *columns[0], i, i, arena);
-        }
+        add_batch_impl<false>(batch_size, places, place_offset, columns, arena);
+    }
+
+    void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                            const IColumn** columns, Arena& arena) const override {
+        add_batch_impl<true>(batch_size, places, place_offset, columns, arena);
     }
     void reset(AggregateDataPtr place) const override { _function->reset(place); }
 
@@ -106,6 +107,32 @@ public:
     size_t size_of_data() const override { return _function->size_of_data(); }
 
     size_t align_of_data() const override { return _function->align_of_data(); }
+
+private:
+    template <bool selected>
+    void add_batch_impl(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                        const IColumn** columns, Arena& arena) const {
+        // Some batch implementations read the first serialized row before entering their loop.
+        if (batch_size == 0) {
+            return;
+        }
+        // Delegate the whole batch so native state columns (e.g. SUM) can merge directly,
+        // instead of dispatching through the range interface for every input row.
+        // Generic implementations need aligned scratch states and manage their construction,
+        // destruction and exception cleanup. Release only this storage after the batch;
+        // keep passing the caller's arena for allocations that merged states may retain.
+        // The function can be shared by evaluators, so scratch must not be a mutable member.
+        Arena scratch_arena;
+        auto* scratch = scratch_arena.aligned_alloc(batch_size * _function->size_of_data(),
+                                                    _function->align_of_data());
+        if constexpr (selected) {
+            _function->deserialize_and_merge_vec_selected(places, place_offset, scratch, columns[0],
+                                                          arena, batch_size);
+        } else {
+            _function->deserialize_and_merge_vec(places, place_offset, scratch, columns[0], arena,
+                                                 batch_size);
+        }
+    }
 
 protected:
     AggregateFunctionPtr _function;
