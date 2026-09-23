@@ -751,7 +751,7 @@ const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgT
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
 const std::string RowIdStorageReader::LanceDatasetOpenTimeProfile = "LanceDatasetOpenTime";
-const std::string RowIdStorageReader::LanceRowIdTakeReadTimeProfile = "LanceRowIdTakeReadTime";
+const std::string RowIdStorageReader::LanceRowIdReadTimeProfile = "LanceRowIdReadTime";
 const std::string RowIdStorageReader::LanceArrowToDorisBlockTimeProfile =
         "LanceArrowToDorisBlockTime";
 const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRowIdFetchTotalTime";
@@ -886,9 +886,14 @@ Status RowIdStorageReader::read_lance_rows_by_row_ids(
         }
     };
     collect_lance_fetch_time(LanceDatasetOpenTimeProfile);
-    collect_lance_fetch_time(LanceRowIdTakeReadTimeProfile);
+    collect_lance_fetch_time(LanceRowIdReadTimeProfile);
     collect_lance_fetch_time(LanceArrowToDorisBlockTimeProfile);
     collect_lance_fetch_time(LanceRowIdFetchTotalTimeProfile);
+    for (const auto* counter_name : {"LanceDataCacheHitBytes", "LanceDataCacheMissBytes"}) {
+        if (const auto* counter = runtime_profile->get_counter(counter_name); counter != nullptr) {
+            fetch_statistics->lance_fetch_counters.emplace(counter_name, counter->value());
+        }
+    }
     return Status::OK();
 }
 
@@ -1203,6 +1208,7 @@ Status RowIdStorageReader::read_batch_external_row(
         format_to(file_read_times_buffer, "[");
 
         std::map<std::string, int64_t> lance_fetch_times_ns;
+        std::map<std::string, int64_t> lance_fetch_counters;
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
@@ -1212,6 +1218,10 @@ Status RowIdStorageReader::read_batch_external_row(
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
             for (const auto& [time_name, time_value] : fetch_statistics[idx].lance_fetch_times_ns) {
                 lance_fetch_times_ns[time_name] += time_value;
+            }
+            for (const auto& [counter_name, counter_value] :
+                 fetch_statistics[idx].lance_fetch_counters) {
+                lance_fetch_counters[counter_name] += counter_value;
             }
             idx++;
         }
@@ -1235,6 +1245,13 @@ Status RowIdStorageReader::read_batch_external_row(
         for (const auto& [time_name, time_value] : lance_fetch_times_ns) {
             runtime_profile->add_info_string(time_name,
                                              PrettyPrinter::print(time_value, TUnit::TIME_NS));
+        }
+        for (const auto& [counter_name, counter_value] : lance_fetch_counters) {
+            const bool is_bytes = counter_name == "LanceDataCacheHitBytes" ||
+                                  counter_name == "LanceDataCacheMissBytes";
+            runtime_profile->add_info_string(
+                    counter_name, is_bytes ? PrettyPrinter::print(counter_value, TUnit::BYTES)
+                                           : std::to_string(counter_value));
         }
     }
 
