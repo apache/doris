@@ -491,6 +491,11 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     }
 
     private Plan updateOperativeSlots(LogicalCatalogRelation oldRelation, LogicalCatalogRelation newRelation) {
+        if (!oldRelation.isOperativeSlotsDerived()) {
+            // the copied plan must not pretend that its operative slots were derived: an empty list
+            // would otherwise be read as "this relation needs no column at all"
+            return (Plan) newRelation;
+        }
         List<Slot> oldOperativeSlots = oldRelation.getOperativeSlots();
         List<Slot> newOperativeSlots = new ArrayList<>(oldOperativeSlots.size());
         int outputSize = oldRelation.getOutput().size();
