@@ -50,4 +50,24 @@ suite("test_predefine_mixed_value_kinds", "p0") {
     order_qt_mixed_paths """
         SELECT k, v['ts'], v['d'], v['i'], v['s'], v['arr'] FROM test_predefine_mixed_value_kinds
     """
+
+    // CAST has no BOOLEAN -> DATE, ARRAY -> INT or INT -> ARRAY conversion. Such values are
+    // dropped, whether or not other kinds share their batch.
+    sql "DROP TABLE IF EXISTS test_predefine_unconvertible_value_kinds"
+    sql """
+        CREATE TABLE test_predefine_unconvertible_value_kinds (
+            k INT,
+            v VARIANT<'d': DATE, 'i': INT, 'arr': ARRAY<INT>>
+        ) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """ INSERT INTO test_predefine_unconvertible_value_kinds VALUES (1, PARSE_TO_VARIANT('{"d": true, "i": [1, 2], "arr": 5}')) """
+    sql """
+        INSERT INTO test_predefine_unconvertible_value_kinds VALUES
+        (2, PARSE_TO_VARIANT('{"d": true, "i": [1, 2], "arr": 5}')),
+        (3, PARSE_TO_VARIANT('{"d": "2024-01-03", "i": 3, "arr": [3]}'))
+    """
+    order_qt_unconvertible """
+        SELECT k, CAST(v AS STRING), v['d'], v['i'], v['arr'] FROM test_predefine_unconvertible_value_kinds
+    """
 }

@@ -957,6 +957,46 @@ TEST(VariantPathBuilderTest, TypedArrayConversionDoesNotDependOnOtherElementKind
     EXPECT_EQ(mixed, (std::vector<std::string> {"[\"2024-01-01\", null]", "[\"2024-01-02\"]"}));
 }
 
+TEST(VariantPathBuilderTest, TypedConversionDropsKindsCastCannotConvert) {
+    VariantBatchBuilder value_builder;
+    {
+        auto row = value_builder.begin_row();
+        row.add_bool(true);
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        row.add_int(1);
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        row.add_int(5);
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        row.add_string(StringRef("2024-01-01"));
+        row.finish();
+    }
+    const VariantBatchBuilder values = value_builder.finish_batch();
+    const DataTypePtr date_type = std::make_shared<DataTypeDateV2>();
+
+    // CAST has no BOOL -> DATE, ARRAY -> INT or scalar -> ARRAY conversion. A batch holding only
+    // such values drops them, as a batch that mixes them with other kinds does.
+    EXPECT_EQ(convert_typed_path_rows(values, {0}, 4, date_type)[0], "NULL");
+    EXPECT_EQ(convert_typed_path_rows(values, {0, 3}, 4, date_type),
+              (std::vector<std::string> {"NULL", "NULL", "NULL", "2024-01-01"}));
+    EXPECT_EQ(convert_typed_path_rows(values, {1}, 4, std::make_shared<DataTypeInt32>())[1],
+              "NULL");
+    EXPECT_EQ(convert_typed_path_rows(values, {2}, 4,
+                                      std::make_shared<DataTypeArray>(
+                                              make_nullable(std::make_shared<DataTypeInt32>())))[2],
+              "NULL");
+}
+
 TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
     VariantBatchBuilder value_builder;
     auto value_row = value_builder.begin_row();

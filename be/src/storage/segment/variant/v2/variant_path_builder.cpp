@@ -1098,9 +1098,16 @@ struct VariantPathBuilder::Impl {
                     cast_through_variant({column->get_ptr(), nullable_type, path.get_path()},
                                          make_nullable(target), &promoted));
         } else {
-            RETURN_IF_ERROR(
+            Status status =
                     variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
-                                              make_nullable(target), &promoted));
+                                              make_nullable(target), &promoted);
+            if (filter_cast_nulls && status.is<ErrorCode::INVALID_ARGUMENT>()) {
+                // CAST has no conversion from this kind at all, which would fail the whole write
+                // only when no other kind shares the batch. Drop these values as Variant CAST does.
+                status = cast_through_variant({column->get_ptr(), nullable_type, path.get_path()},
+                                              make_nullable(target), &promoted);
+            }
+            RETURN_IF_ERROR(status);
         }
         // Inferred widening is only a storage representation choice. If CAST loses a valid value
         // at any array depth, preserve the whole path as JSONB instead. Forced typed-path
