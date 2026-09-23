@@ -365,7 +365,7 @@ public class IcebergConnectorTest {
         Assertions.assertNotNull(writeProvider, "iceberg connector must expose a write plan provider");
         Assertions.assertEquals(
                 EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.DELETE,
-                        WriteOperation.MERGE, WriteOperation.REWRITE),
+                        WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE),
                 writeProvider.supportedOperations());
         Assertions.assertTrue(writeProvider.supportsWriteBranch());
         Assertions.assertTrue(writeProvider.requiresParallelWrite());
