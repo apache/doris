@@ -1386,6 +1386,12 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
     response->mutable_tablet_meta()->Swap(&tablet_meta);
 }
 
+static bool has_shareable_tablet_schema(const doris::RowsetMetaCloudPB& rowset_meta) {
+    // Delete rowsets may carry only the columns needed by their predicates and omit indexes.
+    // Such schemas are rowset-local and are not authoritative for the shared schema version.
+    return rowset_meta.has_tablet_schema() && !rowset_meta.has_delete_predicate();
+}
+
 static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                          const std::string& instance_id,
                                          doris::RowsetMetaCloudPB& rowset_meta,
@@ -1401,7 +1407,7 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
     DCHECK_EQ(existed_rowset_meta.schema_version(),
               rowset_meta.has_tablet_schema() ? rowset_meta.tablet_schema().schema_version()
                                               : rowset_meta.schema_version());
-    if (rowset_meta.has_tablet_schema() &&
+    if (has_shareable_tablet_schema(rowset_meta) &&
         rowset_meta.tablet_schema().schema_version() == existed_rowset_meta.schema_version()) {
         if (existed_rowset_meta.GetArena() &&
             rowset_meta.tablet_schema().GetArena() == existed_rowset_meta.GetArena()) {
@@ -1808,7 +1814,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
 
         // 3.1 put rs metas
         for (auto& [_, rowset_meta] : sub_restore_job_rs_metas) {
-            if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
+            if (config::write_schema_kv && has_shareable_tablet_schema(rowset_meta)) {
                 rowset_meta.set_index_id(tablet_idx.index_id());
                 rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
                 std::string schema_key = meta_schema_key(
@@ -2853,8 +2859,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
             return;
         }
     }
-    // write schema kv if rowset_meta has schema
-    if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
+    // Write a shared schema only when the inline schema is authoritative for its version.
+    if (config::write_schema_kv && has_shareable_tablet_schema(rowset_meta)) {
         if (!rowset_meta.has_index_id() && !is_versioned_read) {
             TabletIndexPB tablet_idx;
             get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(), tablet_idx);
@@ -3415,9 +3421,11 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         // get referenced schema
         std::unordered_map<int32_t, doris::TabletSchemaCloudPB*> version_to_schema;
         for (auto& rowset_meta : *response->mutable_rowset_meta()) {
-            if (rowset_meta.has_tablet_schema()) {
+            if (has_shareable_tablet_schema(rowset_meta)) {
                 version_to_schema.emplace(rowset_meta.tablet_schema().schema_version(),
                                           rowset_meta.mutable_tablet_schema());
+            }
+            if (rowset_meta.has_tablet_schema()) {
                 rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
             }
             rowset_meta.set_index_id(idx.index_id());
