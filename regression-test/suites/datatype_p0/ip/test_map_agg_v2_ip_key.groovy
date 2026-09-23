@@ -35,13 +35,43 @@ suite("test_map_agg_v2_ip_key") {
             (1, '192.168.0.2', '2001:db8::2', 20)
     """
 
+    sql """
+        INSERT INTO test_map_agg_v2_ip_key
+        SELECT
+            2,
+            CAST(CONCAT('10.0.0.', CAST(number + 1 AS STRING)) AS IPV4),
+            CAST(CONCAT('2001:db8::', CAST(number + 1 AS STRING)) AS IPV6),
+            CAST(number AS INT)
+        FROM numbers("number" = "65")
+    """
+
     qt_ipv4_key """
         SELECT array_sort(map_keys(map_agg_v2(ipv4_key, value)))
         FROM test_map_agg_v2_ip_key
+        WHERE id = 1
     """
 
     qt_ipv6_key """
         SELECT array_sort(map_keys(map_agg_v2(ipv6_key, value)))
         FROM test_map_agg_v2_ip_key
+        WHERE id = 1
+    """
+
+    qt_ipv4_state_merge """
+        SELECT map_size(map_agg_v2_merge(state))
+        FROM (
+            SELECT map_agg_v2_state(ipv4_key, value) AS state
+            FROM test_map_agg_v2_ip_key
+            WHERE id = 2
+        ) states
+    """
+
+    qt_ipv6_state_merge """
+        SELECT map_size(map_agg_v2_merge(state))
+        FROM (
+            SELECT map_agg_v2_state(ipv6_key, value) AS state
+            FROM test_map_agg_v2_ip_key
+            WHERE id = 2 AND value < 17
+        ) states
     """
 }

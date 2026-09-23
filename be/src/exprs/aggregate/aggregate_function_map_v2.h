@@ -129,7 +129,7 @@ struct AggregateFunctionMapAggDataV2 {
         int64_t written_bytes = buf_ptr - serialized_buffer.data();
         DCHECK_LE(written_bytes, serialized_bytes);
 
-        serialized_buffer.resize(serialized_bytes);
+        serialized_buffer.resize(written_bytes);
         buf.write_binary(serialized_buffer);
 
         serialized_bytes =

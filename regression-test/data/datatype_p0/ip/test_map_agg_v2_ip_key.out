@@ -5,3 +5,9 @@
 -- !ipv6_key --
 ["2001:db8::1", "2001:db8::2"]
 
+-- !ipv4_state_merge --
+65
+
+-- !ipv6_state_merge --
+17
+
