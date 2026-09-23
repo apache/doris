@@ -1038,37 +1038,32 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
                                                        &read_options.io_ctx);
     }
 
-    // Only row-binlog reads reinterpret the NULL/0 placeholder as commit_tso. For example, an
-    // incremental binlog read of rowset [9-9] should expose its commit_tso, while a checksum or
-    // schema-change read that happens to include the hidden column must keep the physical value.
-    if (read_options.read_row_binlog && col.name() == BINLOG_TSO_COL) {
-        const int64_t commit_tso = read_options.commit_tso.end_tso();
+    if (col.name() == BINLOG_TSO_COL || col.name() == COMMIT_TSO_COL) {
+        const int64_t start_tso = read_options.commit_tso.start_tso();
+        const int64_t end_tso = read_options.commit_tso.end_tso();
+        // A TSO column has no meaningful fallback when its rowset context is missing. Returning
+        // the on-disk NULL/0 placeholder would silently turn a caller bug into an incorrect
+        // snapshot result.
+        if (start_tso < 0 || end_tso < start_tso) {
+            return Status::InternalError(
+                    "reading {} requires a valid commit tso, rowset version={}, commit tso={}",
+                    col.name(), read_options.version.to_string(),
+                    read_options.commit_tso.to_string());
+        }
         if (read_options.version.first == read_options.version.second) {
-            DCHECK_EQ(read_options.commit_tso.start_tso(), commit_tso);
-            // TODO yiguolei: zhge -1 也得看看
+            if (start_tso != end_tso) {
+                return Status::InternalError(
+                        "singleton rowset {} requires a singleton commit tso when reading {}, "
+                        "got {}",
+                        read_options.version.to_string(), col.name(),
+                        read_options.commit_tso.to_string());
+            }
             *column_reader = std::make_shared<ConstantColumnReader>(
-                    Field::create_field<TYPE_BIGINT>(commit_tso == -1 ? 0 : commit_tso),
-                    col.type());
+                    Field::create_field<TYPE_BIGINT>(end_tso), col.type());
             return Status::OK();
         }
         if (!_column_meta_accessor->has_column_uid(col_uid)) {
-            return Status::InternalError("could not find binlog tso column");
-        }
-        return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
-                                                       &read_options.io_ctx);
-    }
-
-    if (col.name() == COMMIT_TSO_COL) {
-        const int64_t commit_tso = read_options.commit_tso.end_tso();
-        // For example, a published rowset [12-12] with commit_tso=100 replaces the on-disk 0 with
-        // 100. Before publish, commit_tso=-1 keeps the physical placeholder reader.
-        if (read_options.version.first == read_options.version.second && commit_tso != -1) {
-            *column_reader = std::make_shared<ConstantColumnReader>(
-                    Field::create_field<TYPE_BIGINT>(commit_tso), col.type());
-            return Status::OK();
-        }
-        if (!_column_meta_accessor->has_column_uid(col_uid)) {
-            return Status::InternalError("could not find commit tso column");
+            return Status::InternalError("could not find {} column", col.name());
         }
         return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
                                                        &read_options.io_ctx);

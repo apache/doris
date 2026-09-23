@@ -347,6 +347,14 @@ protected:
         ASSERT_EQ(kRuntimeColumnRows, (*dst)->size());
     }
 
+    void expect_missing_commit_tso_error(const std::shared_ptr<Segment>& segment, int32_t cid,
+                                         const StorageReadOptions& read_options) {
+        ColumnIteratorUPtr iter;
+        auto st = segment->new_column_iterator(_tablet_schema->column(cid), &iter, &read_options);
+        EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+        EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos) << st;
+    }
+
     void expect_bigint_values(const MutableColumnPtr& column, int64_t expected) {
         ASSERT_NE(nullptr, column.get());
         const IColumn* data_column = column.get();
@@ -509,17 +517,16 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     read_options.version = Version(0, 0);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
-    // Before publish, the singleton version is still supplied as a request-scoped constant.
+    // Before publish, VERSION is available, but reading either TSO column without the rowset's
+    // commit TSO is a caller error rather than a request to expose the physical placeholder.
     MutableColumnPtr version_column;
     MutableColumnPtr binlog_timestamp_column;
     MutableColumnPtr commit_tso_column;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
     ASSERT_NO_FATAL_FAILURE(
-            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
-    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+            expect_missing_commit_tso_error(segment, kBinlogTimestampCid, read_options));
+    ASSERT_NO_FATAL_FAILURE(expect_missing_commit_tso_error(segment, kCommitTsoCid, read_options));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
-    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
 
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso1, kCommitTso1);
