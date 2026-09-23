@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -56,10 +55,12 @@ public class Encode extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(1).isConstant()) {
-            throw new AnalysisException("the second argument of function "
-                    + getName() + " must be constant: " + toSql());
-        }
+        CharacterSetLiterals.checkSecondArgument(this);
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLegalityBeforeTypeCoercion();
     }
 
     // Invalid character sets must still be rejected when the first argument is a

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -113,19 +114,34 @@ public class EncodeDecodeTest {
         AnalysisException encodeException = Assertions.assertThrows(
                 AnalysisException.class, encode::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(encodeException.getMessage().contains(
-                "second argument of function encode must be constant"));
+                "second argument of function encode must be a literal"));
         AnalysisException decodeException = Assertions.assertThrows(
                 AnalysisException.class, decode::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(decodeException.getMessage().contains(
-                "second argument of function decode must be constant"));
+                "second argument of function decode must be a literal"));
 
-        Assertions.assertDoesNotThrow(new Encode(new StringLiteral("hello"),
-                new Upper(new StringLiteral("utf-8")))::checkLegalityBeforeTypeCoercion);
-        Assertions.assertDoesNotThrow(new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
-                new StringLiteral("UTF-8"))::checkLegalityBeforeTypeCoercion);
-        Assertions.assertFalse(new Encode(new StringLiteral("hello"),
-                new StringLiteral("UTF-8")).foldable());
-        Assertions.assertFalse(new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
-                new StringLiteral("UTF-8")).foldable());
+        AnalysisException encodeUpper = Assertions.assertThrows(AnalysisException.class,
+                new Encode(new StringLiteral("hello"), new Upper(new StringLiteral("utf-8")))
+                        ::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(encodeUpper.getMessage().contains("must be a literal"));
+
+        Encode literalEncode = new Encode(new StringLiteral("hello"), new StringLiteral("utf-8"));
+        Decode literalDecode = new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
+                new StringLiteral("UTF-8"));
+        Assertions.assertDoesNotThrow(literalEncode::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(literalEncode::checkLegalityAfterRewrite);
+        Assertions.assertDoesNotThrow(literalDecode::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(literalDecode::checkLegalityAfterRewrite);
+
+        Encode nullCharset = new Encode(new StringLiteral("hello"), new NullLiteral(StringType.INSTANCE));
+        Assertions.assertDoesNotThrow(nullCharset::checkLegalityBeforeTypeCoercion);
+
+        AnalysisException unsupported = Assertions.assertThrows(AnalysisException.class,
+                new Encode(new StringLiteral("hello"), new StringLiteral("GBK"))
+                        ::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(unsupported.getMessage().contains("Unsupported character set"));
+
+        Assertions.assertFalse(literalEncode.foldable());
+        Assertions.assertFalse(literalDecode.foldable());
     }
 }

@@ -71,7 +71,7 @@ suite("test_encode_decode") {
             union all
             select id, hex(encode(plain_text, 'UTF-8')) from test_encode_decode where id = 11
             union all
-            select id, hex(encode(plain_text, cast(null as string))) from test_encode_decode where id = 12
+            select id, hex(encode(plain_text, null)) from test_encode_decode where id = 12
         ) t
         order by id
     """
@@ -100,13 +100,11 @@ suite("test_encode_decode") {
             union all
             select id, decode(cast(binary_value as varbinary), 'UTF-8') from test_encode_decode where id = 11
             union all
-            select id, decode(cast(binary_value as varbinary), cast(null as string)) from test_encode_decode where id = 12
+            select id, decode(cast(binary_value as varbinary), null) from test_encode_decode where id = 12
         ) t
         order by id
     """
 
-    qt_encode_constant_expr "select hex(encode('中', upper('utf-8')))"
-    qt_decode_constant_expr "select decode(X'E4B8AD', upper('utf-8'))"
     qt_encode_null_valid_charset "select encode(null, 'UTF-8')"
     qt_decode_null_valid_charset "select decode(null, 'UTF-8')"
 
@@ -132,12 +130,22 @@ suite("test_encode_decode") {
 
     test {
         sql "select encode(plain_text, charset) from test_encode_decode where id = 1"
-        exception "second argument of function encode must be constant"
+        exception "second argument of function encode must be a literal"
     }
 
     test {
         sql "select decode(cast(binary_value as varbinary), charset) from test_encode_decode where id = 1"
-        exception "second argument of function decode must be constant"
+        exception "second argument of function decode must be a literal"
+    }
+
+    test {
+        sql "select hex(encode('中', upper('utf-8')))"
+        exception "must be a literal"
+    }
+
+    test {
+        sql "select decode(X'E4B8AD', upper('utf-8'))"
+        exception "must be a literal"
     }
 
     test {
