@@ -537,7 +537,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     Statistics derivedStats = optStats.get();
                     double derivedRowCount = derivedStats.getRowCount();
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
-                        if (derivedStats.findColumnStatistics(slot) == null) {
+                        if (derivedStats.findColumnStatisticsOrNull(slot) == null) {
                             derivedStats.addColumnStats(slot,
                                     new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
                         }
@@ -1378,7 +1378,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // NDV(partition key) * partitionLimit
             List<ColumnStatistic> partitionByKeyStats = partitionKeys.stream()
                     .map(partitionKey -> {
-                        ColumnStatistic partitionKeyStats = inputStats.findColumnStatistics(partitionKey);
+                        ColumnStatistic partitionKeyStats = inputStats.findColumnStatisticsOrNull(partitionKey);
                         if (partitionKeyStats == null) {
                             partitionKeyStats = new ExpressionEstimation().visit(partitionKey, inputStats);
                         }
@@ -1424,7 +1424,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         List<Double> groupByNdvs = new ArrayList<>();
         for (Expression groupByExpr : groupByExpressions) {
-            ColumnStatistic colStats = childStats.findColumnStatistics(groupByExpr);
+            ColumnStatistic colStats = childStats.findColumnStatisticsOrNull(groupByExpr);
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(groupByExpr, childStats);
             }
@@ -1770,7 +1770,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     colStatsBuilder.setOriginal(null);
 
                     Double partitionCount = windExpr.getPartitionKeys().stream().map(key -> {
-                        ColumnStatistic keyStats = childStats.findColumnStatistics(key);
+                        ColumnStatistic keyStats = childStats.findColumnStatisticsOrNull(key);
                         if (keyStats == null) {
                             keyStats = new ExpressionEstimation().visit(key, childStats);
                         }
