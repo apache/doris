@@ -91,7 +91,9 @@ void ICUTokenizer::reset() {
     DorisTokenizer::reset();
     const char* buf = nullptr;
     int32_t len = _in->read((const void**)&buf, 0, static_cast<int32_t>(_in->size()));
-    if (len > 0 && !validate_utf8(buf, len)) {
+    // Malformed bytes become replacement characters and the rest of the input is still indexed.
+    // Only the offset-aware path rejects them, because they have no source byte span.
+    if (_source_byte_offsets_enabled && len > 0 && !validate_utf8(buf, len)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "ICU tokenizer input is not valid UTF-8");
     }
     buffer_ = icu::UnicodeString::fromUTF8(icu::StringPiece(buf, len));

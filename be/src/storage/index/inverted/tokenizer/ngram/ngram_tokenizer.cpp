@@ -96,7 +96,10 @@ void NGramTokenizer::reset() {
     _char_buffer = nullptr;
     _char_offset = 0;
     _char_length = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
-    if (_char_length > 0 && !validate_utf8(_char_buffer, _char_length)) {
+    // Malformed bytes are skipped while the valid neighbours are still indexed. Only the
+    // offset-aware path rejects them, because a source byte span cannot be mapped through them.
+    if (_source_byte_offsets_enabled && _char_length > 0 &&
+        !validate_utf8(_char_buffer, _char_length)) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "NGram tokenizer input is not valid UTF-8");
     }
 }

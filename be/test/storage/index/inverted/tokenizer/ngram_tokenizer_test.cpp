@@ -59,6 +59,29 @@ TEST(NGramTokenizerTest, DefaultMinMaxValues) {
     ASSERT_EQ(tokens, expected);
 }
 
+TEST(NGramTokenizerTest, IndexesMalformedUtf8UnlessOffsetsAreTracked) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "2";
+    args["max_gram"] = "2";
+    Settings settings(args);
+    factory.initialize(settings);
+
+    // A column may hold malformed bytes, so the grams around them are still indexed.
+    const std::string malformed = std::string("ab") + static_cast<char>(0xFF) + "cd";
+    auto tokens = tokenize(factory, malformed);
+    std::vector<std::string> expected {"ab", "bc", "cd"};
+    EXPECT_EQ(tokens, expected);
+
+    // Malformed bytes have no source span, so the offset-aware path rejects them.
+    auto tokenizer = factory.create();
+    tokenizer->set_source_byte_offsets_enabled(true);
+    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(malformed.data(), malformed.size(), false);
+    tokenizer->set_reader(reader);
+    EXPECT_THROW(tokenizer->reset(), Exception);
+}
+
 TEST(NGramTokenizerTest, ValidMinMaxDifference) {
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args;
@@ -290,6 +313,8 @@ TEST(NGramTokenizerTest, RejectsMalformedUtf8AndCanBeReset) {
     args["max_gram"] = "1";
     factory.initialize(Settings(args));
     auto tokenizer = factory.create();
+    // Malformed bytes have no source span, so only the offset-aware path rejects them.
+    tokenizer->set_source_byte_offsets_enabled(true);
 
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     const std::string leading_invalid = std::string(1, static_cast<char>(0xFF)) + "ab";

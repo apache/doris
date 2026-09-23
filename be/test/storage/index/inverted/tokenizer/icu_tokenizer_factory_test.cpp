@@ -241,6 +241,26 @@ TEST_F(ICUTokenizerFactoryTest, ClipsLongTokensAtUnicodeScalarBoundary) {
     EXPECT_EQ(token.endOffset(), 5);
 }
 
+TEST_F(ICUTokenizerFactoryTest, IndexesMalformedUtf8UnlessOffsetsAreTracked) {
+    const std::string malformed = std::string("alpha ") + static_cast<char>(0xFF) + " beta";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(malformed.data(), static_cast<int32_t>(malformed.size()), false);
+
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    tokenizer->set_reader(reader);
+    // A column may hold malformed bytes, so indexing keeps the valid words around them.
+    ASSERT_NO_THROW(tokenizer->reset());
+    Token malformed_token;
+    ASSERT_NE(tokenizer->next(&malformed_token), nullptr);
+    EXPECT_EQ(std::string(malformed_token.termBuffer<char>(), malformed_token.termLength<char>()),
+              "alpha");
+    ASSERT_NE(tokenizer->next(&malformed_token), nullptr);
+    EXPECT_EQ(std::string(malformed_token.termBuffer<char>(), malformed_token.termLength<char>()),
+              "beta");
+}
+
 TEST_F(ICUTokenizerFactoryTest, RejectsMalformedUtf8AndCanBeReset) {
     const std::string malformed = std::string("alpha ") + static_cast<char>(0xFF) + " beta";
     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
@@ -249,6 +269,8 @@ TEST_F(ICUTokenizerFactoryTest, RejectsMalformedUtf8AndCanBeReset) {
     ICUTokenizerFactory factory;
     factory.initialize({});
     auto tokenizer = factory.create();
+    // Malformed bytes have no source span, so the offset-aware path still rejects them.
+    tokenizer->set_source_byte_offsets_enabled(true);
     tokenizer->set_reader(reader);
     EXPECT_THROW(tokenizer->reset(), Exception);
 

@@ -65,7 +65,7 @@ void add_search_binding_diagnostic(const std::shared_ptr<IndexQueryContext>& con
     }
 }
 
-InvertedIndexAnalyzerCtxSPtr build_analyzer_context(
+InvertedIndexAnalyzerCtxSPtr build_analyzer_context_unsafe(
         const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = get_analyzer_name_from_properties(properties);
@@ -89,6 +89,20 @@ InvertedIndexAnalyzerCtxSPtr build_analyzer_context(
 }
 
 } // namespace
+
+// Replayed components can collide across policy families, so building the provider throws.
+Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    try {
+        return build_analyzer_context_unsafe(properties, analyzer_key);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    }
+}
 
 FieldReaderResolver::FieldReaderResolver(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
@@ -415,8 +429,12 @@ Status FieldReaderResolver::resolve_with_analyzer_context(const std::string& fie
         return Status::OK();
     }
 
-    binding->analyzer_context =
-            build_analyzer_context(binding->index_properties, binding->analyzer_key);
+    auto built_context =
+            build_search_analyzer_context(binding->index_properties, binding->analyzer_key);
+    if (!built_context.has_value()) {
+        return built_context.error();
+    }
+    binding->analyzer_context = std::move(built_context.value());
     _cache.at(binding->binding_key).analyzer_context = binding->analyzer_context;
     return Status::OK();
 }
