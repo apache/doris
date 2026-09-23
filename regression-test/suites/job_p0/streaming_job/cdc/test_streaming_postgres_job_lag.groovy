@@ -69,14 +69,6 @@ suite("test_streaming_postgres_job_lag",
             """
 
         try {
-            // Wait until the offset=latest baseline is committed before writing incremental data.
-            Awaitility.await().atMost(120, SECONDS)
-                    .pollInterval(1, SECONDS).until({
-                        def jobInfo = sql """ select SucceedTaskCount from jobs("type"="insert")
-                                where Name = '${jobName}' and ExecuteType='STREAMING' """
-                        return jobInfo.size() == 1 && Integer.parseInt(jobInfo[0][0] as String) >= 1
-                    })
-
             // insert incremental data to trigger WAL consumption
             connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
                 sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('Bob', 20)"""
@@ -89,16 +81,24 @@ suite("test_streaming_postgres_job_lag",
                                 from jobs("type"="insert")
                                 where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobInfo: " + jobInfo)
-                        if (jobInfo.size() != 1 || Integer.parseInt(jobInfo[0][0] as String) < 1) {
-                            return false
+                        if (jobInfo.size() == 1 && Integer.parseInt(jobInfo[0][0] as String) >= 1) {
+                            def lagValue = jobInfo[0][1] as String
+                            def sourceEventTime = jobInfo[0][2] as String
+                            log.info("lag value: " + lagValue)
+                            if (lagValue != null && lagValue != ""
+                                    && lagValue.isLong() && Long.parseLong(lagValue) >= 0
+                                    && sourceEventTime != null && sourceEventTime.isLong()
+                                    && Long.parseLong(sourceEventTime) > 0) {
+                                return true
+                            }
                         }
-                        def lagValue = jobInfo[0][1] as String
-                        def sourceEventTime = jobInfo[0][2] as String
-                        log.info("lag value: " + lagValue)
-                        return lagValue != null && lagValue != ""
-                                && lagValue.isLong() && Long.parseLong(lagValue) >= 0
-                                && sourceEventTime != null && sourceEventTime.isLong()
-                                && Long.parseLong(sourceEventTime) > 0
+                        // Keep generating WAL until the latest-offset reader is ready.
+                        connect("${pgUser}", "${pgPassword}",
+                                "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                            sql """UPDATE ${pgDB}.${pgSchema}.${pgTable} SET age = age + 1
+                                    WHERE name = 'Alice'"""
+                        }
+                        return false
                     })
         } catch (Exception ex) {
             def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
