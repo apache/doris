@@ -466,6 +466,7 @@ TEST(FunctionLikeTest, regexp_extract_or_null) {
 TEST(FunctionLikeTest, regexp_extract_all) {
     std::string func_name = "regexp_extract_all";
     const std::string word_boundary_input(10000, 'a');
+    const std::string invalid_utf8_input {static_cast<char>(0xC3), 'A'};
 
     DataSet data_set = {
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
@@ -474,6 +475,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
              std::string("['a']")},
             {{std::string("aaa"), std::string("(^a)")}, std::string("['a']")},
             {{word_boundary_input, std::string("(\\b)")}, std::string("")},
+            {{std::string("é"), std::string("(?:^)|(\\C)")}, std::string("")},
+            {{invalid_utf8_input, std::string("(?:^)|(\\C)")}, std::string("['A']")},
             {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)")},
              std::string("['41915173660']")},
             {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)")},
@@ -551,6 +554,8 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
     run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", "[\"a\"]");
     run_case("aaa", "(^a)", "[\"a\"]");
     run_case(std::string(10000, 'a'), "(\\b)", "[]");
+    run_case("é", "(?:^)|(\\C)", "[]");
+    run_case(std::string {static_cast<char>(0xC3), 'A'}, "(?:^)|(\\C)", "[\"A\"]");
     run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", "[\"41915173660\"]");
     run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", R"(["41915", "73660"])");
     run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");

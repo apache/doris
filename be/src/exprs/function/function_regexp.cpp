@@ -19,6 +19,7 @@
 #include <re2/re2.h>
 #include <re2/stringpiece.h>
 #include <stddef.h>
+#include <unicode/utf8.h>
 
 #include <boost/regex.hpp>
 #include <memory>
@@ -62,7 +63,11 @@ static bool advance_re2_search_position(const char* data, size_t size,
         if (match_pos == size) {
             return false;
         }
-        pos = match_pos + 1;
+        size_t next_pos = match_pos;
+        UChar32 character;
+        U8_NEXT(data, next_pos, size, character);
+        // Doris strings can contain malformed UTF-8, so make byte-wise progress on decode failure.
+        pos = character < 0 ? match_pos + 1 : next_pos;
     } else {
         pos = match_pos + match.size();
     }

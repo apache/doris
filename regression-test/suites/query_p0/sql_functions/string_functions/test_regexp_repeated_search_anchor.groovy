@@ -29,4 +29,10 @@ suite("test_regexp_repeated_search_anchor") {
                regexp_extract_all(repeat('a', 10000), '(\\\\b)'),
                regexp_extract_all_array(repeat('a', 10000), '(\\\\b)')
     """
+
+    qt_multibyte_empty_match_functions """
+        SELECT regexp_count('é', '^|\\\\C'),
+               regexp_extract_all('é', '(?:^)|(\\\\C)'),
+               regexp_extract_all_array('é', '(?:^)|(\\\\C)')
+    """
 }

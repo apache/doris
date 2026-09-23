@@ -5,3 +5,6 @@
 -- !word_boundary_functions --
 0		[]
 
+-- !multibyte_empty_match_functions --
+0		[]
+
