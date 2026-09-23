@@ -34,6 +34,8 @@ public:
     Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
                    segment_v2::inverted_index::query_v2::QueryPtr* out) override;
 
+    bool joins_term_sets() const override { return true; }
+
 private:
     segment_v2::InvertedIndexReaderPtr _reader;
     std::string _stored_field_name;

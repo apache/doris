@@ -44,6 +44,11 @@ public:
 
     virtual Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
                            segment_v2::inverted_index::query_v2::QueryPtr* out) = 0;
+
+    // Whether term sets of one field under AND or OR should reach this compiler as one set.
+    // An index that answers each leaf in full before the Boolean combines it answers a joined
+    // set in one query instead.
+    virtual bool joins_term_sets() const { return false; }
 };
 
 // UNKNOWN for every row: no row matches and every row counts as NULL.

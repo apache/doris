@@ -23,7 +23,10 @@
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <unordered_map>
@@ -242,13 +245,137 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out,
                     std::string* binding_key);
 
-// AND, OR and NOT ignore the per-clause occur; OCCUR keeps it and the threshold.
+using Clauses = std::vector<std::pair<logical::Occur, logical::NodePtr>>;
+
+// How a clause joins term sets of its field: into an all-of set (true), an any-of set (false),
+// or not at all. Optional clauses join only when they decide the match: a threshold of one,
+// or no required clause beside them. Otherwise they only add to the score, and a threshold of
+// two or more counts them one by one.
+std::optional<bool> joined_kind(const logical::Bool& boolean, logical::Occur occur,
+                                bool has_required) {
+    switch (boolean.op) {
+    case logical::BoolOp::kAnd:
+        return true;
+    case logical::BoolOp::kOr:
+        return false;
+    case logical::BoolOp::kOccur:
+        if (occur == logical::Occur::kMust) {
+            return true;
+        }
+        if (occur == logical::Occur::kShould &&
+            (boolean.min_should_match == 1 || (boolean.min_should_match == 0 && !has_required))) {
+            return false;
+        }
+        return std::nullopt;
+    case logical::BoolOp::kNot:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+// A term set that can join others of its kind: no threshold, one term or a set of that kind,
+// and a field whose compiler takes joined sets.
+const logical::TermSet* joinable_set(const logical::Node& node, bool require_all,
+                                     const FieldReaderResolver& resolver) {
+    const auto* set = node.as<logical::TermSet>();
+    if (set == nullptr || set->min_should_match > 0 ||
+        (set->terms.size() > 1 && set->require_all != require_all)) {
+        return nullptr;
+    }
+    const FieldReaderBinding* binding = resolver.find_binding(set->field.binding);
+    if (binding == nullptr || binding->leaf_compiler == nullptr ||
+        !binding->leaf_compiler->joins_term_sets()) {
+        return nullptr;
+    }
+    return set;
+}
+
+bool has_repeated_term(std::vector<std::string> terms) {
+    std::ranges::sort(terms);
+    return std::ranges::adjacent_find(terms) != terms.end();
+}
+
+// Term sets of one field under an AND, an OR, or the required or optional clauses of an occur
+// query join into one set at the place of the first. A nested-document mapper maps leaves one
+// by one, so nothing joins under it; nor does a repeated term, which scores once per clause.
+Clauses join_term_sets(const logical::Bool& boolean, const FieldReaderResolver& resolver) {
+    if (resolver.maps_leaf_queries()) {
+        return boolean.clauses;
+    }
+    struct Group {
+        logical::Occur occur;
+        bool require_all;
+        const logical::TermSet* first;
+        std::vector<std::string> terms;
+        size_t members = 0;
+        bool joins = false;
+    };
+    const bool has_required = std::ranges::any_of(boolean.clauses, [](const auto& clause) {
+        return clause.first == logical::Occur::kMust;
+    });
+    std::vector<Group> groups;
+    std::vector<std::optional<size_t>> group_of(boolean.clauses.size());
+    for (size_t i = 0; i < boolean.clauses.size(); ++i) {
+        const auto& [occur, child] = boolean.clauses[i];
+        const std::optional<bool> kind = joined_kind(boolean, occur, has_required);
+        const logical::TermSet* set =
+                kind.has_value() ? joinable_set(*child, *kind, resolver) : nullptr;
+        if (set == nullptr) {
+            continue;
+        }
+        auto group = std::ranges::find_if(groups, [&](const Group& candidate) {
+            return candidate.occur == occur && candidate.require_all == *kind &&
+                   candidate.first->field.binding == set->field.binding;
+        });
+        if (group == groups.end()) {
+            groups.push_back({.occur = occur,
+                              .require_all = *kind,
+                              .first = set,
+                              .terms = {},
+                              .members = 0,
+                              .joins = false});
+            group = std::prev(groups.end());
+        }
+        group->terms.insert(group->terms.end(), set->terms.begin(), set->terms.end());
+        ++group->members;
+        group_of[i] = static_cast<size_t>(group - groups.begin());
+    }
+    for (auto& group : groups) {
+        group.joins = group.members > 1 && !has_repeated_term(group.terms);
+    }
+    Clauses planned;
+    std::vector<bool> placed(groups.size(), false);
+    for (size_t i = 0; i < boolean.clauses.size(); ++i) {
+        if (!group_of[i].has_value() || !groups[*group_of[i]].joins) {
+            planned.push_back(boolean.clauses[i]);
+            continue;
+        }
+        if (placed[*group_of[i]]) {
+            continue;
+        }
+        placed[*group_of[i]] = true;
+        const Group& group = groups[*group_of[i]];
+        planned.emplace_back(group.occur,
+                             logical::make_node(logical::TermSet {.field = group.first->field,
+                                                                  .terms = group.terms,
+                                                                  .require_all = group.require_all,
+                                                                  .min_should_match = 0}));
+    }
+    return planned;
+}
+
+// AND, OR and NOT ignore the per-clause occur; OCCUR keeps it and the threshold. A Boolean
+// whose clauses all joined into one term set is that set.
 Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out) {
+    const Clauses clauses = join_term_sets(boolean, resolver);
+    if (clauses.size() == 1 && boolean.clauses.size() > 1) {
+        return compile_node(*clauses.front().second, ctx, resolver, out, nullptr);
+    }
     if (boolean.op == logical::BoolOp::kOccur) {
         auto builder = query_v2::create_occur_boolean_query_builder();
         builder->set_minimum_number_should_match(boolean.min_should_match);
-        for (const auto& [occur, child] : boolean.clauses) {
+        for (const auto& [occur, child] : clauses) {
             query_v2::QueryPtr child_query;
             std::string child_binding_key;
             RETURN_IF_ERROR(compile_node(*child, ctx, resolver, &child_query, &child_binding_key));
@@ -264,7 +391,7 @@ Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
         op = query_v2::OperatorType::OP_NOT;
     }
     auto builder = query_v2::create_operator_boolean_query_builder(op);
-    for (const auto& [occur, child] : boolean.clauses) {
+    for (const auto& [occur, child] : clauses) {
         query_v2::QueryPtr child_query;
         std::string child_binding_key;
         RETURN_IF_ERROR(compile_node(*child, ctx, resolver, &child_query, &child_binding_key));

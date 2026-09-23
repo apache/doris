@@ -275,6 +275,7 @@ public:
                 last_query_value += (i == 0 ? "" : "|") + alternatives[i];
             }
         }
+        calls.emplace_back(query_type, last_query_value);
         return answer(context, bit_map);
     }
 
@@ -342,6 +343,8 @@ public:
     segment_v2::InvertedIndexQueryType last_query_type =
             segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY;
     const InvertedIndexAnalyzerCtx* last_analyzer_ctx = nullptr;
+    // Every analyzed query in call order: its type and its terms as the result tables key them.
+    std::vector<std::pair<segment_v2::InvertedIndexQueryType, std::string>> calls;
     std::unordered_map<std::string, roaring::Roaring> query_results;
     std::unordered_map<std::string, std::vector<std::pair<uint32_t, float>>> query_scores;
     // Identity of the similarity the reader was handed, so a test can prove the query's own
@@ -2550,6 +2553,315 @@ TEST_F(FunctionSearchTest, TestSniiNativeAllOfTermWithThresholdMatchesNothing) {
     auto scorer = weight->scorer(fixture.exec_context(), binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {});
+}
+
+using AnalyzedCall = std::pair<InvertedIndexQueryType, std::string>;
+
+static TSearchClause make_compound_clause(const std::string& clause_type,
+                                          std::vector<TSearchClause> children) {
+    TSearchClause clause;
+    clause.clause_type = clause_type;
+    clause.children = std::move(children);
+    clause.__isset.children = true;
+    return clause;
+}
+
+static TSearchClause with_occur(TSearchClause clause, TSearchOccur::type occur) {
+    clause.occur = occur;
+    clause.__isset.occur = true;
+    return clause;
+}
+
+// Term clauses on one SNII field under AND are answered by one MATCH_ALL query, so the field's
+// chained conjunction narrows the candidates instead of every term being read in full.
+TEST_F(FunctionSearchTest, TestSniiNativeAndOfOneFieldIsOneConjunction) {
+    SniiScoringFixture fixture(49, 4);
+    fixture.reader->set_query_result("alpha beta", make_bitmap({1, 2}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "AND", {make_leaf_clause("TERM", "alpha"), make_leaf_clause("TERM", "beta")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ALL_QUERY, "alpha beta"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// Under OR they are answered by one MATCH_ANY query, the field's streamed union.
+TEST_F(FunctionSearchTest, TestSniiNativeOrOfOneFieldIsOneUnion) {
+    SniiScoringFixture fixture(50, 4);
+    fixture.reader->set_query_result("alpha beta", make_bitmap({0, 1, 2, 3}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "OR", {make_leaf_clause("TERM", "alpha"), make_leaf_clause("TERM", "beta")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha beta"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {0, 1, 2, 3});
+}
+
+// In an occur tree the required terms join; an optional term keeps its own query.
+TEST_F(FunctionSearchTest, TestSniiNativeOccurJoinsOnlyRequiredTerms) {
+    SniiScoringFixture fixture(51, 4);
+    fixture.reader->set_query_result("alpha beta", make_bitmap({1, 2}));
+    fixture.reader->set_query_result("gamma", make_bitmap({2, 3}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "OCCUR_BOOLEAN",
+                    {with_occur(make_leaf_clause("TERM", "alpha"), TSearchOccur::MUST),
+                     with_occur(make_leaf_clause("TERM", "beta"), TSearchOccur::MUST),
+                     with_occur(make_leaf_clause("TERM", "gamma"), TSearchOccur::SHOULD)}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ALL_QUERY, "alpha beta"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "gamma"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// Beside a required clause, optional terms only add to the score, so they keep their own queries.
+TEST_F(FunctionSearchTest, TestSniiNativeOptionalTermsBesideARequiredOneStayApart) {
+    SniiScoringFixture fixture(58, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({2, 3}));
+    fixture.reader->set_query_result("gamma", make_bitmap({0, 2}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "OCCUR_BOOLEAN",
+                    {with_occur(make_leaf_clause("TERM", "alpha"), TSearchOccur::MUST),
+                     with_occur(make_leaf_clause("TERM", "beta"), TSearchOccur::SHOULD),
+                     with_occur(make_leaf_clause("TERM", "gamma"), TSearchOccur::SHOULD)}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "beta"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "gamma"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// Optional terms with no required clause beside them decide the match, so they join.
+TEST_F(FunctionSearchTest, TestSniiNativeOptionalTermsThatDecideTheMatchJoin) {
+    SniiScoringFixture fixture(59, 4);
+    fixture.reader->set_query_result("alpha beta", make_bitmap({0, 1, 3}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "OCCUR_BOOLEAN",
+                    {with_occur(make_leaf_clause("TERM", "alpha"), TSearchOccur::SHOULD),
+                     with_occur(make_leaf_clause("TERM", "beta"), TSearchOccur::SHOULD)}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha beta"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {0, 1, 3});
+}
+
+// Terms join past a clause of another kind, which keeps its own query.
+TEST_F(FunctionSearchTest, TestSniiNativeTermsJoinPastAPhrase) {
+    SniiScoringFixture fixture(52, 4);
+    fixture.reader->set_query_result("alpha beta", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_result("gamma delta", make_bitmap({1, 2, 3}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause("AND", {make_leaf_clause("TERM", "alpha"),
+                                         make_leaf_clause("PHRASE", "gamma delta"),
+                                         make_leaf_clause("TERM", "beta")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {
+                      {InvertedIndexQueryType::MATCH_ALL_QUERY, "alpha beta"},
+                      {InvertedIndexQueryType::MATCH_PHRASE_QUERY, "gamma delta"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// A nested-document mapper maps each leaf on its own, so leaves under it never join.
+TEST_F(FunctionSearchTest, TestSniiNativeTermsStayApartUnderALeafMapper) {
+    SniiScoringFixture fixture(53, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({1, 2, 3}));
+    std::vector<std::string> mapped_fields;
+    fixture.resolver->set_leaf_query_mapper(
+            [&mapped_fields](const std::string& field,
+                             inverted_index::query_v2::QueryPtr* /*query*/) {
+                mapped_fields.push_back(field);
+                return Status::OK();
+            });
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "AND", {make_leaf_clause("TERM", "alpha"), make_leaf_clause("TERM", "beta")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "beta"}}),
+              fixture.reader->calls);
+    EXPECT_EQ((std::vector<std::string> {"body", "body"}), mapped_fields);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// A threshold over optional clauses counts clauses, so their terms keep their own queries.
+TEST_F(FunctionSearchTest, TestSniiNativeOptionalTermsUnderAThresholdStayApart) {
+    SniiScoringFixture fixture(54, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({1, 2, 3}));
+    fixture.reader->set_query_result("gamma", make_bitmap({2, 3}));
+    auto root = make_compound_clause(
+            "OCCUR_BOOLEAN", {with_occur(make_leaf_clause("TERM", "alpha"), TSearchOccur::SHOULD),
+                              with_occur(make_leaf_clause("TERM", "beta"), TSearchOccur::SHOULD),
+                              with_occur(make_leaf_clause("TERM", "gamma"), TSearchOccur::SHOULD)});
+    root.minimum_should_match = 2;
+    root.__isset.minimum_should_match = true;
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status =
+            function_search->build_query_recursive(root, fixture.context, *fixture.resolver, &query,
+                                                   &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "beta"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "gamma"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2, 3});
+}
+
+// A term repeated in one AND keeps its own leaves; that is how a repeated term scores.
+TEST_F(FunctionSearchTest, TestSniiNativeRepeatedTermStaysApart) {
+    SniiScoringFixture fixture(55, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "AND", {make_leaf_clause("TERM", "alpha"), make_leaf_clause("TERM", "alpha")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"},
+                                          {InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"}}),
+              fixture.reader->calls);
+}
+
+// A field compiler whose index the engine drives lazily keeps one leaf per term.
+TEST_F(FunctionSearchTest, TestLazyFieldCompilerKeepsOneLeafPerTerm) {
+    SniiScoringFixture fixture(56, 4);
+    FieldReaderBinding binding;
+    ASSERT_TRUE(fixture.resolver
+                        ->resolve("body", index_query::logical::search_clause_query_type("TERM"),
+                                  &binding)
+                        .ok());
+    auto compiler =
+            std::make_shared<RecordingTermSetCompiler>(std::map<std::string, roaring::Roaring> {
+                    {"alpha", make_bitmap({0, 1, 2})}, {"beta", make_bitmap({1, 2, 3})}});
+    fixture.resolver->_cache.at(binding.binding_key).leaf_compiler = compiler;
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "AND", {make_leaf_clause("TERM", "alpha"), make_leaf_clause("TERM", "beta")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2U, compiler->leaves.size());
+    EXPECT_EQ(std::vector<std::string> {"alpha"}, compiler->leaves[0].terms);
+    EXPECT_EQ(std::vector<std::string> {"beta"}, compiler->leaves[1].terms);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// A joined AND keeps the BM25 values the reader published for the joined query.
+TEST_F(FunctionSearchTest, TestSniiNativeJoinedAndKeepsReaderScores) {
+    SniiScoringFixture fixture(57, 4);
+    fixture.reader->set_query_result("alpha beta", make_bitmap({1, 2}));
+    fixture.reader->set_query_scores("alpha beta", {{1, 3.5F}, {2, 1.25F}});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "AND", {make_leaf_clause("TERM", "alpha"), make_leaf_clause("TERM", "beta")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto weight = query->weight(true);
+    ASSERT_NE(nullptr, weight);
+    auto exec_ctx = fixture.exec_context();
+    auto roaring = std::make_shared<roaring::Roaring>();
+    inverted_index::query_v2::collect_multi_segment_doc_set(weight, exec_ctx, binding_key, roaring,
+                                                            fixture.context->collection_similarity,
+                                                            /*enable_scoring=*/true);
+
+    expect_bitmap_eq(*roaring, {1, 2});
+    auto collected = read_collected_scores(*fixture.context->collection_similarity, *roaring);
+    ASSERT_EQ(2U, collected.size());
+    EXPECT_FLOAT_EQ(3.5F, collected[1]);
+    EXPECT_FLOAT_EQ(1.25F, collected[2]);
 }
 
 TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledForSniiNativeExecution) {
