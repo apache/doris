@@ -50,6 +50,22 @@ suite("test_analyzer_malformed_utf8_write", "p0") {
         );
     """
 
+    for (String analyzer : ["malformed_utf8_ngram_analyzer", "malformed_utf8_icu_analyzer"]) {
+        Exception lastException = null
+        boolean ready = false
+        for (int attempt = 0; attempt < 30; attempt++) {
+            try {
+                sql """SELECT TOKENIZE('probe', '"analyzer"="${analyzer}"')"""
+                ready = true
+                break
+            } catch (Exception e) {
+                lastException = e
+                sleep(1000)
+            }
+        }
+        assertTrue(ready, "Analyzer ${analyzer} was not ready: ${lastException?.message}")
+    }
+
     sql """
         CREATE TABLE ${ngramTable} (
             `id` int NOT NULL,
