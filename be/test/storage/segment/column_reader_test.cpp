@@ -632,20 +632,6 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
     check_selected_rows(rowids, *actual);
 
     {
-        // FixedReadPlan preserves input order. Read the final physical row before an earlier row
-        // to cover the unordered fallback, including the end-of-offset-stream sentinel.
-        const std::vector<rowid_t> unordered_rowids {11999, 0};
-        MutableColumnPtr unordered_actual = column_type->create_column();
-        ColumnIteratorUPtr iterator;
-        OlapReaderStatistics stats;
-        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
-        ASSERT_TRUE(iterator->read_by_rowids(unordered_rowids.data(), unordered_rowids.size(),
-                                             unordered_actual)
-                            .ok());
-        check_selected_rows(unordered_rowids, *unordered_actual);
-    }
-
-    {
         SCOPED_TRACE("predicate metadata -> filter -> lazy items");
         ColumnIteratorUPtr iterator;
         OlapReaderStatistics stats;

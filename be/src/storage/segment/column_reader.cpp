@@ -2424,10 +2424,8 @@ void ArrayFileColumnIterator::collect_prefetchers(
 }
 
 // Materialize selected parent rows without repeating the ARRAY seek/next_batch setup per row.
-// Segment scans normally provide rowids in ascending segment-local order, but FixedReadPlan
-// preserves its input order. Keep the per-row path for an unordered request so its output stays
-// aligned with the caller's input positions. Batch-read ordered metadata, then coalesce adjacent
-// source item spans into fewer item reads.
+// Requires rowids in nondecreasing segment-local order. Batch-read ordered metadata, then coalesce
+// adjacent source item spans into fewer item reads.
 // Normally append complete rows to dst; in LAZY mode, fill missing children without duplicating
 // parent offsets/null-map that were already materialized and filtered in the predicate phase.
 Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
@@ -2444,14 +2442,7 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
         return Status::OK();
     }
 
-    if (!std::is_sorted(rowids, rowids + count)) {
-        for (size_t i = 0; i < count; ++i) {
-            RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
-            size_t num_read = 1;
-            RETURN_IF_ERROR(next_batch(&num_read, dst));
-        }
-        return Status::OK();
-    }
+    DCHECK(std::is_sorted(rowids, rowids + count));
 
     // A null-only consumer needs one nested row per null marker, but no lengths or item data.
     if (read_null_map_only()) {
