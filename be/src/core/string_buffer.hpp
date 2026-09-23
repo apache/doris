@@ -227,8 +227,8 @@ using BufferWriter = BufferWritable;
 // There is consumption of the buffer in the read method.
 class BufferReadable {
 public:
-    explicit BufferReadable(StringRef& ref) : _data(ref.data) {}
-    explicit BufferReadable(StringRef&& ref) : _data(ref.data) {}
+    explicit BufferReadable(StringRef& ref) : _data(ref.data), _end(ref.data + ref.size) {}
+    explicit BufferReadable(StringRef&& ref) : _data(ref.data), _end(ref.data + ref.size) {}
     ~BufferReadable() = default;
 
     StringRef read(size_t len) {
@@ -243,6 +243,8 @@ public:
     }
 
     const char* data() { return _data; }
+
+    bool has_remaining() const { return _data < _end; }
 
     void add_offset(size_t len) { _data += len; }
 
@@ -316,6 +318,7 @@ public:
 
 private:
     const char* _data;
+    const char* _end;
 };
 
 using VectorBufferReader = BufferReadable;
