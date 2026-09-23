@@ -176,8 +176,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // pin is deliberately not a data snapshot and applySnapshot is a no-op. Keep only that lightweight
         // query-begin pin here; PruneFileScanPartition will request the selected partition view later.
         if (supportsConnectorPartitionPruning()) {
-            return new PluginDrivenMvccSnapshot(connectorSnapshot,
-                    Collections.emptyMap(), Collections.emptyMap());
+            return PluginDrivenMvccSnapshot.deferred(connectorSnapshot);
         }
 
         // Range-view path (e.g. iceberg): thread the query's pin onto the handle FIRST (applySnapshot), so
@@ -382,7 +381,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                 ? metadata.beginQuerySnapshot(session, handle.get()).orElseGet(this::emptySnapshot)
                 : emptySnapshot();
         // A fence carries version identity only; raw partitions may be invalid for relation options.
-        return new PluginDrivenMvccSnapshot(fence, Collections.emptyMap(), Collections.emptyMap());
+        return PluginDrivenMvccSnapshot.deferred(fence);
     }
 
     @Override
@@ -502,8 +501,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedPartitionItems,
                     pinnedLastModifiedMillis, pinnedSchema);
         }
-        return new PluginDrivenMvccSnapshot(connectorSnapshot,
-                Collections.emptyMap(), Collections.emptyMap(), pinnedSchema);
+        return PluginDrivenMvccSnapshot.unavailable(connectorSnapshot, pinnedSchema);
     }
 
     /**
@@ -695,6 +693,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (pin.isPartitionViewMaterialized()) {
                 return pin.getNameToPartitionItem();
             }
+            if (pin.isPartitionViewUnavailable()) {
+                return Collections.emptyMap();
+            }
             // The latest Hive query pin intentionally carries no partition map so selective scans can send a
             // predicate to HMS first. Consumers that explicitly ask for a partition map (MTMV alignment,
             // no-filter scan finalization, and a connector-declined pruning fallback) require the real full
@@ -706,6 +707,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public Optional<Map<String, PartitionItem>> getNameToPartitionItemsForScan(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot
+                && ((PluginDrivenMvccSnapshot) snapshot.get()).isPartitionViewUnavailable()) {
+            return Optional.empty();
+        }
         if (supportsConnectorPartitionPruning()) {
             PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
             if (pin.isPartitionViewMaterialized()) {
@@ -742,7 +747,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return snapshot;
         }
         PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) snapshot;
-        if (pin.isPartitionViewMaterialized()) {
+        if (!pin.isPartitionViewDeferred()) {
             return pin;
         }
         Map<String, PartitionItem> partitionItems = super.getNameToPartitionItems(Optional.of(pin));
@@ -751,7 +756,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             partitionLastModified.put(partitionName, ConnectorPartitionInfo.UNKNOWN);
         }
         return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified,
-                null, true);
+                null);
     }
 
     @Override

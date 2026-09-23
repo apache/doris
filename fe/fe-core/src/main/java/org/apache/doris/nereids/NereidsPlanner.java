@@ -159,7 +159,8 @@ public class NereidsPlanner extends Planner {
         NereidsPlanner.runningPlanNum.incrementAndGet();
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
-            planWithLock(parsedPlan, requireProperties, explainLevel, showPlanProcess, plan -> {
+            planWithLock(parsedPlan, requireProperties, explainLevel, showPlanProcess,
+                    shouldFinalizePhysicalPlan(explainLevel), plan -> {
                 setOptimizedPlan(plan);
                 if (plan instanceof PhysicalPlan) {
                     physicalPlan = (PhysicalPlan) plan;
@@ -203,7 +204,7 @@ public class NereidsPlanner extends Planner {
     public Plan planWithLock(LogicalPlan plan, PhysicalProperties requireProperties,
             ExplainLevel explainLevel, boolean showPlanProcess) {
         Consumer<Plan> noCallback = p -> {};
-        return planWithLock(plan, requireProperties, explainLevel, showPlanProcess, noCallback);
+        return planWithLock(plan, requireProperties, explainLevel, showPlanProcess, false, noCallback);
     }
 
     /**
@@ -217,7 +218,8 @@ public class NereidsPlanner extends Planner {
      * @throws AnalysisException throw exception if failed in ant stage
      */
     private Plan planWithLock(LogicalPlan plan, PhysicalProperties requireProperties,
-            ExplainLevel explainLevel, boolean showPlanProcess, Consumer<Plan> lockCallback) {
+            ExplainLevel explainLevel, boolean showPlanProcess, boolean willFinalizePhysicalPlan,
+            Consumer<Plan> lockCallback) {
         try {
             long beforePlanGcTime = getGarbageCollectionTime();
             if (plan instanceof LogicalSqlCache) {
@@ -263,7 +265,7 @@ public class NereidsPlanner extends Planner {
             // collect table and lock them in the order of table id
             boolean willExecute = explainLevel == ExplainLevel.NONE;
             collectAndLockTable(showAnalyzeProcess(explainLevel, showPlanProcess),
-                    willExecute, willExecute);
+                    willExecute, willFinalizePhysicalPlan);
             // after table collector, we should use a new context.
             Plan resultPlan = planWithoutLock(plan, requireProperties, explainLevel, showPlanProcess);
             lockCallback.accept(resultPlan);
@@ -1314,6 +1316,13 @@ public class NereidsPlanner extends Planner {
     private boolean showAnalyzeProcess(ExplainLevel explainLevel, boolean showPlanProcess) {
         return showPlanProcess
                 && (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN);
+    }
+
+    @VisibleForTesting
+    static boolean shouldFinalizePhysicalPlan(ExplainLevel explainLevel) {
+        return !explainLevel.isPlanLevel
+                || explainLevel == ExplainLevel.ALL_PLAN
+                || explainLevel == ExplainLevel.DISTRIBUTED_PLAN;
     }
 
     private boolean showRewriteProcess(ExplainLevel explainLevel, boolean showPlanProcess) {
