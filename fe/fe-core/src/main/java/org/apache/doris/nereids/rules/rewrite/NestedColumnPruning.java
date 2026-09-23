@@ -897,11 +897,29 @@ public class NestedColumnPruning implements CustomRewriter {
             TColumnAccessPath predicatePath, List<TColumnAccessPath> allPaths) {
         for (TColumnAccessPath allPath : allPaths) {
             if (allPath.getType() == predicatePath.getType()
-                    && pathCoversPrefix(getAccessPathList(allPath), getAccessPathList(predicatePath))) {
+                    && coversPrefixIgnoreCase(getAccessPathList(allPath), getAccessPathList(predicatePath))) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Whether {@code path} is a prefix of {@code longerPath}, ignoring case. The collected paths
+     * lower-case every component, but a whole-column path is rebuilt from the catalog column name,
+     * so {@code [S]} still has to cover {@code [s, city]}. A case-sensitive comparison would append
+     * {@code [s, city]} to the all paths, and BE then reads that field only and skips its siblings.
+     */
+    private static boolean coversPrefixIgnoreCase(List<String> path, List<String> longerPath) {
+        if (path.size() > longerPath.size()) {
+            return false;
+        }
+        for (int i = 0; i < path.size(); i++) {
+            if (!path.get(i).equalsIgnoreCase(longerPath.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean hasStrictPrefix(List<String> path, List<String> prefix) {
