@@ -17,8 +17,11 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.paimon.PaimonCatalogFactory;
+import org.apache.doris.connector.paimon.PaimonCatalogProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -86,10 +89,10 @@ public class PaimonSiblingPropertiesTest {
     }
 
     @Test
-    public void remainingLakeOptionsKeepTheirNamesWithoutThePrefix() {
+    public void storageOptionsKeepTheirNativeNamesForTheConnectorBoundary() {
         Map<String, String> properties = flussTableProperties();
-        // A real object-store deployment: the paimon connector reads these storage keys under exactly
-        // these names, so the prefix has to come off and nothing may be added.
+        // FlussConnector consumes these at the last boundary before constructing the sibling: it translates
+        // them into shared FE/BE storage and removes them from the map the Paimon factory receives.
         properties.put("table.datalake.paimon.fs.s3a.endpoint", "http://minio:9000");
         properties.put("table.datalake.paimon.fs.s3a.access.key", "ak");
 
@@ -139,7 +142,7 @@ public class PaimonSiblingPropertiesTest {
     }
 
     @Test
-    public void restCatalogLakeKeepsItsName() {
+    public void restCatalogLakeUsesTheConsumersNamespace() {
         Map<String, String> properties = flussTableProperties();
         properties.put("table.datalake.paimon.metastore", "rest");
         properties.put("table.datalake.paimon.uri", "https://rest:8080");
@@ -147,9 +150,102 @@ public class PaimonSiblingPropertiesTest {
         Map<String, String> expected = new HashMap<>();
         expected.put("paimon.catalog.type", "rest");
         expected.put("warehouse", "/lake/warehouse");
-        expected.put("uri", "https://rest:8080");
+        expected.put("paimon.rest.uri", "https://rest:8080");
 
         Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
+    }
+
+    @Test
+    public void nativeRestBearerOptionsReachTheConsumerNamespace() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", "rest");
+        properties.put("table.datalake.paimon.uri", "https://rest:8080");
+        properties.put("table.datalake.paimon.token.provider", "bear");
+        properties.put("table.datalake.paimon.token", "cluster-token");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "rest");
+        expected.put("warehouse", "/lake/warehouse");
+        expected.put("paimon.rest.uri", "https://rest:8080");
+        expected.put("paimon.rest.token.provider", "bear");
+        expected.put("paimon.rest.token", "cluster-token");
+
+        Map<String, String> synthesized =
+                PaimonSiblingProperties.synthesize(properties, noOverrides());
+        Assertions.assertEquals(expected, synthesized);
+
+        // Cross the actual consumer boundary as well: PaimonCatalogFactory strips paimon.rest.
+        // before handing these Options to the SDK's REST catalog. A bare token.provider in the
+        // synthesized map would pass the assertion above only if expected were changed with it,
+        // but it would disappear here and reproduce the authenticated-catalog failure.
+        Options options = PaimonCatalogFactory.buildCatalogOptions(
+                PaimonCatalogProperties.of(synthesized));
+        Assertions.assertEquals("rest", options.get("metastore"));
+        Assertions.assertEquals("https://rest:8080", options.get("uri"));
+        Assertions.assertEquals("bear", options.get("token.provider"));
+        Assertions.assertEquals("cluster-token", options.get("token"));
+    }
+
+    @Test
+    public void nativeRestDlfOptionsReachTheConsumerNamespace() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", "rest");
+        properties.put("table.datalake.paimon.uri", "https://rest:8080");
+        properties.put("table.datalake.paimon.token.provider", "dlf");
+        properties.put("table.datalake.paimon.dlf.access-key-id", "id");
+        properties.put("table.datalake.paimon.dlf.access-key-secret", "secret");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "rest");
+        expected.put("warehouse", "/lake/warehouse");
+        expected.put("paimon.rest.uri", "https://rest:8080");
+        expected.put("paimon.rest.token.provider", "dlf");
+        expected.put("paimon.rest.dlf.access-key-id", "id");
+        expected.put("paimon.rest.dlf.access-key-secret", "secret");
+
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties, noOverrides()));
+    }
+
+    @Test
+    public void restOptionPrecedenceIsClusterThenGatewayThenCatalogOverride() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", "rest");
+        properties.put("table.datalake.paimon.uri", "https://cluster:8080");
+        properties.put("table.datalake.paimon.token", "cluster-token");
+
+        Map<String, String> gateway = new LinkedHashMap<>();
+        gateway.put("paimon.rest.uri", "https://gateway:8080");
+        gateway.put("paimon.rest.token", "gateway-token");
+        Map<String, String> catalogOverrides = new LinkedHashMap<>();
+        catalogOverrides.put("rest.token", "catalog-token");
+
+        Map<String, String> expected = new HashMap<>();
+        expected.put("paimon.catalog.type", "rest");
+        expected.put("warehouse", "/lake/warehouse");
+        expected.put("paimon.rest.uri", "https://gateway:8080");
+        expected.put("paimon.rest.token", "catalog-token");
+
+        Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(
+                gateway, properties, catalogOverrides));
+    }
+
+    @Test
+    public void unrelatedGatewayAliasesCannotOverrideNativeRestOptions() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.metastore", "rest");
+        properties.put("table.datalake.paimon.uri", "https://cluster:8080");
+        properties.put("table.datalake.paimon.token", "cluster-token");
+
+        Map<String, String> gateway = new LinkedHashMap<>();
+        gateway.put("uri", "https://unrelated-gateway:8080");
+        gateway.put("token", "unrelated-token");
+
+        Map<String, String> synthesized = PaimonSiblingProperties.synthesize(
+                gateway, properties, Collections.emptyMap());
+        Assertions.assertEquals("https://cluster:8080", synthesized.get("paimon.rest.uri"));
+        Assertions.assertEquals("cluster-token", synthesized.get("paimon.rest.token"));
+        Assertions.assertFalse(synthesized.containsKey("uri"));
+        Assertions.assertFalse(synthesized.containsKey("token"));
     }
 
     @Test
@@ -236,22 +332,22 @@ public class PaimonSiblingPropertiesTest {
     @Test
     public void catalogSettingsOverrideTheClusterKeyByKey() {
         Map<String, String> properties = flussTableProperties();
-        properties.put("table.datalake.paimon.fs.s3a.endpoint", "http://cluster:9000");
+        properties.put("table.datalake.paimon.client.pool-size", "4");
 
         Map<String, String> expected = new HashMap<>();
         expected.put("paimon.catalog.type", "filesystem");
         // The catalog states the endpoint, so its value is used...
-        expected.put("fs.s3a.endpoint", "http://catalog:9000");
+        expected.put("client.pool-size", "8");
         // ...and the warehouse it says nothing about still comes from the cluster. Replacing the whole
         // configuration instead would mean every catalog that fixes one setting has to restate all of them.
         expected.put("warehouse", "/lake/warehouse");
 
         Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(properties,
-                overrides("fs.s3a.endpoint", "http://catalog:9000")));
+                overrides("client.pool-size", "8")));
     }
 
     @Test
-    public void gatewayAndStorageSettingsAreGivenToTheSibling() {
+    public void gatewayAndStorageSettingsReachTheConnectorBoundary() {
         Map<String, String> properties = flussTableProperties();
         properties.put("table.datalake.paimon.fs.oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         properties.put("table.datalake.paimon.s3.path.style.access", "true");
@@ -269,6 +365,8 @@ public class PaimonSiblingPropertiesTest {
         expected.put("fs.oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         expected.put("s3.path.style.access", "true");
         expected.put("s3.access-key", "AK");
+        // synthesize returns the complete effective map. FlussConnector extracts these storage settings
+        // immediately before constructing the sibling, into the shared FE/BE storage context.
 
         Assertions.assertEquals(expected, PaimonSiblingProperties.synthesize(
                 gateway, properties, overrides("s3.access-key", "AK")));

@@ -46,6 +46,10 @@ JOBMANAGER_PORT=8081
 WAIT_SECONDS=180
 SQL_TIMEOUT_SECONDS=900
 ATTEMPTS=3
+# One wall-clock budget covers startup, all SQL probes and every retry. Stage
+# limits below keep one failed probe from consuming it all, but never extend it.
+INIT_TIMEOUT_SECONDS=3000
+INIT_DEADLINE_EPOCH=$(($(date +%s) + INIT_TIMEOUT_SECONDS))
 # Primary-key fixtures whose buckets must have been snapshotted before the
 # environment counts as ready. See wait_for_kv_snapshots.
 #
@@ -56,6 +60,8 @@ SNAPSHOT_TABLES=(pk_basic pk_types pk_part pk_nested lake_pk lake_pk_multi lake_
 SNAPSHOT_WAIT_SECONDS=180
 MINIO_CONTROL_DIR=/tmp/fluss-minio-control
 MINIO_CLEANUP_WAIT_SECONDS=120
+ZOOKEEPER_CONTROL_DIR=/tmp/fluss-zookeeper-control
+ZOOKEEPER_EXPORT_WAIT_SECONDS=120
 
 # What each lake fixture must hold in paimon before the tail is written -- the
 # row counts init.sql writes, merged where the table has a primary key. Keep in
@@ -86,15 +92,63 @@ FLINK_BIN=/opt/flink/bin/flink
 rm -rf "${MARKER_DIR}"
 mkdir -p "${MARKER_DIR}"
 
+stage_deadline() {
+    local candidate
+    candidate=$(($(date +%s) + $1))
+    if ((candidate > INIT_DEADLINE_EPOCH)); then
+        candidate=${INIT_DEADLINE_EPOCH}
+    fi
+    printf '%s\n' "${candidate}"
+}
+
+remaining_until() {
+    local remaining
+    remaining=$(($1 - $(date +%s)))
+    if ((remaining <= 0)); then
+        return 1
+    fi
+    printf '%s\n' "${remaining}"
+}
+
+bounded_command_timeout() {
+    local deadline="$1"
+    local remaining
+    remaining="$(remaining_until "${deadline}")" || return 1
+    if ((remaining > SQL_TIMEOUT_SECONDS)); then
+        remaining=${SQL_TIMEOUT_SECONDS}
+    fi
+    printf '%s\n' "${remaining}"
+}
+
+sleep_before() {
+    local seconds="$1"
+    local deadline="$2"
+    local remaining
+    remaining="$(remaining_until "${deadline}")" || return 1
+    if ((seconds > remaining)); then
+        seconds=${remaining}
+    fi
+    sleep "${seconds}"
+}
+
+run_sql_probe() {
+    local sql="$1"
+    local log="$2"
+    local deadline="$3"
+    local command_timeout
+    command_timeout="$(bounded_command_timeout "${deadline}")" || return 124
+    timeout "${command_timeout}" /opt/flink/bin/sql-client.sh -f "${sql}" >"${log}" 2>&1
+}
+
 wait_for_jobmanager() {
-    local waited=0
+    local deadline
+    deadline="$(stage_deadline "${WAIT_SECONDS}")"
     while ! (exec 3<>"/dev/tcp/${FLUSS_JOBMANAGER_HOST}/${JOBMANAGER_PORT}") >/dev/null 2>&1; do
-        if ((waited >= WAIT_SECONDS)); then
-            echo "ERROR: jobmanager ${FLUSS_JOBMANAGER_HOST}:${JOBMANAGER_PORT} not reachable after ${WAIT_SECONDS}s" >&2
+        if ! remaining_until "${deadline}" >/dev/null; then
+            echo "ERROR: jobmanager ${FLUSS_JOBMANAGER_HOST}:${JOBMANAGER_PORT} did not become reachable before its deadline" >&2
             return 1
         fi
-        sleep 2
-        waited=$((waited + 2))
+        sleep_before 2 "${deadline}" || return 1
     done
 }
 
@@ -112,30 +166,31 @@ sed -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
     -e "s|__FLUSS_LAKE_S3_ACCESS_KEY__|${FLUSS_LAKE_S3_ACCESS_KEY}|g" \
     -e "s|__FLUSS_LAKE_S3_SECRET_KEY__|${FLUSS_LAKE_S3_SECRET_KEY}|g" \
     "${LAKE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-row-counts.sql"
-sed -e "s|__FLUSS_BOOTSTRAP_SERVERS__|${FLUSS_BOOTSTRAP_SERVERS}|g" \
-    -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
+sed -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
     -e "s|__FLUSS_LAKE_S3_ENDPOINT__|${FLUSS_LAKE_S3_ENDPOINT}|g" \
     -e "s|__FLUSS_LAKE_S3_ACCESS_KEY__|${FLUSS_LAKE_S3_ACCESS_KEY}|g" \
     -e "s|__FLUSS_LAKE_S3_SECRET_KEY__|${FLUSS_LAKE_S3_SECRET_KEY}|g" \
-    "${LAKE_READABLE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-readable-counts.sql"
+    "${LAKE_READABLE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-readable-counts-header.sql"
 
 # Cancels every job on the cluster. This cluster runs nothing but the tiering
 # service, and a retry must not leave the previous attempt's job consuming the
 # database the next attempt is about to drop and recreate.
 cancel_all_jobs() {
-    local ids
-    ids="$("${FLINK_BIN}" list -r 2>/dev/null | grep -oE '[0-9a-f]{32}' || true)"
-    local id
+    local ids id command_timeout
+    command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 1
+    ids="$(timeout "${command_timeout}" "${FLINK_BIN}" list -r 2>/dev/null \
+        | grep -oE '[0-9a-f]{32}' || true)"
     for id in ${ids}; do
         echo "Cancelling flink job ${id}"
-        "${FLINK_BIN}" cancel "${id}" >/dev/null 2>&1 || true
+        command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 1
+        timeout "${command_timeout}" "${FLINK_BIN}" cancel "${id}" >/dev/null 2>&1 || true
     done
 }
 
 # Submits the fluss -> paimon tiering service. Detached, because it is a
 # streaming job that has to keep running while init.sql writes.
 start_tiering_job() {
-    local jar
+    local jar command_timeout
     # shellcheck disable=SC2086
     jar="$(ls ${TIERING_JAR_GLOB} 2>/dev/null | head -n 1)"
     if [[ -z "${jar}" ]]; then
@@ -148,7 +203,8 @@ start_tiering_job() {
     # write it, and neither reads the other's configuration. The credentials in
     # particular cannot be picked up from the servers even in principle -- fluss
     # strips them out of anything it hands to a client.
-    "${FLINK_BIN}" run -d "${jar}" \
+    command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 1
+    timeout "${command_timeout}" "${FLINK_BIN}" run -d "${jar}" \
         --fluss.bootstrap.servers "${FLUSS_BOOTSTRAP_SERVERS}" \
         --datalake.format paimon \
         --datalake.paimon.metastore filesystem \
@@ -166,13 +222,13 @@ start_tiering_job() {
 # leave a table meant to be lake-only with a log tail on some runs and not
 # others.
 wait_for_lake_rows() {
-    local waited=0
+    local deadline
+    deadline="$(stage_deadline "${LAKE_TIERING_WAIT_SECONDS}")"
     local log="${MARKER_DIR}/lake-row-counts.log"
     local expected missing
     while :; do
         missing=""
-        if timeout "${SQL_TIMEOUT_SECONDS}" /opt/flink/bin/sql-client.sh \
-            -f "${MARKER_DIR}/lake-row-counts.sql" >"${log}" 2>&1; then
+        if run_sql_probe "${MARKER_DIR}/lake-row-counts.sql" "${log}" "${deadline}"; then
             for expected in "${LAKE_EXPECTED_ROWS[@]}"; do
                 grep -qF "LAKEROWS:${expected}" "${log}" || missing="${missing} ${expected}"
             done
@@ -183,71 +239,116 @@ wait_for_lake_rows() {
         else
             missing=" (count query failed)"
         fi
-        if ((waited >= LAKE_TIERING_WAIT_SECONDS)); then
-            echo "ERROR: tiering did not reach the expected row counts after ${LAKE_TIERING_WAIT_SECONDS}s:${missing}" >&2
+        if ! remaining_until "${deadline}" >/dev/null; then
+            echo "ERROR: tiering did not reach the expected row counts before its deadline:${missing}" >&2
             echo "ERROR: last count output follows" >&2
             cat "${log}" >&2 || true
             return 1
         fi
-        sleep 10
-        waited=$((waited + 10))
+        sleep_before 10 "${deadline}" || return 1
     done
 }
 
-# A Paimon commit becomes visible in object storage before the tiering committer
-# publishes it as Fluss's readable snapshot. A successful base-table query alone
-# is insufficient because Fluss deliberately falls back to its log when no readable
-# snapshot exists. The enumerator logs that exact fallback, so compare only the
-# JobManager log bytes emitted by this probe and require both expected results and
-# the absence of the fallback branch.
+# Asks the ZooKeeper sidecar for exactly the snapshot IDs the coordinator has
+# published as readable. Replies are generation-qualified: an export that
+# finishes after its caller timed out cannot be mistaken for a later request.
+request_readable_snapshot_ids() {
+    local parent_deadline="$1"
+    local request_id
+    request_id="$(date +%s)-$$-${RANDOM}"
+    local snapshot_file="${ZOOKEEPER_CONTROL_DIR}/SNAPSHOTS.${request_id}"
+    local failure_file="${ZOOKEEPER_CONTROL_DIR}/EXPORT_FAILED.${request_id}"
+    local request_tmp request_deadline candidate
+
+    request_deadline="${parent_deadline}"
+    candidate=$(($(date +%s) + ZOOKEEPER_EXPORT_WAIT_SECONDS))
+    if ((candidate < request_deadline)); then
+        request_deadline=${candidate}
+    fi
+
+    rm -f "${snapshot_file}" "${failure_file}"
+    request_tmp="$(mktemp "${ZOOKEEPER_CONTROL_DIR}/EXPORT_REQUEST.XXXXXX")"
+    printf '%s\n' "${request_id}" >"${request_tmp}"
+    mv "${request_tmp}" "${ZOOKEEPER_CONTROL_DIR}/EXPORT_REQUEST"
+
+    while :; do
+        if [[ -f "${snapshot_file}" ]]; then
+            if grep -qF "generation=${request_id}" "${snapshot_file}"; then
+                printf '%s\n' "${snapshot_file}"
+                return 0
+            fi
+            echo "ERROR: ZooKeeper snapshot export returned the wrong generation" \
+                >"${MARKER_DIR}/lake-readable-export.log"
+            return 1
+        fi
+        if [[ -f "${failure_file}" ]]; then
+            cp "${failure_file}" "${MARKER_DIR}/lake-readable-export.log"
+            return 1
+        fi
+        if ! remaining_until "${request_deadline}" >/dev/null; then
+            echo "ZooKeeper readable-snapshot export timed out" \
+                >"${MARKER_DIR}/lake-readable-export.log"
+            return 1
+        fi
+        sleep_before 1 "${request_deadline}" || return 1
+    done
+}
+
+build_readable_count_sql() {
+    local snapshots="$1"
+    local sql="${MARKER_DIR}/lake-readable-counts.sql"
+    local expected table snapshot first=1
+
+    cp "${MARKER_DIR}/lake-readable-counts-header.sql" "${sql}"
+    for expected in "${LAKE_EXPECTED_ROWS[@]}"; do
+        table="${expected%%=*}"
+        snapshot="$(sed -n "s/^${table}=//p" "${snapshots}")"
+        if [[ ! "${snapshot}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: no readable snapshot id exported for fluss_test.${table}" >&2
+            return 1
+        fi
+        if ((first == 0)); then
+            printf 'UNION ALL\n' >>"${sql}"
+        fi
+        printf "SELECT CONCAT('READABLE:%s=', CAST(COUNT(*) AS STRING)) AS marker FROM \`%s\` /*+ OPTIONS('scan.snapshot-id'='%s') */\n" \
+            "${table}" "${table}" "${snapshot}" >>"${sql}"
+        first=0
+    done
+    printf ';\n' >>"${sql}"
+}
+
+# A Paimon commit is visible in object storage before the tiering committer
+# publishes it to Fluss. Query each coordinator-published snapshot ID directly:
+# an older readable snapshot plus a log tail cannot satisfy this count, while a
+# latest-but-not-readable Paimon snapshot is never selected in the first place.
 wait_for_readable_lake_snapshots() {
-    local waited=0
+    local deadline snapshots
+    deadline="$(stage_deadline "${LAKE_READABLE_WAIT_SECONDS}")"
     local sql_log="${MARKER_DIR}/lake-readable-counts.log"
-    local before_log="${MARKER_DIR}/jobmanager-before.log"
-    local after_log="${MARKER_DIR}/jobmanager-after.log"
-    local delta_log="${MARKER_DIR}/jobmanager-readable-delta.log"
-    local expected missing before_size after_size
+    local expected missing
     while :; do
         missing=""
-        curl -sf "http://${FLUSS_JOBMANAGER_HOST}:${JOBMANAGER_PORT}/jobmanager/log" \
-            >"${before_log}" || return 1
-        before_size="$(wc -c <"${before_log}")"
-        if timeout "${SQL_TIMEOUT_SECONDS}" /opt/flink/bin/sql-client.sh \
-            -f "${MARKER_DIR}/lake-readable-counts.sql" >"${sql_log}" 2>&1; then
+        if snapshots="$(request_readable_snapshot_ids "${deadline}")" \
+            && build_readable_count_sql "${snapshots}" \
+            && run_sql_probe "${MARKER_DIR}/lake-readable-counts.sql" "${sql_log}" "${deadline}"; then
             for expected in "${LAKE_EXPECTED_ROWS[@]}"; do
                 grep -qF "READABLE:${expected}" "${sql_log}" || missing="${missing} ${expected}"
             done
         else
-            missing=" (readable-snapshot query failed)"
-        fi
-
-        curl -sf "http://${FLUSS_JOBMANAGER_HOST}:${JOBMANAGER_PORT}/jobmanager/log" \
-            >"${after_log}" || return 1
-        after_size="$(wc -c <"${after_log}")"
-        if ((after_size >= before_size)); then
-            tail -c "+$((before_size + 1))" "${after_log}" >"${delta_log}"
-        else
-            cp "${after_log}" "${delta_log}"
-        fi
-        if ! grep -qF "fluss-readable-snapshot-probe" "${delta_log}"; then
-            missing="${missing} (probe was not observed in the JobManager log)"
-        fi
-        if grep -qF "No lake snapshot found for table" "${delta_log}"; then
-            missing="${missing} (Fluss still used log-only fallback)"
+            missing=" (exact readable-snapshot query failed)"
         fi
         if [[ -z "${missing}" ]]; then
-            echo "Readable lake snapshots published:${LAKE_EXPECTED_ROWS[*]}"
+            echo "Exact readable lake snapshots contain:${LAKE_EXPECTED_ROWS[*]}"
             return 0
         fi
-        if ((waited >= LAKE_READABLE_WAIT_SECONDS)); then
-            echo "ERROR: Fluss did not publish every readable lake snapshot after ${LAKE_READABLE_WAIT_SECONDS}s:${missing}" >&2
-            echo "ERROR: last readable query and JobManager log delta follow" >&2
-            cat "${sql_log}" >&2 || true
-            cat "${delta_log}" >&2 || true
+        if ! remaining_until "${deadline}" >/dev/null; then
+            echo "ERROR: Fluss did not publish every expected row in a readable lake snapshot before its deadline:${missing}" >&2
+            echo "ERROR: last readable query and snapshot-export diagnostics follow" >&2
+            cat "${sql_log}" >&2 2>/dev/null || true
+            cat "${MARKER_DIR}/lake-readable-export.log" >&2 2>/dev/null || true
             return 1
         fi
-        sleep 10
-        waited=$((waited + 10))
+        sleep_before 10 "${deadline}" || return 1
     done
 }
 
@@ -268,7 +369,8 @@ wait_for_readable_lake_snapshots() {
 # right rows. Never seeing a snapshot at all is the real problem, and that is
 # what the timeout reports.
 wait_for_kv_snapshots() {
-    local waited=0
+    local deadline
+    deadline="$(stage_deadline "${SNAPSHOT_WAIT_SECONDS}")"
     local table
     local missing
     while :; do
@@ -289,14 +391,13 @@ wait_for_kv_snapshots() {
             echo "Kv snapshots present for:${SNAPSHOT_TABLES[*]}"
             return 0
         fi
-        if ((waited >= SNAPSHOT_WAIT_SECONDS)); then
-            echo "ERROR: no kv snapshot after ${SNAPSHOT_WAIT_SECONDS}s for:${missing}" >&2
+        if ! remaining_until "${deadline}" >/dev/null; then
+            echo "ERROR: no kv snapshot before the snapshot deadline for:${missing}" >&2
             echo "ERROR: expected under ${FLUSS_REMOTE_DATA_DIR}/kv/fluss_test/" >&2
             ls -R "${FLUSS_REMOTE_DATA_DIR}/kv" >&2 2>/dev/null || true
             return 1
         fi
-        sleep 5
-        waited=$((waited + 5))
+        sleep_before 5 "${deadline}" || return 1
     done
 }
 
@@ -307,7 +408,9 @@ run_sql() {
 
     # Timeout, because a write that the servers keep rejecting is retried by the
     # fluss client practically forever: without it the container just hangs.
-    timeout "${SQL_TIMEOUT_SECONDS}" /opt/flink/bin/sql-client.sh -f "${sql}" 2>&1 | tee "${log}"
+    local command_timeout
+    command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 124
+    timeout "${command_timeout}" /opt/flink/bin/sql-client.sh -f "${sql}" 2>&1 | tee "${log}"
     status="${PIPESTATUS[0]}"
     if ((status != 0)); then
         return "${status}"
@@ -331,7 +434,8 @@ drop_lake_warehouse() {
     case "${FLUSS_PAIMON_WAREHOUSE}" in
         s3://*)
             local target="${FLUSS_PAIMON_WAREHOUSE#s3://}/fluss_test.db"
-            local waited=0
+            local deadline
+            deadline="$(stage_deadline "${MINIO_CLEANUP_WAIT_SECONDS}")"
             rm -f "${MINIO_CONTROL_DIR}/CLEANUP_DONE" \
                 "${MINIO_CONTROL_DIR}/CLEANUP_FAILED"
             printf '%s\n' "${target}" >"${MINIO_CONTROL_DIR}/CLEANUP_REQUEST.tmp"
@@ -342,12 +446,11 @@ drop_lake_warehouse() {
                     cat "${MINIO_CONTROL_DIR}/CLEANUP_FAILED" >&2
                     return 1
                 fi
-                if ((waited >= MINIO_CLEANUP_WAIT_SECONDS)); then
-                    echo "ERROR: minio did not clean s3://${target} within ${MINIO_CLEANUP_WAIT_SECONDS}s" >&2
+                if ! remaining_until "${deadline}" >/dev/null; then
+                    echo "ERROR: minio did not clean s3://${target} before its cleanup deadline" >&2
                     return 1
                 fi
-                sleep 1
-                waited=$((waited + 1))
+                sleep_before 1 "${deadline}" || return 1
             done
             ;;
         file://*)
@@ -370,7 +473,7 @@ run_attempt() {
 
     # A previous attempt's tiering job would still be consuming the database
     # init.sql is about to drop.
-    cancel_all_jobs
+    cancel_all_jobs || return 1
     drop_lake_warehouse || return 1
     start_tiering_job || return 1
 
@@ -382,7 +485,7 @@ run_attempt() {
 
     # Everything meant for the lake is both committed and published as readable.
     # Stop tiering BEFORE writing the tail, so the tail stays in the fluss log.
-    cancel_all_jobs
+    cancel_all_jobs || return 1
 
     run_sql "${MARKER_DIR}/init-lake-tail.sql" \
         "${MARKER_DIR}/init-lake-tail-attempt-${attempt}.log" || return 1
@@ -393,6 +496,10 @@ run_attempt() {
 # from the same state. Retries exist because the tablet server may still be
 # registering with the coordinator when the ports are already open.
 for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
+    if ! remaining_until "${INIT_DEADLINE_EPOCH}" >/dev/null; then
+        echo "ERROR: fluss fixture initialization exhausted its ${INIT_TIMEOUT_SECONDS}s wall-clock budget" >&2
+        exit 1
+    fi
     echo "Running fluss init SQL (attempt ${attempt}/${ATTEMPTS})"
     if run_attempt "${attempt}"; then
         echo "Fluss fixtures written; waiting for kv snapshots"
@@ -404,8 +511,10 @@ for ((attempt = 1; attempt <= ATTEMPTS; attempt++)); do
         exec tail -f /dev/null
     fi
     echo "Fluss init SQL failed on attempt ${attempt}" >&2
-    sleep 10
+    if ((attempt < ATTEMPTS)); then
+        sleep_before 10 "${INIT_DEADLINE_EPOCH}" || break
+    fi
 done
 
-echo "ERROR: fluss init SQL failed after ${ATTEMPTS} attempts" >&2
+echo "ERROR: fluss init SQL failed after ${ATTEMPTS} attempts or the ${INIT_TIMEOUT_SECONDS}s wall-clock budget" >&2
 exit 1

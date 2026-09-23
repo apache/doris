@@ -44,9 +44,9 @@ import java.util.Map;
  * </pre>
  *
  * <p>Two keys are renamed because Doris's paimon connector spells them differently from paimon itself;
- * everything else is forwarded with only the prefix removed. That verbatim tail is what carries a real
- * deployment's storage keys ({@code fs.*} / {@code dfs.*} / {@code hadoop.*}), which the paimon connector
- * reads under exactly those names.
+ * everything else is synthesized with only the prefix removed. At the final connector boundary,
+ * {@link FlussConnector} extracts storage keys ({@code s3.*} / {@code fs.*} / {@code dfs.*} / {@code
+ * hadoop.*}) into the shared storage context and hands the remaining metadata options to Paimon.
  *
  * <p><b>What the table properties cannot contain is credentials.</b> The fluss cluster removes every lake
  * option whose name contains {@code key}, {@code secret} or {@code password} before it answers a metadata
@@ -56,9 +56,9 @@ import java.util.Map;
  *
  * <p>The result starts with the complete gateway catalog property map. This is intentional: engine-wide
  * type-mapping switches, paimon metadata-cache settings, Hadoop/Kerberos settings, and raw storage
- * options are all consumed by the paimon connector itself. The shared connector context still supplies
- * the engine-owned filesystem; retaining the raw settings here also lets paimon configure its catalog
- * and filesystem clients consistently with that context.
+ * options are all candidates for the Paimon connector. {@link FlussConnector} removes only the storage
+ * subset after deriving the shared FE/BE configuration, so Paimon's catalog and filesystem clients see
+ * the same values through {@code ConnectorStorageContext} rather than a second raw configuration path.
  */
 final class PaimonSiblingProperties {
 
@@ -85,6 +85,8 @@ final class PaimonSiblingProperties {
     private static final String DORIS_FILESYSTEM = "filesystem";
     private static final String DORIS_HMS = "hms";
     private static final String DORIS_REST = "rest";
+    private static final String PAIMON_REST_PREFIX = "paimon.rest.";
+    private static final String REST_PREFIX = "rest.";
 
     private PaimonSiblingProperties() {
     }
@@ -106,12 +108,14 @@ final class PaimonSiblingProperties {
      */
     static Map<String, String> synthesize(Map<String, String> gatewayCatalogProperties,
             Map<String, String> flussTableProperties, Map<String, String> catalogLakeOverrides) {
-        Map<String, String> lakeOptions = new LinkedHashMap<>();
+        Map<String, String> clusterLakeOptions = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : flussTableProperties.entrySet()) {
             if (entry.getKey().startsWith(LAKE_OPTION_PREFIX)) {
-                lakeOptions.put(entry.getKey().substring(LAKE_OPTION_PREFIX.length()), entry.getValue());
+                clusterLakeOptions.put(
+                        entry.getKey().substring(LAKE_OPTION_PREFIX.length()), entry.getValue());
             }
         }
+        Map<String, String> lakeOptions = new LinkedHashMap<>(clusterLakeOptions);
         lakeOptions.putAll(catalogLakeOverrides);
         String catalogType = dorisCatalogType(lakeOptions.remove(FLUSS_METASTORE));
 
@@ -130,7 +134,63 @@ final class PaimonSiblingProperties {
         siblingProperties.put(PAIMON_CATALOG_TYPE, catalogType);
         siblingProperties.put(WAREHOUSE, warehouse);
         siblingProperties.putAll(lakeOptions);
+        if (DORIS_REST.equals(catalogType)) {
+            normalizeRestOptions(siblingProperties, clusterLakeOptions,
+                    gatewayCatalogProperties, catalogLakeOverrides);
+        }
         return siblingProperties;
+    }
+
+    /**
+     * Translates Fluss/Paimon native REST aliases into the namespace Doris's Paimon consumer binds.
+     * Precedence is cluster defaults, then a direct gateway {@code paimon.rest.*} setting, then the
+     * catalog's explicit {@code fluss.lake.paimon.*} override.
+     */
+    private static void normalizeRestOptions(Map<String, String> siblingProperties,
+            Map<String, String> clusterLakeOptions, Map<String, String> gatewayCatalogProperties,
+            Map<String, String> catalogLakeOverrides) {
+        Map<String, String> normalized = new LinkedHashMap<>();
+        copyRestOptions(clusterLakeOptions, normalized);
+        copyGatewayRestOptions(gatewayCatalogProperties, normalized);
+        copyRestOptions(catalogLakeOverrides, normalized);
+
+        siblingProperties.keySet().removeIf(PaimonSiblingProperties::isRestAlias);
+        siblingProperties.putAll(normalized);
+    }
+
+    private static void copyGatewayRestOptions(Map<String, String> source, Map<String, String> target) {
+        source.forEach((key, value) -> {
+            if (key.startsWith(PAIMON_REST_PREFIX)) {
+                target.put(key, value);
+            }
+        });
+    }
+
+    private static void copyRestOptions(Map<String, String> source, Map<String, String> target) {
+        for (Map.Entry<String, String> entry : source.entrySet()) {
+            String normalized = restOptionName(entry.getKey());
+            if (normalized != null) {
+                target.put(normalized, entry.getValue());
+            }
+        }
+    }
+
+    private static String restOptionName(String key) {
+        if (key.startsWith(PAIMON_REST_PREFIX)) {
+            return key;
+        }
+        if (key.startsWith(REST_PREFIX)) {
+            return PAIMON_REST_PREFIX + key.substring(REST_PREFIX.length());
+        }
+        if ("uri".equals(key) || "token".equals(key) || "token.provider".equals(key)
+                || key.startsWith("dlf.")) {
+            return PAIMON_REST_PREFIX + key;
+        }
+        return null;
+    }
+
+    private static boolean isRestAlias(String key) {
+        return restOptionName(key) != null;
     }
 
     /** Kept for narrow translation tests; production always supplies the gateway catalog map. */

@@ -504,7 +504,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildCrossStatementSession();
+        ConnectorSession session = buildSchemaSession(pluginCatalog);
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
             String dbName = db != null ? db.getRemoteName() : "";
@@ -528,8 +528,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
             ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
             return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
         } finally {
-            session.getStatementScope().closeAll();
+            closeSchemaSession(session);
         }
+    }
+
+    /**
+     * The session used while binding this table's schema. Persisted base tables fill a cross-statement
+     * schema cache, so their default is an operation-local scope. Transient system relations override
+     * this to borrow the live SQL statement scope that their later hidden-column and scan paths also use.
+     */
+    protected ConnectorSession buildSchemaSession(PluginDrivenExternalCatalog pluginCatalog) {
+        return pluginCatalog.buildCrossStatementSession();
+    }
+
+    /** Releases the operation-local schema scope; a borrower overrides this with a no-op. */
+    protected void closeSchemaSession(ConnectorSession session) {
+        session.getStatementScope().closeAll();
     }
 
     /**

@@ -40,6 +40,35 @@ services:
     networks:
       - doris--fluss--network
 
+  # The coordinator stores the exact snapshot exposed by
+  # getReadableLakeSnapshot in ZooKeeper. This small sidecar exports those IDs
+  # through a shared directory so the SQL client can validate that exact
+  # Paimon snapshot, rather than accidentally accepting an older readable
+  # snapshot plus a Fluss log tail.
+  doris--fluss-zookeeper-probe:
+    image: zookeeper:3.9.2
+    container_name: doris--fluss-zookeeper-probe
+    hostname: doris--fluss-zookeeper-probe
+    user: "0:0"
+    depends_on:
+      doris--fluss-zookeeper:
+        condition: service_healthy
+    entrypoint: ["bash", "/opt/fluss-scripts/run-zookeeper-probe.sh"]
+    environment:
+      - ZK_SERVER=doris--fluss-zookeeper:2181
+      # Fluss namespaces every metadata znode below this default root.
+      - ZK_ROOT=/fluss
+    volumes:
+      - ./scripts:/opt/fluss-scripts:ro
+      - ./data/zookeeper-control:/tmp/fluss-zookeeper-control
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/fluss-zookeeper-control/READY"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+    networks:
+      - doris--fluss--network
+
   # The object store the lake lives in. Part of this environment rather than
   # borrowed from another component's: the fluss servers, the tiering job and
   # Doris all have to name one endpoint, and an environment that only works when
@@ -301,6 +330,8 @@ services:
         condition: service_healthy
       doris--fluss-taskmanager:
         condition: service_healthy
+      doris--fluss-zookeeper-probe:
+        condition: service_healthy
     # Runs as a command behind the image's init script, not as an entrypoint of
     # its own: the script ends in the flink entrypoint, which is what turns
     # FLINK_PROPERTIES into the config the SQL client submits with.
@@ -329,6 +360,7 @@ services:
       - ./sql:/opt/fluss-sql:ro
       - ./scripts:/opt/fluss-scripts:ro
       - ./data/minio-control:/tmp/fluss-minio-control
+      - ./data/zookeeper-control:/tmp/fluss-zookeeper-control
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}:ro
       # Writable, not read-only like the one above: `flink run` builds the
       # tiering job graph in this container, and building it opens the lake
@@ -336,9 +368,10 @@ services:
       - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/fluss-init/SUCCESS"]
-      # Three SQL attempts can legitimately consume roughly 45 minutes. Do not
-      # let compose --wait kill the stack while the script is still retrying.
-      start_period: 2700s
+      # run-init-sql.sh has one 3000s wall-clock budget across every stage and
+      # retry. The retry window below adds 600s for healthcheck scheduling, so
+      # compose cannot declare the service unhealthy while that budget is live.
+      start_period: 3000s
       interval: 5s
       timeout: 10s
       retries: 120

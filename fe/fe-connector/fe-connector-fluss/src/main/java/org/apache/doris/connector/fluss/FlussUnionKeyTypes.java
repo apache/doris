@@ -29,8 +29,8 @@ import org.apache.fluss.types.TimestampType;
  * by different code: the lake half arrives through paimon's readers, the log tail through fluss's. A
  * row of the lake is dropped when its KEY appears in the tail, so the two sides must agree on what
  * "the same key" means, exactly, for every key column. Where they might not, the table is not read that
- * way at all — the fluss-only read still returns every row of a primary-key table, so refusing to
- * combine the halves costs speed, never correctness.
+ * way at all — live partitions can be read in full from Fluss, while retained lake-only partitions stay
+ * as plain lake splits, so refusing to combine overlapping halves costs speed, never correctness.
  *
  * <p>The same question one level up decides which partition a lake split belongs to: the split's
  * partition VALUES are compared, as text, with the ones fluss reports. That comparison is only sound

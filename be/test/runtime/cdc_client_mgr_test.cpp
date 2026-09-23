@@ -25,6 +25,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstdio>
@@ -410,13 +411,92 @@ TEST_F(CdcClientMgrTest, SigchldHandlerReapsOwnedChildAndPreservesErrno) {
     errno = EBUSY;
     CdcClientMgr::invoke_sigchld_handler_for_test();
     EXPECT_EQ(errno, EBUSY);
+    EXPECT_EQ(mgr.get_child_pid(), 0)
+            << "reaping the owned child must also revoke the manager's ownership";
 
     int status = 0;
     errno = 0;
     EXPECT_EQ(waitpid(pid, &status, WNOHANG), -1);
     EXPECT_EQ(errno, ECHILD) << "the handler must collect the cdc child itself";
 
-    mgr.set_child_pid_for_test(0);
+    // Once ownership is revoked, stop() must not act on another live child of the same BE. This
+    // covers the dangerous same-parent case: waitpid() would accept that child, unlike a reused PID
+    // owned by another process.
+    pid_t unrelated_pid = 0;
+    char* const unrelated_argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                                    const_cast<char*>("sleep 10"), nullptr};
+    ASSERT_EQ(posix_spawn(&unrelated_pid, "/bin/sh", nullptr, nullptr, unrelated_argv, envp), 0);
+    ASSERT_GT(unrelated_pid, 0);
+    Defer cleanup_unrelated {[&]() {
+        kill(unrelated_pid, SIGKILL);
+        waitpid(unrelated_pid, nullptr, 0);
+    }};
+
+    mgr.stop();
+    EXPECT_EQ(kill(unrelated_pid, 0), 0)
+            << "stop() signalled a child after the CDC ownership had been revoked";
+}
+
+TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    mgr.set_child_pid_for_test(pid);
+    CdcClientMgr::pause_sigchld_handler_for_test(true);
+    std::thread handler([]() { CdcClientMgr::invoke_sigchld_handler_for_test(); });
+
+    for (int i = 0; i < 100 && !CdcClientMgr::sigchld_handler_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!CdcClientMgr::sigchld_handler_paused_for_test()) {
+        CdcClientMgr::pause_sigchld_handler_for_test(false);
+        handler.join();
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        FAIL() << "the deterministic handler did not reach its pause point";
+    }
+
+    std::atomic<bool> stop_finished {false};
+    std::thread stopper([&]() {
+        mgr.stop();
+        stop_finished.store(true);
+    });
+    for (int i = 0; i < 100 && mgr.get_child_pid() != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_EQ(mgr.get_child_pid(), 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(stop_finished.load())
+            << "stop returned while a signal handler could still operate the old numeric pid";
+
+    CdcClientMgr::pause_sigchld_handler_for_test(false);
+    handler.join();
+    stopper.join();
+    EXPECT_TRUE(stop_finished.load());
+
+    errno = 0;
+    EXPECT_EQ(waitpid(pid, nullptr, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD);
 }
 
 // Test start_cdc_client when environment is missing

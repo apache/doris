@@ -20,6 +20,8 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -54,6 +56,35 @@ import java.util.Set;
  * mirroring {@code PluginDrivenExternalTableTest}.
  */
 public class PluginDrivenSysExternalTableTest {
+
+    @Test
+    public void twoAliasSchemasBorrowOneLiveStatementScopeWithoutClosingIt() {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        ConnectorSession firstAliasSession = Mockito.mock(ConnectorSession.class);
+        ConnectorSession secondAliasSession = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScope statementScope = Mockito.mock(ConnectorStatementScope.class);
+        ConnectorSession crossStatementSession = Mockito.mock(ConnectorSession.class);
+        Mockito.when(firstAliasSession.getStatementScope()).thenReturn(statementScope);
+        Mockito.when(secondAliasSession.getStatementScope()).thenReturn(statementScope);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(firstAliasSession, secondAliasSession);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(crossStatementSession);
+        PluginDrivenSysExternalTable firstAlias =
+                Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenSysExternalTable secondAlias =
+                Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);
+
+        ConnectorSession first = firstAlias.buildSchemaSession(catalog);
+        ConnectorSession second = secondAlias.buildSchemaSession(catalog);
+        Assertions.assertNotSame(first, second);
+        Assertions.assertSame(statementScope, first.getStatementScope());
+        Assertions.assertSame(statementScope, second.getStatementScope());
+        firstAlias.closeSchemaSession(first);
+        secondAlias.closeSchemaSession(second);
+
+        Mockito.verify(catalog, Mockito.times(2)).buildConnectorSession();
+        Mockito.verify(catalog, Mockito.never()).buildCrossStatementSession();
+        Mockito.verify(statementScope, Mockito.never()).closeAll();
+    }
 
     /**
      * A CALLS_REAL_METHODS {@link PluginDrivenSysExternalTable} whose connector declares exactly

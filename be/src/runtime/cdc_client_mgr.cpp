@@ -35,6 +35,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <mutex>
@@ -52,10 +53,32 @@
 namespace doris {
 
 namespace {
-// The pid of the cdc client this process forked, published for handle_sigchld(). A signal handler
-// may only touch lock-free atomics, so the one pid it is allowed to reap lives here rather than
-// behind CdcClientMgr's mutex. ExecEnv owns a single CdcClientMgr, so there is a single pid.
-std::atomic<pid_t> g_cdc_child_pid {0};
+// The identity of the cdc client this process forked, published for handle_sigchld(). A signal
+// handler may only touch lock-free atomics, so the pid and its generation live in one 64-bit word
+// rather than behind CdcClientMgr's mutex. The generation prevents a delayed handler from clearing
+// ownership after the kernel has already reused the same numeric pid for a replacement child.
+// ExecEnv owns a single CdcClientMgr, so there is a single published identity.
+static_assert(sizeof(pid_t) <= sizeof(uint32_t));
+static_assert(std::atomic<uint64_t>::is_always_lock_free);
+static_assert(std::atomic<uint32_t>::is_always_lock_free);
+std::atomic<uint64_t> g_cdc_child_identity {0};
+std::atomic<uint32_t> g_cdc_child_generation {0};
+std::atomic<uint32_t> g_cdc_sigchld_handlers {0};
+
+#ifdef BE_TEST
+static_assert(std::atomic<bool>::is_always_lock_free);
+std::atomic<bool> g_pause_cdc_sigchld_handler {false};
+std::atomic<bool> g_cdc_sigchld_handler_paused {false};
+#endif
+
+pid_t child_pid(uint64_t identity) {
+    return static_cast<pid_t>(static_cast<uint32_t>(identity));
+}
+
+uint64_t new_child_identity(pid_t pid) {
+    const uint64_t generation = g_cdc_child_generation.fetch_add(1, std::memory_order_relaxed) + 1;
+    return (generation << 32) | static_cast<uint32_t>(pid);
+}
 
 // Reap the cdc client so it does not linger as a zombie.
 //
@@ -66,23 +89,46 @@ std::atomic<pid_t> g_cdc_child_pid {0};
 // wrong branch - which is how frocksdbjni's `ldd /usr/bin/env | grep -q musl` probe answered "yes"
 // on a glibc host and loaded the musl build of librocksdbjni.so. Wait for our own pid only.
 void handle_sigchld(int sig_no) {
-    const pid_t cdc_pid = g_cdc_child_pid.load(std::memory_order_relaxed);
+    // Publish that this handler may have taken a copy of the current identity. A normal thread
+    // clearing ownership waits for all such copies to quiesce before it may publish a replacement;
+    // otherwise a delayed waitpid(old_pid) could collect a same-parent child that reused old_pid.
+    const int saved_errno = errno;
+    g_cdc_sigchld_handlers.fetch_add(1);
+    const uint64_t cdc_identity = g_cdc_child_identity.load();
+    const pid_t cdc_pid = child_pid(cdc_identity);
     if (cdc_pid <= 0) {
+        g_cdc_sigchld_handlers.fetch_sub(1);
+        errno = saved_errno;
         return;
     }
-    // A handler must leave errno as it found it: it can interrupt a thread between a failing call
-    // and its errno check.
-    const int saved_errno = errno;
+#ifdef BE_TEST
+    if (g_pause_cdc_sigchld_handler.load()) {
+        g_cdc_sigchld_handler_paused.store(true);
+        while (g_pause_cdc_sigchld_handler.load()) {
+        }
+        g_cdc_sigchld_handler_paused.store(false);
+    }
+#endif
     int status = 0;
     pid_t wait_result;
     do {
         wait_result = waitpid(cdc_pid, &status, WNOHANG);
     } while (wait_result < 0 && errno == EINTR);
     if (wait_result == cdc_pid) {
-        pid_t expected = cdc_pid;
-        g_cdc_child_pid.compare_exchange_strong(expected, 0, std::memory_order_relaxed);
+        uint64_t expected = cdc_identity;
+        g_cdc_child_identity.compare_exchange_strong(expected, 0);
     }
+    g_cdc_sigchld_handlers.fetch_sub(1);
     errno = saved_errno;
+}
+
+// After removing a published identity, wait until no signal handler can still be holding it. The
+// seq-cst counter and identity operations establish this ordering: a handler that loaded the old
+// identity incremented before the exchange and must therefore be observed here until it finishes.
+void wait_for_sigchld_handlers() {
+    while (g_cdc_sigchld_handlers.load() != 0) {
+        std::this_thread::yield();
+    }
 }
 
 // Terminate and collect one child owned by this process. The SIGCHLD handler may have won the
@@ -175,22 +221,43 @@ CdcClientMgr::~CdcClientMgr() {
 }
 
 void CdcClientMgr::_set_child_pid(pid_t pid) {
-    _child_pid.store(pid);
-    g_cdc_child_pid.store(pid, std::memory_order_relaxed);
+    if (pid > 0) {
+        g_cdc_child_identity.store(new_child_identity(pid));
+        return;
+    }
+    g_cdc_child_identity.store(0);
+    wait_for_sigchld_handlers();
+}
+
+pid_t CdcClientMgr::_get_child_pid() const {
+    return child_pid(g_cdc_child_identity.load());
+}
+
+pid_t CdcClientMgr::_take_child_pid() {
+    const pid_t pid = child_pid(g_cdc_child_identity.exchange(0));
+    wait_for_sigchld_handlers();
+    return pid;
 }
 
 #ifdef BE_TEST
 void CdcClientMgr::invoke_sigchld_handler_for_test() {
     handle_sigchld(SIGCHLD);
 }
+
+void CdcClientMgr::pause_sigchld_handler_for_test(bool pause) {
+    g_pause_cdc_sigchld_handler.store(pause);
+}
+
+bool CdcClientMgr::sigchld_handler_paused_for_test() {
+    return g_cdc_sigchld_handler_paused.load();
+}
 #endif
 
 void CdcClientMgr::stop() {
     std::lock_guard<std::mutex> lock(_start_mutex);
-    pid_t pid = _child_pid.load();
     // Stop publishing before signalling: from here this thread owns the waitpid, and the handler must
     // not race it or keep a stale pid after teardown.
-    _set_child_pid(0);
+    const pid_t pid = _take_child_pid();
     terminate_and_reap_child(pid);
 
     LOG(INFO) << "CdcClientMgr is stopped";
@@ -200,7 +267,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     std::lock_guard<std::mutex> lock(_start_mutex);
 
     Status st = Status::OK();
-    pid_t exist_pid = _child_pid.load();
+    pid_t exist_pid = _get_child_pid();
     if (exist_pid > 0) {
 #ifdef BE_TEST
         // In test mode, directly return OK if PID exists

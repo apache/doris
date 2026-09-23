@@ -824,8 +824,8 @@ INSERT INTO lake_part_int VALUES
 -- its halves by key means matching a paimon split to a fluss partition by the
 -- text each side renders that value as, and only STRING is guaranteed to render
 -- alike -- so this table must NOT be merged. Under auto it falls back to the
--- fluss-only read, which returns every row anyway; under required it is an
--- error. Without this fixture the rule is only ever exercised on tables that had
+-- current Fluss state (and would preserve any unambiguous lake-only history);
+-- under required it is an error. Without this fixture the rule is only ever exercised on tables that had
 -- no lake to merge in the first place.
 -- ---------------------------------------------------------------------------
 CREATE TABLE lake_pk_part_int (

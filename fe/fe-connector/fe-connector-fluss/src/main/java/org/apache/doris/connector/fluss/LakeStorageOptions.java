@@ -61,6 +61,8 @@ final class LakeStorageOptions {
         names.put("s3.access.key", "s3.access_key");
         names.put("s3.secret-key", "s3.secret_key");
         names.put("s3.secret.key", "s3.secret_key");
+        names.put("s3.session-token", "s3.session_token");
+        names.put("s3.session.token", "s3.session_token");
         names.put("s3.endpoint", "s3.endpoint");
         names.put("s3.region", "s3.region");
         // How a bucket is addressed, which is storage for the same reason the endpoint is: a lake the
@@ -69,6 +71,14 @@ final class LakeStorageOptions {
         // so a fluss cluster may be configured with either.
         names.put("s3.path-style-access", "use_path_style");
         names.put("s3.path.style.access", "use_path_style");
+        // Hadoop's standard S3A spelling is also accepted by Paimon. Translate it explicitly so the
+        // engine can bind a typed object-store configuration and emit native BE credentials.
+        names.put("fs.s3a.access.key", "s3.access_key");
+        names.put("fs.s3a.secret.key", "s3.secret_key");
+        names.put("fs.s3a.session.token", "s3.session_token");
+        names.put("fs.s3a.endpoint", "s3.endpoint");
+        names.put("fs.s3a.endpoint.region", "s3.region");
+        names.put("fs.s3a.path.style.access", "use_path_style");
         // OSS (org.apache.paimon.oss.OSSLoader). Doris: OssFileSystemProperties.
         names.put("fs.oss.accessKeyId", "oss.access_key");
         names.put("fs.oss.accessKeySecret", "oss.secret_key");
@@ -87,7 +97,10 @@ final class LakeStorageOptions {
      * be given to the engine's storage layer rather than to the paimon sibling.
      */
     static boolean isStorageOption(String lakeOption) {
-        return DORIS_NAMES.containsKey(lakeOption);
+        return DORIS_NAMES.containsKey(lakeOption)
+                || lakeOption.startsWith("fs.")
+                || lakeOption.startsWith("dfs.")
+                || lakeOption.startsWith("hadoop.");
     }
 
     /**
@@ -104,6 +117,10 @@ final class LakeStorageOptions {
             String dorisName = DORIS_NAMES.get(entry.getKey());
             if (dorisName != null) {
                 storage.put(dorisName, entry.getValue());
+            } else if (isStorageOption(entry.getKey())) {
+                // HDFS HA/auth and filesystem implementation keys have no Doris alias; the storage
+                // context deliberately accepts and forwards their native Hadoop spelling.
+                storage.put(entry.getKey(), entry.getValue());
             }
         }
         return storage;

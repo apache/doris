@@ -209,6 +209,21 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     }
 
     /**
+     * This object is one SQL relation, not a cross-statement cache entry. Bind its schema in the same
+     * statement scope used later for hidden-column discovery and scan construction, so connector-owned
+     * handles and readable-snapshot pins cannot advance independently between two aliases.
+     */
+    @Override
+    protected ConnectorSession buildSchemaSession(PluginDrivenExternalCatalog pluginCatalog) {
+        return pluginCatalog.buildConnectorSession();
+    }
+
+    /** The live statement owns this scope and closes it after every relation and scan have finished. */
+    @Override
+    protected void closeSchemaSession(ConnectorSession session) {
+    }
+
+    /**
      * Delegate to the source table so DESCRIBE/SHOW on a system table still lists its sibling system
      * tables (legacy parity with {@code PaimonSysExternalTable.getSupportedSysTables}).
      */

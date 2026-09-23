@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.fluss.metadata.TablePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +56,8 @@ public class FlussConnectorLakeSiblingTest {
         private final List<String> requestedTypes = new ArrayList<>();
         private final List<Map<String, String>> requestedProperties = new ArrayList<>();
         private boolean providerAvailable = true;
+        private Runnable beforeCreate = () -> {
+        };
 
         @Override
         public String getCatalogName() {
@@ -68,6 +71,7 @@ public class FlussConnectorLakeSiblingTest {
 
         @Override
         public Connector createSiblingConnector(String catalogType, Map<String, String> properties) {
+            beforeCreate.run();
             requestedTypes.add(catalogType);
             requestedProperties.add(properties);
             return providerAvailable ? new RecordingLakeSibling(properties) : null;
@@ -117,10 +121,10 @@ public class FlussConnectorLakeSiblingTest {
 
         // Two paimon siblings answer "is this handle yours?" with the same class test, so the second could
         // never be routed apart from the first — a table would silently read the wrong warehouse. Refusing
-        // is the only honest answer; the message points at the fix (refresh the catalog).
+        // is the only honest answer; the message points at the operation that really rebuilds it.
         DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
                 () -> connector.getOrCreateLakeSibling(lakeProperties("/other")));
-        Assertions.assertTrue(failure.getMessage().contains("refresh the catalog"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("recreate the catalog"), failure.getMessage());
         // Storage credentials live in these maps; a message that dumps them ends up in the FE audit log.
         Assertions.assertFalse(failure.getMessage().contains("/other"), failure.getMessage());
         Assertions.assertEquals(1, context.requestedTypes.size(), "the refused one must not be built");
@@ -186,6 +190,36 @@ public class FlussConnectorLakeSiblingTest {
     }
 
     @Test
+    public void targetedInvalidationsUseThePhysicalLakeIdentity() {
+        RecordingContext context = new RecordingContext();
+        FlussConnector connector = connector(context);
+        RecordingLakeSibling sibling =
+                (RecordingLakeSibling) connector.getOrCreateLakeSibling(lakeProperties("/lake"));
+
+        TablePath source = TablePath.of("db", "orders");
+        TablePath lake = TablePath.of("archive", "orders_lake");
+        connector.rememberLakePath(source, lake);
+        connector.invalidatePartition("db", "orders", Collections.singletonList("dt=20260101"));
+        connector.invalidateTable("db", "orders");
+        connector.invalidateTable("db", "orders");
+
+        connector.rememberLakePath(TablePath.of("db", "events"), TablePath.of("cold", "events_lake"));
+        connector.invalidateDb("db");
+        connector.invalidateDb("db");
+
+        Assertions.assertEquals(Arrays.asList(
+                "invalidatePartition:archive.orders_lake:[dt=20260101]",
+                "invalidateTable:archive.orders_lake",
+                "invalidateTable:archive.orders_lake",
+                "invalidateDb:db",
+                "invalidateDb:archive",
+                "invalidateDb:cold",
+                "invalidateDb:db",
+                "invalidateDb:archive",
+                "invalidateDb:cold"), sibling.calls);
+    }
+
+    @Test
     public void closingTheConnectorClosesTheSibling() throws IOException {
         RecordingContext context = new RecordingContext();
         FlussConnector connector = connector(context);
@@ -238,5 +272,33 @@ public class FlussConnectorLakeSiblingTest {
         catalogProperties.put("s3.access_key", "AK");
         Assertions.assertEquals(Collections.emptyMap(),
                 connector.deriveStorageProperties(catalogProperties));
+    }
+
+    @Test
+    public void clusterStorageDefaultsArePublishedBeforeTheSiblingBindsStorage() {
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put("fluss.bootstrap.servers", "127.0.0.1:9123");
+        catalogProperties.put("fluss.lake.paimon.s3.access-key", "catalog-ak");
+        RecordingContext context = new RecordingContext();
+        FlussConnector connector = new FlussConnector(
+                FlussCatalogProperties.of(catalogProperties), context);
+
+        Map<String, String> properties = lakeProperties("s3://bucket/lake");
+        properties.put("s3.endpoint", "http://minio:9000");
+        properties.put("s3.path.style.access", "true");
+        properties.put("s3.access-key", "catalog-ak");
+        context.beforeCreate = () -> {
+            Map<String, String> expected = new HashMap<>();
+            expected.put("s3.endpoint", "http://minio:9000");
+            expected.put("use_path_style", "true");
+            expected.put("s3.access_key", "catalog-ak");
+            Assertions.assertEquals(expected, connector.deriveStorageProperties(catalogProperties),
+                    "the shared context may bind FE/BE storage during sibling construction");
+        };
+
+        connector.getOrCreateLakeSibling(properties);
+
+        Assertions.assertEquals(lakeProperties("s3://bucket/lake"), context.requestedProperties.get(0),
+                "the sibling must not receive a second FE-only copy of shared storage settings");
     }
 }

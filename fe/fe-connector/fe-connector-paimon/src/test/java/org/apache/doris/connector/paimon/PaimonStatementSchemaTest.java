@@ -752,6 +752,47 @@ public class PaimonStatementSchemaTest {
         checkBranchMutation(warehouse, true);
     }
 
+    @Test
+    public void dataOnlySnapshotPinKeepsColumnsAddedAfterThatSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT()).build(), false);
+            FileStoreTable initial = (FileStoreTable) catalog.getTable(id);
+            append(initial, GenericRow.of(1));
+            long readableSnapshot = initial.snapshotManager().latestSnapshotId();
+
+            // Fluss permits a nullable ADD before the next tiering commit. The union's data fence still
+            // points at the old snapshot, but slot binding and JNI serialization must use this schema.
+            catalog.alterTable(id, Collections.singletonList(
+                    SchemaChange.addColumn("added", DataTypes.INT())), false);
+            FileStoreTable current = (FileStoreTable) catalog.getTable(id);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(current);
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
+            PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
+            PaimonConnectorMetadata metadata = new PaimonConnectorMetadata(
+                    ops, props, new RecordingConnectorContext());
+            PaimonTableHandle pinned = (PaimonTableHandle) metadata.applySnapshot(
+                    null, handle, ConnectorMvccSnapshot.builder().snapshotId(readableSnapshot).build());
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(props, ops);
+
+            Table scan = provider.resolveScanTable(pinned);
+            Assertions.assertEquals(Arrays.asList("id", "added"), scan.rowType().getFieldNames());
+            Assertions.assertEquals(Collections.singletonList(1), readIdsWithNullAddedColumn(scan),
+                    "the native Paimon read must keep the current schema over the old data snapshot");
+            Table backend = InstantiationUtil.deserializeObject(
+                    InstantiationUtil.serializeObject(provider.tableForBackend(pinned, scan)),
+                    getClass().getClassLoader());
+            Assertions.assertEquals(Arrays.asList("id", "added"), backend.rowType().getFieldNames());
+            Assertions.assertEquals(Collections.singletonList(1), readIdsWithNullAddedColumn(backend),
+                    "the table serialized to the JNI scanner must preserve the same schema and NULL fill");
+        }
+    }
+
     private void checkBranchMutation(Path warehouse, boolean empty) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
                 new org.apache.paimon.fs.Path(warehouse.toUri()))) {
@@ -811,6 +852,21 @@ public class PaimonStatementSchemaTest {
         for (Split split : table.newReadBuilder().newScan().plan().splits()) {
             try (RecordReader<InternalRow> reader = table.newReadBuilder().newRead().createReader(split)) {
                 reader.forEachRemaining(row -> ids.add(row.getInt(0)));
+            }
+        }
+        Collections.sort(ids);
+        return ids;
+    }
+
+    private static List<Integer> readIdsWithNullAddedColumn(Table table) throws Exception {
+        List<Integer> ids = new ArrayList<>();
+        for (Split split : table.newReadBuilder().newScan().plan().splits()) {
+            try (RecordReader<InternalRow> reader = table.newReadBuilder().newRead().createReader(split)) {
+                reader.forEachRemaining(row -> {
+                    ids.add(row.getInt(0));
+                    Assertions.assertTrue(row.isNullAt(1),
+                            "a nullable column added after the data snapshot must be materialized as NULL");
+                });
             }
         }
         Collections.sort(ids);
