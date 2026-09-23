@@ -123,7 +123,7 @@ TEST_P(CloudTabletsChannelContextTest, EmptyRowsetCommitInheritsLoadContext) {
                 EXPECT_EQ(signal::query_id_hi, task_id.hi);
                 EXPECT_EQ(signal::query_id_lo, task_id.lo);
                 auto token = engine.calc_delete_bitmap_executor()->create_load_token(
-                        req.txn_id, LoadTaskPriority::HIGH);
+                        req.txn_id, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
                 EXPECT_EQ(token->_thread_token->_pool, wg->get_memtable_flush_pool());
                 EXPECT_EQ(token->_thread_token->_load_id, req.txn_id);
                 RETURN_IF_ERROR(token->submit_func([&] {

@@ -118,7 +118,7 @@ Status CloudRowsetBuilder::init() {
     _rowset_id = context.rowset_id;
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_load_token(
-            _req.txn_id, LoadTaskPriority::HIGH);
+            _req.txn_id, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",

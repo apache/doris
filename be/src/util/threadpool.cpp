@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "absl/strings/substitute.h"
+#include "common/check.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -167,7 +168,7 @@ void ThreadPoolToken::shutdown() {
         _pool->check_not_pool_thread_unlocked();
     }
     if (_active_threads != 0 && join_bitmap_leaves && ThreadPool::current_load_pool() == _pool) {
-        DCHECK(!executing_load_token->_is_leaf) << "Load children must not join other tasks";
+        DORIS_CHECK(!executing_load_token->_is_leaf) << "Load children must not join other tasks";
     }
     if (_queued_load_tasks != 0) {
         for (const auto& entry : _load_entries->tasks) {
@@ -236,15 +237,22 @@ void ThreadPoolToken::wait() {
     _not_running_cond.wait(l, [this]() { return !is_active(); });
 }
 
-void ThreadPoolToken::wait_and_help() {
-    DCHECK(executing_load_token != nullptr);
-    DCHECK_EQ(executing_load_token->_pool, _pool);
-    DCHECK_NE(executing_load_token, this);
-    DCHECK(!executing_load_token->_is_leaf) << "Load children must be leaf tasks";
-    DCHECK(_is_load_token && _is_leaf);
+Status ThreadPoolToken::wait_and_help() {
+    if (executing_load_token == nullptr || executing_load_token->_pool != _pool) {
+        return Status::InvalidArgument(
+                "wait_and_help requires a load worker from the token's pool");
+    }
+    if (executing_load_token == this || executing_load_token->_is_leaf) {
+        return Status::InvalidArgument("wait_and_help requires a distinct non-leaf parent token");
+    }
+    if (!_is_load_token || !_is_leaf) {
+        return Status::InvalidArgument("wait_and_help requires a load leaf token");
+    }
     std::unique_lock<std::mutex> l(_pool->_lock);
     while (is_active()) {
         if (_queued_load_tasks == 0) {
+            ++_waiting_helpers;
+            Defer stop_waiting = [&] { --_waiting_helpers; };
             _not_running_cond.wait(l, [this] { return !is_active() || _queued_load_tasks != 0; });
             continue;
         }
@@ -262,6 +270,7 @@ void ThreadPoolToken::wait_and_help() {
         };
         _pool->run_task(this, task, true);
     }
+    return Status::OK();
 }
 
 void ThreadPoolToken::transition(State new_state) {
@@ -350,7 +359,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
           _total_queued_tasks(0),
           _cgroup_cpu_ctl(builder._cgroup_cpu_ctl),
           _tokenless(new_token(ExecutionMode::CONCURRENT)),
-          _load_tokenless(new_load_token(0, LoadTaskPriority::LOW)),
+          _load_tokenless(new_load_token(0, LoadTaskPriority::LOW, LoadTaskType::PARENT)),
           _id(UniqueId::gen_uid()) {}
 
 ThreadPool::~ThreadPool() {
@@ -509,13 +518,13 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int m
 
 std::unique_ptr<ThreadPoolToken> ThreadPool::new_load_token(int64_t load_id,
                                                             LoadTaskPriority priority,
-                                                            bool is_leaf) {
-    DCHECK(current_load_pool() != this || !executing_load_token->_is_leaf)
+                                                            LoadTaskType type) {
+    DORIS_CHECK(current_load_pool() != this || !executing_load_token->_is_leaf)
             << "Load children must be leaf tasks";
     std::lock_guard<std::mutex> l(_lock);
     std::unique_ptr<ThreadPoolToken> token(new ThreadPoolToken(this, ExecutionMode::CONCURRENT));
     token->_load_entries = std::make_unique<ThreadPoolToken::LoadEntries>();
-    token->_is_leaf = is_leaf || priority == LoadTaskPriority::MID;
+    token->_is_leaf = type == LoadTaskType::LEAF;
     token->_is_load_token = true;
     token->_load_id = load_id;
     token->_load_priority = priority;
@@ -610,8 +619,11 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
         position->queue_position =
                 _load_queue->push(load_id, static_cast<size_t>(priority), &*position);
         ++token->_queued_load_tasks;
-        // A helper may be joining running leaves when another task is submitted.
-        token->_not_running_cond.notify_all();
+        // Only a sleeping helper needs an enqueue notification. Completion
+        // waiters are still all notified on transitions to IDLE or QUIESCED.
+        if (token->_waiting_helpers != 0) {
+            token->_not_running_cond.notify_all();
+        }
         if (state == ThreadPoolToken::State::IDLE) {
             token->transition(ThreadPoolToken::State::RUNNING);
         }

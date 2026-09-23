@@ -58,6 +58,12 @@ enum class LoadTaskPriority : uint8_t {
     LOW = 3,
 };
 
+// Dependency role is independent of scheduling priority.
+enum class LoadTaskType : uint8_t {
+    PARENT,
+    LEAF,
+};
+
 class Runnable {
 public:
     virtual void run() = 0;
@@ -213,7 +219,7 @@ public:
     Status submit_load(std::shared_ptr<Runnable> r, int64_t load_id, LoadTaskPriority priority);
     // Leaf tokens must never wait for other work in this pool.
     std::unique_ptr<ThreadPoolToken> new_load_token(int64_t load_id, LoadTaskPriority priority,
-                                                    bool is_leaf = false);
+                                                    LoadTaskType type);
     // Null outside a load callback; helping children remain in the parent pool.
     static ThreadPool* current_load_pool();
     // True only while a parent runs a queued child via wait_and_help().
@@ -478,7 +484,9 @@ public:
 
     // Only a non-leaf load task of this pool may help a distinct leaf token.
     // Runs this token's queued tasks on the caller, then joins running leaves.
-    void wait_and_help();
+    // Invalid callers receive an error without changing this token. Its owner
+    // must still drain or cancel it before releasing resources used by tasks.
+    Status wait_and_help();
 
     // Waits for all submissions using this token are complete, or until 'delta'
     // time elapses.
@@ -579,6 +587,7 @@ private:
     int64_t _load_id = 0;
     LoadTaskPriority _load_priority = LoadTaskPriority::LOW;
     size_t _queued_load_tasks = 0;
+    size_t _waiting_helpers = 0; // Protected by the pool lock; only counts CV waits.
     bool tasks_empty() const { return _entries.empty() && _queued_load_tasks == 0; }
 
     // Condition variable for "token is idle". Waiters wake up when the token

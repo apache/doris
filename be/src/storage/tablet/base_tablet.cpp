@@ -1697,7 +1697,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
     if (!rowsets_skip_alignment.empty()) {
         auto token = self->calc_delete_bitmap_executor()->create_load_token(
-                txn_id, LoadTaskPriority::HIGHEST);
+                txn_id, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
         // set rowset_writer to nullptr to skip the alignment process
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, rowsets_skip_alignment,
                                            delete_bitmap, cur_version - 1, token.get(), nullptr,
@@ -1746,14 +1746,20 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         transient_rs_writer = std::move(group_writer);
     }
 
-    // Cloud publish helps its own queued segment tasks while spare workers run them in parallel.
-    // Local publish submits P0 segment tasks and waits outside the shared pool.
-    auto token = self->calc_delete_bitmap_executor()->create_load_token(txn_id,
-                                                                        LoadTaskPriority::HIGHEST);
-    RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version - 1, token.get(), transient_rs_writer.get(),
-                                       tablet_delete_bitmap));
-    RETURN_IF_ERROR(token->wait());
+    // Preserve the local single-segment fast path while holding the tablet lock.
+    // Load workers submit leaves and help them without another resource-context attach.
+    if (segments.size() <= 1 && ThreadPool::current_load_pool() == nullptr) {
+        RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
+                                           cur_version - 1, nullptr, transient_rs_writer.get(),
+                                           tablet_delete_bitmap));
+    } else {
+        auto token = self->calc_delete_bitmap_executor()->create_load_token(
+                txn_id, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
+        RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
+                                           cur_version - 1, token.get(), transient_rs_writer.get(),
+                                           tablet_delete_bitmap));
+        RETURN_IF_ERROR(token->wait());
+    }
 
     std::stringstream ss;
     ss << "cost(us): (load segments: " << t1 << ", get all rsid: " << t2 - t1

@@ -21,6 +21,7 @@
 
 #include <ostream>
 
+#include "common/check.h"
 #include "common/logging.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
@@ -89,7 +90,18 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
 
 Status CalcDeleteBitmapToken::wait() {
     if (_help_while_wait) {
-        _thread_token->wait_and_help();
+        auto st = _thread_token->wait_and_help();
+        if (!st.ok()) {
+            // Do not return while callbacks can still access this token or its
+            // caller's state. Factory-created nested tokens always own leaves.
+            {
+                std::lock_guard wlock(_lock);
+                if (_status.ok()) {
+                    _status = st;
+                }
+            }
+            _thread_token->shutdown();
+        }
     } else {
         _thread_token->wait();
     }
@@ -151,17 +163,20 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() 
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        int64_t load_id, LoadTaskPriority priority) {
-    return create_load_token(load_id, priority, thread_context()->resource_ctx()->workload_group());
+        int64_t load_id, LoadTaskPriority priority, LoadTaskType type) {
+    return create_load_token(load_id, priority, type,
+                             thread_context()->resource_ctx()->workload_group());
 }
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        int64_t load_id, LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg) {
+        int64_t load_id, LoadTaskPriority priority, LoadTaskType type,
+        std::shared_ptr<WorkloadGroup> wg) {
     // Nested segment calculations belong to the parent's actual pool. Its
     // attached request context may not carry the workload group used to route it.
     if (auto* pool = ThreadPool::current_load_pool()) {
+        DORIS_CHECK(type == LoadTaskType::LEAF) << "Nested bitmap tasks must be leaves";
         return std::make_unique<CalcDeleteBitmapToken>(
-                pool->new_load_token(load_id, priority, true), std::move(wg), true);
+                pool->new_load_token(load_id, priority, type), std::move(wg), true);
     }
     // A commit retry can outlive a dropped workload group. Its pool is stopped;
     // use the default domain in that case. A concurrent stop is reported by submit/wait.
@@ -170,7 +185,7 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_tok
         pool = _load_pool;
     }
     DCHECK(pool != nullptr);
-    return std::make_unique<CalcDeleteBitmapToken>(pool->new_load_token(load_id, priority),
+    return std::make_unique<CalcDeleteBitmapToken>(pool->new_load_token(load_id, priority, type),
                                                    std::move(wg));
 }
 

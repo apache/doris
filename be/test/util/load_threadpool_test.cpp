@@ -21,6 +21,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "common/signal_handler.h"
@@ -37,9 +38,9 @@ using namespace std::chrono_literals;
 TEST(LoadThreadPoolTest, MultipleTokensShareOneLoadTurn) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_fifo_test").set_max_threads(1).build(&pool).ok());
-    auto flush = pool->new_load_token(1, LoadTaskPriority::LOW);
-    auto bitmap = pool->new_load_token(1, LoadTaskPriority::HIGHEST);
-    auto dup = pool->new_load_token(2, LoadTaskPriority::LOW);
+    auto flush = pool->new_load_token(1, LoadTaskPriority::LOW, LoadTaskType::PARENT);
+    auto bitmap = pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT);
+    auto dup = pool->new_load_token(2, LoadTaskPriority::LOW, LoadTaskType::PARENT);
     CountDownLatch entered(1), release(1);
     std::vector<int> order;
     Defer unblock = [&] { release.count_down(); };
@@ -93,7 +94,7 @@ TEST(LoadThreadPoolTest, TokenlessTasksKeepTheirLoadAndPriority) {
 TEST(LoadThreadPoolTest, OneLoadCanUseAllWorkers) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_parallel_test").set_max_threads(2).build(&pool).ok());
-    auto token = pool->new_load_token(1, LoadTaskPriority::LOW);
+    auto token = pool->new_load_token(1, LoadTaskPriority::LOW, LoadTaskType::PARENT);
     CountDownLatch entered(2), release(1);
     Defer unblock = [&] { release.count_down(); };
     for (int i = 0; i < 2; ++i) {
@@ -110,9 +111,9 @@ TEST(LoadThreadPoolTest, OneLoadCanUseAllWorkers) {
 TEST(LoadThreadPoolTest, CancelOnlyRemovesItsOwnTasks) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_cancel_test").set_max_threads(1).build(&pool).ok());
-    auto cancelled = pool->new_load_token(1, LoadTaskPriority::MID);
-    auto kept = pool->new_load_token(1, LoadTaskPriority::LOW);
-    auto other_load = pool->new_load_token(2, LoadTaskPriority::HIGHEST);
+    auto cancelled = pool->new_load_token(1, LoadTaskPriority::MID, LoadTaskType::LEAF);
+    auto kept = pool->new_load_token(1, LoadTaskPriority::LOW, LoadTaskType::PARENT);
+    auto other_load = pool->new_load_token(2, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT);
     CountDownLatch entered(1), release(1);
     std::vector<int> order;
     Defer unblock = [&] { release.count_down(); };
@@ -148,10 +149,11 @@ TEST(LoadThreadPoolTest, NestedBitmapHelpsOnlyOwnTokenWithOneWorker) {
     task_id.lo = 2;
     resource_ctx->task_controller()->set_task_id(task_id);
     SCOPED_ATTACH_TASK(resource_ctx);
-    auto parent = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+    auto parent =
+            executor.create_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT, nullptr);
     std::atomic<int> completed = 0;
     std::atomic<bool> unrelated_ran = false;
-    auto unrelated = pool->new_load_token(2, LoadTaskPriority::HIGHEST);
+    auto unrelated = pool->new_load_token(2, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT);
     EXPECT_TRUE(
             parent->submit_func([&] {
                       EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
@@ -169,8 +171,8 @@ TEST(LoadThreadPoolTest, NestedBitmapHelpsOnlyOwnTokenWithOneWorker) {
                                     tablet_tracker.get());
                       };
                       EXPECT_TRUE(unrelated->submit_func([&] { unrelated_ran = true; }).ok());
-                      auto child =
-                              executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                      auto child = executor.create_load_token(1, LoadTaskPriority::HIGHEST,
+                                                              LoadTaskType::LEAF, nullptr);
                       for (int i = 0; i < 2; ++i) {
                           EXPECT_TRUE(child->submit_func([&] {
                                                check_context();
@@ -192,7 +194,8 @@ TEST(LoadThreadPoolTest, NestedBitmapHelpsOnlyOwnTokenWithOneWorker) {
                       EXPECT_FALSE(unrelated_ran.load());
                       EXPECT_FALSE(ThreadPool::is_helping_load_task());
                       child.reset(); // No scheduler reference may survive this destruction.
-                      auto next = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                      auto next = executor.create_load_token(1, LoadTaskPriority::HIGHEST,
+                                                             LoadTaskType::LEAF, nullptr);
                       EXPECT_TRUE(next->submit_func([&] {
                                           check_context();
                                           ++completed;
@@ -222,14 +225,15 @@ TEST(LoadThreadPoolTest, NestedBitmapUsesSpareWorkerAndParentPool) {
                                                            "bitmap_parallel_tablet");
     resource_ctx->memory_context()->set_mem_tracker(request_tracker);
     SCOPED_ATTACH_TASK(resource_ctx);
-    CalcDeleteBitmapToken parent(pool->new_load_token(1, LoadTaskPriority::HIGHEST));
+    CalcDeleteBitmapToken parent(
+            pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT));
     CountDownLatch worker_entered(1), helper_entered(1), release(1);
     Defer unblock = [&] { release.count_down(); };
     EXPECT_TRUE(
             parent.submit_func([&] {
                       SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tablet_tracker);
-                      auto child =
-                              executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                      auto child = executor.create_load_token(1, LoadTaskPriority::HIGHEST,
+                                                              LoadTaskType::LEAF, nullptr);
                       auto check_context = [&] {
                           EXPECT_EQ(ThreadPool::current_load_pool(), pool.get());
                           EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
@@ -269,15 +273,18 @@ TEST(LoadThreadPoolTest, AllWorkersCanHelpTheirOwnChildren) {
     executor.init("bitmap_saturated_background", 1, pool.get());
     SCOPED_ATTACH_TASK(
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "bitmap_saturated"));
-    auto first = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
-    auto second = executor.create_load_token(2, LoadTaskPriority::HIGHEST, nullptr);
+    auto first =
+            executor.create_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT, nullptr);
+    auto second =
+            executor.create_load_token(2, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT, nullptr);
     CountDownLatch parents_entered(2), children_entered(2), release(1);
     std::atomic<int> completed = 0;
     Defer unblock = [&] { release.count_down(); };
     auto run_parent = [&](int64_t load_id) {
         parents_entered.count_down();
         EXPECT_TRUE(parents_entered.wait_for(5s));
-        auto child = executor.create_load_token(load_id, LoadTaskPriority::HIGHEST, nullptr);
+        auto child = executor.create_load_token(load_id, LoadTaskPriority::HIGHEST,
+                                                LoadTaskType::LEAF, nullptr);
         EXPECT_TRUE(child->submit_func([&] {
                              EXPECT_TRUE(ThreadPool::is_helping_load_task());
                              children_entered.count_down();
@@ -304,10 +311,11 @@ TEST(LoadThreadPoolTest, ParentCanCancelQueuedPublishChildren) {
     executor.init("bitmap_cancel_background", 1, pool.get());
     SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                         "bitmap_cancel_children"));
-    auto parent = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+    auto parent =
+            executor.create_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT, nullptr);
     EXPECT_TRUE(parent->submit_func([&] {
-                          auto child =
-                                  executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                          auto child = executor.create_load_token(1, LoadTaskPriority::HIGHEST,
+                                                                  LoadTaskType::LEAF, nullptr);
                           EXPECT_TRUE(child->submit_func([] {
                                                ADD_FAILURE() << "cancelled child ran";
                                                return Status::OK();
@@ -322,19 +330,146 @@ TEST(LoadThreadPoolTest, ParentCanCancelQueuedPublishChildren) {
 TEST(LoadThreadPoolTest, HelpingCallbackExceptionRetiresTask) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("bitmap_help_exception").set_max_threads(1).build(&pool).ok());
-    auto parent = pool->new_load_token(1, LoadTaskPriority::HIGHEST);
+    auto parent = pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT);
     EXPECT_TRUE(parent->submit_func([&] {
-                          auto child = pool->new_load_token(1, LoadTaskPriority::HIGHEST, true);
+                          auto child = pool->new_load_token(1, LoadTaskPriority::HIGHEST,
+                                                            LoadTaskType::LEAF);
                           EXPECT_TRUE(child->submit_func([] {
                                                throw std::runtime_error("child failure");
                                            }).ok());
-                          EXPECT_THROW(child->wait_and_help(), std::runtime_error);
+                          EXPECT_THROW(
+                                  {
+                                      auto st = child->wait_and_help();
+                                      EXPECT_TRUE(st.ok());
+                                  },
+                                  std::runtime_error);
                           EXPECT_FALSE(ThreadPool::is_helping_load_task());
                           EXPECT_EQ(ThreadPool::current_load_pool(), pool.get());
                           EXPECT_EQ(child->num_tasks(), 0);
-                          child->wait_and_help(); // Failed callback must not leave an active task.
+                          EXPECT_TRUE(
+                                  child->wait_and_help()
+                                          .ok()); // Failed callback must not leave an active task.
                       }).ok());
     parent->wait();
+    EXPECT_EQ(pool->get_queue_size(), 0);
+}
+
+TEST(LoadThreadPoolTest, HelpRejectsInvalidCallersWithoutChangingTasks) {
+    std::unique_ptr<ThreadPool> pool, other_pool;
+    ASSERT_TRUE(ThreadPoolBuilder("help_contract").set_max_threads(1).build(&pool).ok());
+    ASSERT_TRUE(ThreadPoolBuilder("help_other_pool").set_max_threads(1).build(&other_pool).ok());
+    // A MID parent proves priority no longer implies a leaf dependency role.
+    auto parent = pool->new_load_token(1, LoadTaskPriority::MID, LoadTaskType::PARENT);
+    auto leaf = pool->new_load_token(1, LoadTaskPriority::LOW, LoadTaskType::LEAF);
+    auto leaf_caller = pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
+    auto nonleaf = pool->new_load_token(1, LoadTaskPriority::MID, LoadTaskType::PARENT);
+    auto ordinary = pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
+    auto foreign = other_pool->new_load_token(2, LoadTaskPriority::LOW, LoadTaskType::PARENT);
+    CountDownLatch entered(1), release(1);
+    std::atomic<int> completed = 0;
+    Defer unblock = [&] { release.count_down(); };
+    EXPECT_TRUE(pool->submit_func([&] {
+                        EXPECT_TRUE(leaf->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                        entered.count_down();
+                        release.wait();
+                    }).ok());
+    EXPECT_TRUE(entered.wait_for(5s));
+    EXPECT_TRUE(leaf->submit_func([&] { ++completed; }).ok());
+    EXPECT_TRUE(leaf->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(leaf->num_tasks(), 1);
+    EXPECT_TRUE(foreign->submit_func([&] {
+                           EXPECT_TRUE(leaf->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                           EXPECT_EQ(leaf->num_tasks(), 1);
+                       })
+                        .ok());
+    foreign->wait();
+    EXPECT_TRUE(leaf_caller
+                        ->submit_func([&] {
+                            EXPECT_TRUE(leaf->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                            EXPECT_TRUE(
+                                    leaf_caller->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                            EXPECT_EQ(leaf->num_tasks(), 1);
+                        })
+                        .ok());
+    EXPECT_TRUE(parent->submit_func([&] {
+                          EXPECT_TRUE(parent->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                          EXPECT_TRUE(nonleaf->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                          EXPECT_TRUE(ordinary->wait_and_help().is<ErrorCode::INVALID_ARGUMENT>());
+                          EXPECT_TRUE(leaf->wait_and_help().ok());
+                      }).ok());
+    release.count_down();
+    pool->wait();
+    EXPECT_EQ(completed.load(), 1);
+}
+
+TEST(LoadThreadPoolTest, BitmapInvalidHelperWaitCancelsItsQueuedTasks) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_invalid_helper").set_max_threads(1).build(&pool).ok());
+    SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "bitmap_invalid_helper"));
+    CalcDeleteBitmapToken child(
+            pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF), nullptr, true);
+    CountDownLatch entered(1), release(1);
+    Defer unblock = [&] { release.count_down(); };
+    EXPECT_TRUE(pool->submit_func([&] {
+                        entered.count_down();
+                        release.wait();
+                    }).ok());
+    EXPECT_TRUE(entered.wait_for(5s));
+    EXPECT_TRUE(child.submit_func([] {
+                         ADD_FAILURE() << "invalid helper wait left a callback queued";
+                         return Status::OK();
+                     }).ok());
+    auto st = child.wait(); // An external caller cannot help on a pool worker's behalf.
+    EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>());
+    EXPECT_EQ(pool->get_queue_size(), 0);
+    EXPECT_EQ(child.wait().to_string(), st.to_string());
+    EXPECT_EQ(child.submit_func([] { return Status::OK(); }).to_string(), st.to_string());
+    release.count_down();
+    pool->wait();
+}
+
+TEST(LoadThreadPoolTest, EnqueueWakesSleepingHelperAndCompletionWakesAllWaiters) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("helper_enqueue_wakeup").set_max_threads(2).build(&pool).ok());
+    auto parent = pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT);
+    auto child = pool->new_load_token(1, LoadTaskPriority::MID, LoadTaskType::LEAF);
+    CountDownLatch worker_entered(1), helped(1), release(1);
+    Defer unblock = [&] { release.count_down(); };
+    EXPECT_TRUE(child->submit_func([&] {
+                         worker_entered.count_down();
+                         release.wait();
+                     }).ok());
+    EXPECT_TRUE(worker_entered.wait_for(5s));
+    EXPECT_TRUE(parent->submit_func([&] { EXPECT_TRUE(child->wait_and_help().ok()); }).ok());
+    bool helper_waiting = false;
+    auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        {
+            std::lock_guard lock(pool->_lock);
+            helper_waiting = child->_waiting_helpers == 1;
+        }
+        if (helper_waiting) {
+            break;
+        }
+        std::this_thread::yield();
+    }
+    EXPECT_TRUE(helper_waiting);
+    std::thread first_waiter([&] { child->wait(); });
+    std::thread second_waiter([&] { child->wait(); });
+    EXPECT_TRUE(child->submit_func([&] {
+                         EXPECT_TRUE(ThreadPool::is_helping_load_task());
+                         helped.count_down();
+                     }).ok());
+    EXPECT_TRUE(helped.wait_for(5s)); // The worker remains blocked; only the helper can execute it.
+    release.count_down();
+    parent->wait();
+    first_waiter.join();
+    second_waiter.join();
+    {
+        std::lock_guard lock(pool->_lock);
+        EXPECT_EQ(child->_waiting_helpers, 0);
+    }
     EXPECT_EQ(pool->get_queue_size(), 0);
 }
 
@@ -343,7 +478,7 @@ TEST(LoadThreadPoolTest, CancelledBitmapIsNotReportedAsComplete) {
     ASSERT_TRUE(ThreadPoolBuilder("load_shutdown_test").set_max_threads(1).build(&pool).ok());
     CalcDeleteBitmapExecutor executor;
     executor.init("background_shutdown_test", 1, pool.get());
-    auto token = executor.create_load_token(1, LoadTaskPriority::MID, nullptr);
+    auto token = executor.create_load_token(1, LoadTaskPriority::MID, LoadTaskType::LEAF, nullptr);
     CountDownLatch entered(1), release(1);
     Defer unblock = [&] { release.count_down(); };
     EXPECT_TRUE(pool->submit_func([&] {
@@ -366,7 +501,7 @@ TEST(LoadThreadPoolTest, BitmapSubmissionFailureSurvivesWait) {
                         .set_max_queue_size(1)
                         .build(&pool)
                         .ok());
-    CalcDeleteBitmapToken token(pool->new_load_token(1, LoadTaskPriority::MID));
+    CalcDeleteBitmapToken token(pool->new_load_token(1, LoadTaskPriority::MID, LoadTaskType::LEAF));
     SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                         "bitmap_capacity_test"));
     CountDownLatch entered(1), release(1);
@@ -397,7 +532,8 @@ TEST(LoadThreadPoolTest, BitmapSubmissionFailureSurvivesWait) {
 TEST(LoadThreadPoolTest, BitmapSubmissionAfterShutdownPreservesReason) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("bitmap_rejected_test").set_max_threads(1).build(&pool).ok());
-    CalcDeleteBitmapToken token(pool->new_load_token(1, LoadTaskPriority::HIGHEST));
+    CalcDeleteBitmapToken token(
+            pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT));
     SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                         "bitmap_rejected_test"));
     pool->shutdown();
@@ -414,8 +550,8 @@ TEST(LoadThreadPoolTest, LoadCleanupCanJoinRunningBitmapLeaves) {
     for (auto priority : {LoadTaskPriority::MID, LoadTaskPriority::HIGHEST}) {
         std::unique_ptr<ThreadPool> pool;
         ASSERT_TRUE(ThreadPoolBuilder("load_cleanup_test").set_max_threads(2).build(&pool).ok());
-        auto leaf = pool->new_load_token(1, priority, true);
-        auto parent = pool->new_load_token(1, LoadTaskPriority::LOW);
+        auto leaf = pool->new_load_token(1, priority, LoadTaskType::LEAF);
+        auto parent = pool->new_load_token(1, LoadTaskPriority::LOW, LoadTaskType::PARENT);
         CountDownLatch leaf_entered(1), parent_entered(1), release(1);
         Defer unblock = [&] { release.count_down(); };
         EXPECT_TRUE(leaf->submit_func([&] {

@@ -353,8 +353,9 @@ TEST(MemTableFlushExecutorTest, FlushSharesItsTransactionTurnForEveryKeyType) {
         ASSERT_TRUE(writer->init(context).ok());
         auto flush = FlushToken::create_shared(pool.get(), nullptr);
         flush->set_rowset_writer(writer);
-        auto own_bitmap = pool->new_load_token(context.txn_id, LoadTaskPriority::MID);
-        auto other_bitmap = pool->new_load_token(2, LoadTaskPriority::HIGHEST);
+        auto own_bitmap =
+                pool->new_load_token(context.txn_id, LoadTaskPriority::MID, LoadTaskType::LEAF);
+        auto other_bitmap = pool->new_load_token(2, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
         CountDownLatch entered(1), release(1);
         std::vector<int> order;
         Defer unblock = [&] { release.count_down(); };

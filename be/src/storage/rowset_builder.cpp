@@ -258,7 +258,7 @@ Status RowsetBuilder::init() {
     _pending_rs_guard = _engine.pending_local_rowsets().add(tmp_pending_rowset_ids);
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_load_token(
-            _req.txn_id, LoadTaskPriority::HIGH);
+            _req.txn_id, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
 
     _is_init = true;
     return Status::OK();
