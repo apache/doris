@@ -75,6 +75,13 @@ public class HiveConnectorMetadataSchemaTest {
         return metadata.getTableSchema(null, handle);
     }
 
+    private HiveTableHandle tableHandleOf(HmsTableInfo tableInfo) {
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(tableInfo), HiveTestProperties.minimal(), new FakeConnectorContext());
+        return (HiveTableHandle) metadata.getTableHandle(
+                null, tableInfo.getDbName(), tableInfo.getTableName()).orElseThrow();
+    }
+
     private static ConnectorColumn col(String name, String typeName) {
         return new ConnectorColumn(name, ConnectorType.of(typeName), null, true, null);
     }
@@ -127,6 +134,15 @@ public class HiveConnectorMetadataSchemaTest {
         ConnectorTableSchema schema = schemaOf(partitionedTable().build());
         Assertions.assertEquals("year,region",
                 schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+    }
+
+    @Test
+    public void testTableHandlePreservesNativeHivePartitionTypes() {
+        HmsTableInfo tableInfo = partitionedTable()
+                .partitionKeyHiveTypes(Map.of("year", "int", "region", "binary"))
+                .build();
+
+        Assertions.assertEquals("binary", tableHandleOf(tableInfo).getPartitionKeyHiveTypes().get("region"));
     }
 
     @Test
@@ -478,7 +494,7 @@ public class HiveConnectorMetadataSchemaTest {
 
         @Override
         public boolean tableExists(String dbName, String tableName) {
-            throw new UnsupportedOperationException();
+            return true;
         }
 
         @Override

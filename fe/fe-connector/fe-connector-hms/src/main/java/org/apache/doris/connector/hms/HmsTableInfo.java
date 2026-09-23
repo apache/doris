@@ -45,6 +45,7 @@ public final class HmsTableInfo {
     private final String viewExpandedText;
     private final List<ConnectorColumn> columns;
     private final List<ConnectorColumn> partitionKeys;
+    private final Map<String, String> partitionKeyHiveTypes;
     private final List<String> bucketCols;
     private final int numBuckets;
     private final Map<String, String> parameters;
@@ -68,6 +69,9 @@ public final class HmsTableInfo {
         this.partitionKeys = builder.partitionKeys == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(builder.partitionKeys);
+        this.partitionKeyHiveTypes = builder.partitionKeyHiveTypes == null
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(builder.partitionKeyHiveTypes);
         this.bucketCols = builder.bucketCols == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(builder.bucketCols);
@@ -144,6 +148,11 @@ public final class HmsTableInfo {
         return partitionKeys;
     }
 
+    /** Native Hive type strings for partition keys, before connector type mapping. */
+    public Map<String, String> getPartitionKeyHiveTypes() {
+        return partitionKeyHiveTypes;
+    }
+
     /** Bucketing columns (empty when the table is not bucketed). */
     public List<String> getBucketCols() {
         return bucketCols;
@@ -190,6 +199,7 @@ public final class HmsTableInfo {
         private String viewExpandedText;
         private List<ConnectorColumn> columns;
         private List<ConnectorColumn> partitionKeys;
+        private Map<String, String> partitionKeyHiveTypes;
         private List<String> bucketCols;
         private int numBuckets;
         private Map<String, String> parameters;
@@ -260,6 +270,11 @@ public final class HmsTableInfo {
 
         public Builder partitionKeys(List<ConnectorColumn> val) {
             this.partitionKeys = val;
+            return this;
+        }
+
+        public Builder partitionKeyHiveTypes(Map<String, String> val) {
+            this.partitionKeyHiveTypes = val;
             return this;
         }
 
