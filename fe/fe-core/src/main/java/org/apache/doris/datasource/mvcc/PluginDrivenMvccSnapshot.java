@@ -53,6 +53,12 @@ import java.util.Map;
  */
 public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
+    public enum PartitionViewState {
+        DEFERRED,
+        MATERIALIZED,
+        UNAVAILABLE
+    }
+
     private final ConnectorMvccSnapshot connectorSnapshot;
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, Long> nameToLastModifiedMillis;
@@ -62,9 +68,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
     private final boolean snapshotIdFreshness;   // true => getPartitionSnapshot wraps a snapshot id, else a timestamp
     private final long newestUpdateMonotonicMarker;   // range-view table newest-update-time (dictionary refresh marker)
     private final long newestUpdateWallClockMillis;   // range-view newest-update wall-clock millis (SqlCache gate)
-    // True only after a partition view was explicitly materialized; an empty map then means a real
-    // zero-partition table, not the lightweight latest query pin.
-    private final boolean partitionViewMaterialized;
+    private final PartitionViewState partitionViewState;
 
     /**
      * @param connectorSnapshot        the scalar snapshot pin (snapshot id used for reads)
@@ -91,17 +95,21 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             Map<String, Long> nameToLastModifiedMillis,
             SchemaCacheValue pinnedSchema) {
         // Legacy (Paimon-style) path: partitionType null => caller computes LIST/UNPARTITIONED; timestamp freshness.
-        this(connectorSnapshot, nameToPartitionItem, nameToLastModifiedMillis, pinnedSchema, null, false, 0L);
+        this(connectorSnapshot, nameToPartitionItem, nameToLastModifiedMillis, pinnedSchema,
+                null, false, 0L, 0L, PartitionViewState.MATERIALIZED);
     }
 
-    /** Creates a snapshot whose partition view is explicitly materialized, including a valid empty view. */
-    public PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot,
-            Map<String, PartitionItem> nameToPartitionItem,
-            Map<String, Long> nameToLastModifiedMillis,
-            SchemaCacheValue pinnedSchema,
-            boolean partitionViewMaterialized) {
-        this(connectorSnapshot, nameToPartitionItem, nameToLastModifiedMillis, pinnedSchema,
-                null, false, 0L, 0L, partitionViewMaterialized);
+    /** Creates a lightweight latest/fence pin whose partition view must be materialized on demand. */
+    public static PluginDrivenMvccSnapshot deferred(ConnectorMvccSnapshot connectorSnapshot) {
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, Collections.emptyMap(), Collections.emptyMap(),
+                null, null, false, 0L, 0L, PartitionViewState.DEFERRED);
+    }
+
+    /** Creates a historical pin whose connector cannot provide a snapshot-consistent partition view. */
+    public static PluginDrivenMvccSnapshot unavailable(ConnectorMvccSnapshot connectorSnapshot,
+            SchemaCacheValue pinnedSchema) {
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, Collections.emptyMap(), Collections.emptyMap(),
+                pinnedSchema, null, false, 0L, 0L, PartitionViewState.UNAVAILABLE);
     }
 
     /**
@@ -143,7 +151,8 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             long newestUpdateMonotonicMarker,
             long newestUpdateWallClockMillis) {
         this(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue, pinnedSchema, partitionType,
-                snapshotIdFreshness, newestUpdateMonotonicMarker, newestUpdateWallClockMillis, false);
+                snapshotIdFreshness, newestUpdateMonotonicMarker, newestUpdateWallClockMillis,
+                PartitionViewState.MATERIALIZED);
     }
 
     private PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot,
@@ -154,7 +163,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             boolean snapshotIdFreshness,
             long newestUpdateMonotonicMarker,
             long newestUpdateWallClockMillis,
-            boolean partitionViewMaterialized) {
+            PartitionViewState partitionViewState) {
         this.connectorSnapshot = connectorSnapshot;
         this.nameToPartitionItem = nameToPartitionItem == null
                 ? Collections.emptyMap()
@@ -167,7 +176,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
         this.snapshotIdFreshness = snapshotIdFreshness;
         this.newestUpdateMonotonicMarker = newestUpdateMonotonicMarker;
         this.newestUpdateWallClockMillis = newestUpdateWallClockMillis;
-        this.partitionViewMaterialized = partitionViewMaterialized;
+        this.partitionViewState = partitionViewState;
     }
 
     public ConnectorMvccSnapshot getConnectorSnapshot() {
@@ -198,7 +207,15 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
     /** Whether the partition view is materialized, even when it is authoritatively empty. */
     public boolean isPartitionViewMaterialized() {
-        return partitionViewMaterialized;
+        return partitionViewState == PartitionViewState.MATERIALIZED;
+    }
+
+    public boolean isPartitionViewDeferred() {
+        return partitionViewState == PartitionViewState.DEFERRED;
+    }
+
+    public boolean isPartitionViewUnavailable() {
+        return partitionViewState == PartitionViewState.UNAVAILABLE;
     }
 
     /**
