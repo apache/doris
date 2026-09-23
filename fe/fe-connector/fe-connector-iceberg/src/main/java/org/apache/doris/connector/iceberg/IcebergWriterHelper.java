@@ -193,6 +193,11 @@ final class IcebergWriterHelper {
         Map<Integer, Long> nullValueCounts = new HashMap<>();
         Map<Integer, ByteBuffer> lowerBounds = new HashMap<>();
         Map<Integer, ByteBuffer> upperBounds = new HashMap<>();
+        // Deliberately null rather than empty when BE reports nothing: iceberg reads a missing NaN count as
+        // "may contain NaN" and keeps the file for a float range predicate, which is the only safe reading of
+        // a BE that does not count NaNs (an older one, or a format whose writer cannot). An explicit zero is
+        // a positive claim that the column holds none, so it must only ever come from BE having counted.
+        Map<Integer, Long> nanValueCounts = null;
         if (commitData.isSetColumnStats()) {
             TIcebergColumnStats stats = commitData.column_stats;
             if (stats.isSetColumnSizes()) {
@@ -203,6 +208,9 @@ final class IcebergWriterHelper {
             }
             if (stats.isSetNullValueCounts()) {
                 nullValueCounts = stats.null_value_counts;
+            }
+            if (stats.isSetNanValueCounts()) {
+                nanValueCounts = stats.nan_value_counts;
             }
             if (stats.isSetLowerBounds()) {
                 lowerBounds = stats.lower_bounds;
@@ -217,7 +225,8 @@ final class IcebergWriterHelper {
                 filterDisabledMetrics(columnSizes, schema, metricsConfig),
                 filterLogicalMetrics(valueCounts, schema, metricsConfig, fieldParents),
                 filterLogicalMetrics(nullValueCounts, schema, metricsConfig, fieldParents),
-                null,
+                nanValueCounts == null ? null
+                        : filterLogicalMetrics(nanValueCounts, schema, metricsConfig, fieldParents),
                 filterBounds(lowerBounds, schema, metricsConfig, fieldParents, fileFormat, true),
                 filterBounds(upperBounds, schema, metricsConfig, fieldParents, fileFormat, false));
     }

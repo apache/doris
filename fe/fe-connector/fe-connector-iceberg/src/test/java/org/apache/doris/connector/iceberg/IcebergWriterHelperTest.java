@@ -238,6 +238,50 @@ public class IcebergWriterHelperTest {
         Assertions.assertEquals(Long.valueOf(2L), df.nullValueCounts().get(1));
     }
 
+    /**
+     * NaN counts are the only metadata that can prove a float column holds no NaN, because iceberg keeps NaN
+     * out of the bounds by spec. A reported zero is therefore a positive claim that lets a float range
+     * predicate prune the file, so it must travel from BE untouched — and an absent count must stay absent.
+     */
+    @Test
+    public void convertToWriterResultCarriesNanValueCounts() {
+        Schema floatSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "d", Types.DoubleType.get()),
+                Types.NestedField.optional(3, "f", Types.FloatType.get()));
+        Table table = tableWith(floatSchema, "write.format.default", "parquet");
+
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.putToValueCounts(2, 10L);
+        stats.putToValueCounts(3, 10L);
+        stats.putToNanValueCounts(2, 3L);
+        // An explicit zero is the whole point: it is what brings pruning back for a NaN-free column.
+        stats.putToNanValueCounts(3, 0L);
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertEquals(Long.valueOf(3L), df.nanValueCounts().get(2));
+        Assertions.assertEquals(Long.valueOf(0L), df.nanValueCounts().get(3));
+    }
+
+    /**
+     * A BE that reports no NaN counts (an older one, or a format whose writer cannot count them) must leave the
+     * metric absent, not zero: iceberg reads absent as "may contain NaN" and keeps the file, whereas a zero
+     * would license pruning away rows that do match.
+     */
+    @Test
+    public void convertToWriterResultLeavesNanValueCountsUnsetWhenBeReportsNone() {
+        Table table = tableWith("write.format.default", "parquet");
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.putToValueCounts(1, 10L);
+        stats.putToNullValueCounts(1, 0L);
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertTrue(df.nanValueCounts() == null || df.nanValueCounts().isEmpty(),
+                "an unreported NaN count must not become an empty-but-present or zero claim");
+    }
+
     // ──────────── convertToWriterResult: #65782 honor iceberg metrics policy (ported from fe-core) ────────────
 
     @Test

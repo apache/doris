@@ -107,7 +107,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                               .enable_int96_timestamps = false};
         _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
-                parquet_options, _iceberg_schema_json, _schema);
+                parquet_options, _iceberg_schema_json, _schema, _collect_column_stats);
         open_status = _file_format_transformer->open();
         break;
     }
