@@ -33,8 +33,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.metrics.Event;
-import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
@@ -208,6 +206,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
+    public static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String ENABLE_QUERY_CACHE_INCREMENTAL = "enable_query_cache_incremental";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
@@ -457,7 +456,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = "rewrite_or_to_in_predicate_threshold";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
-    public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_EXPR_TRACE = "enable_expr_trace";
 
     public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
@@ -508,8 +506,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SAVE_STATISTICS_SYNC_JOB = "enable_save_statistics_sync_job";
 
-    public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
-
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
@@ -559,8 +555,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
-
-    public static final String MINIDUMP_PATH = "minidump_path";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
@@ -794,7 +788,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
-    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
+    public static final String FORCE_PUSHDOWN_ZONEMAP_MINMAX = "force_pushdown_zonemap_minmax";
 
     public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
             = "enable_mor_value_predicate_pushdown_tables";
@@ -1545,6 +1539,10 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
 
+    @VarAttrDef.VarAttr(name = ENABLE_EXTERNAL_SCAN_TASK_REUSE, needForward = true,
+            description = "Whether to reuse equivalent external table scan splits within one statement.")
+    public boolean enableExternalScanTaskReuse = true;
+
     // Forwarded because query cache normalization runs wherever the statement is
     // planned: a forwarded statement is planned by the master in a fresh
     // ConnectContext, which starts from the master's global value and then sees
@@ -1970,7 +1968,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 8;
+    private int maxJoinNumBushyTree = 9;
 
     @VarAttrDef.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -2148,9 +2146,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
-
-    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_TRACE)
-    private boolean enableNereidsTrace = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_EXPR_TRACE)
     private boolean enableExprTrace = false;
@@ -2379,10 +2374,13 @@ public class SessionVariable implements Serializable, Writable {
             + "pushdown minmax on unique table.")
     public boolean enablePushDownMinMaxOnUnique = false;
 
-    // Whether enable push down string type minmax to scan node.
-    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = "Set whether to enable "
-            + "push down string type minmax.")
-    public boolean enablePushDownStringMinMax = false;
+    // Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now:
+    // a cut string bound, or one covering rows a delete predicate removed. The alias is the old
+    // name, from when this only governed string bounds.
+    @VarAttrDef.VarAttr(name = FORCE_PUSHDOWN_ZONEMAP_MINMAX, alias = {"enable_pushdown_string_minmax"},
+            needForward = true, description = "Set whether to force a pushed down minmax onto the zone map when its "
+            + "bound is a cut string prefix, or still covers rows a delete predicate removed.")
+    public boolean forcePushDownZonemapMinMax = false;
 
     // Comma-separated list of MOR tables to enable value predicate pushdown.
     @VarAttrDef.VarAttr(name = ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES, needForward = true, description = "Comma-sep"
@@ -2496,11 +2494,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    // Internal state, not a session variable: it is turned on only by MinidumpUtils while replaying
-    // a minidump file (PLAY '<dumpfile>'), where tables and statistics come from the dump instead of
-    // the catalog. It is intentionally not settable through SET, not forwarded and not serialized.
-    private boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VarAttrDef.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -3065,6 +3058,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "CLucene (V1/V2/V3) index reads. "
                     + "Intended for one-shot / ad-hoc cold queries.")
     public boolean invertedIndexSniiReadNoWriteFileCache = false;
+
+    @VarAttrDef.VarAttr(name = "enable_join_reorder_before_eager_agg", needForward = true)
+    public boolean enableJoinReorderBeforeEagerAgg = true;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -3833,17 +3829,6 @@ public class SessionVariable implements Serializable, Writable {
         return Joiner.on(",").join(res);
     }
 
-    /**
-     * syntax:
-     * all -> use all event
-     * all except event_1, event_2, ..., event_n -> use all events excluding the event_1~n
-     * event_1, event_2, ..., event_n -> use event_1~n
-     */
-    @VarAttrDef.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
-    public String nereidsTraceEventMode = "all";
-
-    private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
-
     public boolean isInDebugMode() {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
                 || skipMissingVersion || skipBadTablet;
@@ -3874,29 +3859,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return Joiner.on(",").join(res);
-    }
-
-    public void setEnableNereidsTrace(boolean enableNereidsTrace) {
-        this.enableNereidsTrace = enableNereidsTrace;
-    }
-
-    public void setNereidsTraceEventMode(String nereidsTraceEventMode) {
-        checkNereidsTraceEventMode(nereidsTraceEventMode);
-        this.nereidsTraceEventMode = nereidsTraceEventMode;
-    }
-
-    public void checkNereidsTraceEventMode(String nereidsTraceEventMode) {
-        List<String> strings = EventSwitchParser.checkEventModeStringAndSplit(nereidsTraceEventMode);
-        if (strings != null) {
-            parsedNereidsEventMode = EventSwitchParser.parse(strings);
-        }
-        if (parsedNereidsEventMode == null) {
-            throw new UnsupportedOperationException("nereids_trace_event_mode syntax error, please check");
-        }
-    }
-
-    public Set<Class<? extends Event>> getParsedNereidsEventMode() {
-        return parsedNereidsEventMode;
     }
 
     public String getBlockEncryptionMode() {
@@ -5083,10 +5045,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
     }
 
-    public boolean isEnablePushDownStringMinMax() {
-        return enablePushDownStringMinMax;
-    }
-
     public String getEnableMorValuePredicatePushdownTables() {
         return enableMorValuePredicatePushdownTables;
     }
@@ -5238,10 +5196,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNereidsCboPenaltyFactor(double penaltyFactor) {
         this.nereidsCboPenaltyFactor = penaltyFactor;
-    }
-
-    public boolean isEnableNereidsTrace() {
-        return enableNereidsTrace;
     }
 
     public void setEnableExprTrace(boolean enableExprTrace) {
@@ -5569,6 +5523,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
+        tResult.setForcePushdownZonemapMinmax(forcePushDownZonemapMinMax);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);
@@ -5958,14 +5913,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return "";
-    }
-
-    public boolean isPlayNereidsDump() {
-        return planNereidsDump;
-    }
-
-    public void setPlanNereidsDump(boolean planNereidsDump) {
-        this.planNereidsDump = planNereidsDump;
     }
 
     public boolean isDumpNereidsMemo() {

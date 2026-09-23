@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.PatternType;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.Objects;
@@ -85,7 +86,7 @@ public class VariantField {
         sb.append("'").append(pattern).append("'");
         sb.append(":").append(dataType.toSql());
         if (!comment.isEmpty()) {
-            sb.append(" COMMENT '").append(comment).append("'");
+            sb.append(" COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(comment));
         }
         return sb.toString();
     }

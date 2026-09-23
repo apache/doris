@@ -56,8 +56,6 @@ public class CustomRewriteJob implements RewriteJob {
         }
         CascadesContext cascadesContext = context.getCascadesContext();
         Plan root = cascadesContext.getRewritePlan();
-        // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
-        //         root));
         Plan rewrittenRoot = customRewriter.get().rewriteRoot(root, context);
         if (rewrittenRoot == null) {
             return;

@@ -17,12 +17,14 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.ha.FrontendNodeType;
@@ -49,6 +51,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -262,6 +265,48 @@ public class ProtocolCapabilityWiringTest extends TestWithFeService {
             DefaultPBackendServiceImpl.failNextExecPlanFragments(0);
             connectContext.setThreadLocalInfo();
             dropTable("replan_tbl", true);
+        }
+    }
+
+    // A Flight request may deliver one result only, and it must be the last statement's: a query
+    // that ran on the backend and turns out not to be the last statement is refused by the adapter
+    // after it executed. What executed is audited (and counted as a query) whatever the adapter
+    // decides next; the audit row of the refused query carries the refusal.
+    @Test
+    public void testARefusedFlightStatementIsAuditedBeforeTheRequestStops() throws Exception {
+        createTable("create table audit_tbl (k int) distributed by hash(k) buckets 1"
+                + " properties ('replication_num' = '1')");
+        try {
+            ConnectContext flight = flightContext();
+            flight.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            List<String> auditedStatements = new ArrayList<>();
+            List<MysqlStateType> auditedStates = new ArrayList<>();
+            List<ErrorCode> auditedErrorCodes = new ArrayList<>();
+            FlightSqlConnectProcessor processor = Mockito.spy(new FlightSqlConnectProcessor(flight));
+            Mockito.doAnswer(invocation -> {
+                auditedStatements.add(invocation.getArgument(0));
+                auditedStates.add(flight.getState().getStateType());
+                auditedErrorCodes.add(flight.getState().getErrorCode());
+                return null;
+            }).when(processor).auditAfterExec(Mockito.anyString(), Mockito.any(StatementBase.class), Mockito.any(),
+                    Mockito.anyBoolean());
+            try {
+                processor.handleQuery("select k from audit_tbl; set @x = 1");
+            } finally {
+                processor.close();
+            }
+
+            // The request stopped at the refused query: it was audited, with the refusal, and the
+            // SET after it never ran.
+            Assertions.assertEquals(MysqlStateType.ERR, flight.getState().getStateType());
+            Assertions.assertEquals(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT,
+                    flight.getState().getErrorCode());
+            Assertions.assertEquals(List.of("select k from audit_tbl"), auditedStatements);
+            Assertions.assertEquals(List.of(MysqlStateType.ERR), auditedStates);
+            Assertions.assertEquals(List.of(ErrorCode.ERR_ARROW_FLIGHT_SQL_MUST_ONLY_RESULT_STMT), auditedErrorCodes);
+        } finally {
+            connectContext.setThreadLocalInfo();
+            dropTable("audit_tbl", true);
         }
     }
 

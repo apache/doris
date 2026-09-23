@@ -147,11 +147,8 @@ protected:
         EXPECT_TRUE(probe.has_value()) << probe.error();
         if (probe.has_value()) {
             EXPECT_EQ(probe->contains_relative_path(std::string(kArrayPath)), !array_is_null);
-            if (array_is_null) {
-                EXPECT_EQ(probe->index_files.existing_files, 0);
-            } else {
-                expect_index_files(probe.value(), true);
-            }
+            // The schema owns the index, so a null array still leaves an index file.
+            expect_index_files(probe.value(), true);
         }
         return rowset.value();
     }
@@ -213,7 +210,6 @@ TEST_F(IndexStorageVariantDebugPointTest, ArrayPathIndexAcceptsMixedTypedElement
             {R"({"c_arr": ["text"]})", R"({"c_arr": [1.1]})", R"({"c_arr": [1.0]})",
              R"({"c_arr": [90]})", R"({"c_arr": [90999999999999]})"},
             0));
-    rowset.batches.back().parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     auto rowset_result = write_rowset(rowset);
     ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
 

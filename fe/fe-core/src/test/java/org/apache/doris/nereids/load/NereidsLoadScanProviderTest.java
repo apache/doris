@@ -26,7 +26,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.fileformat.ArrowFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.NativeFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -114,18 +113,6 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
-    public void testNativeSourceColumnUsesCaseInsensitiveTableType() throws Exception {
-        OlapTable table = mockTable();
-        NereidsParamCreateContext context = createLoadContext(table,
-                ImmutableList.of(new NereidsImportColumnDesc("time"),
-                        new NereidsImportColumnDesc("securityid"),
-                        new NereidsImportColumnDesc("ev")),
-                new NativeFileFormatProperties());
-
-        assertSlot(context, "ev", PrimitiveType.DOUBLE);
-    }
-
-    @Test
     public void testTimestampNsSequenceDefaultWithPrecisionMayBeOmitted() {
         OlapTable table = mockTable();
         Column sequenceColumn = new Column("time", org.apache.doris.catalog.Type.TIMESTAMP_NS,
@@ -136,7 +123,7 @@ public class NereidsLoadScanProviderTest {
 
         Assertions.assertDoesNotThrow(() -> createLoadContext(table,
                 ImmutableList.of(new NereidsImportColumnDesc("securityid")),
-                new NativeFileFormatProperties()));
+                new ArrowFileFormatProperties()));
     }
 
     @Test
@@ -150,7 +137,7 @@ public class NereidsLoadScanProviderTest {
 
         Assertions.assertThrows(UserException.class, () -> createLoadContext(table,
                 ImmutableList.of(new NereidsImportColumnDesc("securityid")),
-                new NativeFileFormatProperties()));
+                new ArrowFileFormatProperties()));
     }
 
     @Test

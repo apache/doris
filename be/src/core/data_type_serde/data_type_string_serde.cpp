@@ -847,12 +847,15 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
-    // CHAR(N) writes through OlapColumnDataConvertorChar are zero-padded to
-    // the declared schema length, so the serialized OLAP string carries
-    // trailing '\0' bytes. strnlen() drops that padding to surface the
-    // logical character content in the Field. VARCHAR / STRING never write
-    // trailing '\0' through this path, so strnlen is a no-op for them.
-    size_t len = strnlen(str.data(), str.size());
+    // CHAR(N) is zero-padded to the declared schema length before it is written, so its
+    // stored bytes carry trailing '\0' and stop at the first one. The page read path cuts
+    // CHAR values the same way (see BinaryPlainPageCharStripPreDecoder), so a bound built
+    // like this stays comparable with the rows it describes.
+    //
+    // VARCHAR and STRING keep every byte they were given, '\0' included. Cutting such a
+    // value at an embedded '\0' would give a bound the data never held, and a zone map
+    // built from it prunes rows that match.
+    size_t len = _type == TYPE_CHAR ? strnlen(str.data(), str.size()) : str.size();
     field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
 }

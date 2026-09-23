@@ -1591,13 +1591,12 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
             mkdir "${BE_HADOOP_HDFS_DIR}"
             HADOOP_DEPS_JAR_DIR="${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}/target"
             echo "HADOOP_DEPS_JAR_DIR: ${HADOOP_DEPS_JAR_DIR}"
-            if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && ! -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
-                echo "WARN: lib directory missing (likely due to Maven cache). Regenerating..."
-                pushd "${DORIS_HOME}/fe/be-java-extensions/${HADOOP_DEPS_NAME}"
-                "${MVN_CMD}" dependency:copy-dependencies -DskipTests -Dcheckstyle.skip=true
-                mv target/dependency target/lib
-                popd
-            fi
+            # target/lib is present even when the Maven build cache restored this module instead of
+            # building it: fe/.mvn/maven-build-cache-config.xml forces copy-dependencies to run on a
+            # cache hit, for hadoop-deps and every plugin alike. There used to be a fallback here
+            # that re-ran the goal from the command line when the directory was missing; besides
+            # covering only this one module, it ran the goal without the pom's runtime-scope
+            # filter and so put the test-scope closure (JUnit and friends) into lib/hadoop_hdfs.
             if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
                 echo "Copy Be Extensions hadoop deps jar to ${BE_HADOOP_HDFS_DIR}"
                 cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${BE_HADOOP_HDFS_DIR}"

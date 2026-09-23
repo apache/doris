@@ -725,7 +725,9 @@ TEST(TEST_VEXPR, LITERALTEST) {
 
             ColumnPtr result_column;
             ASSERT_TRUE(literal.execute_column(nullptr, nullptr, nullptr, 1, result_column).ok());
-            auto sv = (*result_column)[0].get<TYPE_VARBINARY>();
+            // The view borrows the Field's owned bytes, so keep the Field alive for the assertion.
+            const auto result_field = (*result_column)[0];
+            const auto& sv = result_field.get<TYPE_VARBINARY>();
             EXPECT_EQ(value, std::string(sv.data(), sv.size()));
         }
     }

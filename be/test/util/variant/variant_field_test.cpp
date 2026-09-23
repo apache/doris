@@ -30,8 +30,6 @@
 #include "common/exception.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
-#include "util/json/json_parser.h"
-#include "util/json/simd_json_parser.h"
 
 namespace doris {
 namespace {
@@ -541,29 +539,11 @@ TEST(VariantFieldTest, AllComparisonsThrow) {
     EXPECT_THROW(static_cast<void>(left > right), Exception);
 }
 
-// This is a narrow current-source comparison, not the deferred T0.2 semantics baseline.
-TEST(VariantFieldTest, LegacyJsonDataParserStableSubsetDoesNotReplaceT02) {
-    JSONDataParser<SimdJSONParser> legacy;
-    ParseConfig config;
-
-    auto old_scalar = legacy.parse("123", 3, config);
-    ASSERT_TRUE(old_scalar.has_value());
-    ASSERT_EQ(old_scalar->values.size(), 1);
-    EXPECT_EQ(old_scalar->values[0].get<TYPE_BIGINT>(), 123);
+TEST(VariantFieldTest, EncodeJsonStableSubset) {
     EXPECT_EQ(encode_json("123").ref().get_int(), 123);
-
-    old_scalar = legacy.parse("\"text\"", 6, config);
-    ASSERT_TRUE(old_scalar.has_value());
-    EXPECT_EQ(old_scalar->values[0].get<TYPE_STRING>(), "text");
     EXPECT_EQ(encode_json("\"text\"").ref().get_string(), StringRef("text"));
 
-    const std::string object_json = R"({"a":1,"b":"x"})";
-    auto old_object = legacy.parse(object_json.data(), object_json.size(), config);
-    ASSERT_TRUE(old_object.has_value());
-    ASSERT_EQ(old_object->paths.size(), 2);
-    EXPECT_EQ(old_object->paths[0].get_path(), "a");
-    EXPECT_EQ(old_object->paths[1].get_path(), "b");
-    VariantField new_object = encode_json(object_json);
+    VariantField new_object = encode_json(R"({"a":1,"b":"x"})");
     VariantRef a;
     ASSERT_TRUE(new_object.ref().object_find(StringRef("a"), &a));
     EXPECT_EQ(a.get_int(), 1);
@@ -571,29 +551,14 @@ TEST(VariantFieldTest, LegacyJsonDataParserStableSubsetDoesNotReplaceT02) {
     ASSERT_TRUE(new_object.ref().object_find(StringRef("b"), &b));
     EXPECT_EQ(b.get_string(), StringRef("x"));
 
-    const std::string array_json = R"([1,null,"x"])";
-    auto old_array = legacy.parse(array_json.data(), array_json.size(), config);
-    ASSERT_TRUE(old_array.has_value());
-    const auto& old_elements = old_array->values[0].get<TYPE_ARRAY>();
-    ASSERT_EQ(old_elements.size(), 3);
-    EXPECT_EQ(old_elements[0].get<TYPE_BIGINT>(), 1);
-    EXPECT_TRUE(old_elements[1].is_null());
-    EXPECT_EQ(old_elements[2].get<TYPE_STRING>(), "x");
-    VariantField new_array_field = encode_json(array_json);
+    VariantField new_array_field = encode_json(R"([1,null,"x"])");
     VariantRef new_array = new_array_field.ref();
     ASSERT_EQ(new_array.num_elements(), 3);
     EXPECT_EQ(new_array.array_at(0).get_int(), 1);
     EXPECT_TRUE(new_array.array_at(1).is_null());
     EXPECT_EQ(new_array.array_at(2).get_string(), StringRef("x"));
 
-    auto old_empty_object = legacy.parse("{}", 2, config);
-    ASSERT_TRUE(old_empty_object.has_value());
-    EXPECT_TRUE(old_empty_object->paths.empty());
     EXPECT_EQ(encode_json("{}").ref().num_elements(), 0);
-
-    auto old_empty_array = legacy.parse("[]", 2, config);
-    ASSERT_TRUE(old_empty_array.has_value());
-    EXPECT_TRUE(old_empty_array->values[0].get<TYPE_ARRAY>().empty());
     EXPECT_EQ(encode_json("[]").ref().num_elements(), 0);
 }
 

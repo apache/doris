@@ -635,6 +635,10 @@ DataTypePtr DataTypeFactory::create_data_type(
         } else if (primitive_type == TYPE_AGG_STATE) {
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
+        } else if (primitive_type == TYPE_VARBINARY) {
+            // Serialized execution types must retain VARBINARY(n)'s byte limit across RPCs.
+            return create_data_type(primitive_type, is_nullable, 0, 0,
+                                    scalar_type.has_len() ? scalar_type.len() : -1);
         } else if (primitive_type == TYPE_VARIANT) {
             nested = std::make_shared<DataTypeVariantV2>(node.variant_max_subcolumns_count(),
                                                          node.variant_enable_doc_mode());
