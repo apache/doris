@@ -201,8 +201,9 @@ private:
     //      release_query_memory_(stop_after_release=true) — one spill per round.
     //   4. Otherwise, try to revoke memory from other overcommitted WGs by
     //      cancelling their largest queries.
-    //   5. If nothing could be revoked and the query has waited for
-    //      spill_in_paused_queue_timeout_ms, cancel it via release_query_memory_.
+    //   5. If nothing could be revoked and the process has reached its hard limit or the query
+    //      has waited for spill_in_paused_queue_timeout_ms, spill or cancel it via
+    //      release_query_memory_.
     // Returns true if the caller should stop processing further queries/WGs.
     bool handle_process_memory_exceeded_(const WorkloadGroupPtr& wg, PausedQuerySet& queries_list,
                                          PausedQueryIterator& query_it,

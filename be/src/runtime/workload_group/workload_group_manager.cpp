@@ -635,11 +635,11 @@ bool WorkloadGroupMgr::handle_process_memory_exceeded_(
 
     // TODO revoke from memtable
 
-    // Fallback: if we have waited too long and cannot revoke from anywhere,
-    // cancel the query or disable reserve memory to let it proceed.
-    if (query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms) {
-        // Cannot spill (no revocable memory), cannot revoke from other WGs,
-        // and process memory is still exceeded. Cancel the query to protect the system.
+    // Fallback: if the process reaches the hard limit or we have waited too long and cannot
+    // revoke from anywhere, let this query spill or cancel it to protect the process.
+    if (GlobalMemoryArbitrator::is_exceed_hard_mem_limit() ||
+        query_it->elapsed_time() > config::spill_in_paused_queue_timeout_ms) {
+        // No other workload group can release memory, and process memory is still exceeded.
         return release_query_memory_(queries_list, query_it, resource_ctx, true);
     }
     ++query_it;

@@ -1569,6 +1569,44 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_cancels_a
             << query->exec_status().to_string();
 }
 
+// A paused query whose workload group uses no more than its min memory limit should also be
+// cancelled immediately at the process hard limit when no other workload group can release
+// memory. This path must not rely on the memory GC daemon, which may be disabled.
+TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_below_min_memory_cancels_at_hard_limit) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    const int64_t original_soft_mem_limit = MemInfo::soft_mem_limit();
+    Defer restore_mem_limit {[&]() {
+        MemInfo::set_mem_limit_for_test(original_mem_limit);
+        MemInfo::set_soft_mem_limit_for_test(original_soft_mem_limit);
+    }};
+    MemInfo::set_mem_limit_for_test(kProcessMemLimitForWg);
+    WorkloadGroupInfo wg_info {.id = 1,
+                               .memory_limit = kProcessMemLimitForWg,
+                               .min_memory_percent = 10,
+                               .max_memory_percent = 100};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+
+    auto query = _generate_on_query(wg);
+    query->query_mem_tracker()->consume(1024L * 4);
+    Defer release_memory {[&]() { query->query_mem_tracker()->consume(-1024L * 4); }};
+    wg->refresh_memory_usage();
+    ASSERT_LE(wg->total_mem_used(), wg->min_memory_limit());
+
+    // Both the soft and the hard process memory limits are exceeded.
+    MemInfo::set_mem_limit_for_test(0);
+    MemInfo::set_soft_mem_limit_for_test(0);
+    _wg_manager->add_paused_query(query->resource_ctx(), 1024L,
+                                  Status::Error(ErrorCode::PROCESS_MEMORY_EXCEEDED, "test"));
+
+    config::spill_in_paused_queue_timeout_ms = 60 * 1000;
+    _wg_manager->handle_paused_queries();
+    ASSERT_TRUE(query->is_cancelled());
+    ASSERT_TRUE(query->exec_status().is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+            << query->exec_status().to_string();
+    ASSERT_NE(query->exec_status().to_string().find("exceed hard limit: true"), std::string::npos)
+            << query->exec_status().to_string();
+}
+
 // When the process reaches the hard memory limit, the paused query should be cancelled without
 // waiting for the timeout, so that the protection does not depend on memory gc.
 TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_cancels_at_hard_limit) {
@@ -1605,6 +1643,5 @@ TEST_F(WorkloadGroupManagerTest, process_mem_exceeded_cancels_at_hard_limit) {
     ASSERT_NE(query->exec_status().to_string().find("exceed hard limit: true"), std::string::npos)
             << query->exec_status().to_string();
 }
-
 
 } // namespace doris
