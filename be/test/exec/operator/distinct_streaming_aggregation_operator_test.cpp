@@ -25,6 +25,7 @@
 #include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
+#include "runtime/workload_management/memory_context.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -207,6 +208,91 @@ TEST_F(DistinctStreamingAggOperatorTest, test3) {
         EXPECT_EQ(local_state->_aggregated_block->rows(), 0);
     }
     { EXPECT_TRUE(op->close(state.get())); }
+}
+
+TEST_F(DistinctStreamingAggOperatorTest, refresh_memory_limit) {
+    op->_is_streaming_preagg = true;
+    op->set_parallel_tasks(2);
+    auto* memory_context = state->get_query_ctx()->resource_ctx()->memory_context();
+    memory_context->set_mem_limit(1024LL * 1024 * 1024);
+    create_op({std::make_shared<DataTypeInt64>()}, {std::make_shared<DataTypeInt64>()});
+
+    // 1GB / 2 tasks / 5
+    auto* memory_use_limit = local_state->custom_profile()->get_counter("MemoryUseLimit");
+    ASSERT_NE(memory_use_limit, nullptr);
+    EXPECT_EQ(memory_use_limit->value(), 1024LL * 1024 * 1024 / 2 / 5);
+
+    auto block = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_FALSE(local_state->_stop_emplace_flag);
+
+    // spill_streaming_agg_mem_limit is ignored while spilling is disabled ...
+    op->_spill_streaming_agg_mem_limit = 4 * 1024 * 1024;
+    block = ColumnHelper::create_block<DataTypeInt64>({5});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_FALSE(local_state->_stop_emplace_flag);
+    EXPECT_EQ(memory_use_limit->value(), 1024LL * 1024 * 1024 / 2 / 5);
+
+    // ... and caps the distinct pre-agg once spilling is enabled.
+    state->set_enable_spill(true);
+    block = ColumnHelper::create_block<DataTypeInt64>({6});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_FALSE(local_state->_stop_emplace_flag);
+    EXPECT_EQ(memory_use_limit->value(), 4 * 1024 * 1024);
+
+    // A tiny query limit: the floor is capped by the per-task share (10 / 2 = 5 bytes), the
+    // hash table already exceeds it, so the pre-agg gives up and passes rows through.
+    memory_context->set_mem_limit(10);
+    block = ColumnHelper::create_block<DataTypeInt64>({1, 1});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_TRUE(local_state->_stop_emplace_flag);
+    EXPECT_EQ(memory_use_limit->value(), 5);
+    EXPECT_EQ(local_state->_aggregated_block->rows(), 8);
+}
+
+TEST_F(DistinctStreamingAggOperatorTest, pushed_limit_with_memory_limit) {
+    op->_is_streaming_preagg = true;
+    op->_limit = 2;
+    op->set_parallel_tasks(2);
+    auto* memory_context = state->get_query_ctx()->resource_ctx()->memory_context();
+    memory_context->set_mem_limit(1024LL * 1024 * 1024);
+    create_op({std::make_shared<DataTypeInt64>()}, {std::make_shared<DataTypeInt64>()});
+
+    // Within the budget a pushed-down LIMIT works as usual: duplicates are removed and the
+    // operator stops once `limit` distinct keys are out.
+    auto block = ColumnHelper::create_block<DataTypeInt64>({1, 1});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_FALSE(local_state->_stop_emplace_flag);
+    EXPECT_FALSE(local_state->_reach_limit);
+    EXPECT_EQ(local_state->_aggregated_block->rows(), 1);
+
+    // Budget exceeded: the operator latches into pass-through and no longer truncates, so the
+    // global stage still sees every key that may be distinct (the limit is applied there).
+    memory_context->set_mem_limit(10);
+    block = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2, 3});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_TRUE(local_state->_stop_emplace_flag);
+    EXPECT_FALSE(local_state->_reach_limit);
+    EXPECT_EQ(local_state->_aggregated_block->rows(), 5);
+}
+
+TEST_F(DistinctStreamingAggOperatorTest, pass_through_does_not_consume_pushed_limit) {
+    op->_is_streaming_preagg = true;
+    op->_limit = 2;
+    create_op({std::make_shared<DataTypeInt64>()}, {std::make_shared<DataTypeInt64>()});
+
+    auto block = ColumnHelper::create_block<DataTypeInt64>({1});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_EQ(local_state->_aggregated_block->rows(), 1);
+
+    // Once the operator has permanently stopped deduplicating (low reduction rate / low-memory
+    // mode), raw rows must not be truncated against the limit: the global stage needs every
+    // key that may still be distinct.
+    local_state->_stop_emplace_flag = true;
+    block = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2});
+    EXPECT_TRUE(op->push(state.get(), &block, false));
+    EXPECT_FALSE(local_state->_reach_limit);
+    EXPECT_EQ(local_state->_aggregated_block->rows(), 4);
 }
 
 } // namespace doris
