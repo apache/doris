@@ -893,7 +893,7 @@ TEST(VExprExecuteColumnTest, TypeMismatchFails) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnFails) {
+TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnIsWrapped) {
     using namespace doris;
     FakeVExpr expr;
     // Declared type is Nullable(Int32), so the result must carry a nullable column wrapper.
@@ -905,7 +905,8 @@ TEST(VExprExecuteColumnTest, NullableTypeWithNonNullableColumnFails) {
 
     ColumnPtr result;
     auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
-    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(result->is_nullable());
 }
 
 TEST(VExprExecuteColumnTest, ColumnNothingPassesTypeCheck) {

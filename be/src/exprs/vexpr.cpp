@@ -1074,6 +1074,9 @@ Status VExpr::execute_column(VExprContext* context, const Block* block, const Se
     if (!check_and_get_column<ColumnNothing>(result_column.get())) {
         auto result_type = execute_type(block);
         if (result_type != nullptr) {
+            if (result_type->is_nullable() && !result_column->is_nullable()) {
+                result_column = make_nullable(result_column, false);
+            }
             Status st = result_type->check_column(*result_column);
             if (!st.ok()) {
                 return Status::InternalError(
