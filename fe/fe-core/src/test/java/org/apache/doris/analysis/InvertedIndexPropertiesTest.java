@@ -253,6 +253,69 @@ public class InvertedIndexPropertiesTest {
                         "char_filter_pattern", "A", "char_filter_replacement", "a"), "");
     }
 
+    private static IndexDefinition invertedIndexDefinitionWithProperties(
+            String name, Map<String, String> properties) {
+        return new IndexDefinition(name, false, List.of("content"), "INVERTED", properties, "");
+    }
+
+    @Test
+    public void testCreateTableRejectsBuiltinAnalyzerPipelineAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "basic_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "icu_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "icu", "token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "basic_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_builtin_basic", "basic"),
+                                    invertedIndexDefinition("idx_custom_basic", "basic_lower"))),
+                            "the built-in basic analyzer must share the identity of its custom equivalent"),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithProperties(
+                                            "idx_parser_basic", Map.of("parser", "basic")),
+                                    invertedIndexDefinition("idx_custom_basic", "basic_lower")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_builtin_icu", "icu"),
+                                    invertedIndexDefinition("idx_custom_icu", "icu_lower")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithProperties(
+                                            "idx_parser_standard", Map.of("parser", "standard")),
+                                    invertedIndexDefinitionWithProperties(
+                                            "idx_parser_unicode", Map.of("parser", "unicode")))),
+                            "unicode is another spelling of the standard analyzer"),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_analyzer_standard", "standard"),
+                                    invertedIndexDefinition("idx_analyzer_unicode", "unicode")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithProperties("idx_builtin_basic_cased",
+                                            Map.of("analyzer", "basic", "lower_case", "false")),
+                                    invertedIndexDefinition("idx_custom_basic_plain", "basic_plain")))),
+                    // lower_case=false drops the filter, so the two pipelines stay distinct.
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinitionWithProperties("idx_builtin_basic_cased",
+                                            Map.of("analyzer", "basic", "lower_case", "false")),
+                                    invertedIndexDefinition("idx_custom_basic", "basic_lower")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_builtin_basic", "basic"),
+                                    invertedIndexDefinition("idx_custom_icu", "icu_lower")))));
+        }
+    }
+
     @Test
     public void testCreateTableRejectsAdjacentDuplicateIdempotentFilterAliases() {
         IndexPolicyMgr policyMgr = new IndexPolicyMgr();

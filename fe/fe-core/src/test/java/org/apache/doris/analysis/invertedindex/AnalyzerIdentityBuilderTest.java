@@ -2140,4 +2140,146 @@ public class AnalyzerIdentityBuilderTest {
         cased.put("lowercase", "false");
         return cased;
     }
+
+    private static String builtinAnalyzerIdentity(String analyzer, Map<String, String> extraProperties) {
+        Map<String, String> properties = new HashMap<>(extraProperties);
+        properties.put("analyzer", analyzer);
+        return AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                properties, analyzer, "none", "__default__", "none", null);
+    }
+
+    private static String parserIdentity(String parser, Map<String, String> extraProperties) {
+        Map<String, String> properties = new HashMap<>(extraProperties);
+        properties.put("parser", parser);
+        return AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                properties, "", parser, "__default__", "none", null);
+    }
+
+    private static Map<String, String> outerLowerA() {
+        return Map.of("char_filter_type", "char_replace",
+                "char_filter_pattern", "A", "char_filter_replacement", "a");
+    }
+
+    @Test
+    public void testBuiltinBasicAndIcuTakeTheirLowercasePipelineIdentity() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "basic_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 2, "basic_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic"));
+        replayComponent(policyMgr, 3, "icu_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "icu", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 4, "icu_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "icu"));
+        replayComponent(policyMgr, 5, "basic_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "token_filter", "asciifolding"));
+        replayComponent(policyMgr, 6, "x_to_y", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "x", "replacement", "y"));
+        replayComponent(policyMgr, 7, "basic_lower_replaced", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "char_filter", "x_to_y", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 8, "basic_extra_chars", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "-"));
+        replayComponent(policyMgr, 9, "basic_extra_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic_extra_chars", "token_filter", "lowercase"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("basic_lower"),
+                            builtinAnalyzerIdentity("basic", Map.of())),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("basic_lower"),
+                            parserIdentity("basic", Map.of())),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("icu_lower"),
+                            builtinAnalyzerIdentity("icu", Map.of())),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("icu_lower"),
+                            parserIdentity("icu", Map.of())),
+                    // Settings the built-in analyzer never reads leave the pipeline alone.
+                    () -> Assertions.assertEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            builtinAnalyzerIdentity("basic", Map.of("stopwords", "none"))),
+                    () -> Assertions.assertEquals(builtinAnalyzerIdentity("icu", Map.of()),
+                            builtinAnalyzerIdentity("icu", Map.of("parser_mode", "fine_grained"))),
+                    // lower_case=false drops the LowerCaseFilter, leaving the bare tokenizer.
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("basic_plain"),
+                            builtinAnalyzerIdentity("basic", Map.of("lower_case", "false"))),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("icu_plain"),
+                            parserIdentity("icu", Map.of("lower_case", "false"))),
+                    () -> Assertions.assertNotEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            builtinAnalyzerIdentity("basic", Map.of("lower_case", "false"))),
+                    () -> Assertions.assertNotEquals(builtinAnalyzerIdentity("icu", Map.of()),
+                            builtinAnalyzerIdentity("icu", Map.of("lower_case", "false"))),
+                    () -> Assertions.assertNotEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            builtinAnalyzerIdentity("icu", Map.of())),
+                    () -> Assertions.assertNotEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            namedAnalyzerIdentity("basic_fold")),
+                    () -> Assertions.assertNotEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            namedAnalyzerIdentity("basic_lower_replaced")),
+                    () -> Assertions.assertNotEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            namedAnalyzerIdentity("basic_extra_lower")));
+        }
+    }
+
+    @Test
+    public void testBuiltinLowercaseAnalyzerAbsorbsOuterCharFilterLikeItsPipeline() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "basic_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "token_filter", "lowercase"));
+        replayComponent(policyMgr, 2, "basic_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Map<String, String> lowerCaseOff = new HashMap<>(outerLowerA());
+        lowerCaseOff.put("lower_case", "false");
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(builtinAnalyzerIdentity("basic", Map.of()),
+                            builtinAnalyzerIdentity("basic", outerLowerA())),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentityWithOuterLowerA("basic_lower"),
+                            builtinAnalyzerIdentity("basic", outerLowerA())),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentityWithOuterLowerA("basic_lower"),
+                            parserIdentity("basic", outerLowerA())),
+                    // Without the LowerCaseFilter the outer rewrite still changes the terms.
+                    () -> Assertions.assertNotEquals(
+                            builtinAnalyzerIdentity("basic", Map.of("lower_case", "false")),
+                            builtinAnalyzerIdentity("basic", lowerCaseOff)),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentityWithOuterLowerA("basic_plain"),
+                            builtinAnalyzerIdentity("basic", lowerCaseOff)));
+        }
+    }
+
+    @Test
+    public void testUnicodeAndStandardShareOneBuiltinIdentity() {
+        Assertions.assertAll(
+                () -> Assertions.assertEquals(
+                        parserIdentity("standard", Map.of()), parserIdentity("unicode", Map.of())),
+                () -> Assertions.assertEquals(builtinAnalyzerIdentity("standard", Map.of()),
+                        builtinAnalyzerIdentity("unicode", Map.of())),
+                () -> Assertions.assertEquals(
+                        parserIdentity("standard", Map.of()), builtinAnalyzerIdentity("unicode", Map.of())),
+                // Both spellings hand the same settings to the same StandardAnalyzer.
+                () -> Assertions.assertEquals(parserIdentity("standard", Map.of("lower_case", "false")),
+                        parserIdentity("unicode", Map.of("lower_case", "false"))),
+                () -> Assertions.assertEquals(parserIdentity("standard", Map.of("stopwords", "none")),
+                        parserIdentity("unicode", Map.of("stopwords", "none"))),
+                () -> Assertions.assertEquals(parserIdentity("standard", outerLowerA()),
+                        parserIdentity("unicode", outerLowerA())),
+                // BE matches a parser name after folding its case, so the spelling cannot separate
+                // two otherwise identical indexes.
+                () -> Assertions.assertEquals(parserIdentity("standard", Map.of()),
+                        parserIdentity("STANDARD", Map.of())),
+                () -> Assertions.assertEquals(parserIdentity("standard", Map.of()),
+                        parserIdentity("Unicode", Map.of())),
+                () -> Assertions.assertEquals(parserIdentity("english", Map.of()),
+                        parserIdentity("English", Map.of())),
+                // The other built-ins keep their own pipelines.
+                () -> Assertions.assertNotEquals(
+                        parserIdentity("unicode", Map.of()), parserIdentity("english", Map.of())),
+                () -> Assertions.assertNotEquals(
+                        parserIdentity("unicode", Map.of()), parserIdentity("chinese", Map.of())),
+                () -> Assertions.assertNotEquals(
+                        parserIdentity("unicode", Map.of()), parserIdentity("basic", Map.of())));
+    }
 }

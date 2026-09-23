@@ -1336,6 +1336,35 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testAddInvertedIndexRejectsBuiltinAnalyzerPipelineAliases() throws Exception {
+        createAnalyzerAliasTable("sc_builtin_pipeline_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        replayAliasPolicy(policyMgr, "alter_basic_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic", "token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_icu_lower", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "icu", "token_filter", "lowercase"));
+        replayAliasPolicy(policyMgr, "alter_basic_plain", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic"));
+
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_builtin_basic(c1) "
+                + "using inverted properties(\"analyzer\"=\"basic\"), add index idx_custom_basic(c1) "
+                + "using inverted properties(\"analyzer\"=\"alter_basic_lower\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_builtin_icu(c2) "
+                + "using inverted properties(\"parser\"=\"icu\"), add index idx_custom_icu(c2) "
+                + "using inverted properties(\"analyzer\"=\"alter_icu_lower\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_cased_basic(c1) "
+                + "using inverted properties(\"analyzer\"=\"basic\", \"lower_case\"=\"false\"), "
+                + "add index idx_custom_plain(c1) using inverted "
+                + "properties(\"analyzer\"=\"alter_basic_plain\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_standard(c2) "
+                + "using inverted properties(\"parser\"=\"standard\"), add index idx_unicode(c2) "
+                + "using inverted properties(\"parser\"=\"unicode\")", "already exists");
+        expectException("alter table test.sc_builtin_pipeline_alias add index idx_analyzer_standard(c1) "
+                + "using inverted properties(\"analyzer\"=\"standard\"), add index idx_analyzer_unicode(c1) "
+                + "using inverted properties(\"analyzer\"=\"unicode\")", "already exists");
+    }
+
+    @Test
     public void testAddInvertedIndexRejectsPinyinSettingsBehindDisabledGates() throws Exception {
         createAnalyzerAliasTable("sc_pinyin_gate_alias");
         IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();

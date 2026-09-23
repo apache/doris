@@ -43,7 +43,12 @@ import java.util.regex.Pattern;
 public final class AnalyzerIdentityBuilder {
     private static final String PROP_MAX_NGRAM_DIFF = "max_ngram_diff";
     private static final String KEYWORD_TOKENIZER = "keyword";
+    private static final String LOWERCASE_TOKEN_FILTER = "lowercase";
     private static final String CHAR_REPLACE_FILTER = "char_replace";
+    // Built-in analyzers BE builds as their tokenizer plus a LowerCaseFilter that lower_case drops.
+    private static final Set<String> LOWERCASE_FILTER_BUILTIN_ANALYZERS = ImmutableSet.of(
+            InvertedIndexProperties.INVERTED_INDEX_PARSER_BASIC,
+            InvertedIndexProperties.INVERTED_INDEX_PARSER_ICU);
     private static final String PROP_PATTERN = "pattern";
     private static final String PROP_REPLACEMENT = "replacement";
     // Defaults CharReplaceCharFilterFactory applies to a bare built-in reference.
@@ -118,6 +123,11 @@ public final class AnalyzerIdentityBuilder {
                 return appendOuterCharFilterIdentity(
                         builtinIkIdentity, properties, builtinIkFoldContext(builtinIkIdentity));
             }
+            // BE dispatches a canonical lowercase built-in before any custom policy of that name.
+            String builtinIdentity = builtinAnalyzerIdentity(preferredAnalyzer.trim(), properties);
+            if (builtinIdentity != null) {
+                return builtinIdentity;
+            }
             // For custom analyzer/normalizer, resolve to underlying config to build identity
             return appendOuterCharFilterIdentity(
                     resolveAnalyzerIdentity(preferredAnalyzer, defaultAnalyzerKey, log), properties,
@@ -132,7 +142,37 @@ public final class AnalyzerIdentityBuilder {
             return appendOuterCharFilterIdentity(
                     legacyIkIdentity, properties, builtinIkFoldContext(legacyIkIdentity));
         }
-        return appendOuterCharFilterIdentity(parser, properties, null);
+        // A parser name reaches BE's built-in dispatch after case folding and without a policy lookup.
+        String canonicalParser = parser.trim().toLowerCase(Locale.ROOT);
+        String builtinParserIdentity = builtinAnalyzerIdentity(canonicalParser, properties);
+        if (builtinParserIdentity != null) {
+            return builtinParserIdentity;
+        }
+        return appendOuterCharFilterIdentity(canonicalParser, properties, null);
+    }
+
+    /**
+     * Identity of a built-in analyzer BE canonicalizes, or null for any other name. The basic and
+     * icu built-ins are their tokenizer plus a LowerCaseFilter that lower_case drops, so they share
+     * the identity of that custom pipeline, and unicode is another spelling of standard.
+     */
+    private static String builtinAnalyzerIdentity(String name, Map<String, String> properties) {
+        if (InvertedIndexProperties.INVERTED_INDEX_PARSER_UNICODE.equals(name)) {
+            return appendOuterCharFilterIdentity(
+                    InvertedIndexProperties.INVERTED_INDEX_PARSER_STANDARD, properties, null);
+        }
+        if (!LOWERCASE_FILTER_BUILTIN_ANALYZERS.contains(name)) {
+            return null;
+        }
+        boolean lowercase = !Boolean.FALSE.toString().equalsIgnoreCase(
+                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY));
+        // Spell out the pipeline rather than resolving components, because the built-in keeps its
+        // own tokenizer even when a named policy shadows that name.
+        String identity = IndexPolicyTypeEnum.ANALYZER.name() + ":"
+                + (lowercase ? IndexPolicy.PROP_TOKEN_FILTER + "=" + LOWERCASE_TOKEN_FILTER + ";" : "")
+                + IndexPolicy.PROP_TOKENIZER + "=" + name + ";";
+        return appendOuterCharFilterIdentity(
+                identity, properties, lowercase ? FoldContext.unfiltered() : null);
     }
 
     private static String resolveBuiltinIkAnalyzerIdentity(
