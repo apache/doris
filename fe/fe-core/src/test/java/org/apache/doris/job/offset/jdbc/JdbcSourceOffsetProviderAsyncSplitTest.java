@@ -126,6 +126,16 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
     // ===== initOnCreate / noMoreSplits =====
 
     @Test
+    public void testSnapshotPhaseSkipsCompletionScanWithPendingSplits() throws JobException {
+        provider.initOnCreate(Collections.singletonList("db.tbl_a"));
+        provider.remainingSplits.add(split("db.tbl_a", 0, null, null));
+        JdbcSourceOffsetProvider spy = Mockito.spy(provider);
+
+        Assertions.assertTrue(spy.isSnapshotPhase());
+        Mockito.verify(spy, Mockito.never()).noMoreSplits();
+    }
+
+    @Test
     public void testInitWithEmptySyncTablesIsAllDone() throws JobException {
         provider.initOnCreate(Collections.emptyList());
         Assertions.assertTrue(provider.noMoreSplits());
