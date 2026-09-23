@@ -708,7 +708,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Build predicates from filter expression
         RowType rowType = table.rowType();
         List<org.apache.paimon.predicate.Predicate> predicates = Collections.emptyList();
-        if (filter.isPresent()) {
+        // Paimon can cast historical timestamp statistics with the current precision while planning
+        // splits. Keep these predicates as Doris residuals so an old file cannot be pruned before JNI
+        // widens and repairs its timestamp values.
+        if (filter.isPresent() && !containsTimestampType(rowType)) {
             PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
             predicates = converter.convert(filter.get());
         }
@@ -1081,7 +1084,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // ("encodedStr is null"). Mirrors legacy PaimonScanNode.createScanRangeLocations, which always called
         // setPaimonPredicate(encodeObjectToString(predicates)) regardless of whether predicates was empty.
         List<org.apache.paimon.predicate.Predicate> predicates = Collections.emptyList();
-        if (filter.isPresent()) {
+        // The same predicate must stay out of the BE Paimon reader: JNI materializes and repairs the
+        // value first, then the generic scan path evaluates the residual against the repaired column.
+        if (filter.isPresent() && !containsTimestampType(table.rowType())) {
             RowType rowType = table.rowType();
             PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
             predicates = converter.convert(filter.get());
@@ -1182,6 +1187,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    static boolean containsTimestampType(DataType type) {
+        if (type instanceof org.apache.paimon.types.TimestampType
+                || type instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof org.apache.paimon.types.RowType) {
+            return ((org.apache.paimon.types.RowType) type).getFields().stream()
+                    .anyMatch(field -> containsTimestampType(field.type()));
+        }
+        if (type instanceof org.apache.paimon.types.ArrayType) {
+            return containsTimestampType(((org.apache.paimon.types.ArrayType) type).getElementType());
+        }
+        if (type instanceof org.apache.paimon.types.MapType) {
+            org.apache.paimon.types.MapType mapType = (org.apache.paimon.types.MapType) type;
+            return containsTimestampType(mapType.getKeyType()) || containsTimestampType(mapType.getValueType());
+        }
+        return false;
     }
 
     OptionalInt backendManifestParallelism(PaimonTableHandle handle, Table scanTable) {

@@ -109,12 +109,23 @@ public class PaimonJniScannerTest {
         Assertions.assertEquals(9, ((TimestampType) ((RowType) readType.getTypeAt(3)).getTypeAt(0))
                 .getPrecision());
         MapType readMapType = (MapType) readType.getTypeAt(4);
-        Assertions.assertEquals(9, ((TimestampType) readMapType.getKeyType()).getPrecision());
+        Assertions.assertEquals(4, ((TimestampType) readMapType.getKeyType()).getPrecision());
         Assertions.assertEquals(9, ((LocalZonedTimestampType) readMapType.getValueType()).getPrecision());
 
         RowType projectedReadType = readType.project(new int[] {1});
         Assertions.assertEquals("ltz", projectedReadType.getFieldNames().get(0));
         Assertions.assertEquals(9, ((LocalZonedTimestampType) projectedReadType.getTypeAt(0)).getPrecision());
+    }
+
+    @Test
+    public void testNestedTimestampProjectionActivatesRepair() {
+        ColumnType nested = ColumnType.parseType("payload", "struct<a:datetimev2(4)>");
+        ColumnType map = ColumnType.parseType("entries", "map<datetimev2(4),datetimev2(4)>");
+
+        Assertions.assertTrue(PaimonJniScanner.containsTimestampType(nested));
+        Assertions.assertTrue(PaimonJniScanner.containsTimestampType(map));
+        Assertions.assertFalse(PaimonJniScanner.containsTimestampType(
+                ColumnType.parseType("payload", "struct<a:int>")));
     }
 
     @Test

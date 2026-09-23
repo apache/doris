@@ -238,7 +238,9 @@ public class PaimonJniScanner extends JniScanner {
         }
         if (dataType instanceof MapType) {
             MapType mapType = (MapType) dataType;
-            return mapType.newKeyValueType(createSafeTimestampReadType(mapType.getKeyType()),
+            // Paimon 1.3.1 cannot cast MAP keys during schema evolution. Timestamp keys are
+            // already part of the map identity and widening them makes reader construction fail.
+            return mapType.newKeyValueType(mapType.getKeyType(),
                     createSafeTimestampReadType(mapType.getValueType()));
         }
         return dataType;
@@ -370,6 +372,9 @@ public class PaimonJniScanner extends JniScanner {
 
     private void resetDatetimeV2Precision() {
         for (int i = 0; i < types.length; i++) {
+            if (containsTimestampType(types[i])) {
+                requiresDatetimeV2PrecisionRepair = true;
+            }
             if (types[i].isDateTimeV2() || types[i].getType() == ColumnType.Type.TIMESTAMPTZ) {
                 // paimon support precision > 6, but it has been reset as 6 in FE
                 // try to get the right precision for datetimev2
@@ -386,6 +391,14 @@ public class PaimonJniScanner extends JniScanner {
                 }
             }
         }
+    }
+
+    static boolean containsTimestampType(ColumnType type) {
+        if (type.isDateTimeV2() || type.getType() == ColumnType.Type.TIMESTAMPTZ) {
+            return true;
+        }
+        List<ColumnType> children = type.getChildTypes();
+        return children != null && children.stream().anyMatch(PaimonJniScanner::containsTimestampType);
     }
 
     @Override

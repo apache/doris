@@ -123,6 +123,18 @@ public class PaimonScanPlanProviderTest {
         return builder.build();
     }
 
+    @Test
+    public void timestampPredicatesAreMarkedUnsafeForPaimonPlanning() {
+        RowType nested = RowType.builder()
+                .field("payload", DataTypes.ROW(DataTypes.TIMESTAMP(4)))
+                .field("id", DataTypes.INT())
+                .build();
+        RowType plain = RowType.builder().field("id", DataTypes.INT()).build();
+
+        Assertions.assertTrue(PaimonScanPlanProvider.containsTimestampType(nested));
+        Assertions.assertFalse(PaimonScanPlanProvider.containsTimestampType(plain));
+    }
+
     private static final class OrderedLocalFileIO extends LocalFileIO {
         @Override
         public FileStatus[] listFiles(org.apache.paimon.fs.Path path, boolean recursive)
