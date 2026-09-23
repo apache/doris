@@ -37,7 +37,7 @@ struct PhraseMatch;
 
 namespace doris::segment_v2 {
 
-// 一次查询在打开 logical reader 之后交给 _compute_query_bitmap 的全部输入。
+// All query inputs passed to _compute_query_bitmap after opening the logical reader.
 struct SniiQueryBitmapRequest {
     InvertedIndexQueryType query_type;
     const InvertedIndexQueryInfo& query_info;

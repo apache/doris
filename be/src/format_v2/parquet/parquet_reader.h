@@ -68,6 +68,7 @@ public:
 
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
+    bool supports_rowid_fetch() const override { return true; }
 
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
 

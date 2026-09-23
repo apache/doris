@@ -216,7 +216,7 @@ private:
 
 class InvertedIndexQueryCacheHandle;
 
-// v2：结果缓存键不再携带 CommonGrams 查询计划开关位（该功能已删除）。
+// v2: Result cache keys no longer include the removed CommonGrams query-plan flags.
 inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 2;
 
 // Stable identity shared by result-cache and row-accurate single-flight. It intentionally contains

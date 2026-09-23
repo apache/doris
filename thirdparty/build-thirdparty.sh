@@ -1834,7 +1834,9 @@ build_libunwind() {
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
         cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
-        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+        # Only the library is consumed; the test programs and man pages are not.
+        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
+            --disable-tests --disable-documentation
 
         make -j "${PARALLEL}"
         make install
@@ -1885,6 +1887,26 @@ build_simdjson() {
     cp -r "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}/include"/* "${TP_INCLUDE_DIR}/"
 }
 
+# simdutf
+build_simdutf() {
+    check_if_source_exist "${SIMDUTF_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${SIMDUTF_SOURCE}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DSIMDUTF_CXX_STANDARD="${TP_CXX_STANDARD}" \
+        -DSIMDUTF_TESTS=OFF \
+        -DSIMDUTF_TOOLS=OFF \
+        -DSIMDUTF_BENCHMARKS=OFF
+
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" --target simdutf -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
+}
+
 # nlohmann_json
 build_nlohmann_json() {
     check_if_source_exist "${NLOHMANN_JSON_SOURCE}"
@@ -1898,6 +1920,27 @@ build_nlohmann_json() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+}
+
+build_google_cloud_cpp() {
+    check_if_source_exist "${GOOGLE_CLOUD_CPP_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${GOOGLE_CLOUD_CPP_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_TESTING=OFF \
+        -DGOOGLE_CLOUD_CPP_ENABLE=oauth2 \
+        -DGOOGLE_CLOUD_CPP_ENABLE_EXAMPLES=OFF \
+        -DGOOGLE_CLOUD_CPP_ENABLE_WERROR=OFF \
+        -DGOOGLE_CLOUD_CPP_WITH_MOCKS=OFF
+
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}" --prefix "${TP_INSTALL_DIR}"
 }
 
 # sse2neon
@@ -2465,7 +2508,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         hdfs3
         benchmark
         simdjson
+        simdutf
         nlohmann_json
+        google_cloud_cpp
         libbacktrace
         sse2neon
         xxhash
@@ -2559,7 +2604,9 @@ cleanup_package_source() {
         libunwind)       src_var="LIBUNWIND_SOURCE" ;;
         benchmark)       src_var="BENCHMARK_SOURCE" ;;
         simdjson)        src_var="SIMDJSON_SOURCE" ;;
+        simdutf)         src_var="SIMDUTF_SOURCE" ;;
         nlohmann_json)   src_var="NLOHMANN_JSON_SOURCE" ;;
+        google_cloud_cpp) src_var="GOOGLE_CLOUD_CPP_SOURCE" ;;
         libbacktrace)    src_var="LIBBACKTRACE_SOURCE" ;;
         sse2neon)        src_var="SSE2NEON_SOURCE" ;;
         xxhash)          src_var="XXHASH_SOURCE" ;;

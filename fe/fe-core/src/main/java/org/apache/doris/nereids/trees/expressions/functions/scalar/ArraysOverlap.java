@@ -69,6 +69,7 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         for (Expression argument : getArguments()) {
             DataType argType = argument.getDataType();
             if (!argType.isArrayType()) {

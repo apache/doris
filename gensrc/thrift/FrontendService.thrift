@@ -1994,12 +1994,27 @@ struct TAcquireTimeBasedChangeReadFenceRequest {
     2: optional i64 end_timestamp_ms
     3: required i64 timeout_ms
     4: required bool wait_for_transactions
+    // False/absent retains the legacy drain for old callers and unbounded relations.
+    5: optional bool all_ends_explicit
+}
+
+struct TIncrWindowNotReady {
+    1: required i64 requested_end_timestamp_ms
+    2: required i64 committed_tso
+    3: required i64 retry_after_ms
+    4: optional i64 current_tso
+    // Absent on older masters: ERR_INCR_WINDOW_NOT_READY (5100).
+    5: optional i32 error_code
+    6: optional i64 timeout_ms
+    7: optional string reason
 }
 
 struct TAcquireTimeBasedChangeReadFenceResult {
     1: required Status.TStatus status
     2: optional i64 current_tso
     3: optional i64 max_journal_id
+    4: optional i64 committed_tso
+    5: optional TIncrWindowNotReady window_not_ready
 }
 
 service FrontendService {

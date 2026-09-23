@@ -52,7 +52,7 @@ public final class ArrayFunctionTypeChecker {
     public static boolean isSupportedByArraySortLambdaFunction(DataType dataType) {
         return dataType.isNumericType() || dataType.isBooleanType() || dataType.isStringLikeType()
                 || dataType.isVarBinaryType() || dataType.isArrayType() || dataType.isIPType()
-                || dataType.isDateLikeType() || dataType.isTimeType();
+                || dataType.isDateLikeType() || dataType.isTimeType() || dataType.isNullType();
     }
 
     /** Whether the element type supports the serialized-key path used by variadic array functions. */

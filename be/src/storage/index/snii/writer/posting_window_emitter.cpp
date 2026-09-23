@@ -197,8 +197,8 @@ private:
                     "window emitter: document frequency overflow");
         }
         stats_.df += static_cast<uint32_t>(run.docids.size());
-        // 没有 freqs 的 docs-only 输入按每 doc 一次计入总词频；带 freqs 的输入在
-        // emit_window_impl 的逐 doc 循环里累加。
+        // Docs-only input without freqs contributes one occurrence per document. Input with
+        // freqs is accumulated in emit_window_impl's per-document loop.
         if (run.freqs.empty()) {
             return checked_add(run.docids.size(), &stats_.total_freq);
         }

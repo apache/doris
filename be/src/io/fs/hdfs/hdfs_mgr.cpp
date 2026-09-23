@@ -23,7 +23,6 @@
 #include <chrono>
 #include <thread>
 
-#include "common/config.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "core/string_ref.h"
@@ -31,6 +30,9 @@
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
+#include "util/jvm_launcher.h"
+#include "util/thread.h"
 
 namespace doris::io {
 
@@ -127,13 +129,6 @@ void HdfsMgr::_cleanup_loop() {
 
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
-#ifdef USE_HADOOP_HDFS
-    if (!config::enable_java_support) {
-        return Status::InvalidArgument(
-                "hdfs file system is not enabled, you can change be config enable_java_support to "
-                "true.");
-    }
-#endif
     uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
 
     // First check without lock
@@ -185,9 +180,23 @@ Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::stri
 
 Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::string& fs_name,
                                      std::shared_ptr<HdfsHandler>* fs_handler) {
+    // Right next to the connect, because the connect is the thing it guards: hdfsBuilderConnect()
+    // below is the one libhdfs entry point of the BE that creates a JVM when it finds none, and
+    // the one it creates is configured by hadoop out of CLASSPATH and LIBHDFS_OPTS rather than by
+    // us. Getting in first is also what turns "java support is off" into a readable error, on the
+    // path that needs Java - a handler already in the cache needed it once and does not again.
+    //
+    // Here rather than at the top of get_or_create_fs(): that is above the seam hdfs_mgr_test.cpp
+    // mocks (this method), so a JVM would come up inside doris_be_test, where an ASAN-instrumented
+    // process cannot survive its own exit with one running.
+    //
+    // No thread switch needed: _create_hdfs_fs() has put us on a pthread already.
+    RETURN_IF_ERROR(Jni::JvmLauncher::ensure_jvm());
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
-    hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
+    // release(), not get(): hdfsBuilderConnect() frees the builder it is handed, so this is
+    // where ownership leaves HDFSCommonBuilder - whose destructor frees whatever it still owns.
+    hdfsFS hdfs_fs = hdfsBuilderConnect(builder.release());
     if (hdfs_fs == nullptr) {
         return Status::InternalError("failed to connect to hdfs {}: {}", fs_name, hdfs_error());
     }
@@ -216,6 +225,15 @@ Status HdfsMgr::_create_hdfs_fs(const THdfsParams& hdfs_params, const std::strin
     auto btx = bthread::butex_create();
     *(int*)btx = 0;
     std::thread t([&] {
+        // Named and given a thread context like every other pthread the BE starts. This one is
+        // where the JVM is most often created for the first time: _create_hdfs_fs_impl() calls
+        // ensure_jvm(), and ensure_jvm() only switches to a pthread of its own when it is called
+        // FROM a bthread - which it is not here, because this switch already happened. Without
+        // these two lines the whole bootstrap - seconds of hadoop ServiceLoader scanning, and any
+        // hang inside it - runs on an anonymous thread with no memory tracking, and an operator
+        // looking at the stacks has nothing to grep for.
+        SCOPED_INIT_THREAD_CONTEXT();
+        Thread::set_self_name("hdfs_fs_connect");
         st = _create_hdfs_fs_impl(hdfs_params, fs_name, fs_handler);
         *(int*)btx = 1;
         bthread::butex_wake_all(btx);

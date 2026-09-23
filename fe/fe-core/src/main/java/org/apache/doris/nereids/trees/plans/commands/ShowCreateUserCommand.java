@@ -147,6 +147,10 @@ public class ShowCreateUserCommand extends ShowCommand {
                         sb.append(" PASSWORD_LOCK_TIME ").append(lockValue).append(" SECOND");
                     }
                 }
+                // failedLoginPolicy: <ACCOUNT_LOCKED> -- the administrative lock (MySQL ACCOUNT LOCK)
+                if (policies.size() > 8 && "true".equalsIgnoreCase(policies.get(8).get(1))) {
+                    sb.append(" ACCOUNT_LOCK");
+                }
             }
         }
 

@@ -31,9 +31,9 @@ inline bool is_phrase_bigram_term(std::string_view term) {
     return term.starts_with(kPhraseBigramTermMarker);
 }
 
-// SNII 的 term 键就是分词后的原始字节，没有任何转义。唯一的内部命名空间是上面这个以 \x1F
-// 开头的 phrase-bigram 标记：用户 term（或前缀展开的前缀）若与它重叠，查询必须绕过 SNII，
-// 否则用户词项会命中内部词项。
+// SNII term keys are raw analyzed bytes, without escaping. The only internal namespace is the
+// phrase-bigram marker above, starting with \x1F. Queries whose user terms or expansion prefixes
+// overlap this marker must bypass SNII to avoid matching internal terms.
 inline bool term_overlaps_internal_namespace(std::string_view term) {
     return term.starts_with(kPhraseBigramTermMarker);
 }

@@ -375,7 +375,9 @@ protected:
         return splits;
     }
 
-    TabletSchemaSPtr create_legacy_v3_schema() {
+    TabletSchemaSPtr create_legacy_v3_schema(std::map<std::string, std::string> properties = {
+                                                     {"parser", "standard"},
+                                                     {"support_phrase", "true"}}) {
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(DUP_KEYS);
         schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
@@ -392,8 +394,7 @@ protected:
         index._index_id = 1;
         index._index_type = IndexType::INVERTED;
         index._col_unique_ids.push_back(1);
-        index._properties["parser"] = "standard";
-        index._properties["support_phrase"] = "true";
+        index._properties = std::move(properties);
         tablet_schema->append_index(std::move(index));
         return tablet_schema;
     }
@@ -453,7 +454,7 @@ protected:
         return file_writer.finish_close();
     }
 
-    // 分词 + 带位置 + norms 的普通 SNII 段：这就是新 writer 对可打分索引写出的形态。
+    // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
     Status write_snii_scoring_segment(const std::string& segment_path) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
@@ -603,7 +604,7 @@ protected:
         return tablet_schema;
     }
 
-    // 落在 SNII 内部命名空间（\x1f 开头）里的词项，对 V3（CLucene）索引只是普通字节。
+    // Terms in SNII's internal namespace (starting with \x1f) are ordinary bytes in V3 (CLucene).
     VExprContextSPtrs create_reserved_exact_search_contexts() {
         return create_search_contexts("EXACT",
                                       std::string(snii::format::kPhraseBigramTermMarker) + "user");
@@ -910,6 +911,63 @@ TEST_F(CollectionStatisticsTest, LegacyV3SkipsEmptySegmentAfterCollectingAvailab
     expect_collected_term(L"1", L"alpha", 1);
 }
 
+// BM25 needs norms from every segment of an analyzed index: a segment written without them makes
+// the whole collection refuse to score, on its own or next to segments that have norms.
+TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
+    auto with_norms_schema = create_legacy_v3_schema();
+    auto without_norms_schema = create_legacy_v3_schema(
+            {{"parser", "standard"}, {"support_phrase", "true"}, {"norms", "false"}});
+    const std::string with_norms_path = test_dir_ + "/legacy_v3_with_norms_0.dat";
+    const std::string without_norms_path = test_dir_ + "/legacy_v3_without_norms_1.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(with_norms_schema, with_norms_path).ok());
+    ASSERT_TRUE(write_legacy_v3_segment(without_norms_schema, without_norms_path).ok());
+
+    auto collect = [&](const std::vector<std::string>& segment_paths) {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset = std::make_shared<collection_statistics::MockRowset>(without_norms_schema,
+                                                                          rowset_meta);
+        rowset->set_num_segments(static_cast<int>(segment_paths.size()));
+        for (size_t i = 0; i < segment_paths.size(); ++i) {
+            rowset->set_segment_path(static_cast<int>(i), segment_paths[i]);
+        }
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+        return stats_->collect(runtime_state_.get(), splits, without_norms_schema,
+                               create_match_expr_contexts("alpha"), nullptr);
+    };
+
+    Status status = collect({without_norms_path});
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    EXPECT_NE(status.to_string().find("written without norms"), std::string::npos) << status;
+    expect_no_collected_tokens(L"1");
+
+    status = collect({with_norms_path, without_norms_path});
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    expect_no_collected_tokens(L"1");
+}
+
+// An index that is not analyzed never writes norms, and its scoring statistics are collected as
+// before.
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+    auto tablet_schema = create_legacy_v3_schema({});
+    const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 1, 0);
+    expect_collected_term(L"1", L"alpha beta", 1);
+}
+
 TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
     auto tablet_schema = create_snii_schema();
     auto expr_contexts = create_match_expr_contexts("alpha");
@@ -1090,7 +1148,7 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
-// 一个 SNII 段能参与打分的条件只有两个物理事实：带位置、带 norms；统计量直接取 stats 块。
+// SNII scoring requires only positions and norms; statistics come directly from the stats block.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
     auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
 
@@ -1132,7 +1190,7 @@ TEST_F(CollectionStatisticsTest, CollectionStatisticsInstancesKeepAdmissionState
     EXPECT_FLOAT_EQ(second.get_or_calculate_avg_dl(L"1"), 5.0F);
 }
 
-// 老段（没有 norms）混进来就整体拒绝打分，已收集的统计量一并清空。
+// An older segment without norms disables scoring for the whole collection and clears its stats.
 TEST_F(CollectionStatisticsTest, SegmentWithoutNormsRejectsWholeCollection) {
     ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
 
@@ -1341,10 +1399,9 @@ TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
-// Regression for AIR-36: match score collection must resolve indexes for
-// variant sub-columns whose indexes live in _path_set_info_map (typed paths or
-// inherited sub-column indexes). The previous simple lookup using
-// inverted_indexs(col_unique_id, suffix_path) missed those indexes.
+// Regression for AIR-36: match score collection must resolve the index of a variant sub-column,
+// which is registered on the parent column's unique id under the sub-column's suffix path rather
+// than on a unique id of its own.
 TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
@@ -1375,15 +1432,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     (*props)["parser"] = "standard";
     (*props)["support_phrase"] = "true";
     sub_index->init_from_pb(index_pb);
-
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletIndexes sub_indexes = {sub_index};
-    path_set_info.subcolumn_indexes["host"] = sub_indexes;
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map[kVariantUid] = std::move(path_set_info);
-    tablet_schema->set_path_set_info(std::move(path_set_info_map));
-
-    EXPECT_TRUE(tablet_schema->inverted_indexs(kVariantUid, "host").empty());
+    sub_index->set_escaped_escaped_index_suffix_path(sub_col.suffix_path());
+    tablet_schema->append_index(std::move(*sub_index));
 
     auto found = tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1));
     ASSERT_EQ(found.size(), 1u);
@@ -2259,9 +2309,6 @@ TEST_F(CollectionStatisticsTest, SearchTypedVariantBindingSelectsItsAnalyzerInde
     subcolumn.set_path_info(PathInData("v.host", true));
     tablet_schema->append_column(subcolumn);
 
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletSchema::SubColumnInfo typed_path_info;
-    typed_path_info.column = subcolumn;
     for (const auto& [index_id, parser] : {std::pair<int64_t, std::string> {3010, "standard"},
                                            std::pair<int64_t, std::string> {3020, "english"}}) {
         auto index = std::make_shared<TabletIndex>();
@@ -2273,12 +2320,9 @@ TEST_F(CollectionStatisticsTest, SearchTypedVariantBindingSelectsItsAnalyzerInde
         (*index_pb.mutable_properties())["parser"] = parser;
         (*index_pb.mutable_properties())["support_phrase"] = "true";
         index->init_from_pb(index_pb);
-        typed_path_info.indexes.push_back(std::move(index));
+        index->set_escaped_escaped_index_suffix_path(subcolumn.suffix_path());
+        tablet_schema->append_index(std::move(*index));
     }
-    path_set_info.typed_path_set.emplace("host", std::move(typed_path_info));
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map.emplace(kVariantUid, std::move(path_set_info));
-    tablet_schema->set_path_set_info(std::move(path_set_info_map));
 
     TSearchClause clause;
     clause.clause_type = "TERM";

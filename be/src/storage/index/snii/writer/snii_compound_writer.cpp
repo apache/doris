@@ -374,7 +374,7 @@ Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_n
                 "compound: norms length {} differs from doc_count {}", encoded_norms.size(),
                 input_.doc_count);
     }
-    // writer_ 持有 input_.encoded_norms 的引用：就地移入即可，finalize 时按引用读取。
+    // writer_ references input_.encoded_norms; move into it here for finalize to read by reference.
     encoded_norms_reservation_ = std::move(encoded_norms.reservation_);
     input_.encoded_norms = std::move(encoded_norms.norms_);
     norms_set_ = true;

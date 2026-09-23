@@ -60,6 +60,7 @@ public class ArrayExcept extends ScalarFunction implements ExplicitlyCastableSig
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         for (Expression child : getArguments()) {
             DataType argType = child.getDataType();
             if (argType == NullType.INSTANCE) {

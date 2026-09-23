@@ -46,6 +46,12 @@ const std::chrono::sys_days PartitionColumnTransformUtils::EPOCH = std::chrono::
 std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         const doris::iceberg::PartitionField& field, const DataTypePtr& source_type) {
     auto& transform = field.transform();
+    // Identity/void only carry values; computed binary partition transforms are unsupported.
+    if (source_type->get_primitive_type() == TYPE_VARBINARY && transform != "identity" &&
+        transform != "void") {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "VARBINARY partition transform {} is not supported", transform);
+    }
     static const std::regex has_width(R"((\w+)\[(\d+)\])");
     std::smatch width_match;
 

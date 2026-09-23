@@ -39,6 +39,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
@@ -142,6 +143,7 @@ public class OlapAnalysisTaskTest {
         Mockito.when(catalogIf.getId()).thenReturn(10001L);
         Mockito.when(catalogIf.getName()).thenReturn("catalogName");
         Mockito.when(databaseIf.getId()).thenReturn(20001L);
+        Mockito.when(databaseIf.getFullName()).thenReturn("dbName");
 
         OlapAnalysisTask olapAnalysisTask = Mockito.spy(new OlapAnalysisTask());
         Mockito.doReturn(new ResultRow(Lists.newArrayList("1", "2"))).when(olapAnalysisTask).collectMinMax();
@@ -153,7 +155,7 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(true).when(olapAnalysisTask).useLinearAnalyzeTemplate();
         Mockito.doAnswer(inv -> {
             String sql = inv.getArgument(0);
-            Assertions.assertEquals("WITH cte1 AS (SELECT `null` FROM `catalogName`.`${dbName}`.`null`  "
+            Assertions.assertEquals("WITH cte1 AS (SELECT `null` FROM `catalogName`.`dbName`.`null`  "
                     + "${sampleHints} ${limit} ), cte2 AS (SELECT CONCAT(30001, '-', -1, '-', 'null') AS `id`, "
                     + "10001 AS `catalog_id`, 20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, "
                     + "'null' AS `col_id`, NULL AS `part_id`, ${rowCount} AS `row_count`, ${ndvFunction} as `ndv`, "
@@ -185,7 +187,7 @@ public class OlapAnalysisTaskTest {
             String sql = inv.getArgument(0);
             Assertions.assertEquals("WITH cte1 AS (SELECT MAX(t0.`col_value`) as `col_value`, COUNT(1) as `count`,"
                     + " SUM(`len`) as `column_length` FROM (SELECT ${subStringColName} AS `hash_value`, "
-                    + "`null` AS `col_value`, LENGTH(`null`) as `len` FROM `catalogName`.`${dbName}`.`null`  "
+                    + "`null` AS `col_value`, LENGTH(`null`) as `len` FROM `catalogName`.`dbName`.`null`  "
                     + "${sampleHints} ${limit}) as `t0`  GROUP BY `t0`.`hash_value`), "
                     + "cte2 AS ( SELECT CONCAT('30001', '-', '-1', '-', 'null') AS `id`, 10001 AS `catalog_id`, "
                     + "20001 AS `db_id`, 30001 AS `tbl_id`, -1 AS `idx_id`, 'null' AS `col_id`, NULL AS `part_id`, "
@@ -320,9 +322,9 @@ public class OlapAnalysisTaskTest {
                 new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null));
         Assertions.assertEquals("1", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
-        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
+        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)",
                 params.get("rowCount2"));
-        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        Assertions.assertEquals("ROUND(NDV(${colName}) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
         Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
         params.clear();
@@ -332,9 +334,9 @@ public class OlapAnalysisTaskTest {
                 new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
                         Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
-        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
+        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)",
                 params.get("rowCount2"));
-        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        Assertions.assertEquals("ROUND(NDV(${colName}) * ${scaleFactor})", params.get("ndvFunction"));
         params.clear();
 
         // DUJ1 algorithm with sample tablets: rowCount2 and ndvFunction must reference the cte1
@@ -366,7 +368,7 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
         Assertions.assertEquals("SUM(t1.count) * 4", params.get("dataSizeFunction"));
-        Assertions.assertEquals("`${colName}`", params.get("subStringColName"));
+        Assertions.assertEquals("${colName}", params.get("subStringColName"));
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
         params.clear();
 
@@ -417,7 +419,7 @@ public class OlapAnalysisTaskTest {
                         Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
-        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        Assertions.assertEquals("ROUND(NDV(${colName}) * ${scaleFactor})", params.get("ndvFunction"));
         params.clear();
 
         task = Mockito.spy(new OlapAnalysisTask());
@@ -775,6 +777,43 @@ public class OlapAnalysisTaskTest {
     }
 
     @Test
+    public void testBuildSqlParamsQuotesIdentifiers() {
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        Mockito.when(catalog.getName()).thenReturn("cat`alog");
+        Mockito.when(database.getId()).thenReturn(2L);
+        Mockito.when(database.getFullName()).thenReturn("db`name");
+        Mockito.when(table.getId()).thenReturn(3L);
+        Mockito.when(table.getName()).thenReturn("table`name");
+        Mockito.when(table.getIndexNameById(4L)).thenReturn("index`name");
+
+        OlapAnalysisTask task = new OlapAnalysisTask();
+        task.catalog = catalog;
+        task.db = database;
+        task.tbl = table;
+        task.col = new Column("col`'name", PrimitiveType.INT);
+        task.info = new AnalysisInfoBuilder()
+                .setIndexId(4L)
+                .setColName("col`'name")
+                .build();
+
+        Map<String, String> params = task.buildSqlParams();
+        Assertions.assertEquals("`cat``alog`", params.get("catalogName"));
+        Assertions.assertEquals("`db``name`", params.get("dbName"));
+        Assertions.assertEquals("`table``name`", params.get("tblName"));
+        Assertions.assertEquals("`col``'name`", params.get("colName"));
+        Assertions.assertEquals("col`''name", params.get("colId"));
+        Assertions.assertEquals("index `index``name`", params.get("index"));
+        Assertions.assertEquals("partition `part``name`", task.getPartitionInfo("part`name"));
+
+        String sql = new StringSubstitutor(params).replace(BaseAnalysisTask.FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE);
+        Assertions.assertTrue(sql.contains("FROM (SELECT `col``'name` FROM "
+                + "`cat``alog`.`db``name`.`table``name` index `index``name`) __lc_t"), sql);
+    }
+
+    @Test
     public void testFullAnalyzeTemplateRendersLengthAssert() {
         // Confirm the rendered FULL_ANALYZE_TEMPLATE wraps the base table in a subquery
         // and carries the assert_true clause for a string column.
@@ -787,10 +826,10 @@ public class OlapAnalysisTaskTest {
         params.put("idxId", "3");
         params.put("colId", "s");
         params.put("dataSizeFunction", "100");
-        params.put("catalogName", "internal");
-        params.put("dbName", "db1");
-        params.put("colName", "s");
-        params.put("tblName", "tbl1");
+        params.put("catalogName", SqlUtils.getIdentSql("internal"));
+        params.put("dbName", SqlUtils.getIdentSql("db1"));
+        params.put("colName", SqlUtils.getIdentSql("s"));
+        params.put("tblName", SqlUtils.getIdentSql("tbl1"));
         params.put("index", "");
         params.put("lengthAssert",
                 ", assert_true(`s` IS NULL OR LENGTH(`s`) <= 1024, '"
@@ -814,10 +853,10 @@ public class OlapAnalysisTaskTest {
         params.put("idxId", "3");
         params.put("colId", "id");
         params.put("dataSizeFunction", "100");
-        params.put("catalogName", "internal");
-        params.put("dbName", "db1");
-        params.put("colName", "id");
-        params.put("tblName", "tbl1");
+        params.put("catalogName", SqlUtils.getIdentSql("internal"));
+        params.put("dbName", SqlUtils.getIdentSql("db1"));
+        params.put("colName", SqlUtils.getIdentSql("id"));
+        params.put("tblName", SqlUtils.getIdentSql("tbl1"));
         params.put("index", "");
         params.put("lengthAssert", "");
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -836,11 +875,11 @@ public class OlapAnalysisTaskTest {
         params.put("tblId", "2");
         params.put("idxId", "3");
         params.put("colId", "col1");
-        params.put("colName", "col1");
+        params.put("colName", SqlUtils.getIdentSql("col1"));
         params.put("dataSizeFunction", "SUM(LENGTH(`col1`))");
-        params.put("catalogName", "internal");
-        params.put("dbName", "db1");
-        params.put("tblName", "tbl1");
+        params.put("catalogName", SqlUtils.getIdentSql("internal"));
+        params.put("dbName", SqlUtils.getIdentSql("db1"));
+        params.put("tblName", SqlUtils.getIdentSql("tbl1"));
         params.put("index", "");
         params.put("hotValueCollectCount", "10");
         params.put("subStringColName", "`col1`");

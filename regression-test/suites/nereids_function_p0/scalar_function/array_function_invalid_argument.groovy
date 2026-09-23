@@ -53,12 +53,12 @@ suite("array_function_invalid_argument") {
 
     test {
         sql "select array_union(array(cast('a' as varbinary)), array(cast('b' as varbinary)))"
-        exception "array_union does not support element type VARBINARY"
+        exception "array_union does not support VARBINARY arguments"
     }
 
     test {
         sql "select array_union(array(cast('a' as varbinary)), array('b'))"
-        exception "array_union does not support element type VARBINARY"
+        exception "array_union does not support VARBINARY arguments"
     }
 
     test {
@@ -78,7 +78,7 @@ suite("array_function_invalid_argument") {
 
     test {
         sql "select array_intersect(array(cast('a' as varbinary)), array(cast('b' as varbinary)))"
-        exception "array_intersect does not support element type VARBINARY"
+        exception "array_intersect does not support VARBINARY arguments"
     }
 
     test {
@@ -93,12 +93,12 @@ suite("array_function_invalid_argument") {
 
     test {
         sql "select array_except(array(cast('a' as varbinary)), array(cast('b' as varbinary)))"
-        exception "array_except does not support element type VARBINARY"
+        exception "array_except does not support VARBINARY arguments"
     }
 
     test {
         sql "select array_except(array(cast('a' as varbinary)), array('b'))"
-        exception "array_except does not support element type VARBINARY"
+        exception "array_except does not support VARBINARY arguments"
     }
 
     test {
@@ -118,7 +118,7 @@ suite("array_function_invalid_argument") {
 
     test {
         sql "select array_distinct(array(cast('a' as varbinary), cast('a' as varbinary)))"
-        exception "array_distinct does not support element type VARBINARY"
+        exception "array_distinct does not support VARBINARY arguments"
     }
 
     test {
@@ -128,7 +128,7 @@ suite("array_function_invalid_argument") {
 
     test {
         sql "select array_enumerate_uniq(array(cast('a' as varbinary), cast('a' as varbinary)))"
-        exception "array_enumerate_uniq does not support element type VARBINARY"
+        exception "array_enumerate_uniq does not support VARBINARY arguments"
     }
 
     test {
@@ -215,6 +215,8 @@ suite("array_function_invalid_argument") {
         exception "array_sortby does not support types"
     }
 
+    qt_array_sort_lambda_empty "select array_sort((x, y) -> 0, [])"
+    qt_array_sort_lambda_nulls "select array_sort((x, y) -> 0, [NULL, NULL])"
     qt_array_flatten "select array_flatten([[1, 2], [], [3]])"
     qt_array_flatten_empty "select array_flatten([])"
     qt_array_compact "select array_compact([1, 1, null, null, 2])"

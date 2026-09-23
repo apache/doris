@@ -901,8 +901,9 @@ struct OpaqueMatcherPlanCase {
     std::vector<bool> common;
 };
 
-// 内部命名空间（\x1f 开头）里的不透明词项：这些用例直接驱动 phrase 计划执行器，
-// 验证"覆盖两个位置的不透明词项"与普通位置匹配的等价性，与任何具体分析器无关。
+// Opaque terms in the internal namespace (starting with \x1f). These tests drive the phrase-plan
+// executor directly to verify that an opaque term spanning two positions matches ordinary
+// positions equivalently, independently of any particular analyzer.
 constexpr std::string_view kOpaqueInternalTermPrefix =
         "\x1f"
         "SNII_TEST_OPAQUE"

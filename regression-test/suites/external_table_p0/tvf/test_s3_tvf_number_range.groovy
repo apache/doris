@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+
 suite("test_s3_tvf_number_range", "p0,external") {
 
     String ak = getS3AK()
@@ -351,29 +353,25 @@ suite("test_s3_tvf_number_range", "p0,external") {
             
             // Helper closure to check load result
             def check_hdfs_load_result = {checklabel ->
-                def max_try_milli_secs = 10000
-                def success = false
-                while(max_try_milli_secs) {
-                    def result = sql """ SHOW LOAD WHERE LABEL = '${checklabel}' """
+                // Broker Load is asynchronous: cancellation or an unfinished job must fail here,
+                // before the caller compares rows in the freshly truncated table.
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120)
+                def result = []
+                while (System.nanoTime() < deadline) {
+                    result = sql """ SHOW LOAD WHERE LABEL = '${checklabel}' """
                     if (result.size() > 0) {
                         def state = result[0][2]  // State column
                         if (state == "FINISHED") {
                             sql "sync"
-                            success = true
-                            break
-                        } else if (state == "CANCELLED") {
-                            logger.error("HDFS load job ${checklabel} was cancelled: ${result[0]}")
-                            break
+                            return
                         }
+                        assertTrue(state != "CANCELLED",
+                                "HDFS load job ${checklabel} was cancelled. Status: ${result}")
                     }
-                     sleep(1000) // wait 1 second every time
-                    max_try_milli_secs-=1000
+                    sleep(1000)
                 }
-                
-                if (!success) {
-                    def result = sql """ SHOW LOAD WHERE LABEL = '${checklabel}' """
-                    logger.error("HDFS load job ${checklabel} failed or timeout. Status: ${result}")
-                }
+                assertTrue(false,
+                        "HDFS load job ${checklabel} did not finish within 120 seconds. Last status: ${result}")
             }
             
             // Test 12: HDFS Broker Load Single range {1..3} - should load {1,2,3}

@@ -38,6 +38,7 @@ public enum IvmFailureReason {
 
     public boolean requiresCompleteRefresh() {
         return this == BINLOG_BROKEN
+                || this == STREAM_UNSUPPORTED
                 || this == MIN_MAX_BOUNDARY_HIT
                 || this == BITMAP_AGG_DELETE
                 || this == PLAN_SIGNATURE_MISMATCH;

@@ -35,9 +35,9 @@ struct PrxFrameView {
     Slice payload;
 };
 
-// verify_crc=false 只解析帧头并切出 payload、跳过 crc 比对：给"估算位置工作量"这类
-// 只读元数据的路径用，避免在真正解码之前对整个 prx 窗口多算一遍 crc32c；坏帧仍会在
-// 解码时被 crc 拦下。
+// With verify_crc=false, parse only the header and extract the payload without checking its CRC.
+// Metadata-only paths, such as position-work estimation, avoid an extra crc32c pass over the PRX
+// window. Decoding still checks the CRC and rejects corrupt frames.
 Status read_prx_frame(ByteSource* source, PrxFrameView* frame, bool verify_crc = true);
 
 } // namespace format

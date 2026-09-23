@@ -38,7 +38,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
                              const std::vector<SlotDescriptor*>& file_slot_descs,
                              RuntimeState* state, RuntimeProfile* profile)
         : JniReader(
-                  file_slot_descs, state, profile, "org/apache/doris/hudi/HadoopHudiJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::HUDI_SCANNER,
                   [&]() {
                       std::vector<std::string> required_fields;
                       for (const auto& desc : file_slot_descs) {

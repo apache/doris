@@ -37,12 +37,13 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.function.Predicate;
 
 public class OlapTableStream extends BaseTableStream {
 
@@ -165,56 +166,105 @@ public class OlapTableStream extends BaseTableStream {
         }
         if (table.readLockIfExist()) {
             try {
-                Map<Long, Partition> id2name = table.getPartitions().stream().collect(Collectors.toMap(
-                        p -> p.getId(),
-                        p -> p,
-                        (oldValue, newValue) -> newValue,
-                        HashMap::new
-                ));
-                for (Map.Entry<Long, Partition> entry : id2name.entrySet()) {
-                    TRow trow = new TRow();
-                    // DB_NAME
-                    trow.addToColumnValue(new TCell().setStringVal(qualifiedDbName));
-                    // STREAM_NAME
-                    trow.addToColumnValue(new TCell().setStringVal(name));
-                    // STREAM_ID
-                    trow.addToColumnValue(new TCell().setLongVal(id));
-                    // UNIT
-                    trow.addToColumnValue(new TCell().setStringVal(entry.getValue().getName()));
-                    if (partitionOffset.containsKey(entry.getKey())) {
-                        // CONSUMPTION_STATUS
-                        trow.addToColumnValue(new TCell()
-                                .setStringVal(String.valueOf(partitionOffset.get(entry.getKey()))));
-                        // LAG
-                        trow.addToColumnValue(new TCell()
-                                .setStringVal(String.valueOf(
-                                        entry.getValue().getTso()
-                                                - partitionOffset.get(entry.getKey()))));
-                        // LAST_CONSUMPTION_TIME
-                        if (partitionConsumptionTime.containsKey(entry.getKey())) {
-                            trow.addToColumnValue(new TCell()
-                                    .setLongVal(partitionConsumptionTime.get(entry.getKey())));
-                        } else {
-                            trow.addToColumnValue(new TCell().setLongVal(-1));
-                        }
-                    } else {
-                        // CONSUMPTION_STATUS
-                        trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                        // LAG
-                        if (entry.getValue().hasData()) {
-                            // for partition with data and no consumption yet, lag is N/A
-                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                        } else {
-                            trow.addToColumnValue(new TCell().setStringVal("0"));
-                        }
-                        // LAST_CONSUMPTION_TIME
-                        trow.addToColumnValue(new TCell().setLongVal(-1));
-                    }
-                    dataBatch.add(trow);
+                for (Partition partition : table.getPartitions()) {
+                    long partitionId = partition.getId();
+                    boolean hasOffset = partitionOffset.containsKey(partitionId);
+                    appendConsumptionRow(dataBatch, qualifiedDbName, name, id, partition.getName(), hasOffset,
+                            hasOffset ? partitionOffset.get(partitionId) : 0,
+                            hasOffset ? partition.getTso() : 0,
+                            !hasOffset && partition.hasData(),
+                            partitionConsumptionTime.getOrDefault(partitionId, -1L));
                 }
             } finally {
                 table.readUnlock();
             }
+        }
+    }
+
+    @Override
+    void fillTableStreamConsumptionInfo(List<TRow> dataBatch, Predicate<String> unitSelector) {
+        for (StreamConsumptionUnitSnapshot snapshot : snapshotTableStreamConsumptionInfo()) {
+            if (unitSelector.test(snapshot.unit)) {
+                snapshot.appendRow(dataBatch, qualifiedDbName, name, id);
+            }
+        }
+    }
+
+    List<StreamConsumptionUnitSnapshot> snapshotTableStreamConsumptionInfo() {
+        // Copy row inputs under lock so UNIT expression rewriting and folding can run after unlocking.
+        OlapTable table = getBaseTableNullable();
+        if (table == null) {
+            return ImmutableList.of();
+        }
+        List<StreamConsumptionUnitSnapshot> snapshots = new ArrayList<>();
+        if (table.readLockIfExist()) {
+            try {
+                for (Partition partition : table.getPartitions()) {
+                    snapshots.add(snapshotPartition(partition));
+                }
+            } finally {
+                table.readUnlock();
+            }
+        }
+        return snapshots;
+    }
+
+    private StreamConsumptionUnitSnapshot snapshotPartition(Partition partition) {
+        long partitionId = partition.getId();
+        boolean hasOffset = partitionOffset.containsKey(partitionId);
+        return new StreamConsumptionUnitSnapshot(
+                partition.getName(), hasOffset,
+                hasOffset ? partitionOffset.get(partitionId) : 0,
+                hasOffset ? partition.getTso() : 0,
+                !hasOffset && partition.hasData(),
+                partitionConsumptionTime.getOrDefault(partitionId, -1L));
+    }
+
+    private static void appendConsumptionRow(List<TRow> dataBatch, String dbName, String streamName,
+            long streamId, String unit, boolean hasOffset, long offset, long endTso, boolean hasData,
+            long lastConsumptionTime) {
+        TRow row = new TRow();
+        row.addToColumnValue(new TCell().setStringVal(dbName));
+        row.addToColumnValue(new TCell().setStringVal(streamName));
+        row.addToColumnValue(new TCell().setLongVal(streamId));
+        row.addToColumnValue(new TCell().setStringVal(unit));
+        if (hasOffset) {
+            row.addToColumnValue(new TCell().setStringVal(String.valueOf(offset)));
+            row.addToColumnValue(new TCell().setStringVal(String.valueOf(endTso - offset)));
+            row.addToColumnValue(new TCell().setLongVal(lastConsumptionTime));
+        } else {
+            row.addToColumnValue(new TCell().setStringVal("N/A"));
+            row.addToColumnValue(new TCell().setStringVal(hasData ? "N/A" : "0"));
+            row.addToColumnValue(new TCell().setLongVal(-1));
+        }
+        dataBatch.add(row);
+    }
+
+    static class StreamConsumptionUnitSnapshot {
+        private final String unit;
+        private final boolean hasOffset;
+        private final long offset;
+        private final long endTso;
+        private final boolean hasData;
+        private final long lastConsumptionTime;
+
+        private StreamConsumptionUnitSnapshot(String unit, boolean hasOffset, long offset, long endTso,
+                boolean hasData, long lastConsumptionTime) {
+            this.unit = unit;
+            this.hasOffset = hasOffset;
+            this.offset = offset;
+            this.endTso = endTso;
+            this.hasData = hasData;
+            this.lastConsumptionTime = lastConsumptionTime;
+        }
+
+        String getUnit() {
+            return unit;
+        }
+
+        void appendRow(List<TRow> dataBatch, String dbName, String streamName, long streamId) {
+            appendConsumptionRow(dataBatch, dbName, streamName, streamId, unit, hasOffset, offset, endTso,
+                    hasData, lastConsumptionTime);
         }
     }
 

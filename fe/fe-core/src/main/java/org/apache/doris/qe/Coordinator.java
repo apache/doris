@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -77,7 +78,6 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -88,7 +88,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -798,18 +797,21 @@ public class Coordinator implements CoordInterface {
     }
 
     /**
-     * Whether the BE keeps calling back into this coordinator after {@link #exec()} returned: an
-     * external-table scan in batch mode fetches its splits lazily from the split source that its
-     * scan node holds, so the coordinator must not be closed until the BE has finished scanning.
-     * Arrow Flight SQL uses this to decide whether a query's coordinator has to outlive
-     * GetFlightInfo, the client pulling the results from the BE later in DoGet. See #62259.
+     * Whether the BE still depends on this coordinator after {@link #exec()} returned, so it must
+     * not be closed until the BE has finished scanning: one of its scan nodes holds something on
+     * the FE that the BE scans with and that {@link #close()} releases
+     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source an external-table
+     * scan in batch mode fetches its splits from lazily, or the Flight SQL session a remote Doris
+     * scan keeps open on the other frontend. Arrow Flight SQL uses this to decide whether a
+     * query's coordinator has to outlive GetFlightInfo, the client pulling the results from the BE
+     * later in DoGet. See #62259.
      */
-    public boolean hasBatchSplitSource() {
+    public boolean mustOutliveDispatch() {
         if (scanNodes == null) {
             return false;
         }
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode.hasBatchSplitSource()) {
+            if (scanNode.coordinatorMustOutliveDispatch()) {
                 return true;
             }
         }
@@ -877,7 +879,7 @@ public class Coordinator implements CoordInterface {
                             toBrpcHost(param.host), this.timeoutDeadline,
                             context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    // The client pulls the result from the backend (Arrow Flight SQL); register where.
                     TUniqueId finstId;
                     if (enableParallelResultSink) {
                         finstId = queryId;

@@ -34,7 +34,8 @@ import java.util.List;
 
 /** OrthogonalBitmapExprCalculate */
 public class OrthogonalBitmapExprCalculate extends NotNullableAggregateFunction
-        implements OrthogonalBitmapFunction, ExplicitlyCastableSignature {
+        implements OrthogonalBitmapFunction, ExplicitlyCastableSignature,
+        NullIgnoringAggregateFunction {
 
     static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BitmapType.INSTANCE)

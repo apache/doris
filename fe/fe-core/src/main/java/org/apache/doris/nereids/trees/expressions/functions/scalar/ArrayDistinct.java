@@ -62,6 +62,7 @@ public class ArrayDistinct extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         DataType argType = getArgument(0).getDataType();
         if (argType.isArrayType()) {
             DataType itemType = ((ArrayType) argType).getItemType();

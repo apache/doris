@@ -110,7 +110,7 @@ Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
     RETURN_IF_ERROR(validate_windowed_docs_prefix(posting.entry));
     uint64_t abs = 0;
     RETURN_IF_ERROR(prelude_abs(idx, posting.entry, posting.frq_base, &abs));
-    // 生产布局：整个 .frq 载荷就是 [prelude][dd-block]，一次 range 读完。
+    // Production layout: the entire .frq payload is [prelude][dd-block], read in one range request.
     plan->prefix_handle = fetcher->add(abs, posting.entry.frq_len);
     return Status::OK();
 }

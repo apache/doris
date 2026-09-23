@@ -110,21 +110,32 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policy.isInvalid()) {
                 throw new DdlException("Analyzer '" + analyzerName + "' is invalid");
             }
-            validateReferencedTokenFiltersUsableLocked(analyzerName, policy);
+            validateReferencedComponentsUsableLocked(analyzerName, policy);
         } finally {
             readUnlock();
         }
     }
 
     /**
-     * 安全网：老版本可能持久化了 BE 已不再支持的 token filter 类型（例如已删除的 common_grams）。
-     * 这类策略仍会被加载（不能让 FE 因为镜像里的一条策略起不来），但任何引用它的 analyzer
-     * 都必须在使用时被明确拒绝，而不是等到 BE 建索引/查询时才报"未知 token filter"。
+     * Older metadata may retain components that current validation rejects. Load these policies so
+     * one obsolete policy cannot prevent FE startup, but reject analyzers that reference them before
+     * BE tries to construct the analyzer during index construction or querying.
      */
-    private void validateReferencedTokenFiltersUsableLocked(String analyzerName, IndexPolicy analyzer)
+    private void validateReferencedComponentsUsableLocked(String analyzerName, IndexPolicy analyzer)
             throws DdlException {
-        String tokenFilterNames = analyzer.getProperties() == null
-                ? null : analyzer.getProperties().get(IndexPolicy.PROP_TOKEN_FILTER);
+        Map<String, String> analyzerProperties = analyzer.getProperties();
+        if (analyzerProperties == null) {
+            return;
+        }
+        String tokenizerName = analyzerProperties.get(IndexPolicy.PROP_TOKENIZER);
+        IndexPolicy tokenizer = tokenizerName == null
+                ? null : nameToIndexPolicy.get(normalizeKey(tokenizerName));
+        if (tokenizer != null && tokenizer.isInvalid()) {
+            throw new DdlException("Analyzer '" + analyzerName + "' references invalid tokenizer '"
+                    + tokenizerName + "'");
+        }
+
+        String tokenFilterNames = analyzerProperties.get(IndexPolicy.PROP_TOKEN_FILTER);
         if (tokenFilterNames == null || tokenFilterNames.isEmpty()) {
             return;
         }
@@ -185,8 +196,16 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
         writeLock();
         try {
-            validatePolicyProperties(type, properties);
-            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
+            Map<String, String> storedProperties = properties == null
+                    ? null : Maps.newHashMap(properties);
+            validatePolicyProperties(type, storedProperties);
+            if (type == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(storedProperties.get(IndexPolicy.PROP_TYPE))) {
+                // Presence distinguishes policies created with the absolute-size limit from
+                // compatible policies replayed from a version before max_ngram_diff existed.
+                storedProperties.putIfAbsent("max_ngram_diff", "1");
+            }
+            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, storedProperties);
 
             if (nameToIndexPolicy.containsKey(normalizedName)) {
                 if (ifNotExists) {
@@ -335,6 +354,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         if (policy.getType() != expectedType) {
             throw new DdlException("Referenced policy '" + name + "' is of type "
                     + policy.getType() + " but expected " + expectedType);
+        }
+        if (policy.isInvalid()) {
+            throw new DdlException("Referenced " + expectedType + " policy '" + name + "' is invalid");
         }
     }
 
@@ -666,10 +688,10 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     private static void warnIfUnsupported(IndexPolicy indexPolicy) {
         if (indexPolicy.isInvalid()) {
-            LOG.error("Index policy '{}' (id={}) uses token filter type '{}', which this version"
-                    + " no longer supports; analyzers referencing it will be rejected. Drop the"
-                    + " indexes and policies that depend on it.", indexPolicy.getName(),
-                    indexPolicy.getId(), indexPolicy.getProperties().get(IndexPolicy.PROP_TYPE));
+            LOG.error("Index policy '{}' (id={}, type={}) is not valid in this version; analyzers"
+                    + " referencing it will be rejected. Drop the indexes and policies that depend"
+                    + " on it.", indexPolicy.getName(), indexPolicy.getId(),
+                    indexPolicy.getProperties().get(IndexPolicy.PROP_TYPE));
         }
     }
 

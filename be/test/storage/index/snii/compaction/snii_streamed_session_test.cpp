@@ -384,7 +384,7 @@ Status begin_scoring_session_from_local_input(SniiCompoundWriter* compound,
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = 4;
     input.null_docids = {1, 3};
-    // 流式会话的 norms 只能晚绑定（compaction 在合并 postings 之后才知道每 doc 长度）。
+    // Streaming norms are bound late: compaction learns document lengths after merging postings.
     input.write_norms = true;
     return compound->begin_streamed_index(std::move(input), session);
 }
@@ -1125,14 +1125,15 @@ TEST(SniiStreamedWriterSessionTest, ActiveAndFinishedSessionLifecycleIsEnforced)
     EXPECT_FALSE(exists);
 }
 
-// A2：compaction 的目标会话先声明 write_norms，postings 合并完毕后才把重建出来的 norms 交给
-// 会话；必须恰好交付一次、长度等于 doc_count，finish 之前缺失则整个 compound 中毒。
+// A2: A compaction destination declares write_norms before merging postings, then receives the
+// rebuilt norms exactly once, with doc_count entries. Missing norms at finish poison the entire
+// compound writer.
 TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFinish) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);
     SniiStreamedIndexSession* session = nullptr;
     SniiIndexInput input = empty_input(105, "late_norms", /*doc_count=*/2);
-    // norms 需要词频（BM25 的 tf 来自位置计数，存储上要求 freq 区存在）。
+    // Norms require frequencies: BM25 tf comes from position counts and requires a freq region.
     input.write_norms = true;
     assert_ok(compound.begin_streamed_index(std::move(input), &session));
     ASSERT_NE(session, nullptr);

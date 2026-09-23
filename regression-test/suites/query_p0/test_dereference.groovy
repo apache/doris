@@ -18,6 +18,7 @@
 import com.google.common.collect.Lists
 
 suite("test_dereference") {
+    def variantV2Function = "parse_to_variant"
     multi_sql """
         drop table if exists test_dereference;
         create table test_dereference(
@@ -31,9 +32,9 @@ suite("test_dereference") {
         properties(
           'replication_num'='1'
         );
-        
+
         insert into test_dereference
-        values (1, array(1, 2, 3, 4, 5), map('a', 1, 'b', 2, 'c', 3), struct(1, 2), '{"v": {"v":200}}')
+        values (1, array(1, 2, 3, 4, 5), map('a', 1, 'b', 2, 'c', 3), struct(1, 2), ${variantV2Function}('{"v": {"v":200}}'))
         """
 
     test {
@@ -52,9 +53,9 @@ suite("test_dereference") {
         properties(
           'replication_num'='1'
         );
-        
+
         insert into test_dereference2
-        values (1, struct(struct(struct(100))), '{"v": {"v": 200}}')
+        values (1, struct(struct(struct(100))), ${variantV2Function}('{"v": {"v": 200}}'))
         """
 
     test {
@@ -66,7 +67,6 @@ suite("test_dereference") {
         sql "select s.a from test_dereference2"
         exception "No such struct field 'a' in 's'"
     }
-
     multi_sql """
         drop table if exists test_correlated_dereference_outer;
         drop table if exists test_correlated_dereference_inner_scalar;
@@ -219,6 +219,131 @@ suite("test_dereference") {
             )
             order by t.id
             """
+
+    // An output alias is a nearer scope than the relation for ORDER BY, HAVING and QUALIFY.
+    // A relation-qualified column should still bind to the relation when an output alias reuses its name.
+    multi_sql """
+        drop table if exists test_dereference_alias_shadow;
+        create table test_dereference_alias_shadow(
+          id int,
+          v int,
+          s struct<v:int>
+        )
+        distributed by hash(id) buckets 1
+        properties(
+          'replication_num'='1'
+        );
+
+        insert into test_dereference_alias_shadow
+        values (1, 30, struct(1)), (2, 20, struct(2)), (3, 10, struct(3));
+        """
+
+    qt_alias_shadow_order_by_subquery_alias "select q.v as q from (select 7 as v) q order by q.v"
+
+    qt_alias_shadow_order_by "select q.v as q from test_dereference_alias_shadow q order by q.v"
+
+    qt_alias_shadow_having "select q.v as q from test_dereference_alias_shadow q having q.v > 15 order by q.v"
+
+    qt_alias_shadow_order_by_agg_func """
+            select q.id as q from test_dereference_alias_shadow q group by q.id order by max(q.v)
+            """
+
+    qt_alias_shadow_order_by_over_agg """
+            select max(q.v) as q from test_dereference_alias_shadow q group by q.id order by q.id
+            """
+
+    qt_alias_shadow_having_group_by_expr """
+            select q.id + 1 as q from test_dereference_alias_shadow q
+            group by q.id + 1 having q.id + 1 > 3
+            """
+
+    qt_alias_shadow_qualify_group_by_expr """
+            select q.id + 1 as q from test_dereference_alias_shadow q
+            group by q.id + 1 qualify row_number() over (order by q.id + 1) = 1
+            """
+
+    // the output alias q is a struct that has a field v: q.v is still the column v of relation q
+    qt_alias_shadow_struct_alias_order_by """
+            select id from (
+                select q.id as id, q.s as q from test_dereference_alias_shadow q order by q.v limit 1
+            ) x
+            """
+
+    qt_alias_shadow_struct_alias_having """
+            select id from (
+                select q.id as id, q.s as q from test_dereference_alias_shadow q having q.v > 25
+            ) x
+            """
+
+    // no relation-qualified column matches, fall back to the nested field of the output alias
+    qt_alias_shadow_keep_alias_field """
+            select id from (
+                select p.id as id, p.s as q from test_dereference_alias_shadow p order by q.v desc limit 1
+            ) x
+            """
+
+    // a lambda body resolves names the same way as the clause around it
+    qt_alias_shadow_lambda_order_by """
+            select id from test_dereference_alias_shadow q
+            order by array_sum(array_map(x -> x + q.v, [1]))
+            """
+
+    qt_alias_shadow_lambda_having """
+            select q.v as q from test_dereference_alias_shadow q
+            having array_sum(array_map(x -> x + q.v, [1])) > 16
+            order by array_sum(array_map(x -> x + q.v, [1]))
+            """
+
+    // a lambda body in a join condition references columns of both sides of the join
+    qt_alias_shadow_lambda_join_on """
+            select q.id, p.id
+            from test_dereference_alias_shadow q join test_dereference_alias_shadow p
+            on array_sum(array_map(x -> x + p.v + q.v, [0])) > 40
+            order by q.id, p.id
+            """
+
+    // a lambda body in a correlated subquery references a column of the outer query
+    qt_alias_shadow_lambda_correlated_exists """
+            select o.id from test_dereference_alias_shadow o
+            where exists (
+                select 1 from test_dereference_alias_shadow q
+                where array_sum(array_map(x -> x + o.v + q.v, [0])) > 45
+            )
+            order by o.id
+            """
+
+    qt_alias_shadow_lambda_correlated_in """
+            select o.id from test_dereference_alias_shadow o
+            where o.id in (
+                select q.id from test_dereference_alias_shadow q
+                where array_sum(array_map(x -> x + o.v, [0])) > 15
+            )
+            order by o.id
+            """
+
+    // q is only a scalar output alias here, the relation is p
+    test {
+        sql "select p.v as q from test_dereference_alias_shadow p order by q.v"
+        exception "No such field 'v' in 'q'"
+    }
+
+    // q.v is the scalar column v of relation q, so q.v.b is not the path v.b of the struct alias q
+    test {
+        sql """
+            select named_struct('v', named_struct('b', 1)) as q
+            from test_dereference_alias_shadow q order by q.v.b
+            """
+        exception "No such field 'b' in 'v'"
+    }
+
+    // an unknown name in a lambda body reports the error of the clause around it
+    test {
+        sql """
+            select id from test_dereference_alias_shadow
+            order by array_sum(array_map(x -> x + unknown_column, [1]))
+            """
+        exception "Unknown column 'unknown_column'"
+    }
 
     test {
         sql """

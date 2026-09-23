@@ -26,21 +26,31 @@ import java.util.Collections;
 
 class IvmInfoTest {
     @Test
-    void testRefreshVersionAdvancesAfterCommittedRefresh() {
+    void testSequencePrefixAdvancesAfterCommittedRefresh() {
         IvmInfo info = new IvmInfo();
 
-        Assertions.assertEquals(0, info.getRefreshVersion());
-        info.advanceRefreshVersion();
-        Assertions.assertEquals(1, info.getRefreshVersion());
+        Assertions.assertEquals(0, info.getSequencePrefix());
+        info.advanceSequencePrefix();
+        Assertions.assertEquals(1, info.getSequencePrefix());
     }
 
     @Test
-    void testRefreshVersionPersistsThroughGson() {
+    void testSequencePrefixPersistsThroughGson() {
         IvmInfo info = new IvmInfo();
-        info.advanceRefreshVersion();
+        info.advanceSequencePrefix();
 
         IvmInfo recovered = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(info), IvmInfo.class);
-        Assertions.assertEquals(1, recovered.getRefreshVersion());
+        Assertions.assertEquals(1, recovered.getSequencePrefix());
+    }
+
+    @Test
+    void testSequencePrefixIsPersistedAsSp() {
+        IvmInfo info = new IvmInfo();
+        info.advanceSequencePrefix();
+
+        String json = GsonUtils.GSON.toJson(info);
+        Assertions.assertTrue(json.contains("\"sp\":1"), json);
+        Assertions.assertFalse(json.contains("\"rv\""), json);
     }
 
     @Test
@@ -59,7 +69,7 @@ class IvmInfoTest {
         info.requireCompleteBaselineRebuild();
         info.setUseFullKeys(true);
         info.setPlanSignature("abc123");
-        info.advanceRefreshVersion();
+        info.advanceSequencePrefix();
 
         IvmInfo copy = new IvmInfo(info);
         info.clearBaselineRebuild();
@@ -68,7 +78,7 @@ class IvmInfoTest {
         Assertions.assertTrue(copy.isBaselineRebuildRequired());
         Assertions.assertTrue(copy.isUseFullKeys());
         Assertions.assertEquals("abc123", copy.getPlanSignature());
-        Assertions.assertEquals(1, copy.getRefreshVersion());
+        Assertions.assertEquals(1, copy.getSequencePrefix());
     }
 
     @Test

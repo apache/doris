@@ -268,7 +268,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
     const bool is_negative = int_value < 0 || frac_value < 0;
 
     // do round to frac_part based on decimal_places
-    if (scale > decimal_places && decimal_places > 0) {
+    if (static_cast<Int32>(scale) > decimal_places) {
         DCHECK(scale <= 38);
         // do rounding, so we need to reserve decimal_places + 1 digits
         auto multiplier =

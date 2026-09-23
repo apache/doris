@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -34,9 +35,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -48,6 +51,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class ExpressionAnalyzerVariantAutoCastTest {
 
@@ -318,6 +323,52 @@ public class ExpressionAnalyzerVariantAutoCastTest {
         Expression countResult = analyze(countDistinct, scope, true);
         Assertions.assertTrue(countResult instanceof Count);
         assertCastElementAt(((Count) countResult).child(0));
+    }
+
+    private SlotReference buildArraySlot() {
+        return new SlotReference(new ExprId(2), "arr", ArrayType.of(BigIntType.INSTANCE), true, ImmutableList.of());
+    }
+
+    private List<Cast> collectCastElementAt(Expression expr) {
+        return expr.collectToList(node -> node instanceof Cast && ((Cast) node).child() instanceof ElementAt);
+    }
+
+    @Test
+    public void testLambdaBodyElementAtChainSuppressesCastOfDottedPrefix() {
+        // array_map(x -> data.num_nested['l1']['l2'], arr)
+        // data is not a lambda argument, so the enclosing analyzer binds data.num_nested, but the element_at
+        // chain around it is in the lambda body: data.num_nested is a prefix of the path and is not cast to
+        // the type of 'num_*', same as outside a lambda
+        SlotReference data = buildVariantSlot(buildVariantType());
+        Scope scope = new Scope(ImmutableList.of(data, buildArraySlot()));
+
+        Expression chain = new ElementAt(
+                new ElementAt(new UnboundSlot("data", "num_nested"), new StringLiteral("l1")),
+                new StringLiteral("l2"));
+        Expression outsideLambda = analyze(chain, scope, true);
+        Assertions.assertTrue(collectCastElementAt(outsideLambda).isEmpty(), outsideLambda.toSql());
+
+        Lambda lambda = new Lambda(ImmutableList.of("x"), chain);
+        Expression result = analyze(
+                new UnboundFunction("array_map", ImmutableList.of(lambda, new UnboundSlot("arr"))), scope, true);
+        Assertions.assertTrue(collectCastElementAt(result).isEmpty(), result.toSql());
+    }
+
+    @Test
+    public void testLambdaBodyIsNotSuppressedByElementAtChainAroundLambda() {
+        // array_map(x -> array(data.num_a), arr)[1][1]
+        // the element_at chain is around the higher order function, data.num_a in the lambda body is not
+        // a part of it and is still cast
+        SlotReference data = buildVariantSlot(buildVariantType());
+        Scope scope = new Scope(ImmutableList.of(data, buildArraySlot()));
+
+        Lambda lambda = new Lambda(ImmutableList.of("x"),
+                new UnboundFunction("array", ImmutableList.of(new UnboundSlot("data", "num_a"))));
+        Expression arrayMap = new UnboundFunction("array_map", ImmutableList.of(lambda, new UnboundSlot("arr")));
+        Expression result = analyze(
+                new ElementAt(new ElementAt(arrayMap, new BigIntLiteral(1)), new BigIntLiteral(1)), scope, true);
+
+        Assertions.assertEquals(1, collectCastElementAt(result).size(), result.toSql());
     }
 
     @Test

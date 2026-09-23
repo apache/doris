@@ -70,6 +70,7 @@ public class ArrayContainsAll extends ScalarFunction implements ExplicitlyCastab
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         for (Expression argument : getArguments()) {
             DataType argType = argument.getDataType();
             if (!argType.isArrayType()) {

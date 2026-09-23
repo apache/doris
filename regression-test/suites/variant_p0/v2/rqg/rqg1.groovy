@@ -18,8 +18,6 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg1", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
         sql "DROP TABLE IF EXISTS table_24_undef_partitions2_keys3_properties4_distributed_by5"
         sql "DROP TABLE IF EXISTS table_24_undef_partitions2_keys3_properties4_distributed_by52"
         sql "DROP TABLE IF EXISTS table_24_undef_partitions2_keys3_properties4_distributed_by53"
@@ -85,5 +83,5 @@ SELECT  CAST(alias2 . var['col_int_undef_signed'] AS int)  AS field1 FROM table_
         if (!exceptions.isEmpty()) {
             throw new IllegalStateException("exceptions : ${exceptions}")
         }
-    }
+
 }

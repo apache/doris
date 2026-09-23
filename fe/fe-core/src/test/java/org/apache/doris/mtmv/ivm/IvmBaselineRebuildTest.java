@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Config;
@@ -32,14 +33,11 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
-import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
-import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
-import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
-import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
@@ -48,10 +46,19 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.time.LocalDate;
 import java.util.Collections;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class IvmBaselineRebuildTest extends TestWithFeService {
 
@@ -101,36 +108,377 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         createPartitionedIvmTableAndMv(db);
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
 
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        // SELF_MANAGE: the single MV partition reads every base partition, and the partition mapping API
+        // answers nothing for it, so the whole MV has to be rebuilt.
+        Assertions.assertTrue(getMtmv(db).getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
     @Test
-    public void testPublishedPctPartitionUsesPartitionsBaselineRebuild() throws Exception {
-        String db = "ivm_partitions_baseline_rebuild";
+    public void testDropColumnMarksBaselineRebuildOnlyWhenReferenced() throws Exception {
+        String db = "ivm_broken_drop_column";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
-        OlapTable baseTable = getBaseTable(db);
-        publishPctPartitionSnapshot(mtmv, baseTable, "p202001");
+
+        // ivm_mv selects dt, k1, v1. Dropping a column it does not use must leave the baseline alone.
+        executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
+        executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // Dropping a column the MV uses makes the MV query unanalyzable: the change is metadata-only
+        // and emits no binlog, so an incremental refresh would silently keep the rows of the old
+        // column. The baseline has to be invalidated instead.
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
+        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    /**
+     * Which MV partitions must be rebuilt is decided by the MV's partition mapping, not by what the
+     * refresh snapshot happens to record. This test publishes no snapshot at all: an MV whose partitions
+     * follow the base table's still narrows the rebuild down to the partitions that read the dropped one.
+     */
+    @Test
+    public void testDropPartitionMarksOnlyMvPartitionsThatReadIt() throws Exception {
+        String db = "ivm_partitions_baseline_rebuild";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(2, mtmv.getPartitionNames().size());
+        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, expected.size());
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
 
         Assertions.assertFalse(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
-        Assertions.assertEquals(Collections.singleton("mv_partition"),
-                mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
+        Assertions.assertEquals(expected, mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
     }
 
+    /**
+     * A base partition that no MV partition reads: dropping it cannot leave any of its rows in the MV, so
+     * there is nothing to rebuild. The previous selection could not tell this apart from "the snapshot does
+     * not know this partition" and rebuilt the whole MV instead.
+     */
     @Test
-    public void testMissingPctSnapshotRequiresCompleteBaselineRebuild() throws Exception {
-        String db = "ivm_complete_baseline_rebuild";
-        createPartitionedIvmTableAndMv(db);
+    public void testDropPartitionOutsideMvPartitionsMarksNothing() throws Exception {
+        String db = "ivm_partition_outside_mv";
+        createPartitionedIvmTableAndPartitionedMv(db);
         MTMV mtmv = getMtmv(db);
-        mtmv.getMvPartitionInfo().setPartitionType(MTMVPartitionType.FOLLOW_BASE_TABLE);
-        mtmv.getMvPartitionInfo().setPctInfos(Collections.singletonList(
-                new BaseColInfo("dt", new BaseTableInfo(getBaseTable(db)))));
+        // Added after the MV was created and never synced into it, so no MV partition reads it.
+        executeSql("ALTER TABLE ivm_base ADD PARTITION p202003 "
+                + "VALUES [('2020-03-01'), ('2020-04-01'))");
+        Assertions.assertTrue(mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202003").isEmpty());
+
+        executeSql("ALTER TABLE ivm_base DROP PARTITION p202003");
+
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    /**
+     * A base partition the partition_sync_limit window no longer covers can still have its rows in an MV
+     * partition: the MV was built while that partition was inside the window, shrinking the window does not
+     * touch the MV's own partitions, and widening it again makes partition sync keep the partition holding
+     * those rows. TRUNCATE emits no binlog, so nothing incremental can repair them -- the whole MV has to be
+     * rebuilt rather than a partition being guessed at.
+     */
+    @Test
+    public void testChangedPartitionOutsideTheSyncWindowRebuildsTheWholeMv() throws Exception {
+        String db = "ivm_baseline_sync_window";
+        String thisYear = LocalDate.now().withDayOfYear(1).toString();
+        // The cutoff is now() truncated to the year, read when the marker runs, and a partition is kept
+        // while its upper bound is after it. The recent partition therefore ends more than one year out:
+        // a year boundary falling between building this DDL and marking the change would otherwise put
+        // its upper bound exactly on the cutoff, drop it from the mapping, and let this test pass through
+        // the "nothing was selected" answer it exists to rule out.
+        String recentEnd = LocalDate.now().withDayOfYear(1).plusYears(2).toString();
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),\n"
+                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(3, mtmv.getPartitionNames().size());
+
+        // The window now keeps only this year's partition, so p202001 leaves the mapping while the MV's own
+        // partition for it stays. TRUNCATE leaves the base partition in place, so partition sync would keep
+        // that MV partition too -- the rows it still holds are exactly what the rebuild has to remove.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+        executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * The same window, with a change that touches a partition inside it and one outside it at once: the
+     * partition inside fills the selection, and the one outside contributes nothing because the window
+     * left it out of the mapping. Judging the change by "was anything selected" would mark only the MV
+     * partition backed by the inside half, and the rows of the outside half -- which the MV partition for
+     * it still holds -- would never be rebuilt.
+     */
+    @Test
+    public void testChangeThatMixesInWindowAndOutOfWindowPartitionsRebuildsTheWholeMv() throws Exception {
+        String db = "ivm_baseline_sync_window_mixed";
+        String thisYear = LocalDate.now().withDayOfYear(1).toString();
+        // The cutoff is now() truncated to the year, read when the marker runs, and a partition is kept
+        // while its upper bound is after it. The recent partition therefore ends more than one year out:
+        // a year boundary falling between building this DDL and marking the change would otherwise put
+        // its upper bound exactly on the cutoff, drop it from the mapping, and let this test pass through
+        // the "nothing was selected" answer it exists to rule out.
+        String recentEnd = LocalDate.now().withDayOfYear(1).plusYears(2).toString();
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),\n"
+                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + recentEnd + "'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(3, mtmv.getPartitionNames().size());
+
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+        // One statement, so the marker sees both partitions together: pThisYear is inside the window while
+        // p202001 is not, which is exactly the mix a non-empty selection must not be allowed to hide.
+        executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001, pThisYear)");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * A window property decides which base partitions the MV maintains. Only a change that can bring a
+     * partition back into that set needs a complete baseline rebuild: its deltas were skipped while it was
+     * outside, so nothing incremental can repair them. A window that starts applying, a narrower one and
+     * one that describes the same set as before all leave the deltas that were applied intact, and the
+     * partitions they take out are dropped by partition sync before the refresh plans.
+     */
+    @Test
+    public void testOnlyAWiderSyncWindowRequiresCompleteBaselineRebuild() throws Exception {
+        String db = "ivm_sync_window_property_change";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // No limit is in effect, so the unit it is paired with decides nothing.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_time_unit' = 'YEAR')");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // The window starts applying: it takes partitions out of what the MV maintains, it brings none back.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // The same window, restated.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // Narrower: it only removes partitions from the maintained set.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1')");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+
+        // Wider: the partitions it takes back in skipped their deltas while they were outside.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        clearBaselineRebuild(mtmv);
+
+        // The limit is gone: every partition comes back.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '0')");
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        clearBaselineRebuild(mtmv);
+
+        // Still no limit in effect, so the unit decides nothing again.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_time_unit' = 'DAY')");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    /**
+     * The limit is read on both sides of the mapping the selection judges: the mapping is built under
+     * whatever window the properties hold at that moment, and MV properties are mutable in between --
+     * <code>ALTER MATERIALIZED VIEW ... SET</code> is not generation guarded, so a limit can be cleared
+     * while the mapping is built. A read that happens only afterwards then sees no limit and trusts a
+     * windowed mapping, and a change outside that window is answered with "no MV partition reads it",
+     * which records no barrier at all. The read taken before the mapping is the one that cannot be
+     * reconstructed afterwards, so this pins that the selection takes both.
+     *
+     * <p>The interleaving itself is not staged: the mapping is built with no injection point between the
+     * two reads, so the test pins that both reads happen rather than a racy outcome.
+     */
+    @Test
+    public void testTheSyncLimitIsReadOnBothSidesOfTheMapping() throws Exception {
+        String db = "ivm_baseline_sync_limit_both_reads";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        OlapTable baseTable = getBaseTable(db);
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+
+        try (MockedStatic<MTMVPartitionUtil> partitionUtil = Mockito.mockStatic(MTMVPartitionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Assertions.assertTrue(mtmv.invalidateIvmBaseline(new BaseTableInfo(baseTable),
+                    Collections.singletonMap("p202001", baseTable.getPartition("p202001").getId())));
+            partitionUtil.verify(() -> MTMVPartitionUtil.isPartitionSyncLimitActive(Mockito.any()),
+                    Mockito.times(2));
+        }
+
+        // p202001 is outside the window while it is in effect, so its rows are described by no mapping
+        // entry and only the limit can tell that apart from "no MV partition reads it".
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * The partition mapping is built from the MV's PCT tables only. A changed partition of a joined table
+     * the MV's partition column does not reach is invisible to it, and missing such a change leaves rows
+     * of the dropped partition in the MV forever, so the whole MV has to be rebuilt.
+     */
+    @Test
+    public void testNonPctBaseTablePartitionChangeRequiresCompleteBaselineRebuild() throws Exception {
+        String db = "ivm_non_pct_partition_change";
+        createPartitionedIvmTable(db);
+        createTable("CREATE TABLE " + db + ".ivm_dim (\n"
+                + "  dt date NOT NULL,\n"
+                + "  id int NOT NULL,\n"
+                + "  v int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, id)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION d202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION d202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                + "'binlog.format' = 'ROW')");
+        // The join is on a non-partition column, so ivm_dim is a base table of the MV but not a PCT table.
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT b.dt, b.k1, b.v1 FROM ivm_base b JOIN ivm_dim d ON b.k1 = d.id");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertTrue(mtmv.isIvm());
+        Assertions.assertEquals(Sets.newHashSet("ivm_base"),
+                mtmv.getMvPartitionInfo().getPctInfos().stream()
+                        .map(pctInfo -> pctInfo.getTableInfo().getTableName())
+                        .collect(Collectors.toSet()));
+
+        executeSql("ALTER TABLE ivm_dim DROP PARTITION d202001");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * A join whose condition carries the MV's partition column makes both tables PCT tables, so the mapping
+     * reads both of them. The marker already holds this table's write lock, so it takes the other one with a
+     * bounded tryLock: while that table is free, the rebuild is still narrowed to the partitions that read
+     * the dropped one.
+     */
+    @Test
+    public void testMultiPctTablePartitionChangeStillNarrows() throws Exception {
+        String db = "ivm_multi_pct_partition_change";
+        createTwoPctTableIvm(db);
+        MTMV mtmv = getMtmv(db);
+        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, expected.size());
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
 
+        Assertions.assertFalse(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(expected, mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
+    }
+
+    /**
+     * The same MV, but the other PCT table is being written while the partition DDL marks. Waiting for it
+     * would close a cycle with the DDL that holds it -- each would hold the write lock the other one needs --
+     * so the marker gives up on the mapping and the whole MV is rebuilt.
+     */
+    @Test
+    public void testMultiPctTableBusyOtherTableRebuildsWholeMv() throws Exception {
+        String db = "ivm_multi_pct_busy";
+        createTwoPctTableIvm(db);
+        MTMV mtmv = getMtmv(db);
+        OlapTable otherPctTable = (OlapTable) getDb(db).getTableOrMetaException("ivm_dim");
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        // The acquisitions are bounded on both sides so that a failure cannot leave this worker holding
+        // the table forever: it is not a daemon, and the test asserts that it ends.
+        Thread writer = new Thread(() -> {
+            Assertions.assertTrue(otherPctTable.tryWriteLock(30, TimeUnit.SECONDS),
+                    "the test worker should be able to take the other PCT table");
+            locked.countDown();
+            try {
+                released.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                otherPctTable.writeUnlock();
+            }
+        });
+        writer.start();
+        Assertions.assertTrue(locked.await(30, TimeUnit.SECONDS));
+        try {
+            executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
+        } finally {
+            released.countDown();
+        }
+        writer.join(TimeUnit.SECONDS.toMillis(30));
+        Assertions.assertFalse(writer.isAlive(), "the test worker should have released the table");
+
+        // The batch fails on its first table here, so what this covers is the whole-MV fallback; the
+        // release of the locks taken before the busy one is covered in MetaLockUtilsTest.
         Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
+     * A join whose condition carries the MV's partition column: both tables become PCT tables.
+     */
+    private void createTwoPctTableIvm(String db) throws Exception {
+        createPartitionedIvmTable(db);
+        createTable("CREATE TABLE " + db + ".ivm_dim (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                + "'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT b.dt, b.k1, b.v1 FROM ivm_base b JOIN ivm_dim d ON b.dt = d.dt");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertTrue(mtmv.isIvm());
+        Assertions.assertEquals(2, mtmv.getMvPartitionInfo().getPctInfos().size());
     }
 
     @Test
@@ -158,6 +506,24 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
     }
 
+    /**
+     * RECOVER PARTITION marks before the partition is added back to the table, so at that moment the
+     * partition is still in the recycle bin and the mapping cannot describe it. The rebuild must not lean
+     * on the DROP that came before either: its barrier is released here before the recovery.
+     */
+    @Test
+    public void testRecoverPartitionOnPartitionedMvRequiresCompleteBaselineRebuild() throws Exception {
+        String db = "ivm_recover_partition_complete";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
+        clearBaselineRebuild(mtmv);
+
+        executeSql("RECOVER PARTITION p202001 FROM ivm_base");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
     @Test
     public void testRecoverAndDropKeepGlobalBrokenState() throws Exception {
         String db = "ivm_broken_recover_and_drop";
@@ -172,6 +538,32 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202002");
         Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    /**
+     * RECOVER reports the recycled partition under the name it had, and a partition added after the drop
+     * can be live under that name again by then, with a different range. The change is then not the one
+     * the mapping describes: the recovered range is the one whose rows have to come back, and its MV
+     * partition -- which partition sync adds when the recovered partition returns -- is read from a base
+     * partition that the replacement does not describe at all. Narrowing to the replacement's MV
+     * partitions would leave that one out, and recovery emits no row binlog to fill it later, so the
+     * whole MV has to be rebuilt.
+     */
+    @Test
+    public void testRecoveredPartitionWhoseNameWasReusedRebuildsTheWholeMv() throws Exception {
+        String db = "ivm_recover_partition_name_reused";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+
+        executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
+        clearBaselineRebuild(mtmv);
+        // Live again under the dropped name, with a range no MV partition covers: the RECOVER below is
+        // still about the recycled partition, not about this one.
+        executeSql("ALTER TABLE ivm_base ADD PARTITION p202001 VALUES [('2020-04-01'), ('2020-05-01'))");
+
+        executeSql("RECOVER PARTITION p202001 AS p202003 FROM ivm_base");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
     @Test
@@ -215,6 +607,24 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
 
         Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    @Test
+    public void testRenameTableBackKeepsIncrementalRefreshStartable() throws Exception {
+        String db = "ivm_broken_rename_table_back";
+        createPartitionedIvmTableAndMv(db);
+
+        executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
+        executeSql("ALTER TABLE ivm_base_renamed RENAME ivm_base");
+
+        // A rename changes no column, so it must not invalidate the baseline in either direction:
+        // once the table is renamed back, the MV query is analyzable again and a strict INCREMENTAL
+        // refresh has to be able to start. A "baseline rebuild required" flag left behind by the
+        // rename would reject every one of them until a COMPLETE refresh had been run, even though
+        // nothing the MV depends on ever changed.
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertDoesNotThrow(() -> mtmv.validateIvmRefreshStart(mtmv.getSchemaChangeVersion()));
     }
 
     @Test
@@ -515,6 +925,37 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     private void createPartitionedIvmTableAndMv(String db) throws Exception {
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        assertFreshMv(db);
+    }
+
+    /**
+     * The same base table, but the MV follows the base table's partitions: it is created with one MV
+     * partition per base partition, so a partition change can be narrowed to the MV partitions that read
+     * the changed one.
+     */
+    private void createPartitionedIvmTableAndPartitionedMv(String db) throws Exception {
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        assertFreshMv(db);
+    }
+
+    private void assertFreshMv(String db) throws Exception {
+        Assertions.assertTrue(getMtmv(db).isIvm());
+        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+    }
+
+    private void createPartitionedIvmTable(String db) throws Exception {
         createDatabaseAndUse(db);
         createTable("CREATE TABLE " + db + ".ivm_base (\n"
                 + "  dt date NOT NULL,\n"
@@ -528,13 +969,6 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + ")\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
-        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
-                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "PROPERTIES ('replication_num' = '1')\n"
-                + "AS SELECT dt, k1, v1 FROM ivm_base");
-        Assertions.assertTrue(getMtmv(db).isIvm());
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
     }
 
     private MTMV getMtmv(String db) throws Exception {
@@ -551,15 +985,20 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         return (OlapTable) getDb(db).getTableOrMetaException("ivm_base");
     }
 
-    private void publishPctPartitionSnapshot(MTMV mtmv, OlapTable baseTable, String partitionName) {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(baseTable);
-        mtmv.getMvPartitionInfo().setPartitionType(MTMVPartitionType.FOLLOW_BASE_TABLE);
-        mtmv.getMvPartitionInfo().setPctInfos(Collections.singletonList(new BaseColInfo("dt", baseTableInfo)));
-        MTMVRefreshPartitionSnapshot snapshot = new MTMVRefreshPartitionSnapshot();
-        snapshot.getPctSnapshot(baseTableInfo).put(partitionName,
-                new MTMVVersionSnapshot(1L, baseTable.getPartition(partitionName).getId()));
-        mtmv.getRefreshSnapshot().updateSnapshots(
-                Collections.singletonMap("mv_partition", snapshot), Collections.singleton("mv_partition"));
+    /**
+     * The MV partitions whose range is exactly the range of the given base partition, derived from the two
+     * tables' partition items rather than from the mapping the implementation under test computes.
+     */
+    private Set<String> mvPartitionsWithSameRange(MTMV mtmv, OlapTable baseTable, String basePartitionName) {
+        PartitionItem basePartitionItem = baseTable.getPartitionInfo()
+                .getItem(baseTable.getPartition(basePartitionName).getId());
+        Set<String> res = Sets.newHashSet();
+        for (Entry<String, PartitionItem> entry : mtmv.getAndCopyPartitionItems().entrySet()) {
+            if (entry.getValue().toPartitionKeyDesc().equals(basePartitionItem.toPartitionKeyDesc())) {
+                res.add(entry.getKey());
+            }
+        }
+        return res;
     }
 
     private void clearBaselineRebuild(MTMV mtmv) {

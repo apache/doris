@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,55 @@ public class PaimonCatalogFactoryTest {
         // for catalog creation. MUTATION: emitting "hive"/"jdbc" or dropping warehouse -> red.
         Assertions.assertEquals("filesystem", opts.get("metastore"));
         Assertions.assertEquals("/wh", opts.get("warehouse"));
+    }
+
+    @Test
+    public void enclosingDorisWeightLimitDisablesPaimonSdkCacheOnlyByDefault() throws Exception {
+        Map<String, String> defaults = props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh");
+
+        PaimonCatalogProperties defaultProperties = PaimonCatalogProperties.of(defaults);
+        Assertions.assertTrue(PaimonCatalogFactory.isCatalogCacheEnabled(defaultProperties),
+                "Paimon caching remains enabled by default through the Doris-owned wrapper");
+
+        // The SDK wrapper itself is always disabled; governance changes only whether mutable SDK
+        // child caches can be attached to the Doris-governed table entry.
+        try (PaimonConnector ungoverned = new PaimonConnector(defaults, new RecordingConnectorContext())) {
+            Options options = ungoverned.buildCatalogOptions();
+            Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
+                    "the Paimon SDK CachingCatalog must be disabled even without a Doris weight limit");
+        }
+
+        Map<String, String> catalogLimited = new HashMap<>(defaults);
+        catalogLimited.put("meta.cache.max-weight", "1MB");
+        try (PaimonConnector governed = new PaimonConnector(catalogLimited, new RecordingConnectorContext())) {
+            Options options = governed.buildCatalogOptions();
+            Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
+                    "the Paimon SDK CachingCatalog must stay disabled under an enclosing Doris hard limit");
+        }
+
+        Map<String, String> entryLimited = new HashMap<>(defaults);
+        entryLimited.put("meta.cache.paimon.partition_view.max-weight", "1MB");
+        try (PaimonConnector entryOnly = new PaimonConnector(entryLimited, new RecordingConnectorContext())) {
+            Assertions.assertTrue(entryOnly.buildCatalogOptions().contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(entryOnly.buildCatalogOptions().get(CatalogOptions.CACHE_ENABLED),
+                    "the Paimon SDK CachingCatalog must be disabled unconditionally");
+        }
+
+        // The user flag controls whether the Doris wrapper is created, while the SDK flag remains off.
+        PaimonCatalogProperties explicitTrue = PaimonCatalogProperties.of(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "true"));
+        Assertions.assertTrue(PaimonCatalogFactory.isCatalogCacheEnabled(explicitTrue));
+        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitTrue)
+                .get(CatalogOptions.CACHE_ENABLED));
+
+        PaimonCatalogProperties explicitFalse = PaimonCatalogProperties.of(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "false"));
+        Assertions.assertFalse(PaimonCatalogFactory.isCatalogCacheEnabled(explicitFalse));
+        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitFalse)
+                .get(CatalogOptions.CACHE_ENABLED));
     }
 
     @Test

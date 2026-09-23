@@ -114,7 +114,6 @@ public class PipelineCoordinator {
     /** return data for http_file_reader */
     public StreamingResponseBody fetchRecordStream(FetchRecordRequest fetchReq) throws Exception {
         SourceReader sourceReader;
-        SplitReadResult readResult;
         try {
             LOG.info(
                     "Fetch record request with meta {}, jobId={}, taskId={}",
@@ -128,9 +127,23 @@ public class PipelineCoordinator {
                 LOG.info("Generated meta for job {}: {}", fetchReq.getJobId(), meta);
             }
 
-            sourceReader = Env.getCurrentEnv().getReader(fetchReq, !isLong(fetchReq.getJobId()));
+            sourceReader =
+                    isJobDrivenTvf(fetchReq.getJobId())
+                            ? Env.getCurrentEnv().getReaderAndClaim(fetchReq, fetchReq.getTaskId())
+                            : Env.getCurrentEnv().getReader(fetchReq, true);
+        } catch (Exception ex) {
+            throw new CommonException(ex);
+        }
+
+        SplitReadResult readResult;
+        try {
             readResult = sourceReader.prepareAndSubmitSplit(fetchReq);
         } catch (Exception ex) {
+            try {
+                closeTvfReader(fetchReq, sourceReader);
+            } catch (Exception cleanupEx) {
+                ex.addSuppressed(cleanupEx);
+            }
             throw new CommonException(ex);
         }
 
@@ -144,8 +157,25 @@ public class PipelineCoordinator {
                         fetchReq.getTaskId(),
                         ex);
                 throw new StreamException(ex);
+            } finally {
+                closeTvfReader(fetchReq, sourceReader);
             }
         };
+    }
+
+    private void closeTvfReader(FetchRecordRequest request, SourceReader sourceReader) {
+        Env env = Env.getCurrentEnv();
+        if (isJobDrivenTvf(request.getJobId())) {
+            env.detachReaderIfOwner(request.getJobId(), request.getTaskId());
+            // Release only this request's instance and keep the PG slot for the next task.
+            sourceReader.release(request);
+        } else {
+            try {
+                sourceReader.close(request);
+            } finally {
+                env.close(request.getJobId());
+            }
+        }
     }
 
     private void buildStreamRecords(
@@ -170,6 +200,7 @@ public class PipelineCoordinator {
                     fetchRecord.getTaskId(),
                     isSnapshotSplit);
             while (!shouldStop) {
+                checkTvfReaderOwner(fetchRecord);
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
@@ -233,29 +264,29 @@ public class PipelineCoordinator {
         }
 
         List<Map<String, String>> offsetMeta = extractOffsetMeta(sourceReader, readResult);
+        checkTvfReaderOwner(fetchRecord);
         if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
             taskOffsetCache.put(fetchRecord.getTaskId(), offsetMeta);
         }
-        // Convention: standalone TVF uses a UUID jobId; job-driven TVF will use a numeric Long
-        // jobId (set via rewriteTvfParams). When the job-driven path is implemented,
-        // rewriteTvfParams must inject the job's Long jobId into the TVF properties
-        // so that generateParams() can read it, keeping isLong() correct.
-        // TODO: replace isLong() with an explicit field in FetchRecordRequest
-        // once the job-driven TVF path is fully implemented.
-        if (!isLong(fetchRecord.getJobId())) {
-            // TVF requires closing the window after each execution,
-            // while PG requires dropping the slot.
-            sourceReader.close(fetchRecord);
-            // Clean up the job context so it does not accumulate in Env.jobContexts.
-            // Each TVF call uses a fresh UUID job ID, so without this the map grows unboundedly.
-            Env.getCurrentEnv().close(fetchRecord.getJobId());
+    }
+
+    private void checkTvfReaderOwner(FetchRecordRequest request) {
+        if (isJobDrivenTvf(request.getJobId())
+                && !Env.getCurrentEnv().isOwner(request.getJobId(), request.getTaskId())) {
+            throw new IllegalStateException(
+                    String.format(
+                            "TVF reader released or replaced for job %s task %s",
+                            request.getJobId(), request.getTaskId()));
         }
     }
 
-    private boolean isLong(String s) {
-        if (s == null || s.isEmpty()) return false;
+    // Convention: standalone TVF uses a UUID jobId; job-driven TVF uses the job's numeric Long
+    // jobId, injected into the TVF properties by rewriteTvfParams and read by generateParams().
+    // TODO: replace this jobId-based check with an explicit field in FetchRecordRequest.
+    private boolean isJobDrivenTvf(String jobId) {
+        if (jobId == null || jobId.isEmpty()) return false;
         try {
-            Long.parseLong(s);
+            Long.parseLong(jobId);
             return true;
         } catch (NumberFormatException e) {
             return false;
@@ -288,7 +319,8 @@ public class PipelineCoordinator {
     public RecordWithMeta fetchRecords(FetchRecordRequest fetchRecordRequest) throws Exception {
         SourceReader sourceReader =
                 Env.getCurrentEnv()
-                        .getReader(fetchRecordRequest, !isLong(fetchRecordRequest.getJobId()));
+                        .getReader(
+                                fetchRecordRequest, !isJobDrivenTvf(fetchRecordRequest.getJobId()));
         SplitReadResult readResult = sourceReader.prepareAndSubmitSplit(fetchRecordRequest);
         return buildRecordResponse(sourceReader, fetchRecordRequest, readResult);
     }
@@ -452,6 +484,9 @@ public class PipelineCoordinator {
      * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        Preconditions.checkArgument(
+                StringUtils.isNotBlank(writeRecordRequest.getDorisUser()),
+                "Missing dorisUser; FE must send the Doris job creator's user name");
         // Extract connection parameters up front for use throughout this method
         String feAddr = writeRecordRequest.getFrontendAddress();
         String targetDb = writeRecordRequest.getTargetDb();
@@ -611,7 +646,11 @@ public class PipelineCoordinator {
                             ddlCount += result.getSchemaChanges().size();
                         }
                         SchemaChangeManager.executeChanges(
-                                feAddr, targetDb, token, result.getSchemaChanges());
+                                feAddr,
+                                targetDb,
+                                token,
+                                writeRecordRequest.getJobId(),
+                                result.getSchemaChanges());
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
@@ -780,6 +819,7 @@ public class PipelineCoordinator {
         batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
         batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
         batchStreamLoad.setToken(writeRecordRequest.getToken());
+        batchStreamLoad.setDorisUser(writeRecordRequest.getDorisUser());
         batchStreamLoad.setLoadProps(writeRecordRequest.getStreamLoadProps());
         batchStreamLoad.getLoadStatistic().clear();
         return batchStreamLoad;

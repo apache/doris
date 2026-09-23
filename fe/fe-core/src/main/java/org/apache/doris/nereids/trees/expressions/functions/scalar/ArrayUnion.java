@@ -70,6 +70,7 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         for (Expression child : getArguments()) {
             DataType argType = child.getDataType();
             if (argType == NullType.INSTANCE) {

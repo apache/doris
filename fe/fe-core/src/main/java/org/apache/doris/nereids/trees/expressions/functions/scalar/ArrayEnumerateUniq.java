@@ -66,6 +66,7 @@ public class ArrayEnumerateUniq extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         boolean useSerializedKeys = getArguments().size() > 1;
         for (Expression arg : getArguments()) {
             DataType argType = arg.getDataType();

@@ -46,8 +46,9 @@ Status SniiStatsProvider::open(const reader::LogicalIndexReader* idx, SniiStatsP
     if (idx == nullptr || out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null argument");
     }
-    // 统计全部来自物理统计：doc_count / indexed_doc_count / sum_total_term_freq 由 writer 对
-    // 每个 posting 累加，avgdl 按注释定义用 indexed_doc_count（不含 NULL 行）。
+    // All statistics come from physical data collected by the writer: doc_count,
+    // indexed_doc_count, and sum_total_term_freq. As documented, avgdl uses indexed_doc_count,
+    // which excludes NULL rows.
     out->idx_ = idx;
     const auto& sb = idx->stats();
     out->doc_count_ = sb.doc_count;

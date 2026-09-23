@@ -36,8 +36,11 @@ import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -67,13 +70,13 @@ public class CastTest {
             cast = new Cast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
 
-            // When strict mode is false, return nullable when decimal range < 1
+            // BE uses DECIMAL(27, 9) for every DECIMALV2 target, so BOOLEAN always fits.
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", BooleanType.INSTANCE, false);
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(2, 1));
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(2, 2));
-            Assertions.assertTrue(cast.nullable());
+            Assertions.assertFalse(cast.nullable());
         }
     }
 
@@ -89,13 +92,13 @@ public class CastTest {
             cast = new Cast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
 
-            // When strict mode is false, return nullable when decimal range < 1
+            // BE uses DECIMAL(27, 9) for every DECIMALV2 target, so TINYINT always fits.
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", TinyIntType.INSTANCE, false);
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(4, 1));
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(4, 2));
-            Assertions.assertTrue(cast.nullable());
+            Assertions.assertFalse(cast.nullable());
 
             // To date is always nullable
             cast = new Cast(child, DateType.INSTANCE);
@@ -123,13 +126,13 @@ public class CastTest {
             cast = new Cast(child, BooleanType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
 
-            // When strict mode is false, return nullable when decimal range < 1
+            // BE uses DECIMAL(27, 9) for every DECIMALV2 target, so SMALLINT always fits.
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", SmallIntType.INSTANCE, false);
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(6, 1));
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(6, 2));
-            Assertions.assertTrue(cast.nullable());
+            Assertions.assertFalse(cast.nullable());
 
             // To date is always nullable
             cast = new Cast(child, DateType.INSTANCE);
@@ -161,13 +164,13 @@ public class CastTest {
             cast = new Cast(child, IntegerType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
 
-            // When strict mode is false, return nullable when decimal range < 1
+            // BE uses DECIMAL(27, 9) for every DECIMALV2 target, so INT always fits.
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", IntegerType.INSTANCE, false);
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(11, 1));
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(11, 2));
-            Assertions.assertTrue(cast.nullable());
+            Assertions.assertFalse(cast.nullable());
 
             // To date is always nullable
             cast = new Cast(child, DateType.INSTANCE);
@@ -201,11 +204,11 @@ public class CastTest {
             cast = new Cast(child, LargeIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
 
-            // When strict mode is false, return nullable when decimal range < 1
+            // DECIMALV2 has 18 integer digits in BE, so it cannot hold the full BIGINT domain.
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             child = new SlotReference("slot", BigIntType.INSTANCE, false);
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(20, 1));
-            Assertions.assertFalse(cast.nullable());
+            Assertions.assertTrue(cast.nullable());
             cast = new Cast(child, DecimalV2Type.createDecimalV2Type(20, 2));
             Assertions.assertTrue(cast.nullable());
 
@@ -244,7 +247,7 @@ public class CastTest {
             cast = new Cast(child, DoubleType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
 
-            // When strict mode is false, return nullable when decimal range < 1
+            // When strict mode is false, return nullable when decimal range is too small.
             mockedSessionVariable.when(SessionVariable::enableStrictCast).thenReturn(false);
             ConnectContext context = new ConnectContext();
             context.getSessionVariable().enableDecimal256 = true;
@@ -386,19 +389,19 @@ public class CastTest {
             // To integer
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(4, 2), false);
             cast = new Cast(child, TinyIntType.INSTANCE);
-            Assertions.assertFalse(cast.nullable());
+            Assertions.assertTrue(cast.nullable());
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(5, 2), false);
             cast = new Cast(child, TinyIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(6, 2), false);
             cast = new Cast(child, SmallIntType.INSTANCE);
-            Assertions.assertFalse(cast.nullable());
+            Assertions.assertTrue(cast.nullable());
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(7, 2), false);
             cast = new Cast(child, SmallIntType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(11, 2), false);
             cast = new Cast(child, IntegerType.INSTANCE);
-            Assertions.assertFalse(cast.nullable());
+            Assertions.assertTrue(cast.nullable());
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(12, 2), false);
             cast = new Cast(child, IntegerType.INSTANCE);
             Assertions.assertTrue(cast.nullable());
@@ -407,7 +410,7 @@ public class CastTest {
             Assertions.assertFalse(cast.nullable());
             child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(21, 2), false);
             cast = new Cast(child, BigIntType.INSTANCE);
-            Assertions.assertTrue(cast.nullable());
+            Assertions.assertFalse(cast.nullable());
             child = new SlotReference("slot", DecimalV3Type.createDecimalV3Type(40, 2), false);
             cast = new Cast(child, LargeIntType.INSTANCE);
             Assertions.assertFalse(cast.nullable());
@@ -419,6 +422,22 @@ public class CastTest {
             cast = new Cast(child, DecimalV3Type.createDecimalV3Type(41, 2));
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DecimalV3Type.createDecimalV3Type(40, 2));
+            Assertions.assertTrue(cast.nullable());
+            child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(7, 0), false);
+            cast = new Cast(child, DecimalV2Type.createDecimalV2Type(1, 1));
+            Assertions.assertFalse(cast.nullable());
+            cast = new Cast(child, DecimalV3Type.createDecimalV3Type(27, 9));
+            Assertions.assertFalse(cast.nullable());
+            cast = new Cast(child, DecimalV3Type.createDecimalV3Type(26, 9));
+            Assertions.assertFalse(cast.nullable());
+
+            // The D2-to-D3 BE kernel decides its physical nullable wrapper from DECIMALV2's
+            // original schema precision and scale, independently of strict-cast behavior.
+            child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(27, 0), false);
+            DecimalV3Type decimalV3Target = DecimalV3Type.createDecimalV3Type(19, 0);
+            cast = new Cast(child, decimalV3Target, false, false);
+            Assertions.assertTrue(cast.nullable());
+            cast = new Cast(child, decimalV3Target, false, true);
             Assertions.assertTrue(cast.nullable());
             // To date is always nullable
             cast = new Cast(child, DateType.INSTANCE);
@@ -444,11 +463,23 @@ public class CastTest {
             // An exact-type cast cannot fail even though conversions between datetime types can.
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
-            Assertions.assertTrue(cast.nullable());
+            // The BE DATETIME -> DATETIMEV2 branch directly converts valid calendar fields.
+            Assertions.assertFalse(cast.nullable());
             child = new SlotReference("slot", DateTimeV2Type.SYSTEM_DEFAULT, false);
             cast = new Cast(child, DateTimeV2Type.SYSTEM_DEFAULT);
             Assertions.assertFalse(cast.nullable());
+
+            child = new SlotReference("slot", DateTimeV2Type.of(3), false);
             cast = new Cast(child, DateTimeType.INSTANCE);
+            // BE handles DATETIMEV2 -> DATETIME directly even when it discards fractional seconds;
+            // unlike a DATETIMEV2 scale change, this path does not wrap its result in Nullable.
+            Assertions.assertFalse(cast.nullable());
+            cast = new Cast(child, DateTimeV2Type.MAX);
+            // BE wraps every non-identity DATETIMEV2 scale conversion in a nullable column.
+            Assertions.assertTrue(cast.nullable());
+
+            child = new SlotReference("slot", TimeStampTzType.MAX, false);
+            cast = new Cast(child, DateTimeV2Type.MAX);
             Assertions.assertTrue(cast.nullable());
         }
     }
@@ -726,5 +757,67 @@ public class CastTest {
             cast = new Cast(child, ArrayType.SYSTEM_DEFAULT);
             Assertions.assertTrue(cast.nullable());
         }
+    }
+
+    @Test
+    public void testMayFailOnNonNullInputForScalarCasts() {
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(IntegerType.INSTANCE, BigIntType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(BooleanType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(LargeIntType.INSTANCE, FloatType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, BooleanType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(DateType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(VarcharType.SYSTEM_DEFAULT, StringType.INSTANCE));
+
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(BigIntType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(DoubleType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(StringType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(JsonType.INSTANCE, StringType.INSTANCE));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(VariantType.INSTANCE, StringType.INSTANCE));
+
+        Cast safeCast = new Cast(new SlotReference("slot", IntegerType.INSTANCE, true), BigIntType.INSTANCE);
+        Assertions.assertTrue(safeCast.nullable());
+        Assertions.assertFalse(safeCast.mayFailOnNonNullInput());
+        TryCast failingTryCast = new TryCast(new SlotReference("slot", StringType.INSTANCE, false),
+                IntegerType.INSTANCE);
+        Assertions.assertTrue(failingTryCast.mayFailOnNonNullInput());
+    }
+
+    @Test
+    public void testMayFailOnNonNullInputForNestedCasts() {
+        ArrayType integers = ArrayType.of(IntegerType.INSTANCE);
+        ArrayType bigInts = ArrayType.of(BigIntType.INSTANCE);
+        ArrayType strings = ArrayType.of(StringType.INSTANCE);
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(integers, bigInts));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(strings, integers));
+        // The outer ARRAY can stay non-null even when an element cast fails.
+        Assertions.assertFalse(Cast.castNullable(false, strings, integers));
+
+        MapType safeSourceMap = MapType.of(IntegerType.INSTANCE, integers);
+        MapType safeTargetMap = MapType.of(BigIntType.INSTANCE, bigInts);
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(safeSourceMap, safeTargetMap));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                MapType.of(StringType.INSTANCE, integers), safeTargetMap));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(
+                MapType.of(IntegerType.INSTANCE, strings), safeTargetMap));
+
+        StructType safeSourceStruct = new StructType(ImmutableList.of(
+                new StructField("metric", IntegerType.INSTANCE, false, ""),
+                new StructField("attributes", safeSourceMap, true, "")));
+        StructType safeTargetStruct = new StructType(ImmutableList.of(
+                new StructField("metric", BigIntType.INSTANCE, false, ""),
+                new StructField("attributes", safeTargetMap, true, "")));
+        Assertions.assertFalse(Cast.mayFailOnNonNullInput(safeSourceStruct, safeTargetStruct));
+        StructType failingSourceStruct = new StructType(ImmutableList.of(
+                new StructField("metric", StringType.INSTANCE, false, ""),
+                new StructField("attributes", safeSourceMap, true, "")));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(failingSourceStruct, safeTargetStruct));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(safeSourceStruct,
+                new StructType(ImmutableList.of(new StructField("metric", BigIntType.INSTANCE, false, "")))));
+        Assertions.assertTrue(Cast.mayFailOnNonNullInput(safeTargetStruct,
+                new StructType(ImmutableList.of(
+                        new StructField("metric", BigIntType.INSTANCE, false, ""),
+                        new StructField("attributes", safeTargetMap, false, "")))));
     }
 }
