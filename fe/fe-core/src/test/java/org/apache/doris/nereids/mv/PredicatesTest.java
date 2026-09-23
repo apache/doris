@@ -42,6 +42,8 @@ import java.util.stream.Collectors;
 
 /** Test the method in Predicates*/
 public class PredicatesTest extends SqlTestBase {
+    private static final String SELECT_ALL_TEST_COLUMNS =
+            "select id, score, event_date, event_time, amount, tag from T1 where ";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -51,7 +53,11 @@ public class PredicatesTest extends SqlTestBase {
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
                         + "    id bigint,\n"
-                        + "    score bigint\n"
+                        + "    score bigint,\n"
+                        + "    event_date date,\n"
+                        + "    event_time datetime,\n"
+                        + "    amount decimal(10, 2),\n"
+                        + "    tag varchar(20)\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
                         + "DISTRIBUTED BY HASH(id, score) BUCKETS 10\n"
@@ -61,7 +67,11 @@ public class PredicatesTest extends SqlTestBase {
                         + ")\n",
                 "CREATE TABLE IF NOT EXISTS T2 (\n"
                         + "    id bigint,\n"
-                        + "    score bigint\n"
+                        + "    score bigint,\n"
+                        + "    event_date date,\n"
+                        + "    event_time datetime,\n"
+                        + "    amount decimal(10, 2),\n"
+                        + "    tag varchar(20)\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
                         + "DISTRIBUTED BY HASH(id, score) BUCKETS 10\n"
@@ -169,58 +179,146 @@ public class PredicatesTest extends SqlTestBase {
 
     @Test
     public void testResidualCompensateSupportsDnfBranchImplication() {
-        PredicateRewriteContext rewriteContext = buildRewriteContext(
-                "select id, score from T1 where id = 5 or id > 10",
-                "select id, score from T1 where id > 10 or (score = 1 and id = 5)");
-
-        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
-                rewriteContext.queryStructInfo,
-                rewriteContext.viewStructInfo,
-                rewriteContext.viewToQuerySlotMapping,
-                rewriteContext.comparisonResult,
-                rewriteContext.queryContext);
-        Assertions.assertNotNull(compensationCandidates);
-        Assertions.assertTrue(compensationCandidates.getEquals().isEmpty());
-        Assertions.assertTrue(compensationCandidates.getRanges().isEmpty());
-        Assertions.assertEquals(1, compensationCandidates.getResiduals().size());
-        assertPredicateSqlEquals(compensationCandidates.getResiduals(),
-                "OR[(id > 10),AND[(score = 1),(id = 5)]]");
-
-        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
-        Assertions.assertNotNull(finalPredicateCompensation);
-        Assertions.assertTrue(finalPredicateCompensation.getEquals().isEmpty());
-        Assertions.assertTrue(finalPredicateCompensation.getRanges().isEmpty());
-        Assertions.assertEquals(1, finalPredicateCompensation.getResiduals().size());
-        assertPredicateSqlEquals(finalPredicateCompensation.getResiduals(),
+        assertResidualCompensationSucceeds(
+                "id = 5 or id > 10",
+                "id > 10 or (score = 1 and id = 5)",
                 "OR[(id > 10),AND[(score = 1),(id = 5)]]");
     }
 
     @Test
     public void testResidualCompensateSupportsStrongerRangeInDnfBranchImplication() {
-        PredicateRewriteContext rewriteContext = buildRewriteContext(
-                "select id, score from T1 where id > 10 or (score = 1 and id = 5)",
-                "select id, score from T1 where id > 15 or (score = 1 and id = 5)");
-
-        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
-                rewriteContext.queryStructInfo,
-                rewriteContext.viewStructInfo,
-                rewriteContext.viewToQuerySlotMapping,
-                rewriteContext.comparisonResult,
-                rewriteContext.queryContext);
-        Assertions.assertNotNull(compensationCandidates);
-        Assertions.assertTrue(compensationCandidates.getEquals().isEmpty());
-        Assertions.assertTrue(compensationCandidates.getRanges().isEmpty());
-        Assertions.assertEquals(1, compensationCandidates.getResiduals().size());
-        assertPredicateSqlEquals(compensationCandidates.getResiduals(),
+        assertResidualCompensationSucceeds(
+                "id > 10 or (score = 1 and id = 5)",
+                "id > 15 or (score = 1 and id = 5)",
                 "OR[(id > 15),AND[(score = 1),(id = 5)]]");
+    }
 
-        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
-        Assertions.assertNotNull(finalPredicateCompensation);
-        Assertions.assertTrue(finalPredicateCompensation.getEquals().isEmpty());
-        Assertions.assertTrue(finalPredicateCompensation.getRanges().isEmpty());
-        Assertions.assertEquals(1, finalPredicateCompensation.getResiduals().size());
-        assertPredicateSqlEquals(finalPredicateCompensation.getResiduals(),
-                "OR[(id > 15),AND[(score = 1),(id = 5)]]");
+    @Test
+    public void testResidualCompensateSupportsComparableLiteralTypesInDnfBranchImplication() {
+        String[][] cases = {
+                {
+                        "event_date >= date '2024-01-01' or score = 1",
+                        "event_date > date '2024-01-01' or score = 1"
+                },
+                {
+                        "event_time <= timestamp '2024-01-02 03:04:05' or score = 2",
+                        "event_time < timestamp '2024-01-02 03:04:05' or score = 2"
+                },
+                {
+                        "amount >= 10.50 or score = 3",
+                        "amount = 10.50 or score = 3"
+                },
+                {
+                        "tag >= 'm' or score = 4",
+                        "tag > 'm' or score = 4"
+                }
+        };
+        for (String[] testCase : cases) {
+            assertResidualCompensationSucceeds(testCase[0], testCase[1]);
+        }
+    }
+
+    @Test
+    public void testResidualCompensateRejectsNonImpliedComparableLiteralTypesInDnfBranchImplication() {
+        String[][] cases = {
+                {
+                        "event_date > date '2024-01-01' or score = 1",
+                        "event_date >= date '2024-01-01' or score = 1"
+                },
+                {
+                        "event_time < timestamp '2024-01-02 03:04:05' or score = 2",
+                        "event_time <= timestamp '2024-01-02 03:04:05' or score = 2"
+                },
+                {
+                        "amount = 10.50 or score = 3",
+                        "amount >= 10.50 or score = 3"
+                },
+                {
+                        "tag > 'm' or score = 4",
+                        "tag >= 'm' or score = 4"
+                }
+        };
+        for (String[] testCase : cases) {
+            assertResidualCompensationFails(testCase[0], testCase[1]);
+        }
+    }
+
+    @Test
+    public void testResidualCompensateSupportsBoundaryOperatorImplicationInDnfBranch() {
+        String[][] cases = {
+                {
+                        "id <= 10 or score = 1",
+                        "id < 10 or score = 1"
+                },
+                {
+                        "id >= 10 or score = 1",
+                        "id > 10 or score = 1"
+                },
+                {
+                        "id >= 10 or score = 1",
+                        "id = 10 or score = 1"
+                },
+                {
+                        "id <= 10 or score = 1",
+                        "id = 10 or score = 1"
+                }
+        };
+        for (String[] testCase : cases) {
+            assertResidualCompensationSucceeds(testCase[0], testCase[1]);
+        }
+    }
+
+    @Test
+    public void testResidualCompensateRejectsReverseBoundaryOperatorImplicationInDnfBranch() {
+        String[][] cases = {
+                {
+                        "id < 10 or score = 1",
+                        "id <= 10 or score = 1"
+                },
+                {
+                        "id > 10 or score = 1",
+                        "id >= 10 or score = 1"
+                },
+                {
+                        "id = 10 or score = 1",
+                        "id >= 10 or score = 1"
+                },
+                {
+                        "id = 10 or score = 1",
+                        "id <= 10 or score = 1"
+                }
+        };
+        for (String[] testCase : cases) {
+            assertResidualCompensationFails(testCase[0], testCase[1]);
+        }
+    }
+
+    @Test
+    public void testResidualCompensateHandlesNestedDnfBranches() {
+        // This case verifies branch-by-branch coverage for nested DNF predicates.
+        // The view predicate is logically:
+        //   id >= 10
+        //   OR (score = 1 AND id IN (5, 6))
+        //   OR (score = 2 AND id <= 3)
+        // Each expanded branch in the covered query predicate is contained by one view branch.
+        String viewPredicate = "id >= 10 "
+                + "or (score = 1 and id = 5) "
+                + "or (score = 1 and id = 6) "
+                + "or (score = 2 and id <= 3)";
+        // The covered query predicate is logically:
+        //   (id > 20 AND score IN (3, 4))
+        //   OR (score = 1 AND id IN (5, 6) AND (amount = 8.00 OR tag = 'x'))
+        //   OR (score = 2 AND id <= 3)
+        String coveredQueryPredicate = "((id > 20 and (score = 3 or score = 4)) "
+                + "or ((score = 1 and (id = 5 or id = 6)) and (amount = 8.00 or tag = 'x')) "
+                + "or (score = 2 and (id < 3 or id = 3)))";
+        assertResidualCompensationSucceeds(viewPredicate, coveredQueryPredicate);
+
+        // The extra branch only satisfies score = 1. Its id = 7 is not in the view's id IN (5, 6),
+        // and it does not satisfy id >= 10 or score = 2 AND id <= 3, so the residual is unsafe.
+        assertResidualCompensationFails(
+                viewPredicate,
+                coveredQueryPredicate + " or (score = 1 and id = 7)");
     }
 
     @Test
@@ -415,6 +513,48 @@ public class PredicatesTest extends SqlTestBase {
                 rewriteContext.viewToQuerySlotMapping,
                 rewriteContext.comparisonResult,
                 rewriteContext.queryContext);
+    }
+
+    private void assertResidualCompensationSucceeds(String viewPredicate, String queryPredicate,
+            String... expectedResidualPredicates) {
+        PredicateRewriteContext rewriteContext = buildRewriteContext(
+                SELECT_ALL_TEST_COLUMNS + viewPredicate,
+                SELECT_ALL_TEST_COLUMNS + queryPredicate);
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        String message = "view predicate: " + viewPredicate + ", query predicate: " + queryPredicate;
+        Assertions.assertNotNull(compensationCandidates, message);
+        if (expectedResidualPredicates.length != 0) {
+            assertPredicateSqlEquals(compensationCandidates.getResiduals(), expectedResidualPredicates);
+        }
+
+        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
+        Assertions.assertNotNull(finalPredicateCompensation, message);
+        if (expectedResidualPredicates.length != 0) {
+            assertPredicateSqlEquals(finalPredicateCompensation.getResiduals(), expectedResidualPredicates);
+        }
+    }
+
+    private void assertResidualCompensationFails(String viewPredicate, String queryPredicate) {
+        PredicateRewriteContext rewriteContext = buildRewriteContext(
+                SELECT_ALL_TEST_COLUMNS + viewPredicate,
+                SELECT_ALL_TEST_COLUMNS + queryPredicate);
+        PredicateCompensation compensationCandidates = Predicates.collectCompensationCandidates(
+                rewriteContext.queryStructInfo,
+                rewriteContext.viewStructInfo,
+                rewriteContext.viewToQuerySlotMapping,
+                rewriteContext.comparisonResult,
+                rewriteContext.queryContext);
+        String message = "view predicate: " + viewPredicate + ", query predicate: " + queryPredicate;
+        Assertions.assertNotNull(compensationCandidates, message);
+        Assertions.assertFalse(compensationCandidates.getResiduals().isEmpty(), message);
+
+        PredicateCompensation finalPredicateCompensation = compensatePredicates(rewriteContext);
+        Assertions.assertNull(finalPredicateCompensation, message);
     }
 
     private static final class PredicateRewriteContext {
