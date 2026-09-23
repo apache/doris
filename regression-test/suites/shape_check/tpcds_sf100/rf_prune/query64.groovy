@@ -35,6 +35,7 @@ suite("query64") {
     sql 'set enable_runtime_filter_prune=true'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
     sql "set memo_max_group_expression_size = 1000000"
+    sql 'set join_order_time_limit=10000'
 
     def ds = """with cs_ui as
  (select cs_item_sk
