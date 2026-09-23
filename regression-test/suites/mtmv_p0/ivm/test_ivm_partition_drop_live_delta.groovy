@@ -22,12 +22,18 @@ import static java.util.concurrent.TimeUnit.SECONDS
 /**
  * Dropping a base-table partition invalidates the IVM baseline, because the rows disappear through
  * metadata rather than through row binlog entries. The MV partition built from that base partition
- * is then removed by partition sync, which is exactly what the baseline barrier recorded.
+ * is then removed by partition sync, and the requirement left on it is what records that its rows
+ * could not be removed incrementally.
  *
  * <p>The refresh must still consume the delta that accumulated on the *surviving* partitions: it
  * may not report SUCCESS while leaving those partitions stale. This case inserts a row into a
  * surviving partition after the drop, so an EMPTY baseline-rebuild intersection cannot be mistaken
  * for "nothing to do".
+ *
+ * <p>A strict INCREMENTAL request is not refused when it meets that requirement: the refresh runs as
+ * a partition rebuild for the invalidated partition and applies the surviving partitions' delta in
+ * the same run, so the MV matches the base table as soon as the strict refresh returns -- which the
+ * FALLBACK refresh after it then confirms is a state it did not have to repair.
  *
  * <p>Partitions are managed by hand (no dynamic partition scheduler) and every dt is a literal, so
  * the case is fully deterministic.
@@ -110,14 +116,20 @@ suite("test_ivm_partition_drop_live_delta") {
     sql """ALTER TABLE ${tableName} DROP PARTITION p202601"""
     sql """INSERT INTO ${tableName} VALUES ('2026-02-15', 4, 40)"""
 
-    // A strict incremental refresh must refuse to run against a broken baseline.
+    // A strict incremental refresh meets the requirement the drop left behind and rebuilds the
+    // invalidated partition, instead of refusing to run until a COMPLETE refresh has been issued.
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     taskId = waitForNewTask(taskId)
     qt_strict_task taskQuery(taskId)
 
-    // The fallback reports SUCCESS, so the MV has to match the base table afterwards: the expired
-    // partition is gone AND the row written to the surviving partition has been consumed. An MV
-    // that is missing that row means the refresh silently skipped the surviving partitions' delta.
+    // The strict refresh reported SUCCESS, so the MV has to match the base table already: the
+    // expired partition is gone AND the row written to the surviving partition has been consumed in
+    // the same run. An MV that is missing that row means the rebuild replaced the invalidated
+    // partition but silently skipped the surviving partitions' delta.
+    order_qt_strict_base """SELECT dt, id, v FROM ${tableName} ORDER BY dt, id"""
+    order_qt_strict_mv """SELECT dt, id, v FROM ${mvName} ORDER BY dt, id"""
+
+    // The fallback refresh finds a baseline that is already repaired, and has to leave it that way.
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL FALLBACK"""
     taskId = waitForNewTask(taskId)
     qt_fallback_task taskQuery(taskId)

@@ -58,6 +58,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
@@ -227,8 +228,11 @@ public class MTMVTest {
         replayAlterMvProperties(mtmv, newProperties);
 
         Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        // Only excluded_trigger_tables changed, and nothing here brings a base table back into
+        // what the MV maintains, so the change owes neither a version bump nor a snapshot
+        // drop: the rows the MV holds stay valid and no rebuild is asked for.
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
 
         mtmv.getRefreshSnapshot().getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
         oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
@@ -237,8 +241,11 @@ public class MTMVTest {
         replayAlterMvProperties(mtmv, newProperties);
 
         Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        // Only excluded_trigger_tables changed, and nothing here brings a base table back into
+        // what the MV maintains, so the change owes neither a version bump nor a snapshot
+        // drop: the rows the MV holds stay valid and no rebuild is asked for.
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test
@@ -279,8 +286,11 @@ public class MTMVTest {
         replayAlterMvProperties(mtmv, newProperties);
 
         Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        // Only excluded_trigger_tables changed, and nothing here brings a base table back into
+        // what the MV maintains, so the change owes neither a version bump nor a snapshot
+        // drop: the rows the MV holds stay valid and no rebuild is asked for.
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
 
         mtmv.getRefreshSnapshot().getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
         oldSchemaChangeVersion = mtmv.getSchemaChangeVersion();
@@ -289,8 +299,11 @@ public class MTMVTest {
         replayAlterMvProperties(mtmv, newProperties);
 
         Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
-        Assertions.assertEquals(oldSchemaChangeVersion + 1, mtmv.getSchemaChangeVersion());
-        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+        Assertions.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
+        // Only excluded_trigger_tables changed, and nothing here brings a base table back into
+        // what the MV maintains, so the change owes neither a version bump nor a snapshot
+        // drop: the rows the MV holds stay valid and no rebuild is asked for.
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     @Test
@@ -300,12 +313,16 @@ public class MTMVTest {
                 Map.of(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1,t2")));
         BaseTableInfo includedBaseTable = new BaseTableInfo(new TableNameInfo("internal", "db1", "t2"));
         mtmv.setRelation(new MTMVRelation(Set.of(includedBaseTable), Set.of(), Set.of(), Set.of(), Set.of()));
+        mtmv.setStatus(new MTMVStatus(MTMVState.NORMAL, "seed"));
         mtmv.getIvmInfo().setEnableIvm(true);
 
         replayAlterMvProperties(mtmv,
                 Map.of(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, "t1"));
 
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        // The property record does not carry the invalidation: the live change journals an ALTER_STATUS
+        // record ahead of it, which is what puts the MV into SCHEMA_CHANGE -- every partition, including
+        // the ones it has not created yet, which no per-partition requirement can express.
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
     }
 
     @Test
@@ -748,10 +765,24 @@ public class MTMVTest {
         JsonObject image = JsonParser.parseString(GsonUtils.GSON.toJson(mtmv)).getAsJsonObject();
         Assertions.assertNotNull(image.remove("pst"));
 
-        // The field is gone from the image, so gsonPostProcess() is the only thing that can make it a map.
         MTMV restored = GsonUtils.GSON.fromJson(image.toString(), MTMV.class);
 
-        // Read the field itself: the getter lazily creates the map, so it would hide a missing init.
+        // Read the field itself rather than through the getter, which copies whatever is there.
+        Assertions.assertNotNull(Deencapsulation.getField(restored, "partitionStates"));
+        Assertions.assertTrue(restored.getPartitionStates().isEmpty());
+    }
+
+    @Test
+    public void testPartitionStatesImageThatCarriesTheFieldAsNullLoadsAsAnEmptyMap() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+        JsonObject image = JsonParser.parseString(GsonUtils.GSON.toJson(mtmv)).getAsJsonObject();
+        // An MV is created with an empty map and an image that leaves the member out keeps it, so a
+        // member that is there and null is the one case gsonPostProcess() has to answer for.
+        image.add("pst", JsonNull.INSTANCE);
+
+        MTMV restored = GsonUtils.GSON.fromJson(image.toString(), MTMV.class);
+
         Assertions.assertNotNull(Deencapsulation.getField(restored, "partitionStates"));
         Assertions.assertTrue(restored.getPartitionStates().isEmpty());
     }
@@ -828,22 +859,96 @@ public class MTMVTest {
     }
 
     @Test
+    public void testDirtyPartitionsAreTheRefreshedOnesBehindTheirRequirement() {
+        MTMV mtmv = Mockito.spy(buildSerializableMTMV());
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Mockito.doReturn(Sets.newHashSet("p202601", "p202602")).when(mtmv).getPartitionNames();
+        mtmv.alterPartitionStates(Maps.newHashMap(Map.of(
+                "p202601", new MTMVPartitionState(1, 2),
+                "p202602", new MTMVPartitionState(2, 2),
+                "p202603", new MTMVPartitionState(1, 2))));
+
+        // Only the partition that holds rows and is behind its requirement. One that reached its
+        // requirement is out, and so is one the MV no longer has: a partition can be dropped while a task
+        // is deciding, and its state goes with it -- until then, rebuilding it is what the stale entry
+        // would ask for.
+        Assertions.assertEquals(Sets.newHashSet("p202601"), mtmv.getDirtyPartitions());
+    }
+
+    @Test
+    public void testTaskResultLeavesTheSnapshotOfADirtyPartitionOut() {
+        MTMV mtmv = Mockito.spy(buildSerializableMTMV());
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Mockito.doReturn(Sets.newHashSet("p202601", "p202602")).when(mtmv).getPartitionNames();
+        // p202601 was invalidated while the task ran, p202602 was not.
+        mtmv.alterPartitionStates(Maps.newHashMap(Map.of(
+                "p202601", new MTMVPartitionState(1, 2),
+                "p202602", new MTMVPartitionState(2, 2))));
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Maps.newHashMap(Map.of(
+                "p202601", new MTMVRefreshPartitionSnapshot(),
+                "p202602", new MTMVRefreshPartitionSnapshot()));
+
+        runAddTaskResult(mtmv, snapshots, null, false, Map.of());
+
+        // The invalidation dropped p202601's snapshot so that no transparent rewrite serves its rows, and
+        // a result written back afterwards must not put it there again -- while the partition that was not
+        // invalidated keeps the snapshot the task produced.
+        Assertions.assertEquals(Sets.newHashSet("p202602"),
+                mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
+    }
+
+    @Test
+    public void testReplayIgnoresTheEpochsTheTaskCaptured() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 3)));
+
+        // A replayed record carries the states that were decided when it was written, and the epochs a
+        // task captured live in memory only. Applying them on replay would re-decide a result that is
+        // already fixed, and the payload's value -- not the capture -- is what the record means.
+        runAddTaskResult(mtmv, Map.of("p202601", new MTMVPartitionState(7, 9)), true, Map.of("p202601", 1L));
+
+        Assertions.assertEquals(7, mtmv.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(9, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testAFreshMvHasAnEmptyStateMapAndAlignmentFillsIt() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+
+        // The map is created with the MV, so a reader has no null case to answer; alignment is what puts
+        // the MV's partitions into it.
+        Assertions.assertNotNull(Deencapsulation.getField(mtmv, "partitionStates"));
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+
+        runAlignPartitionStates(mtmv, Sets.newHashSet("p202601"));
+
+        Assertions.assertEquals(Sets.newHashSet("p202601"), mtmv.getPartitionStates().keySet());
+        Assertions.assertEquals(1, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
+        Assertions.assertTrue(mtmv.getPartitionStates().get("p202601").isNeverRefreshed());
+    }
+
+    @Test
     public void testIvmTaskResultJournalsPartitionStates() {
         MTMV mtmv = buildSerializableMTMV();
         mtmv.getIvmInfo().setEnableIvm(true);
         mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
 
-        List<AlterMTMV> journaled = runAddTaskResult(mtmv, null, false);
+        // The task published p202601, so that is what reaches the journal: the partition at the epoch it
+        // was published with, and the requirement it was read under. It carries no more than that -- see
+        // testTaskResultJournalsOnlyThePartitionsItPublished.
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, null, false, Map.of("p202601", 6L));
 
         Assertions.assertEquals(1, journaled.size());
-        MTMVPartitionState journaledState = journaled.get(0).getPartitionStates().get("p202601");
-        Assertions.assertEquals(3, journaledState.getRefreshEpoch());
-        Assertions.assertEquals(5, journaledState.getLatestEpoch());
+        Map<String, MTMVPartitionState> published = journaled.get(0).getPartitionStates();
+        Assertions.assertEquals(6, published.get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(5, published.get("p202601").getLatestEpoch());
 
         // The payload reaches the journal as JSON, so it has to survive that trip to be replayable.
         AlterMTMV readBack = GsonUtils.GSON.fromJson(
                 GsonUtils.GSON.toJson(journaled.get(0)), AlterMTMV.class);
-        Assertions.assertEquals(3, readBack.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(6, readBack.getPartitionStates().get("p202601").getRefreshEpoch());
         Assertions.assertEquals(5, readBack.getPartitionStates().get("p202601").getLatestEpoch());
     }
 
@@ -859,6 +964,171 @@ public class MTMVTest {
         Assertions.assertNull(journaled.get(0).getPartitionStates());
     }
 
+    @Test
+    public void testPartitionStateIsDirtyWhenItIsBehindItsRequirement() {
+        Assertions.assertFalse(new MTMVPartitionState(1, 1).isDirty());
+        Assertions.assertFalse(new MTMVPartitionState(4, 4).isDirty());
+        Assertions.assertTrue(new MTMVPartitionState(1, 2).isDirty());
+        Assertions.assertTrue(new MTMVPartitionState(5, 6).isDirty());
+        // A refreshEpoch of 0 is not an exemption. It reads as "never refreshed, so no rows", and that is
+        // not durable: a refresh commits the MV data transaction before its task result publishes the
+        // epochs, so those rows can be there while the state still says 0. Reading the pair as clean would
+        // let a later invalidation raising latestEpoch go unnoticed.
+        Assertions.assertTrue(new MTMVPartitionState(0, 1).isDirty());
+        Assertions.assertTrue(new MTMVPartitionState(0, 2).isDirty());
+        // "Never refreshed" stays a separate fact about the past, which the escalation reads.
+        Assertions.assertTrue(new MTMVPartitionState(0, 2).isNeverRefreshed());
+        Assertions.assertTrue(MTMVPartitionState.initial().isNeverRefreshed());
+        Assertions.assertEquals(1, MTMVPartitionState.initial().getLatestEpoch());
+    }
+
+    @Test
+    public void testAlignPartitionStatesCreatesAndDropsEntries() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        // A partition that is already there keeps its requirement: alignment creates and destroys
+        // entries, it never rewrites one.
+        List<AlterMTMV> journaled = runAlignPartitionStates(mtmv, Sets.newHashSet("p202601", "p202602"));
+        Assertions.assertEquals(1, journaled.size());
+        Assertions.assertEquals(MTMVAlterOpType.ALTER_PARTITION_STATES, journaled.get(0).getOpType());
+        Assertions.assertEquals(3, journaled.get(0).getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(5, journaled.get(0).getPartitionStates().get("p202601").getLatestEpoch());
+        Assertions.assertEquals(0, journaled.get(0).getPartitionStates().get("p202602").getRefreshEpoch());
+        Assertions.assertEquals(1, journaled.get(0).getPartitionStates().get("p202602").getLatestEpoch());
+        Assertions.assertEquals(2, mtmv.getPartitionStates().size());
+
+        // Aligning onto the same set changes nothing, so it journals nothing either.
+        Assertions.assertTrue(runAlignPartitionStates(mtmv, Sets.newHashSet("p202601", "p202602")).isEmpty());
+
+        // A partition that is gone loses its entry, which is what keeps a mark from landing on state
+        // that no partition can hold rows for.
+        runAlignPartitionStates(mtmv, Sets.newHashSet("p202602"));
+        Assertions.assertEquals(Sets.newHashSet("p202602"), mtmv.getPartitionStates().keySet());
+    }
+
+    @Test
+    public void testAlignPartitionStatesDoesNothingForANonIvmMv() {
+        MTMV mtmv = buildSerializableMTMV();
+        Assertions.assertFalse(mtmv.getIvmInfo().isEnableIvm());
+
+        Assertions.assertTrue(runAlignPartitionStates(mtmv, Sets.newHashSet("p202601")).isEmpty());
+
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+    }
+
+    @Test
+    public void testTaskResultRecordsTheCapturedEpochWithoutTouchingTheRequirement() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        // The partition was read at requirement 5, and a base-table change raised it to 6 before the
+        // result was written back. Writing the captured requirement back would swallow that rebuild.
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 6)));
+
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, null, false, Map.of("p202601", 5L));
+
+        Assertions.assertEquals(1, journaled.size());
+        MTMVPartitionState journaledState = journaled.get(0).getPartitionStates().get("p202601");
+        Assertions.assertEquals(5, journaledState.getRefreshEpoch());
+        Assertions.assertEquals(6, journaledState.getLatestEpoch());
+        Assertions.assertTrue(journaledState.isDirty());
+
+        Assertions.assertEquals(5, mtmv.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(6, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testTaskResultSkipsPartitionsItDidNotCapture() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 3)));
+
+        // The task captured only p202602, which is not a partition of this MV any more -- and p202601,
+        // which it did not capture, must keep the epoch of the data it still holds.
+        runAddTaskResult(mtmv, null, false, Map.of("p202602", 9L));
+
+        Assertions.assertEquals(Sets.newHashSet("p202601"), mtmv.getPartitionStates().keySet());
+        Assertions.assertEquals(3, mtmv.getPartitionStates().get("p202601").getRefreshEpoch());
+    }
+
+    @Test
+    public void testLatestEpochsOmitsPartitionsWithoutAnEntry() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        Assertions.assertEquals(Map.of("p202601", 5L),
+                mtmv.getLatestEpochs(Sets.newHashSet("p202601", "p202602")));
+        Assertions.assertTrue(mtmv.getLatestEpochs(Sets.newHashSet()).isEmpty());
+    }
+
+    @Test
+    public void testTaskResultJournalsOnlyThePartitionsItPublished() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of(
+                "p202601", new MTMVPartitionState(3, 5),
+                "p202602", new MTMVPartitionState(4, 4)));
+
+        // Only p202601 was published by this task; p202602 belongs to another record.
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, null, false, Map.of("p202601", 6L));
+
+        Assertions.assertEquals(1, journaled.size());
+        Map<String, MTMVPartitionState> published = journaled.get(0).getPartitionStates();
+        Assertions.assertEquals(Set.of("p202601"), published.keySet());
+        Assertions.assertEquals(6, published.get("p202601").getRefreshEpoch());
+        // The requirement raised while the task ran rides along: a payload that dropped it would let a
+        // replay restore the older one and lose the rebuild it asks for.
+        Assertions.assertEquals(5, published.get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testTaskResultReplayMergesThePartitionsItCarries() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Map<String, MTMVPartitionState> current = new HashMap<>();
+        current.put("p202601", new MTMVPartitionState(3, 5));
+        current.put("p202602", new MTMVPartitionState(9, 9));
+        mtmv.alterPartitionStates(current);
+
+        // A payload carries only the partitions its task published, so a replay merges it. Assigning
+        // would drop p202602, which another record -- an invalidation that ran during the task -- owns.
+        runAddTaskResult(mtmv, Map.of("p202601", new MTMVPartitionState(6, 5)), true);
+
+        Map<String, MTMVPartitionState> replayed = mtmv.getPartitionStates();
+        Assertions.assertEquals(2, replayed.size());
+        Assertions.assertEquals(6, replayed.get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(9, replayed.get("p202602").getRefreshEpoch());
+    }
+
+    @Test
+    public void testMarkPartitionsForRebuildIsJournaledAndClearedByTheTaskResult() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        // The journaling path names the MV, and the fixture is built through the deserialization
+        // constructor, which leaves the name unset.
+        Deencapsulation.setField(mtmv, "name", "mv1");
+        Map<String, MTMVPartitionState> current = new HashMap<>();
+        current.put("p202601", new MTMVPartitionState(1, 1));
+        current.put("p202602", new MTMVPartitionState(1, 1));
+        mtmv.alterPartitionStates(current);
+
+        List<AlterMTMV> marked = Lists.newArrayList();
+        withMockedEditLog(marked, () -> mtmv.markPartitionsForRebuild(Set.of("p202601")));
+
+        // Journaled as the full map: this is an invalidation-shaped record, not a task result.
+        Assertions.assertEquals(1, marked.size());
+        Assertions.assertEquals(2, marked.get(0).getPartitionStates().get("p202601").getLatestEpoch());
+        Assertions.assertEquals(1, marked.get(0).getPartitionStates().get("p202602").getLatestEpoch());
+        Assertions.assertTrue(mtmv.getPartitionStates().get("p202601").isDirty());
+        Assertions.assertFalse(mtmv.getPartitionStates().get("p202602").isDirty());
+
+        // Publishing the partition meets the raised requirement.
+        runAddTaskResult(mtmv, null, false, Map.of("p202601", 2L));
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertFalse(mtmv.getPartitionStates().get("p202601").isDirty());
+    }
+
     /**
      * Runs one ADD_TASK result through {@link MTMV#addTaskResult}, optionally carrying {@code
      * journaledStates} in its payload the way a real journal would, and returns the payloads that
@@ -866,10 +1136,56 @@ public class MTMVTest {
      */
     private List<AlterMTMV> runAddTaskResult(MTMV mtmv, Map<String, MTMVPartitionState> journaledStates,
             boolean isReplay) {
+        return runAddTaskResult(mtmv, journaledStates, isReplay, Map.of());
+    }
+
+    /**
+     * Same, with the epochs the task captured, which a live task result turns into {@code refreshEpoch}
+     * (the task carries them in memory; the journal carries the resulting states).
+     */
+    private List<AlterMTMV> runAddTaskResult(MTMV mtmv, Map<String, MTMVPartitionState> journaledStates,
+            boolean isReplay, Map<String, Long> capturedEpochs) {
+        return runAddTaskResult(mtmv, Map.of(), journaledStates, isReplay, capturedEpochs);
+    }
+
+    /**
+     * Same, with the snapshots the task produced, which a live task result merges into the MV's own map
+     * unless the partition it describes came out dirty.
+     */
+    private List<AlterMTMV> runAddTaskResult(MTMV mtmv,
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots,
+            Map<String, MTMVPartitionState> journaledStates, boolean isReplay,
+            Map<String, Long> capturedEpochs) {
+        List<AlterMTMV> journaled = Lists.newArrayList();
+        withMockedEditLog(journaled, () -> {
+            MTMVTask task = new MTMVTask(mtmv, mtmv.getRelation(), null);
+            task.setStatus(TaskStatus.FAILED);
+            task.getIvmCapturedEpochs().putAll(capturedEpochs);
+            AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
+            alterMTMV.setTask(task);
+            alterMTMV.setRelation(mtmv.getRelation());
+            alterMTMV.setPartitionSnapshots(partitionSnapshots);
+            alterMTMV.setPartitionStates(journaledStates);
+            Assertions.assertTrue(mtmv.addTaskResult(alterMTMV, isReplay));
+        });
+        return journaled;
+    }
+
+    private List<AlterMTMV> runAlignPartitionStates(MTMV mtmv, Set<String> livePartitionNames) {
+        // A journaling path names the MV, and the fixture is built through the deserialization
+        // constructor, which leaves the name unset (setName() cannot be used: it rekeys the index map
+        // by the current name, which is still null at that point).
+        Deencapsulation.setField(mtmv, "name", "mv1");
+        List<AlterMTMV> journaled = Lists.newArrayList();
+        withMockedEditLog(journaled, () -> mtmv.alignPartitionStates(livePartitionNames));
+        return journaled;
+    }
+
+    /** Runs {@code action} against a mocked edit log and collects the payloads it journals. */
+    private void withMockedEditLog(List<AlterMTMV> journaled, Runnable action) {
         Env env = Mockito.mock(Env.class);
         EditLog editLog = Mockito.mock(EditLog.class);
         EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
-        List<AlterMTMV> journaled = Lists.newArrayList();
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(env.getMtmvService()).thenReturn(Mockito.mock(MTMVService.class));
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
@@ -878,18 +1194,9 @@ public class MTMVTest {
                     return editLogItem;
                 });
 
-        MTMVTask task = new MTMVTask(mtmv, mtmv.getRelation(), null);
-        task.setStatus(TaskStatus.FAILED);
-        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
-        alterMTMV.setTask(task);
-        alterMTMV.setRelation(mtmv.getRelation());
-        alterMTMV.setPartitionSnapshots(Map.of());
-        alterMTMV.setPartitionStates(journaledStates);
-
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Assertions.assertTrue(mtmv.addTaskResult(alterMTMV, isReplay));
+            action.run();
         }
-        return journaled;
     }
 }

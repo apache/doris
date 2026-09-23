@@ -158,7 +158,7 @@ public class MTMVRelationManagerTest {
             manager.markIvmBaselineRebuild(t3, "test");
         }
 
-        Mockito.verify(mtmv, Mockito.never()).invalidateIvmBaseline();
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
     }
 
     @Test
@@ -175,6 +175,6 @@ public class MTMVRelationManagerTest {
             manager.markIvmBaselineRebuild(t3, "test");
         }
 
-        Mockito.verify(mtmv, Mockito.never()).invalidateIvmBaseline();
+        Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
     }
 }

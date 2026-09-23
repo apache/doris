@@ -1075,13 +1075,32 @@ public class MTMVPlanUtil {
                             + "original length is: %s, current length is: %s",
                     originalColumns.size(), analyzedColumns.size()));
         }
-        for (int i = 0; i < originalColumns.size(); i++) {
-            if (!isTypeLike(originalColumns.get(i).getType(), analyzedColumns.get(i).getType())) {
+        // Matched by name, not by position. The order of the two lists is decided by different passes:
+        // the physical schema is laid out when the MV is created, where MTMVPlanUtil#applyIvmPhysicalKeyLayout
+        // puts the final key columns first, and the analysed list comes from running that same layout again
+        // with the stored key columns as its input. The two agree except for a chained IVM MV whose base
+        // tables carry row-id columns of their own: the create pass derives the visible key prefix from the
+        // identity key slots, the analysed one takes it from the stored keys, and the base tables' row-id
+        // columns end up in a different block. What this check is for is a base-table change that makes a
+        // column disappear or change type, and where a column sits is not part of that.
+        Map<String, Column> originalByName = Maps.newHashMap();
+        for (Column column : originalColumns) {
+            originalByName.put(column.getName().toLowerCase(), column);
+        }
+        for (Column analyzedColumn : analyzedColumns) {
+            Column originalColumn = originalByName.get(analyzedColumn.getName().toLowerCase());
+            if (originalColumn == null) {
+                throw new JobException(String.format(
+                        "column not found, please check whether columns of base table have changed, "
+                                + "column name is: %s",
+                        analyzedColumn.getName()));
+            }
+            if (!isTypeLike(originalColumn.getType(), analyzedColumn.getType())) {
                 throw new JobException(String.format(
                         "column type not same, please check whether columns of base table have changed, "
                                 + "column name is: %s, original type is: %s, current type is: %s",
-                        originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
-                        analyzedColumns.get(i).getType().toSql()));
+                        analyzedColumn.getName(), originalColumn.getType().toSql(),
+                        analyzedColumn.getType().toSql()));
             }
         }
     }

@@ -48,6 +48,7 @@ public class MTMVPartitionState {
     @SerializedName("le")
     private long latestEpoch;
 
+
     public MTMVPartitionState() {
     }
 
@@ -59,6 +60,41 @@ public class MTMVPartitionState {
     public MTMVPartitionState(MTMVPartitionState other) {
         this.refreshEpoch = other.refreshEpoch;
         this.latestEpoch = other.latestEpoch;
+    }
+
+    /**
+     * The state a partition gets when it is first aligned: never refreshed, one generation required.
+     *
+     * <p>Alignment only ever creates this pair, so "no entry yet" and "this pair" say the same thing
+     * about the past -- the partition was never marked and holds no rows.
+     */
+    public static MTMVPartitionState initial() {
+        return new MTMVPartitionState(0, 1);
+    }
+
+    /**
+     * Whether this partition holds rows that a metadata-only change of a base table has made unusable,
+     * so it has to be rebuilt rather than caught up incrementally.
+     *
+     * <p>{@code refreshEpoch == 0} carries no exemption. It reads as "the partition was never refreshed,
+     * so it holds no rows", and that is not durable: a refresh commits the MV data transaction before its
+     * task result publishes the epochs, so a crash in between leaves rows in a partition whose state says
+     * never refreshed ({@code {0, 1}}). Reading that pair as clean would let a later invalidation raising
+     * {@code latestEpoch} -- {@code {0, 2}} -- go unnoticed, and a strict INCREMENTAL refresh would keep
+     * rows nothing can remove. Without the exemption the cut closes on its own: {@code 2 > 0} is dirty.
+     *
+     * <p>The cost is that a fresh MV's first refresh rebuilds every partition instead of skipping the
+     * partitions whose base partitions have no rows. That is the safe direction, and it is the same
+     * reading the whole-MV escalation already used ("every partition is dirty or never refreshed").
+     */
+    public boolean isDirty() {
+        return latestEpoch > refreshEpoch;
+    }
+
+
+    /** Whether the partition was never refreshed, which means it holds no rows. */
+    public boolean isNeverRefreshed() {
+        return refreshEpoch == 0;
     }
 
     /**
@@ -95,4 +131,5 @@ public class MTMVPartitionState {
     public void setLatestEpoch(long latestEpoch) {
         this.latestEpoch = latestEpoch;
     }
+
 }

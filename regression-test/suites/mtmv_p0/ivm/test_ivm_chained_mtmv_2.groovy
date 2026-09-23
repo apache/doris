@@ -123,6 +123,10 @@ suite("test_ivm_chained_mtmv_2") {
     sql """REFRESH MATERIALIZED VIEW root_ivm_commit_tso COMPLETE;"""
     waitingMTMVTaskFinishedByMvName("root_ivm_commit_tso")
 
+    // A COMPLETE refresh of the root rebuilds it, which is a base-table change of the child that emits no
+    // row binlog: the child's own baseline is invalidated by it. A strict INCREMENTAL request then rebuilds
+    // the child -- the rebuild is the refresh's own work -- instead of being refused until an AUTO refresh
+    // had run, so the task below succeeds and its error message is empty.
     sql """REFRESH MATERIALIZED VIEW child_ivm_commit_tso INCREMENTAL;"""
     waitingMTMVTaskFinishedNotNeedSuccess(getJobName(context.dbName, "child_ivm_commit_tso"))
     order_qt_child_incremental_after_root_complete """
@@ -134,8 +138,12 @@ suite("test_ivm_chained_mtmv_2") {
 
     sql """REFRESH MATERIALIZED VIEW child_ivm_commit_tso AUTO;"""
     waitingMTMVTaskFinishedByMvName("child_ivm_commit_tso")
+    // A refresh that only ran the incremental rewrite leaves RefreshMode unset, and an unset column comes
+    // back as the literal two-character string "\N", which does not survive the .out round trip, so fold
+    // every value that is not a scope into a printable token.
     order_qt_child_auto_refresh_mode """
-        SELECT RefreshMode
+        SELECT CASE WHEN RefreshMode IN ('COMPLETE', 'PARTIAL', 'NOT_REFRESH')
+                    THEN RefreshMode ELSE 'NONE' END
         FROM tasks('type'='mv')
         WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'child_ivm_commit_tso'
         ORDER BY CreateTime DESC LIMIT 1;

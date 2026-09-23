@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -37,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public class AlterMTMV implements Writable {
     @SerializedName("ot")
@@ -61,6 +63,9 @@ public class AlterMTMV implements Writable {
     private IvmInfo ivmInfo;
     @SerializedName("pst")
     private Map<String, MTMVPartitionState> partitionStates;
+    // MV partitions whose refresh snapshot the same change dropped; see MTMV.markIvmPartitionsInvalidated.
+    @SerializedName("rsp")
+    private Set<String> removedSnapshotPartitions;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -157,6 +162,15 @@ public class AlterMTMV implements Writable {
 
     public void setPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
         this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+    }
+
+    public Set<String> getRemovedSnapshotPartitions() {
+        return removedSnapshotPartitions;
+    }
+
+    public void setRemovedSnapshotPartitions(Set<String> removedSnapshotPartitions) {
+        this.removedSnapshotPartitions = removedSnapshotPartitions == null ? null
+                : Sets.newLinkedHashSet(removedSnapshotPartitions);
     }
 
     @Override

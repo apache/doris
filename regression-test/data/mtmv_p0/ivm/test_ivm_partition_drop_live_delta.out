@@ -13,10 +13,20 @@ SUCCESS	NONE
 2026-03-10	3	30
 
 -- !strict_task --
-FAILED	BINLOG_BROKEN
+SUCCESS	NONE
+
+-- !strict_base --
+2026-02-10	2	20
+2026-02-15	4	40
+2026-03-10	3	30
+
+-- !strict_mv --
+2026-02-10	2	20
+2026-02-15	4	40
+2026-03-10	3	30
 
 -- !fallback_task --
-SUCCESS	BINLOG_BROKEN
+SUCCESS	NONE
 
 -- !fallback_base --
 2026-02-10	2	20
