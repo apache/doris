@@ -865,6 +865,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // #65782: gate BE-side column-stats collection on the table's iceberg metrics policy (v3-appended schema).
         tSink.setCollectColumnStats(
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schema));
+        // The replacement data files UPDATE / SQL MERGE write reach the same iceberg parquet writer as an
+        // INSERT, so they need the same NaN-count policy (against the MERGE schema) to stay prunable.
+        tSink.setNanCountFieldIds(IcebergWriterHelper.nanCountFieldIds(schemaContext, schema));
         // #66112: UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
         tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
         tSink.setWritesDataFiles(writesDataFiles);

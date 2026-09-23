@@ -1744,6 +1744,30 @@ public class IcebergWritePlanProviderTest {
         return plan.getDataSink().getIcebergMergeSink();
     }
 
+    // The replacement data files an UPDATE / SQL MERGE writes go through the same iceberg parquet writer as
+    // an INSERT, and VIcebergMergeSink builds its inner TIcebergTableSink by copying fields across one by
+    // one. A NaN-count policy shipped only on the INSERT sink therefore leaves merge-written files reporting
+    // no nan_value_counts, so they stay unprunable even when NaN-free — the pruning restoration would cover
+    // only part of what Doris writes. This pins that the merge dialect carries it too.
+    @Test
+    public void planWriteMergeSinkShipsTheNanCountFieldIds() {
+        Schema floatSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "d", Types.DoubleType.get()));
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.data.path", "oss://bucket/wh/db1/t1/data");
+        Table table = freshCatalog().createTable(TableIdentifier.of("db1", "t1"), floatSchema,
+                PartitionSpec.unpartitioned(), tableProps);
+        TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1"))
+                        .writeOperation(WriteOperation.MERGE));
+
+        Assertions.assertTrue(sink.isSetNanCountFieldIds(),
+                "the merge dialect must carry the NaN-count policy, not just the INSERT sink");
+        Assertions.assertEquals(Collections.singletonList(2), sink.getNanCountFieldIds());
+    }
+
     // #66112: UPDATE and SQL MERGE share the TIcebergMergeSink dialect, but only SQL MERGE carries the
     // one-source-row cardinality rule. The engine decides (statement kind) and the connector must ship the
     // decision verbatim: BE gates its duplicate-match validation on this field, so a connector that dropped
