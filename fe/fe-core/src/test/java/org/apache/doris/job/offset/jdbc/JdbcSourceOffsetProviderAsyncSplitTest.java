@@ -129,6 +129,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
     public void testInitWithEmptySyncTablesIsAllDone() throws JobException {
         provider.initOnCreate(Collections.emptyList());
         Assertions.assertTrue(provider.noMoreSplits());
+        Assertions.assertFalse(provider.isSnapshotPhase());
     }
 
     @Test
@@ -138,6 +139,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         Assertions.assertNotNull(provider.cdcSplitProgress);
         Assertions.assertNull(provider.cdcSplitProgress.getCurrentSplittingTable());
         Assertions.assertFalse(provider.noMoreSplits());
+        Assertions.assertTrue(provider.isSnapshotPhase());
     }
 
     @Test
@@ -149,6 +151,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
         provider.initOnCreate(Arrays.asList("db.tbl_a", "db.tbl_b"));
         provider.setCurrentOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit())));
         Assertions.assertTrue(provider.noMoreSplits());
+        Assertions.assertFalse(provider.isSnapshotPhase());
     }
 
     @Test
@@ -230,6 +233,7 @@ public class JdbcSourceOffsetProviderAsyncSplitTest {
 
         Assertions.assertTrue(provider.noMoreSplits());
         Assertions.assertEquals(1, provider.remainingSplits.size());
+        Assertions.assertTrue(provider.isSnapshotPhase());
     }
 
     @Test

@@ -85,6 +85,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private long filteredRows = 0L;
     private long loadedRows = 0L;
     private volatile long runningBackendId;
+    private Backend runningBackend;
     long lastScannedRows = -1;
     long lastProgressMs = 0;
 
@@ -99,6 +100,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
             UserIdentity userIdentity,
             String cloudCluster) {
         super(jobId, taskId, userIdentity);
+        this.noRetry = true;
         this.dataSourceType = dataSourceType;
         this.offsetProvider = offsetProvider;
         this.sourceProperties = sourceProperties;
@@ -117,7 +119,27 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         this.startTimeMs = System.currentTimeMillis();
         this.lastProgressMs = this.startTimeMs;
         this.status = TaskStatus.RUNNING;
-        this.runningOffset = offsetProvider.getNextOffset(null, sourceProperties);
+        boolean snapshotPhase = offsetProvider.isSnapshotPhase();
+        this.runningBackend = resolveBackend(snapshotPhase);
+        this.runningBackendId = runningBackend.getId();
+        if (snapshotPhase) {
+            int autoParallelism = Math.max(1, Math.min(
+                    Config.streaming_cdc_max_snapshot_parallelism, runningBackend.getCputCores() / 2));
+            int parallelism = Math.min(autoParallelism, Integer.parseInt(sourceProperties.getOrDefault(
+                    DataSourceConfigKeys.SNAPSHOT_PARALLELISM, String.valueOf(autoParallelism))));
+            if (!sourceProperties.containsKey(DataSourceConfigKeys.SNAPSHOT_PARALLELISM)
+                    && (dataSourceType == DataSourceType.MYSQL || dataSourceType == DataSourceType.OCEANBASE)
+                    && sourceProperties.containsKey(DataSourceConfigKeys.SERVER_ID)) {
+                int[] serverIdRange = DataSourceConfigValidator.parseServerIdRange(
+                        sourceProperties.get(DataSourceConfigKeys.SERVER_ID));
+                parallelism = Math.min(parallelism, serverIdRange[1] - serverIdRange[0] + 1);
+            }
+            this.sourceProperties = new HashMap<>(sourceProperties);
+            this.sourceProperties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, String.valueOf(parallelism));
+            log.info("snapshot task {} on backend {} with {} CPU cores uses parallelism {}",
+                    taskId, runningBackendId, runningBackend.getCputCores(), parallelism);
+        }
+        this.runningOffset = offsetProvider.getNextOffset(null, this.sourceProperties);
         log.info("streaming multi task {} get running offset: {}", taskId, runningOffset.toString());
     }
 
@@ -131,10 +153,9 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     }
 
     private void sendWriteRequest() throws JobException {
-        Backend backend = resolveBackend();
+        Backend backend = runningBackend;
         log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
                 taskId, backend.getId(), backend.getHost(), runningOffset.toString());
-        this.runningBackendId = backend.getId();
         WriteRecordRequest params = buildRequestParams();
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/writeRecords")
@@ -173,21 +194,19 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                     taskId, getJobId(), backend.getHost(), backend.getBrpcPort(),
                     Config.streaming_cdc_heavy_rpc_timeout_sec);
             // the request may have been dispatched and still running remotely
-            noRetry = true;
             throw new JobException("cdc_client RPC timeout: /api/writeRecords taskId=" + taskId);
         } catch (ExecutionException | InterruptedException ex) {
             if (ex instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
             log.error("Send write request failed: ", ex);
-            noRetry = true;
             throw new JobException(ex);
         }
     }
 
-    private Backend resolveBackend() throws JobException {
+    private Backend resolveBackend(boolean snapshotPhase) throws JobException {
         // Snapshot phase keeps per-round selection; binlog phase binds to a fixed BE for reuse.
-        if (((JdbcOffset) runningOffset).snapshotSplit()) {
+        if (snapshotPhase) {
             return StreamingJobUtils.selectBackend(cloudCluster);
         }
         return getStreamingJob().resolveBoundBackend();
