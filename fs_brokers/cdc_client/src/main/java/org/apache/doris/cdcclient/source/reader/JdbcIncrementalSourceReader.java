@@ -450,7 +450,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
         // Rebuild path: fail loudly if the source position is gone (e.g. slot dropped) instead of
         // silently re-locating from a lost offset.
-        validateStreamSource(offsetMeta, baseReq);
+        validateStreamSource(newStreamSplit.getStartingOffset(), baseReq);
 
         this.streamReader = getBinlogSplitReader(baseReq);
 
@@ -476,8 +476,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     // Source-specific check before (re)building the stream reader; default no-op.
-    protected void validateStreamSource(
-            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {}
+    protected void validateStreamSource(Offset startingOffset, JobBaseRecordRequest baseReq)
+            throws Exception {}
 
     @Override
     public Iterator<SourceRecord> pollRecords() throws Exception {
