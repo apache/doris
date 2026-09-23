@@ -170,10 +170,21 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalPartitionTopN<? extends Plan> visitPhysicalPartitionTopN(
             PhysicalPartitionTopN<? extends Plan> partitionTopN, CascadesContext context) {
         partitionTopN.child().accept(this, context);
-        // Same rationale as PhysicalTopN: bounded output (at most partitionLimit rows per group)
-        // makes RFs built from it highly selective regardless of statistics.
-        context.getRuntimeFilterContext().addEffectiveSrcNode(partitionTopN,
-                RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        // Only mark NATIVE when the output is really bounded. `partitionLimit` is a PER-PARTITION
+        // limit, so the total row count is NDV(partition keys) * partitionLimit unless the operator
+        // also carries a global limit or has no partition key at all (see
+        // StatsCalculator#computePartitionTopN). Marking a high-NDV partition key as "maximally
+        // selective" would keep RFs that filter nothing: the build side stays huge (RF construction
+        // and memory cost) while every probe row pays an RF evaluation that never rejects a row --
+        // exactly the "selectivity 100%" case this pruner exists to remove.
+        //
+        // The canonical `ROW_NUMBER() OVER (ORDER BY dt DESC)` + `rn <= N` shape is still marked:
+        // it has no PARTITION BY, so it takes the global-limit branch and emits at most N rows.
+        boolean bounded = partitionTopN.hasGlobalLimit() || partitionTopN.getPartitionKeys().isEmpty();
+        if (bounded) {
+            context.getRuntimeFilterContext().addEffectiveSrcNode(partitionTopN,
+                    RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        }
         return partitionTopN;
     }
 
