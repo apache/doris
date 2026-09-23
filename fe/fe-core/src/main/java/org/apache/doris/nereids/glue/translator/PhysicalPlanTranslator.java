@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
@@ -127,6 +128,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -747,7 +749,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     scanNode = new HiveScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv, directoryLister,
                             context.getScanContext());
                     HiveScanNode hiveScanNode = (HiveScanNode) scanNode;
-                    hiveScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+                    hiveScanNode.setSelectedPartitions(
+                            materializeDeferredHivePartitions((HMSExternalTable) table, fileScan));
                     if (fileScan.getTableSample().isPresent()) {
                         hiveScanNode.setTableSample(new TableSample(fileScan.getTableSample().get().isPercent,
                                 fileScan.getTableSample().get().sampleValue, fileScan.getTableSample().get().seek));
@@ -794,6 +797,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
+    }
+
+    private LogicalFileScan.SelectedPartitions materializeDeferredHivePartitions(
+            HMSExternalTable table, PhysicalFileScan fileScan) {
+        LogicalFileScan.SelectedPartitions selectedPartitions = fileScan.getSelectedPartitions();
+        if (!selectedPartitions.isDeferredPartitionPruning()) {
+            return selectedPartitions;
+        }
+        Map<String, PartitionItem> partitionItems =
+                table.getNameToPartitionItems(fileScan.getRelationSnapshot());
+        return new LogicalFileScan.SelectedPartitions(partitionItems.size(), partitionItems, false);
     }
 
     @Override

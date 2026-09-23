@@ -49,6 +49,24 @@ import java.util.stream.Collectors;
 public class LogicalFileScanTest {
 
     @Test
+    public void testDeferredSelectedPartitionsState() {
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(table.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+        Mockito.when(table.getFullSchema(Mockito.any()))
+                .thenReturn(Collections.singletonList(new Column("id", Type.INT, true)));
+        Mockito.when(table.getName()).thenReturn("hive_tbl");
+
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(12), table,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+
+        Assertions.assertSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING, scan.getSelectedPartitions());
+        Assertions.assertTrue(scan.getSelectedPartitions().isDeferredPartitionPruning());
+        Assertions.assertFalse(scan.getSelectedPartitions().isNotPruned());
+    }
+
+    @Test
     public void testComputeOutputIncludesInvisibleRowLineageColumnsForIcebergTable() {
         Column rowIdColumn = new Column(IcebergUtils.ICEBERG_ROW_ID_COL, Type.BIGINT, true);
         rowIdColumn.setIsVisible(false);
