@@ -464,6 +464,34 @@ TEST(FileScannerV2Test, FileScanLocalStateSelectsV2ForSupportedQueriesOnly) {
 
     query_options.__set_enable_file_scanner_v2(false);
     EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+
+    params.format_type = TFileFormatType::FORMAT_PARQUET;
+    params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    // An intermediate FE's explicit field 36 also needs a reader that can honor its timezone.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    params.__isset.hive_parquet_time_zone = false;
+    params.__set_parquet_timestamp_semantics_version(1);
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, true, params));
+}
+
+TEST(FileScannerV2Test, IcebergOrcDefaultCannotHideDeferredParquetRanges) {
+    TQueryOptions options;
+    options.__set_enable_file_scanner_v2(false);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_iceberg_scan_semantics_version(2);
+    params.__set_parquet_timestamp_semantics_version(1);
+    // Scanner construction precedes remote split delivery; the default says nothing about
+    // retained Parquet files after changing write.format.default to ORC.
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, true, params));
+    params.__isset.parquet_timestamp_semantics_version = false;
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
+    params.__set_hive_parquet_time_zone("");
+    EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
+    params.__isset.iceberg_scan_semantics_version = false;
+    EXPECT_FALSE(FileScanLocalState::TEST_should_use_file_scanner_v2(options, false, params));
 }
 
 TEST(FileScannerV2Test, LegacyCountExemptionRequiresMetadataCountOnEveryRange) {

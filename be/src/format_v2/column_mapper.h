@@ -130,6 +130,7 @@ struct ColumnMapping {
     std::vector<ColumnDefinition> projected_file_children;
     // Table-side Variant object-key paths retained until the physical shredding schema is known.
     std::vector<std::vector<std::string>> variant_access_paths;
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
     // Split/file-local constant entry when this mapping is produced from partition/default/virtual
     // expression instead of physical file data.
     std::optional<ConstantIndex> constant_index;
