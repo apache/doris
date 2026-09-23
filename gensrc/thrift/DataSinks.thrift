@@ -551,6 +551,10 @@ struct TIcebergMergeSink {
     16: optional bool writes_data_files;
     // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
     17: optional bool has_variant_schema;
+    // Same contract as TIcebergTableSink.nan_count_field_ids, computed against the MERGE schema. The
+    // replacement data files UPDATE / SQL MERGE write go through the same iceberg parquet writer, so
+    // without this they would report no NaN counts and stay unprunable even when NaN-free.
+    18: optional list<i32> nan_count_field_ids;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

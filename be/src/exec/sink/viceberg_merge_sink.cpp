@@ -410,6 +410,9 @@ Status VIcebergMergeSink::_build_inner_sinks() {
     if (merge_sink.__isset.collect_column_stats) {
         table_sink.__set_collect_column_stats(merge_sink.collect_column_stats);
     }
+    if (merge_sink.__isset.nan_count_field_ids) {
+        table_sink.__set_nan_count_field_ids(merge_sink.nan_count_field_ids);
+    }
     _table_sink.__set_type(TDataSinkType::ICEBERG_TABLE_SINK);
     _table_sink.__set_iceberg_table_sink(table_sink);
 
