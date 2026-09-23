@@ -1699,114 +1699,135 @@ void StorageEngine::_follow_cooldown_meta(TabletSharedPtr t) {
     }
 }
 
-void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
-                                           int64_t publish_version, int64_t transaction_id,
-                                           bool is_recovery, int64_t commit_tso) {
+Status StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
+                                             int64_t publish_version, int64_t transaction_id,
+                                             bool is_recovery, int64_t commit_tso) {
+    // Serialize registration and acknowledgement, including the durable marker. Otherwise
+    // a duplicate registration can race with removal and leave an unpersisted request.
+    std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
+    auto tablet_iter = _async_publish_tasks.find(tablet_id);
+    if (tablet_iter != _async_publish_tasks.end() &&
+        tablet_iter->second.contains(publish_version)) {
+        return Status::OK();
+    }
     if (!is_recovery) {
-        bool exists = false;
-        {
-            std::shared_lock<std::shared_mutex> rlock(_async_publish_lock);
-            if (auto tablet_iter = _async_publish_tasks.find(tablet_id);
-                tablet_iter != _async_publish_tasks.end()) {
-                if (auto iter = tablet_iter->second.find(publish_version);
-                    iter != tablet_iter->second.end()) {
-                    exists = true;
-                }
-            }
-        }
-        if (exists) {
-            return;
-        }
         TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
-            LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
-                      << tablet_id;
-            return;
+            return Status::NotFound("tablet dropped before adding async publish, tablet_id={}",
+                                    tablet_id);
         }
-        PendingPublishInfoPB pending_publish_info_pb;
-        pending_publish_info_pb.set_partition_id(partition_id);
-        pending_publish_info_pb.set_transaction_id(transaction_id);
-        pending_publish_info_pb.set_commit_tso(commit_tso);
-        static_cast<void>(TabletMetaManager::save_pending_publish_info(
-                tablet->data_dir(), tablet->tablet_id(), publish_version,
-                pending_publish_info_pb.SerializeAsString()));
+        PendingPublishInfoPB info;
+        info.set_partition_id(partition_id);
+        info.set_transaction_id(transaction_id);
+        info.set_commit_tso(commit_tso);
+        RETURN_IF_ERROR(TabletMetaManager::save_pending_publish_info(
+                tablet->data_dir(), tablet_id, publish_version, info.SerializeAsString()));
     }
+    _async_publish_tasks[tablet_id].emplace(
+            publish_version,
+            PendingPublishTask {transaction_id, partition_id, commit_tso, nullptr});
     LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
               << " version: " << publish_version << " txn_id:" << transaction_id
               << " is_recovery: " << is_recovery;
-    std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
-    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id, commit_tso};
+    return Status::OK();
 }
 
 int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
     std::shared_lock<std::shared_mutex> rlock(_async_publish_lock);
     auto iter = _async_publish_tasks.find(tablet_id);
-    if (iter == _async_publish_tasks.end()) {
-        return INT64_MAX;
-    }
-    if (iter->second.empty()) {
+    if (iter == _async_publish_tasks.end() || iter->second.empty()) {
         return INT64_MAX;
     }
     return iter->second.begin()->first;
 }
 
 void StorageEngine::_process_async_publish() {
-    // tablet, publish_version
-    std::vector<std::pair<TabletSharedPtr, int64_t>> need_removed_tasks;
-    {
-        std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
-        for (auto tablet_iter = _async_publish_tasks.begin();
-             tablet_iter != _async_publish_tasks.end();) {
-            if (tablet_iter->second.empty()) {
-                tablet_iter = _async_publish_tasks.erase(tablet_iter);
-                continue;
-            }
-            int64_t tablet_id = tablet_iter->first;
-            TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
-            if (!tablet) {
-                LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
-                             << tablet_id;
-                tablet_iter = _async_publish_tasks.erase(tablet_iter);
-                continue;
-            }
-
-            auto task_iter = tablet_iter->second.begin();
-            int64_t version = task_iter->first;
-            int64_t transaction_id = std::get<0>(task_iter->second);
-            int64_t partition_id = std::get<1>(task_iter->second);
-            int64_t commit_tso = std::get<2>(task_iter->second);
-            int64_t max_version = tablet->max_version().second;
-
-            if (version <= max_version) {
-                need_removed_tasks.emplace_back(tablet, version);
-                tablet_iter->second.erase(task_iter);
-                tablet_iter++;
-                continue;
-            }
-            if (version != max_version + 1) {
-                int32_t max_version_config = tablet->max_version_config();
-                // Keep only the most recent versions
-                while (tablet_iter->second.size() > max_version_config) {
-                    need_removed_tasks.emplace_back(tablet, version);
-                    task_iter = tablet_iter->second.erase(task_iter);
-                    version = task_iter->first;
-                }
-                tablet_iter++;
-                continue;
-            }
-
-            auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    *this, tablet, partition_id, transaction_id, version, commit_tso);
-            static_cast<void>(_tablet_publish_txn_thread_pool->submit_func(
-                    [=]() { async_publish_task->handle(); }));
-            tablet_iter->second.erase(task_iter);
-            need_removed_tasks.emplace_back(tablet, version);
-            tablet_iter++;
+    std::unique_lock<std::shared_mutex> wlock(_async_publish_lock);
+    for (auto tablet_iter = _async_publish_tasks.begin();
+         tablet_iter != _async_publish_tasks.end();) {
+        auto& tasks = tablet_iter->second;
+        if (tasks.empty()) {
+            tablet_iter = _async_publish_tasks.erase(tablet_iter);
+            continue;
         }
-    }
-    for (auto& [tablet, publish_version] : need_removed_tasks) {
-        static_cast<void>(TabletMetaManager::remove_pending_publish_info(
-                tablet->data_dir(), tablet->tablet_id(), publish_version));
+        const int64_t tablet_id = tablet_iter->first;
+        auto task_iter = tasks.begin();
+        auto& request = task_iter->second;
+        // In particular, do not prune or resubmit a queued/running attempt. The version
+        // may become visible before the worker has finished publishing an attached binlog.
+        if (request.attempt != nullptr && !request.attempt->finished()) {
+            ++tablet_iter;
+            continue;
+        }
+        TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(INFO) << "tablet dropped during async publish, tablet_id=" << tablet_id;
+            tablet_iter = _async_publish_tasks.erase(tablet_iter);
+            continue;
+        }
+        const int64_t version = task_iter->first;
+        auto remove_marker = [&](int64_t v) {
+            auto st = TabletMetaManager::remove_pending_publish_info(tablet->data_dir(), tablet_id,
+                                                                     v);
+            if (!st.ok()) {
+                LOG_EVERY_SECOND(WARNING)
+                        << "failed to remove pending publish marker, tablet_id=" << tablet_id
+                        << ", version=" << v << ", status=" << st;
+            }
+            return st.ok();
+        };
+        // A completed publish (including a normal publish or Clone that won the race)
+        // is acknowledged only after the target version actually exists.
+        if (tablet->check_version_exist(Version(version, version))) {
+            if (remove_marker(version)) {
+                tasks.erase(task_iter);
+            }
+            ++tablet_iter;
+            continue;
+        }
+
+        // Preserve the existing bounded-backlog policy, also for an oldest request that
+        // keeps failing. Do not grow the queue indefinitely when a replica needs repair.
+        const auto max_versions = tablet->max_version_config();
+        DCHECK_GT(max_versions, 0);
+        if (tasks.size() > max_versions) {
+            while (tasks.size() > max_versions) {
+                auto oldest = tasks.begin();
+                if (!remove_marker(oldest->first)) {
+                    break;
+                }
+                LOG(WARNING) << "prune pending publish backlog, tablet_id=" << tablet_id
+                             << ", version=" << oldest->first;
+                tasks.erase(oldest);
+            }
+            ++tablet_iter;
+            continue;
+        }
+
+        if (version != tablet->max_version().second + 1) {
+            ++tablet_iter;
+            continue;
+        }
+        if (request.attempt != nullptr && !request.attempt->ready_to_retry(MonotonicMillis())) {
+            ++tablet_iter;
+            continue;
+        }
+        if (request.attempt != nullptr && !request.attempt->result().ok()) {
+            LOG_EVERY_SECOND(WARNING)
+                    << "retry async publish, tablet_id=" << tablet_id << ", version=" << version
+                    << ", status=" << request.attempt->result();
+        }
+        auto attempt = std::make_shared<AsyncTabletPublishTask>(*this, tablet, request.partition_id,
+                                                                request.transaction_id, version,
+                                                                request.commit_tso);
+        request.attempt = attempt;
+        auto st = _tablet_publish_txn_thread_pool->submit_func([attempt]() { attempt->handle(); });
+        if (!st.ok()) {
+            // No callback will run after rejection. Keep both the request and its marker
+            // and apply the same backoff as an execution failure.
+            attempt->finish(std::move(st));
+        }
+        ++tablet_iter;
     }
 }
 

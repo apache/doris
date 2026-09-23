@@ -151,7 +151,32 @@ public:
 
     void handle();
 
+    bool finished() const { return _finished.load(std::memory_order_acquire); }
+    const Status& result() const {
+        DCHECK(finished());
+        return _result;
+    }
+    bool ready_to_retry(int64_t now_ms) const {
+        DCHECK(finished());
+        return now_ms - _finish_time_ms >= RETRY_INTERVAL_MS;
+    }
+
+    // Also used when the thread pool rejects an attempt before it can run.
+    void finish(Status result) {
+        DCHECK(!finished());
+        _result = std::move(result);
+        _finish_time_ms = MonotonicMillis();
+        _finished.store(true, std::memory_order_release);
+    }
+
 private:
+    Status _handle();
+
+    static constexpr int64_t RETRY_INTERVAL_MS = 1000;
+    std::atomic<bool> _finished {false};
+    Status _result;
+    int64_t _finish_time_ms = 0;
+
     StorageEngine& _engine;
     TabletSharedPtr _tablet;
     int64_t _partition_id;

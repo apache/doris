@@ -619,4 +619,42 @@ TEST_F(TxnManagerTest, DeleteCommittedTxnCleanupOnError) {
     ASSERT_TRUE(found_txn_ids.empty()) << "Transaction should not be found in tablet related txns";
 }
 
+TEST_F(TxnManagerTest, PublishableInfoRequiresCommittedRowsetAndMowContext) {
+    auto* mgr = k_engine->txn_manager();
+    const TabletInfo tablet_info(tablet_id, _tablet_uid);
+    std::shared_ptr<TabletTxnInfo> info;
+    EXPECT_FALSE(mgr->get_publishable_tablet_txn_info(partition_id, transaction_id, tablet_info,
+                                                      true, &info)
+                         .ok());
+    ASSERT_TRUE(
+            mgr->prepare_txn(partition_id, transaction_id, tablet_id, _tablet_uid, load_id).ok());
+    EXPECT_FALSE(mgr->get_publishable_tablet_txn_info(partition_id, transaction_id, tablet_info,
+                                                      true, &info)
+                         .ok());
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    ASSERT_TRUE(mgr->commit_txn(_meta.get(), partition_id, transaction_id, tablet_id, _tablet_uid,
+                                load_id, _rowset, std::move(guard), false)
+                        .ok());
+    EXPECT_TRUE(mgr->get_publishable_tablet_txn_info(partition_id, transaction_id, tablet_info,
+                                                     false, &info)
+                        .ok());
+    EXPECT_EQ(info->rowset, _rowset);
+    EXPECT_FALSE(mgr->get_publishable_tablet_txn_info(partition_id, transaction_id, tablet_info,
+                                                      true, &info)
+                         .ok());
+    EXPECT_EQ(info, nullptr);
+    auto bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+    mgr->set_txn_related_delete_bitmap(partition_id, transaction_id, tablet_id, _tablet_uid, true,
+                                       bitmap, RowsetIdUnorderedSet {}, nullptr);
+    EXPECT_TRUE(mgr->get_publishable_tablet_txn_info(partition_id, transaction_id, tablet_info,
+                                                     true, &info)
+                        .ok());
+    EXPECT_EQ(info->delete_bitmap, bitmap);
+    EXPECT_FALSE(mgr->get_publishable_tablet_txn_info(partition_id, transaction_id,
+                                                      TabletInfo(tablet_id, TabletUid(123, 456)),
+                                                      true, &info)
+                         .ok());
+    EXPECT_EQ(info, nullptr);
+}
+
 } // namespace doris

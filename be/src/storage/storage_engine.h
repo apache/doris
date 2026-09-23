@@ -74,6 +74,7 @@ class CreateTabletRRIdxCache;
 struct DirInfo;
 class SnapshotManager;
 class WorkloadGroup;
+class AsyncTabletPublishTask;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -357,8 +358,8 @@ public:
 
     void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
-    void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
-                                int64_t transaction_id, bool is_recover, int64_t commit_tso);
+    Status add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
+                                  int64_t transaction_id, bool is_recover, int64_t commit_tso);
     int64_t get_pending_publish_min_version(int64_t tablet_id);
 
     bool add_broken_path(std::string path);
@@ -590,10 +591,17 @@ private:
 
     std::mutex _cumu_compaction_delay_mtx;
 
-    // tablet_id, publish_version, transaction_id, partition_id, commit_tso
-    std::map<int64_t, std::map<int64_t, std::tuple<int64_t, int64_t, int64_t>>>
-            _async_publish_tasks;
-    // aync publish for discontinuous versions of merge_on_write table
+    struct PendingPublishTask {
+        int64_t transaction_id;
+        int64_t partition_id;
+        int64_t commit_tso;
+        // Keep the request (and its durable marker) while an attempt is queued/running.
+        // The worker owns a separate shared_ptr; only the producer mutates this field.
+        std::shared_ptr<AsyncTabletPublishTask> attempt;
+    };
+    // tablet_id -> publish_version -> request. Protected by _async_publish_lock.
+    std::map<int64_t, std::map<int64_t, PendingPublishTask>> _async_publish_tasks;
+    // Async publish for discontinuous versions and locally unfinished MoW writes.
     std::shared_ptr<Thread> _async_publish_thread;
     std::shared_mutex _async_publish_lock;
 
