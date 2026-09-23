@@ -31,11 +31,13 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_time_serde.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
@@ -509,6 +511,61 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampBeforeEpoch) {
                         .ok());
     ASSERT_EQ(1, dest_column->size());
     EXPECT_EQ(insert_value, dest_column->get_element(0).to_string(6));
+}
+
+TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampRespectsTargetScale) {
+    const auto check = [](arrow::TimeUnit::type unit, const std::vector<int64_t>& input, int scale,
+                          const std::vector<std::string>& expected) {
+        arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+        ASSERT_TRUE(builder.AppendValues(input).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnDateTimeV2::create();
+        DataTypeDateTimeV2SerDe serde(scale);
+        const auto status = serde.read_column_from_arrow(*column, array.get(), 0, array->length(),
+                                                         cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(expected.size(), column->size());
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_EQ(expected[row], column->get_data()[row].to_string(6));
+        }
+    };
+
+    check(arrow::TimeUnit::MILLI, {-1001, -1000, -501, -500, -499, 0, 499, 500, 999}, 0,
+          {"1969-12-31 23:59:59.000000", "1969-12-31 23:59:59.000000", "1969-12-31 23:59:59.000000",
+           "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000000",
+           "1970-01-01 00:00:00.000000", "1970-01-01 00:00:01.000000",
+           "1970-01-01 00:00:01.000000"});
+    check(arrow::TimeUnit::MICRO, {-876544, -876500, 123499, 123500, 999499, 999500}, 3,
+          {"1969-12-31 23:59:59.123000", "1969-12-31 23:59:59.124000", "1970-01-01 00:00:00.123000",
+           "1970-01-01 00:00:00.124000", "1970-01-01 00:00:00.999000",
+           "1970-01-01 00:00:01.000000"});
+    check(arrow::TimeUnit::MICRO, {-876544, 123456}, 6,
+          {"1969-12-31 23:59:59.123456", "1970-01-01 00:00:00.123456"});
+}
+
+TEST_F(DataTypeDateTimeV2SerDeTest, ReadNullableArrowTimestampIgnoresNullPayload) {
+    std::vector<int64_t> values = {0, 253402300799999500};
+    // Bit 0 set, bit 1 clear: row 0 is valid and row 1 is null.
+    std::vector<uint8_t> validity = {0b01};
+    auto data = arrow::ArrayData::Make(arrow::timestamp(arrow::TimeUnit::MICRO), values.size(),
+                                       {arrow::Buffer::Wrap(validity.data(), validity.size()),
+                                        arrow::Buffer::Wrap(values.data(), values.size())},
+                                       /*null_count=*/1);
+    const auto array = arrow::MakeArray(data);
+    ASSERT_TRUE(array->IsNull(1));
+
+    auto column = ColumnNullable::create(ColumnDateTimeV2::create(), ColumnUInt8::create());
+    DataTypeNullableSerDe serde(std::make_shared<DataTypeDateTimeV2SerDe>(3));
+    const auto status = serde.read_column_from_arrow(*column, array.get(), 0, array->length(),
+                                                     cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2, column->size());
+    EXPECT_FALSE(column->is_null_at(0));
+    EXPECT_TRUE(column->is_null_at(1));
+    const auto& nested = assert_cast<const ColumnDateTimeV2&>(column->get_nested_column());
+    EXPECT_EQ("1970-01-01 00:00:00.000000", nested.get_data()[0].to_string(6));
 }
 
 TEST_F(DataTypeDateTimeV2SerDeTest, ArrowTimezoneNaiveTimestampIgnoresSessionTimezone) {
