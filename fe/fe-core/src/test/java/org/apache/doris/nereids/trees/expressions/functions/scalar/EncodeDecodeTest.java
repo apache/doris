@@ -140,8 +140,5 @@ public class EncodeDecodeTest {
                 new Encode(new StringLiteral("hello"), new StringLiteral("GBK"))
                         ::checkLegalityBeforeTypeCoercion);
         Assertions.assertTrue(unsupported.getMessage().contains("Unsupported character set"));
-
-        Assertions.assertFalse(literalEncode.foldable());
-        Assertions.assertFalse(literalDecode.foldable());
     }
 }

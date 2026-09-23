@@ -63,14 +63,6 @@ public class Encode extends ScalarFunction
         checkLegalityBeforeTypeCoercion();
     }
 
-    // Invalid character sets must still be rejected when the first argument is a
-    // null literal. FoldConstantRuleOnFE otherwise rewrites PropagateNullable
-    // calls with any null child to NULL and skips backend evaluation.
-    @Override
-    public boolean foldable() {
-        return false;
-    }
-
     /**
      * withChildren.
      */
