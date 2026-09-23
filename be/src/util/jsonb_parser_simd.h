@@ -61,6 +61,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string_view>
 
 #include "common/status.h"
 #include "util/jsonb_document.h"
@@ -70,17 +71,85 @@
 namespace doris {
 using int128_t = __int128;
 struct JsonbParser {
+private:
+    static bool is_json_whitespace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    }
+
+    static std::string_view trim_json_whitespace(std::string_view token) {
+        while (!token.empty() && is_json_whitespace(token.front())) {
+            token.remove_prefix(1);
+        }
+        while (!token.empty() && is_json_whitespace(token.back())) {
+            token.remove_suffix(1);
+        }
+        return token;
+    }
+
+    static bool is_valid_json_number(std::string_view token) {
+        size_t pos = 0;
+        if (pos < token.size() && token[pos] == '-') {
+            ++pos;
+        }
+        if (pos == token.size()) {
+            return false;
+        }
+
+        if (token[pos] == '0') {
+            ++pos;
+        } else if (token[pos] >= '1' && token[pos] <= '9') {
+            do {
+                ++pos;
+            } while (pos < token.size() && token[pos] >= '0' && token[pos] <= '9');
+        } else {
+            return false;
+        }
+
+        if (pos < token.size() && token[pos] == '.') {
+            ++pos;
+            const size_t fraction_start = pos;
+            while (pos < token.size() && token[pos] >= '0' && token[pos] <= '9') {
+                ++pos;
+            }
+            if (pos == fraction_start) {
+                return false;
+            }
+        }
+
+        if (pos < token.size() && (token[pos] == 'e' || token[pos] == 'E')) {
+            ++pos;
+            if (pos < token.size() && (token[pos] == '+' || token[pos] == '-')) {
+                ++pos;
+            }
+            const size_t exponent_start = pos;
+            while (pos < token.size() && token[pos] >= '0' && token[pos] <= '9') {
+                ++pos;
+            }
+            if (pos == exponent_start) {
+                return false;
+            }
+        }
+
+        return pos == token.size();
+    }
+
     // According to https://github.com/simdjson/simdjson/pull/2139
     // For numbers larger than 64 bits, we can obtain the raw_json_token and parse it ourselves.
     // This allows handling numbers larger than 64 bits, such as int128.
     // For example, try to parse a 18446744073709551616, this number is just 1 greater than the maximum value of uint64_t, and simdjson will return a NUMBER_ERROR
     // If try to parse a 18446744073709551616231231, it is obviously a large integer, at this time simdjson will return a BIGINT_ERROR
-    static bool parse_number_success(simdjson::error_code error_code) {
-        return error_code == simdjson::error_code::SUCCESS ||
-               error_code == simdjson::error_code::NUMBER_ERROR ||
-               error_code == simdjson::error_code::BIGINT_ERROR;
+    static bool parse_number_success(simdjson::error_code error_code, std::string_view raw_token) {
+        if (error_code == simdjson::error_code::SUCCESS) {
+            return true;
+        }
+        if (error_code != simdjson::error_code::NUMBER_ERROR &&
+            error_code != simdjson::error_code::BIGINT_ERROR) {
+            return false;
+        }
+        return is_valid_json_number(raw_token);
     }
 
+public:
     // parse a UTF-8 JSON string with length
     // will reset writer before parse
     static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
@@ -92,6 +161,7 @@ struct JsonbParser {
             simdjson::ondemand::parser simdjson_parser;
             simdjson::padded_string json_str {pch, len};
             simdjson::ondemand::document doc = simdjson_parser.iterate(json_str);
+            bool root_number_validated_from_raw_token = false;
 
             // simdjson process top level primitive types specially
             // so some repeated code here
@@ -102,9 +172,7 @@ struct JsonbParser {
                 break;
             }
             case simdjson::ondemand::json_type::null: {
-                if (writer.writeNull() == 0) {
-                    return Status::InvalidArgument("writeNull failed");
-                }
+                RETURN_IF_ERROR(write_null(doc, writer));
                 break;
             }
             case simdjson::ondemand::json_type::boolean: {
@@ -120,15 +188,25 @@ struct JsonbParser {
             case simdjson::ondemand::json_type::number: {
                 simdjson::ondemand::number num;
                 simdjson::error_code res = doc.get_number().get(num);
-                if (!parse_number_success(res)) {
+                const auto raw_token = trim_json_whitespace(doc.raw_json_token());
+                if (!parse_number_success(res, raw_token)) {
                     return Status::InvalidArgument(fmt::format("simdjson get_number failed: {}",
                                                                simdjson::error_message(res)));
                 }
                 // simdjson get_number() returns a number object, which can be
-                RETURN_IF_ERROR(
-                        write_number(num, doc.get_number_type(), doc.raw_json_token(), writer));
+                RETURN_IF_ERROR(write_number(num, doc.get_number_type(), raw_token, writer));
+                if (res != simdjson::error_code::SUCCESS) {
+                    const auto document = trim_json_whitespace(std::string_view {pch, len});
+                    if (raw_token != document) {
+                        return Status::InvalidArgument("JSON document was not fully consumed");
+                    }
+                    root_number_validated_from_raw_token = true;
+                }
                 break;
             }
+            }
+            if (!root_number_validated_from_raw_token && !doc.at_end()) {
+                return Status::InvalidArgument("JSON document was not fully consumed");
             }
         } catch (simdjson::simdjson_error& e) {
             return Status::InvalidArgument(fmt::format("simdjson parse exception: {}", e.what()));
@@ -137,15 +215,34 @@ struct JsonbParser {
     }
 
 private:
+    template <typename JsonValue>
+    static Status write_null(JsonValue& value, JsonbWriter& writer) {
+        if (!value.is_null()) {
+            return Status::InvalidArgument("Invalid null literal");
+        }
+        if (writer.writeNull() == 0) {
+            return Status::InvalidArgument("writeNull failed");
+        }
+        return Status::OK();
+    }
+
+    static Status parse_number(simdjson::ondemand::value& value, JsonbWriter& writer) {
+        simdjson::ondemand::number num;
+        const auto result = value.get_number().get(num);
+        const auto raw_token = trim_json_whitespace(value.raw_json_token());
+        if (!parse_number_success(result, raw_token)) {
+            return Status::InvalidArgument(
+                    fmt::format("simdjson get_number failed: {}", simdjson::error_message(result)));
+        }
+        return write_number(num, value.get_number_type(), raw_token, writer);
+    }
+
     // parse json, recursively if necessary, by simdjson
     //  and serialize to binary format by writer
     static Status parse(simdjson::ondemand::value value, JsonbWriter& writer) {
         switch (value.type()) {
         case simdjson::ondemand::json_type::null: {
-            if (writer.writeNull() == 0) {
-                return Status::InvalidArgument("writeNull failed");
-            }
-            break;
+            return write_null(value, writer);
         }
         case simdjson::ondemand::json_type::boolean: {
             if (writer.writeBool(value.get_bool()) == 0) {
@@ -158,16 +255,7 @@ private:
             break;
         }
         case simdjson::ondemand::json_type::number: {
-            simdjson::ondemand::number num;
-            auto res = value.get_number().get(num);
-            if (!parse_number_success(res)) {
-                return Status::InvalidArgument(fmt::format("simdjson get_number failed: {}",
-                                                           simdjson::error_message(res)));
-            }
-
-            RETURN_IF_ERROR(
-                    write_number(num, value.get_number_type(), value.raw_json_token(), writer));
-            break;
+            return parse_number(value, writer);
         }
         case simdjson::ondemand::json_type::object: {
             if (!writer.writeStartObject()) {
@@ -196,7 +284,6 @@ private:
 
             if (!writer.writeEndObject()) {
                 return Status::InvalidArgument("writeEndObject failed");
-                break;
             }
 
             break;
@@ -221,6 +308,54 @@ private:
         }
 
         } // end of switch
+        return Status::OK();
+    }
+
+    static Status write_floating_number(double number, std::string_view raw_string,
+                                        JsonbWriter& writer) {
+        // When a double exceeds the precision that can be represented by a double type in
+        // simdjson, it gets converted to 0. The correct approach is to truncate the value instead.
+        if (number == 0) {
+            StringParser::ParseResult result;
+            number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
+                                                           &result);
+            if (result != StringParser::PARSE_SUCCESS) {
+                return Status::InvalidArgument("invalid number, raw string is: " +
+                                               std::string(raw_string));
+            }
+        }
+        if (!std::isfinite(number)) {
+            return Status::InvalidArgument("non-finite number, raw string is: " +
+                                           std::string(raw_string));
+        }
+        if (writer.writeDouble(number) == 0) {
+            return Status::InvalidArgument("writeDouble failed");
+        }
+        return Status::OK();
+    }
+
+    static Status write_big_integer(std::string_view raw_string, JsonbWriter& writer) {
+        StringParser::ParseResult result;
+        auto value = StringParser::string_to_int<int128_t>(raw_string.data(), raw_string.size(),
+                                                           &result);
+        if (result == StringParser::PARSE_SUCCESS) {
+            if (!writer.writeInt128(value)) {
+                return Status::InvalidArgument("writeInt128 failed");
+            }
+            return Status::OK();
+        }
+
+        // JSON text can represent integers beyond int128. Preserve the existing fallback to
+        // double when it is finite, even though the conversion may lose precision.
+        double double_value = StringParser::string_to_float<double>(raw_string.data(),
+                                                                    raw_string.size(), &result);
+        if (result != StringParser::PARSE_SUCCESS || !std::isfinite(double_value)) {
+            return Status::InvalidArgument("invalid number, raw string is: " +
+                                           std::string(raw_string));
+        }
+        if (!writer.writeDouble(double_value)) {
+            return Status::InvalidArgument("writeDouble failed");
+        }
         return Status::OK();
     }
 
@@ -259,24 +394,7 @@ private:
 
         switch (num_type) {
         case simdjson::ondemand::number_type::floating_point_number: {
-            double number = num.get_double();
-            // When a double exceeds the precision that can be represented by a double type in simdjson, it gets converted to 0.
-            // The correct approach, should be to truncate the double value instead.
-            if (number == 0) {
-                StringParser::ParseResult result;
-                number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
-                                                               &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status::InvalidArgument("invalid number, raw string is: " +
-                                                   std::string(raw_string));
-                }
-            }
-
-            if (writer.writeDouble(number) == 0) {
-                return Status::InvalidArgument("writeDouble failed");
-            }
-
-            break;
+            return write_floating_number(num.get_double(), raw_string, writer);
         }
         case simdjson::ondemand::number_type::signed_integer:
         case simdjson::ondemand::number_type::unsigned_integer: {
@@ -301,36 +419,13 @@ private:
             if (!success) {
                 return Status::InvalidArgument("writeInt failed");
             }
-            break;
+            return Status::OK();
         }
         case simdjson::ondemand::number_type::big_integer: {
-            StringParser::ParseResult result;
-            auto val = StringParser::string_to_int<int128_t>(raw_string.data(), raw_string.size(),
-                                                             &result);
-            if (result != StringParser::PARSE_SUCCESS) {
-                // If the string exceeds the range of int128_t, it will attempt to convert it to double.
-                // This may result in loss of precision, but for JSON, exchanging data as plain text between different systems may inherently cause precision loss.
-                // try parse as double
-                double double_val = StringParser::string_to_float<double>(
-                        raw_string.data(), raw_string.size(), &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    // if both parse failed, return error
-                    return Status::InvalidArgument("invalid number, raw string is: " +
-                                                   std::string(raw_string));
-                }
-                if (!writer.writeDouble(double_val)) {
-                    return Status::InvalidArgument("writeDouble failed");
-                }
-            } else {
-                // as int128_t
-                if (!writer.writeInt128(val)) {
-                    return Status::InvalidArgument("writeInt128 failed");
-                }
-            }
-            break;
+            return write_big_integer(raw_string, writer);
         }
         }
-        return Status::OK();
+        return Status::InvalidArgument("unknown number type");
     }
 };
 } // namespace doris

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <string_view>
+
 #include "common/status.h"
 #include "core/value/jsonb_value.h"
 #include "gtest/gtest.h"
@@ -221,6 +223,10 @@ TEST_F(JsonbParserTest, ParseJsonWithLongInt2) {
     std::string_view json_with_long_int = R"(19389892839283982938923)";
     std::string_view expected_json_with_long_int = R"(19389892839283982938923)";
     EXPECT_EQ(parse_json_and_check(json_with_long_int, expected_json_with_long_int), Status::OK());
+
+    std::string_view json_with_whitespace = " \n19389892839283982938923\t";
+    EXPECT_EQ(parse_json_and_check(json_with_whitespace, expected_json_with_long_int),
+              Status::OK());
 }
 
 TEST_F(JsonbParserTest, ParseJsonWithLongInt3) {
@@ -253,6 +259,17 @@ TEST_F(JsonbParserTest, ParseJsonWithDeepNesting) {
 TEST_F(JsonbParserTest, ParseJsonWithInvalidNumberFormat) {
     std::string_view json_with_invalid_number = R"({"invalid_number": 1.23e})";
     EXPECT_FALSE(parse_json_and_check(json_with_invalid_number, json_with_invalid_number));
+}
+
+TEST_F(JsonbParserTest, RejectInvalidTokens) {
+    constexpr std::string_view invalid_json[] = {"nul",    "[nul]", R"({"x":nul})", "01",   "-01",
+                                                 "1.",     "[01]",  "[-01]",        "[1.]", "1e+",
+                                                 "1e9999", "{}x",   "[]x",          "nullx"};
+
+    for (const auto json : invalid_json) {
+        JsonBinaryValue jsonb_val;
+        EXPECT_FALSE(jsonb_val.from_json_string(json.data(), json.size()).ok()) << json;
+    }
 }
 
 TEST_F(JsonbParserTest, ParseJsonWithInvalidBoolean) {
