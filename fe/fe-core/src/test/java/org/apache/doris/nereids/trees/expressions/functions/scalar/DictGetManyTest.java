@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.dictionary.DictionaryManager;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -86,6 +87,17 @@ public class DictGetManyTest {
                 new StructLiteral(ImmutableList.of(new BigIntLiteral(1))));
 
         assertRejected(function, "second argument must be a constant ARRAY<VARCHAR>");
+    }
+
+    @Test
+    public void testRejectNullValueColumnNameFromParser() {
+        ArrayLiteral valueColumnNames = (ArrayLiteral) new NereidsParser().parseExpression("['value_col', NULL]");
+        Assertions.assertTrue(valueColumnNames.getValue().get(1) instanceof NullLiteral);
+        Assertions.assertTrue(valueColumnNames.getValue().get(1).getDataType().isStringLikeType());
+        DictGetMany function = new DictGetMany(new StringLiteral("db.dict"), valueColumnNames,
+                new StructLiteral(ImmutableList.of(new BigIntLiteral(1))));
+
+        assertRejected(function, "second argument cannot contain NULL");
     }
 
     @Test

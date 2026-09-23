@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -73,6 +74,9 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
             throw new AnalysisException("dict_get_many() second argument must be a constant ARRAY<VARCHAR>");
         }
         ArrayLiteral valueColumnNames = (ArrayLiteral) getArgument(1);
+        if (valueColumnNames.getValue().stream().anyMatch(NullLiteral.class::isInstance)) {
+            throw new AnalysisException("dict_get_many() second argument cannot contain NULL");
+        }
         if (!((ArrayType) valueColumnNames.getDataType()).getItemType().isStringLikeType()
                 || valueColumnNames.getValue().stream().anyMatch(valueColumnName ->
                         !valueColumnName.getDataType().isStringLikeType())) {
