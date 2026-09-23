@@ -517,8 +517,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
                 setOperationDistributeColumnIds.add(setOperation.getOutput().get(index).getExprId());
             }
-            // check whether the set operation output all distribution columns of the child
-            if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
+            // check whether the set operation output all distribution columns of the child.
+            // An empty result must fall through instead of advertising a zero-key hash spec:
+            // containsSatisfy() is vacuously true on the empty equivalence map, so such a spec
+            // satisfies any hash REQUIRE demand and suppresses the parent's exchange.
+            if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()
+                    && !setOperationDistributeColumnIds.isEmpty()) {
                 // Keep the basic child's specific storage layout as the set operation output. When
                 // the basic child is on the right (shuffleToRight) the output rows are physically
                 // placed by the right child's storage bucket function, so advertising that layout is
@@ -579,8 +583,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         for (int offset : offsetsOfFirstChild) {
             request.add(setOperation.getOutput().get(offset).getExprId());
         }
-        return new PhysicalProperties(new DistributionSpecHash(request, firstType,
-                -1L, -1L, Collections.emptySet(), firstHashType));
+        // Keep createHash's empty-key normalization: offsetsOfFirstChild is empty only when the
+        // first child has no shuffled columns, and a zero-key DistributionSpecHash would satisfy
+        // any hash REQUIRE demand (containsSatisfy() is vacuously true on an empty equivalence
+        // map), suppressing an exchange the parent actually needs.
+        return PhysicalProperties.createHash(request, firstType, firstHashType);
     }
 
     @Override
