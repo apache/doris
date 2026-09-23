@@ -50,9 +50,11 @@ enum RowsetTypePB : int;
 class CalcDeleteBitmapToken {
 public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token,
-                                   std::shared_ptr<WorkloadGroup> workload_group = nullptr)
+                                   std::shared_ptr<WorkloadGroup> workload_group = nullptr,
+                                   bool help_while_wait = false)
             : _workload_group(std::move(workload_group)),
               _thread_token(std::move(thread_token)),
+              _help_while_wait(help_while_wait),
               _status(Status::OK()) {}
 
     ~CalcDeleteBitmapToken() { cancel(); }
@@ -90,19 +92,15 @@ public:
     // wait all tasks in token to be completed.
     Status wait();
 
-    void cancel() {
-        if (_thread_token) {
-            _thread_token->shutdown();
-        }
-    }
+    void cancel() { _thread_token->shutdown(); }
 
 private:
     Status _submit_func(std::function<void()> func);
 
     // Keep the selected workload-group pool alive until the token is destroyed.
     std::shared_ptr<WorkloadGroup> _workload_group;
-    // Null only for synchronous children of a load worker.
     std::unique_ptr<ThreadPoolToken> _thread_token;
+    const bool _help_while_wait;
 
     std::shared_mutex _lock;
     // Records the current status of the calc delete bitmap job.

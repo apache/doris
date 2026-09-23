@@ -22,7 +22,6 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <list>
 #include <unordered_map>
 #include <utility>
@@ -31,10 +30,10 @@
 namespace doris {
 
 // One-task round robin between ready loads, strict priority within each load.
-// The caller serializes
-// push/pop/remove with the same lock. Empty-to-nonempty transitions are the only
-// way a load enters _ready_loads; no per-load concurrency cap. Push/pop are
-// amortized O(1); cancellation scans only the selected load's queued tasks.
+// The caller serializes push/pop/erase/remove with the same lock.
+// Only empty-to-nonempty transitions put a load in _ready_loads. There is no
+// per-load concurrency cap. Push/pop are
+// amortized O(1), as is erasing a task using its handle.
 template <typename T>
 class LoadTaskQueue {
 public:
@@ -45,14 +44,23 @@ public:
     LoadTaskQueue(const LoadTaskQueue&) = delete;
     LoadTaskQueue& operator=(const LoadTaskQueue&) = delete;
 
-    void push(int64_t load_id, size_t priority, T task) {
+    // Valid until this entry is popped or erased. Other entries retain their handles.
+    struct Handle {
+        int64_t load_id;
+        size_t priority;
+        typename std::list<T>::iterator position;
+    };
+
+    Handle push(int64_t load_id, size_t priority, T task) {
         assert(priority < NUM_PRIORITIES);
         auto [it, inserted] = _loads.try_emplace(load_id);
         if (inserted) {
             it->second.ready_position = _ready_loads.insert(_ready_loads.end(), load_id);
         }
-        it->second.queues[priority].push_back(std::move(task));
+        auto& queue = it->second.queues[priority];
+        auto position = queue.insert(queue.end(), std::move(task));
         ++_size;
+        return {load_id, priority, position};
     }
 
     T pop() {
@@ -78,6 +86,18 @@ public:
         return task;
     }
 
+    // Remove an already selected task without consuming another load's turn.
+    void erase(const Handle& handle) {
+        auto it = _loads.find(handle.load_id);
+        assert(it != _loads.end());
+        it->second.queues[handle.priority].erase(handle.position);
+        --_size;
+        if (queues_empty(it->second.queues)) {
+            _ready_loads.erase(it->second.ready_position);
+            _loads.erase(it);
+        }
+    }
+
     // Return removed tasks so owners can destroy callbacks outside their lock.
     template <typename Predicate>
     std::vector<T> remove_if(int64_t load_id, Predicate predicate) {
@@ -87,15 +107,15 @@ public:
             return removed; // The token may have only running tasks.
         }
         for (auto& queue : it->second.queues) {
-            auto end = std::remove_if(queue.begin(), queue.end(), [&](T& task) {
-                if (!predicate(task)) {
-                    return false;
+            for (auto entry = queue.begin(); entry != queue.end();) {
+                if (predicate(*entry)) {
+                    removed.push_back(std::move(*entry));
+                    entry = queue.erase(entry);
+                    --_size;
+                } else {
+                    ++entry;
                 }
-                removed.push_back(std::move(task));
-                --_size;
-                return true;
-            });
-            queue.erase(end, queue.end());
+            }
         }
         if (queues_empty(it->second.queues)) {
             _ready_loads.erase(it->second.ready_position);
@@ -108,7 +128,7 @@ public:
     size_t size() const { return _size; }
 
 private:
-    using Queues = std::array<std::deque<T>, NUM_PRIORITIES>;
+    using Queues = std::array<std::list<T>, NUM_PRIORITIES>;
     static bool queues_empty(const Queues& queues) {
         return std::all_of(queues.begin(), queues.end(), [](const auto& q) { return q.empty(); });
     }

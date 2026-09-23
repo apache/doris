@@ -88,7 +88,9 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
 }
 
 Status CalcDeleteBitmapToken::wait() {
-    if (_thread_token) {
+    if (_help_while_wait) {
+        _thread_token->wait_and_help();
+    } else {
         _thread_token->wait();
     }
     std::shared_lock rlock(_lock);
@@ -106,26 +108,32 @@ Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
         func();
         ++_finished_tasks;
     };
-    if (_thread_token) {
-        auto st = _thread_token->submit_func(
-                [task = std::move(task), resource_ctx = thread_context()->resource_ctx()]() {
-                    SCOPED_ATTACH_TASK(resource_ctx);
+    auto st = _thread_token->submit_func(
+            [task = std::move(task), resource_ctx = thread_context()->resource_ctx(),
+             tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr()]() {
+                if (ThreadPool::is_helping_load_task()) {
+                    // The parent is already attached. AttachTask cannot be nested.
+                    DCHECK(thread_context()->is_attach_task());
+                    DCHECK(thread_context()->resource_ctx() == resource_ctx);
+                    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
                     task();
-                });
-        if (!st.ok()) {
-            // Preserve the submission error before wait() checks for callbacks
-            // that did not finish; a rejection is not a generic cancellation.
-            std::lock_guard wlock(_lock);
-            if (_status.ok()) {
-                _status = st;
-            }
+                } else {
+                    SCOPED_ATTACH_TASK(resource_ctx);
+                    // A cloud parent switches to a tablet tracker after attaching
+                    // the request context. Preserve that tracker on spare workers too.
+                    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+                    task();
+                }
+            });
+    if (!st.ok()) {
+        // Preserve the submission error before wait() checks for callbacks
+        // that did not finish; a rejection is not a generic cancellation.
+        std::lock_guard wlock(_lock);
+        if (_status.ok()) {
+            _status = st;
         }
-        return st;
     }
-    // Inline children already run in the parent's attached context, including
-    // any tablet-specific MemTracker scope. AttachTask cannot be nested.
-    task();
-    return Status::OK();
+    return st;
 }
 
 void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads,
@@ -149,10 +157,11 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_tok
 
 std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
         int64_t load_id, LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg) {
-    // Publish holds tablet locks while waiting for segment calculations. Running
-    // these children inline preserves the lock scope without a same-pool wait.
-    if (ThreadPool::is_load_worker()) {
-        return std::make_unique<CalcDeleteBitmapToken>(nullptr);
+    // Nested segment calculations belong to the parent's actual pool. Its
+    // attached request context may not carry the workload group used to route it.
+    if (auto* pool = ThreadPool::current_load_pool()) {
+        return std::make_unique<CalcDeleteBitmapToken>(
+                pool->new_load_token(load_id, priority, true), std::move(wg), true);
     }
     // A commit retry can outlive a dropped workload group. Its pool is stopped;
     // use the default domain in that case. A concurrent stop is reported by submit/wait.

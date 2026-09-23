@@ -1746,7 +1746,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         transient_rs_writer = std::move(group_writer);
     }
 
-    // Cloud publish already runs on a load worker and executes children inline.
+    // Cloud publish helps its own queued segment tasks while spare workers run them in parallel.
     // Local publish submits P0 segment tasks and waits outside the shared pool.
     auto token = self->calc_delete_bitmap_executor()->create_load_token(txn_id,
                                                                         LoadTaskPriority::HIGHEST);

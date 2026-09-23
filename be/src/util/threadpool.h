@@ -211,8 +211,13 @@ public:
     // Take one task per transaction turn on this pool (resource domain). Existing tokenless
     // and SERIAL/CONCURRENT token submissions retain their original policy.
     Status submit_load(std::shared_ptr<Runnable> r, int64_t load_id, LoadTaskPriority priority);
-    std::unique_ptr<ThreadPoolToken> new_load_token(int64_t load_id, LoadTaskPriority priority);
-    static bool is_load_worker();
+    // Leaf tokens must never wait for other work in this pool.
+    std::unique_ptr<ThreadPoolToken> new_load_token(int64_t load_id, LoadTaskPriority priority,
+                                                    bool is_leaf = false);
+    // Null outside a load callback; helping children remain in the parent pool.
+    static ThreadPool* current_load_pool();
+    // True only while a parent runs a queued child via wait_and_help().
+    static bool is_helping_load_task();
 
     // Waits until all the tasks are completed.
     void wait();
@@ -330,6 +335,9 @@ private:
                      LoadTaskPriority priority = LoadTaskPriority::LOW);
     bool queues_empty() const;
     struct ScheduledLoadTask;
+    Task take_load_task_unlocked(ScheduledLoadTask* entry);
+    void run_task(ThreadPoolToken* token, Task& task, bool helping = false);
+    void finish_task_unlocked(ThreadPoolToken* token);
     class LoadQueue;
     std::unique_ptr<LoadQueue> _load_queue;
 
@@ -468,6 +476,10 @@ public:
     // Waits until all the tasks submitted via this token are completed.
     void wait();
 
+    // Only a non-leaf load task of this pool may help a distinct leaf token.
+    // Runs this token's queued tasks on the caller, then joins running leaves.
+    void wait_and_help();
+
     // Waits for all submissions using this token are complete, or until 'delta'
     // time elapses.
     //
@@ -559,7 +571,11 @@ private:
 
     // Immutable scheduling identity; writer/tablet tokens of one transaction
     // share an outer FIFO entry while retaining independent wait/shutdown.
+    // Load tasks are owned here; the scheduler holds removable references only.
+    class LoadEntries;
+    std::unique_ptr<LoadEntries> _load_entries;
     bool _is_load_token = false;
+    bool _is_leaf = false;
     int64_t _load_id = 0;
     LoadTaskPriority _load_priority = LoadTaskPriority::LOW;
     size_t _queued_load_tasks = 0;

@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -53,6 +54,40 @@ TEST(LoadThreadPoolTest, MultipleTokensShareOneLoadTurn) {
     release.count_down();
     pool->wait();
     EXPECT_EQ(order, (std::vector<int> {0, 2, 3}));
+}
+
+TEST(LoadThreadPoolTest, TokenlessTasksKeepTheirLoadAndPriority) {
+    class RecordTask : public Runnable {
+    public:
+        RecordTask(std::vector<int>* order, int value) : _order(order), _value(value) {}
+        void run() override { _order->push_back(_value); }
+
+    private:
+        std::vector<int>* _order;
+        int _value;
+    };
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("load_tokenless_order").set_max_threads(1).build(&pool).ok());
+    CountDownLatch entered(1), release(1);
+    std::vector<int> order;
+    Defer unblock = [&] { release.count_down(); };
+    EXPECT_TRUE(pool->submit_func([&] {
+                        entered.count_down();
+                        release.wait();
+                    }).ok());
+    EXPECT_TRUE(entered.wait_for(5s));
+    EXPECT_TRUE(
+            pool->submit_load(std::make_shared<RecordTask>(&order, 13), 1, LoadTaskPriority::LOW)
+                    .ok());
+    EXPECT_TRUE(
+            pool->submit_load(std::make_shared<RecordTask>(&order, 23), 2, LoadTaskPriority::LOW)
+                    .ok());
+    EXPECT_TRUE(pool->submit_load(std::make_shared<RecordTask>(&order, 10), 1,
+                                  LoadTaskPriority::HIGHEST)
+                        .ok());
+    release.count_down();
+    pool->wait();
+    EXPECT_EQ(order, (std::vector<int> {10, 23, 13}));
 }
 
 TEST(LoadThreadPoolTest, OneLoadCanUseAllWorkers) {
@@ -97,7 +132,7 @@ TEST(LoadThreadPoolTest, CancelOnlyRemovesItsOwnTasks) {
     EXPECT_EQ(order, (std::vector<int> {1, 2}));
 }
 
-TEST(LoadThreadPoolTest, NestedBitmapRunsInlineWithOneWorker) {
+TEST(LoadThreadPoolTest, NestedBitmapHelpsOnlyOwnTokenWithOneWorker) {
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(ThreadPoolBuilder("load_nested_test").set_max_threads(1).build(&pool).ok());
     CalcDeleteBitmapExecutor executor;
@@ -115,6 +150,8 @@ TEST(LoadThreadPoolTest, NestedBitmapRunsInlineWithOneWorker) {
     SCOPED_ATTACH_TASK(resource_ctx);
     auto parent = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
     std::atomic<int> completed = 0;
+    std::atomic<bool> unrelated_ran = false;
+    auto unrelated = pool->new_load_token(2, LoadTaskPriority::HIGHEST);
     EXPECT_TRUE(
             parent->submit_func([&] {
                       EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
@@ -131,15 +168,19 @@ TEST(LoadThreadPoolTest, NestedBitmapRunsInlineWithOneWorker) {
                           EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),
                                     tablet_tracker.get());
                       };
+                      EXPECT_TRUE(unrelated->submit_func([&] { unrelated_ran = true; }).ok());
                       auto child =
                               executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
                       for (int i = 0; i < 2; ++i) {
                           EXPECT_TRUE(child->submit_func([&] {
                                                check_context();
+                                               EXPECT_TRUE(ThreadPool::is_helping_load_task());
+                                               EXPECT_FALSE(unrelated_ran.load());
+                                               EXPECT_EQ(pool->num_active_threads(), 1);
                                                ++completed;
                                                return Status::OK();
                                            }).ok());
-                          EXPECT_EQ(completed.load(), i + 1);
+                          EXPECT_EQ(completed.load(), 0);
                           check_context();
                       }
                       EXPECT_TRUE(child->submit_func([&] {
@@ -148,11 +189,153 @@ TEST(LoadThreadPoolTest, NestedBitmapRunsInlineWithOneWorker) {
                                            return Status::InternalError("test bitmap failure");
                                        }).ok());
                       EXPECT_FALSE(child->wait().ok());
+                      EXPECT_FALSE(unrelated_ran.load());
+                      EXPECT_FALSE(ThreadPool::is_helping_load_task());
+                      child.reset(); // No scheduler reference may survive this destruction.
+                      auto next = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                      EXPECT_TRUE(next->submit_func([&] {
+                                          check_context();
+                                          ++completed;
+                                          return Status::OK();
+                                      }).ok());
+                      EXPECT_TRUE(next->wait().ok());
                       check_context();
                       return Status::OK();
                   }).ok());
     EXPECT_TRUE(parent->wait().ok());
-    EXPECT_EQ(completed.load(), 3);
+    EXPECT_EQ(completed.load(), 4);
+    pool->wait();
+    EXPECT_TRUE(unrelated_ran.load());
+}
+
+TEST(LoadThreadPoolTest, NestedBitmapUsesSpareWorkerAndParentPool) {
+    std::unique_ptr<ThreadPool> pool, default_pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_parallel_parent").set_max_threads(2).build(&pool).ok());
+    ASSERT_TRUE(
+            ThreadPoolBuilder("bitmap_other_domain").set_max_threads(1).build(&default_pool).ok());
+    CalcDeleteBitmapExecutor executor;
+    executor.init("bitmap_parallel_background", 1, default_pool.get());
+    auto resource_ctx = ResourceContext::create_shared();
+    auto request_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            "bitmap_parallel_request");
+    auto tablet_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                           "bitmap_parallel_tablet");
+    resource_ctx->memory_context()->set_mem_tracker(request_tracker);
+    SCOPED_ATTACH_TASK(resource_ctx);
+    CalcDeleteBitmapToken parent(pool->new_load_token(1, LoadTaskPriority::HIGHEST));
+    CountDownLatch worker_entered(1), helper_entered(1), release(1);
+    Defer unblock = [&] { release.count_down(); };
+    EXPECT_TRUE(
+            parent.submit_func([&] {
+                      SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tablet_tracker);
+                      auto child =
+                              executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                      auto check_context = [&] {
+                          EXPECT_EQ(ThreadPool::current_load_pool(), pool.get());
+                          EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
+                          EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),
+                                    tablet_tracker.get());
+                      };
+                      EXPECT_TRUE(child->submit_func([&] {
+                                           check_context();
+                                           EXPECT_FALSE(ThreadPool::is_helping_load_task());
+                                           worker_entered.count_down();
+                                           release.wait();
+                                           return Status::OK();
+                                       }).ok());
+                      EXPECT_TRUE(worker_entered.wait_for(5s));
+                      EXPECT_TRUE(child->submit_func([&] {
+                                           check_context();
+                                           EXPECT_TRUE(ThreadPool::is_helping_load_task());
+                                           helper_entered.count_down();
+                                           release.wait();
+                                           return Status::OK();
+                                       }).ok());
+                      auto st = child->wait();
+                      check_context();
+                      EXPECT_FALSE(ThreadPool::is_helping_load_task());
+                      return st;
+                  }).ok());
+    EXPECT_TRUE(helper_entered.wait_for(5s));
+    EXPECT_EQ(pool->num_active_threads(), 2); // Helping does not create a third physical worker.
+    release.count_down();
+    EXPECT_TRUE(parent.wait().ok());
+}
+
+TEST(LoadThreadPoolTest, AllWorkersCanHelpTheirOwnChildren) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_saturated").set_max_threads(2).build(&pool).ok());
+    CalcDeleteBitmapExecutor executor;
+    executor.init("bitmap_saturated_background", 1, pool.get());
+    SCOPED_ATTACH_TASK(
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "bitmap_saturated"));
+    auto first = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+    auto second = executor.create_load_token(2, LoadTaskPriority::HIGHEST, nullptr);
+    CountDownLatch parents_entered(2), children_entered(2), release(1);
+    std::atomic<int> completed = 0;
+    Defer unblock = [&] { release.count_down(); };
+    auto run_parent = [&](int64_t load_id) {
+        parents_entered.count_down();
+        EXPECT_TRUE(parents_entered.wait_for(5s));
+        auto child = executor.create_load_token(load_id, LoadTaskPriority::HIGHEST, nullptr);
+        EXPECT_TRUE(child->submit_func([&] {
+                             EXPECT_TRUE(ThreadPool::is_helping_load_task());
+                             children_entered.count_down();
+                             release.wait();
+                             ++completed;
+                             return Status::OK();
+                         }).ok());
+        return child->wait();
+    };
+    EXPECT_TRUE(first->submit_func([&] { return run_parent(1); }).ok());
+    EXPECT_TRUE(second->submit_func([&] { return run_parent(2); }).ok());
+    EXPECT_TRUE(children_entered.wait_for(5s));
+    EXPECT_EQ(pool->num_active_threads(), 2);
+    release.count_down();
+    EXPECT_TRUE(first->wait().ok());
+    EXPECT_TRUE(second->wait().ok());
+    EXPECT_EQ(completed.load(), 2);
+}
+
+TEST(LoadThreadPoolTest, ParentCanCancelQueuedPublishChildren) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_cancel_children").set_max_threads(1).build(&pool).ok());
+    CalcDeleteBitmapExecutor executor;
+    executor.init("bitmap_cancel_background", 1, pool.get());
+    SCOPED_ATTACH_TASK(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                        "bitmap_cancel_children"));
+    auto parent = executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+    EXPECT_TRUE(parent->submit_func([&] {
+                          auto child =
+                                  executor.create_load_token(1, LoadTaskPriority::HIGHEST, nullptr);
+                          EXPECT_TRUE(child->submit_func([] {
+                                               ADD_FAILURE() << "cancelled child ran";
+                                               return Status::OK();
+                                           }).ok());
+                          child->cancel();
+                          EXPECT_TRUE(child->wait().is<ErrorCode::CANCELLED>());
+                          return Status::OK();
+                      }).ok());
+    EXPECT_TRUE(parent->wait().ok());
+}
+
+TEST(LoadThreadPoolTest, HelpingCallbackExceptionRetiresTask) {
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("bitmap_help_exception").set_max_threads(1).build(&pool).ok());
+    auto parent = pool->new_load_token(1, LoadTaskPriority::HIGHEST);
+    EXPECT_TRUE(parent->submit_func([&] {
+                          auto child = pool->new_load_token(1, LoadTaskPriority::HIGHEST, true);
+                          EXPECT_TRUE(child->submit_func([] {
+                                               throw std::runtime_error("child failure");
+                                           }).ok());
+                          EXPECT_THROW(child->wait_and_help(), std::runtime_error);
+                          EXPECT_FALSE(ThreadPool::is_helping_load_task());
+                          EXPECT_EQ(ThreadPool::current_load_pool(), pool.get());
+                          EXPECT_EQ(child->num_tasks(), 0);
+                          child->wait_and_help(); // Failed callback must not leave an active task.
+                      }).ok());
+    parent->wait();
+    EXPECT_EQ(pool->get_queue_size(), 0);
 }
 
 TEST(LoadThreadPoolTest, CancelledBitmapIsNotReportedAsComplete) {
@@ -227,26 +410,28 @@ TEST(LoadThreadPoolTest, BitmapSubmissionAfterShutdownPreservesReason) {
     EXPECT_EQ(token.wait().to_string(), rejected.to_string());
 }
 
-TEST(LoadThreadPoolTest, FlushCleanupCanJoinRunningBitmapLeaves) {
-    std::unique_ptr<ThreadPool> pool;
-    ASSERT_TRUE(ThreadPoolBuilder("load_cleanup_test").set_max_threads(2).build(&pool).ok());
-    auto leaf = pool->new_load_token(1, LoadTaskPriority::MID);
-    auto parent = pool->new_load_token(1, LoadTaskPriority::LOW);
-    CountDownLatch leaf_entered(1), parent_entered(1), release(1);
-    Defer unblock = [&] { release.count_down(); };
-    EXPECT_TRUE(leaf->submit_func([&] {
-                        leaf_entered.count_down();
-                        release.wait();
-                    }).ok());
-    EXPECT_TRUE(leaf_entered.wait_for(5s));
-    EXPECT_TRUE(parent->submit_func([&] {
-                          parent_entered.count_down();
-                          leaf->shutdown();
-                      }).ok());
-    EXPECT_TRUE(parent_entered.wait_for(5s));
-    release.count_down();
-    parent->wait();
-    EXPECT_FALSE(leaf->submit_func([] {}).ok());
+TEST(LoadThreadPoolTest, LoadCleanupCanJoinRunningBitmapLeaves) {
+    for (auto priority : {LoadTaskPriority::MID, LoadTaskPriority::HIGHEST}) {
+        std::unique_ptr<ThreadPool> pool;
+        ASSERT_TRUE(ThreadPoolBuilder("load_cleanup_test").set_max_threads(2).build(&pool).ok());
+        auto leaf = pool->new_load_token(1, priority, true);
+        auto parent = pool->new_load_token(1, LoadTaskPriority::LOW);
+        CountDownLatch leaf_entered(1), parent_entered(1), release(1);
+        Defer unblock = [&] { release.count_down(); };
+        EXPECT_TRUE(leaf->submit_func([&] {
+                            leaf_entered.count_down();
+                            release.wait();
+                        }).ok());
+        EXPECT_TRUE(leaf_entered.wait_for(5s));
+        EXPECT_TRUE(parent->submit_func([&] {
+                              parent_entered.count_down();
+                              leaf->shutdown();
+                          }).ok());
+        EXPECT_TRUE(parent_entered.wait_for(5s));
+        release.count_down();
+        parent->wait();
+        EXPECT_FALSE(leaf->submit_func([] {}).ok());
+    }
 }
 
 } // namespace doris

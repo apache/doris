@@ -140,4 +140,24 @@ TEST(LoadTaskQueueTest, CancelMiddleLoadDoesNotInspectOtherLoads) {
     EXPECT_TRUE(queue.empty());
 }
 
+TEST(LoadTaskQueueTest, EraseHandlePreservesOtherHandlesAndTurns) {
+    LoadTaskQueue<int> queue;
+    queue.push(1, 0, 10);
+    queue.push(1, 0, 11);
+    auto middle = queue.push(1, 0, 12);
+    auto last = queue.push(1, 0, 13);
+    auto other_load = queue.push(2, 0, 20);
+    queue.push(3, 0, 30);
+    EXPECT_EQ(queue.pop(), 10); // Rotate load 1 before erasing its own remaining tasks.
+    queue.erase(middle);
+    EXPECT_EQ(queue.remove_if(1, [](int task) { return task == 11; }), (std::vector<int> {11}));
+    queue.erase(last);       // remove_if must not invalidate another entry's handle.
+    queue.erase(other_load); // Remove another load from the ready list.
+    queue.push(1, 0, 14);
+    EXPECT_EQ(queue.size(), 2);
+    EXPECT_EQ(queue.pop(), 30);
+    EXPECT_EQ(queue.pop(), 14);
+    EXPECT_TRUE(queue.empty());
+}
+
 } // namespace doris
