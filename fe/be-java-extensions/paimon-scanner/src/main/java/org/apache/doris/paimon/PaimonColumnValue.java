@@ -27,6 +27,7 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -147,7 +148,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
+        // Paimon decodes compact decimals from the physical unscaled value using the
+        // precision and scale supplied here. During schema evolution those values belong to
+        // the record's Paimon type, while dorisType is the destination type. Passing the
+        // destination scale interprets an old value such as 1.20 as 0.120.
+        DecimalType decimalType = (DecimalType) dataType;
+        return record.getDecimal(idx, decimalType.getPrecision(), decimalType.getScale()).toBigDecimal();
     }
 
     @Override
