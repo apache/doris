@@ -849,14 +849,6 @@ Status run_chained_conjunction(const LogicalIndexReader& idx, const io::BatchRan
 
 } // namespace
 
-Status resolve_query_term(const LogicalIndexReader& idx, std::string_view term,
-                          ResolvedQueryTerm* resolved, bool* found) {
-    *found = false;
-    RETURN_IF_ERROR(
-            idx.lookup(term, found, &resolved->entry, &resolved->frq_base, &resolved->prx_base));
-    return Status::OK();
-}
-
 Status resolve_query_terms_batch(const LogicalIndexReader& idx,
                                  const std::vector<std::string>& terms,
                                  std::vector<ResolvedQueryTerm>* resolved,
@@ -878,24 +870,50 @@ Status resolve_query_terms_batch(const LogicalIndexReader& idx,
     return Status::OK();
 }
 
+Status resolve_all_query_terms(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
+                               std::vector<ResolvedQueryTerm>* resolved, bool* all_present) {
+    *all_present = false;
+    resolved->clear();
+    for (const std::string& term : terms) {
+        bool maybe_present = false;
+        RETURN_IF_ERROR(idx.may_contain(term, &maybe_present));
+        if (!maybe_present) {
+            return Status::OK();
+        }
+    }
+    std::vector<std::string> distinct = terms;
+    std::ranges::sort(distinct);
+    distinct.erase(std::ranges::unique(distinct).begin(), distinct.end());
+    std::vector<ResolvedQueryTerm> distinct_resolved;
+    std::vector<uint8_t> found;
+    RETURN_IF_ERROR(resolve_query_terms_batch(idx, distinct, &distinct_resolved, &found));
+    if (std::ranges::any_of(found, [](uint8_t present) { return present == 0; })) {
+        return Status::OK();
+    }
+    resolved->reserve(terms.size());
+    for (const std::string& term : terms) {
+        const auto slot = std::ranges::lower_bound(distinct, term) - distinct.begin();
+        resolved->push_back(distinct_resolved[static_cast<size_t>(slot)]);
+    }
+    *all_present = true;
+    return Status::OK();
+}
+
 Status plan_terms(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                   io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans, bool* all_present,
                   bool need_positions) {
-    *all_present = true;
+    std::vector<ResolvedQueryTerm> resolved;
+    RETURN_IF_ERROR(resolve_all_query_terms(idx, terms, &resolved, all_present));
+    if (!*all_present) {
+        return Status::OK();
+    }
     plans->resize(terms.size());
     for (size_t i = 0; i < terms.size(); ++i) {
-        ResolvedQueryTerm resolved;
-        bool found = false;
-        RETURN_IF_ERROR(resolve_query_term(idx, terms[i], &resolved, &found));
-        if (!found) {
-            *all_present = false;
-            return Status::OK();
-        }
         TermPlan& p = (*plans)[i];
         p.order = i;
-        p.entry = std::move(resolved.entry);
-        p.frq_base = resolved.frq_base;
-        p.prx_base = resolved.prx_base;
+        p.entry = std::move(resolved[i].entry);
+        p.frq_base = resolved[i].frq_base;
+        p.prx_base = resolved[i].prx_base;
         RETURN_IF_ERROR(configure_term_plan(idx, need_positions, fetcher, &p));
     }
     return Status::OK();

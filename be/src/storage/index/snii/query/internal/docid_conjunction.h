@@ -19,7 +19,6 @@
 
 #include <cstdint>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "common/status.h"
@@ -64,15 +63,19 @@ struct DocidSource {
     bool docids_are_final_candidates = false;
 };
 
-Status resolve_query_term(const reader::LogicalIndexReader& idx, std::string_view term,
-                          ResolvedQueryTerm* resolved, bool* found);
-
 // Resolves one sorted, duplicate-free term batch through bounded physical DICT
 // reads. Results stay aligned with `terms`; absent terms have found[i]=0.
 Status resolve_query_terms_batch(const reader::LogicalIndexReader& idx,
                                  const std::vector<std::string>& terms,
                                  std::vector<ResolvedQueryTerm>* resolved,
                                  std::vector<uint8_t>* found);
+
+// Resolves every term, in the caller's order, or reports that one is absent. A term the
+// resident filter or the sampled term index rules out ends the lookup before any read; the
+// others resolve together, one read per wave of dictionary blocks.
+Status resolve_all_query_terms(const reader::LogicalIndexReader& idx,
+                               const std::vector<std::string>& terms,
+                               std::vector<ResolvedQueryTerm>* resolved, bool* all_present);
 
 Status plan_terms(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
                   io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans, bool* all_present,

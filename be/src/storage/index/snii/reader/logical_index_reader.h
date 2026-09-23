@@ -130,6 +130,10 @@ public:
     Status lookup(std::string_view term, bool* found, format::DictEntry* entry, uint64_t* frq_base,
                   uint64_t* prx_base, DictBlockCache* cache = nullptr) const;
 
+    // Whether a term may be in the dictionary, decided by the resident filter and the sampled
+    // term index alone, without any read; false means the term is absent.
+    Status may_contain(std::string_view term, bool* maybe_present) const;
+
     struct BatchLookupResult {
         bool found = false;
         format::DictEntry entry;

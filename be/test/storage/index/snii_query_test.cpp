@@ -975,7 +975,8 @@ Status resolve_opaque_matcher_plan(const reader::LogicalIndexReader& idx,
     for (const std::string& term : unique_terms) {
         internal::ResolvedQueryTerm resolved;
         bool found = false;
-        RETURN_IF_ERROR(internal::resolve_query_term(idx, term, &resolved, &found));
+        RETURN_IF_ERROR(
+                idx.lookup(term, &found, &resolved.entry, &resolved.frq_base, &resolved.prx_base));
         if (!found) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "opaque matcher test term is absent");

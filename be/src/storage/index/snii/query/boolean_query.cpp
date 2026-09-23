@@ -18,7 +18,7 @@
 #include "storage/index/snii/query/boolean_query.h"
 
 #include <algorithm>
-#include <string_view>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -27,40 +27,39 @@
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_union.h"
-#include "storage/index/snii/reader/dict_block_cache.h"
 
 namespace doris::snii::query {
 
 namespace {
 
-std::vector<std::string_view> unique_terms(const std::vector<std::string>& terms) {
-    std::vector<std::string_view> out;
-    out.reserve(terms.size());
-    for (const std::string& term : terms) out.emplace_back(term);
-    std::sort(out.begin(), out.end());
-    out.erase(std::unique(out.begin(), out.end()), out.end());
-    return out;
-}
-
+// A term the resident filter or the sampled term index rules out is dropped without a read. The
+// other distinct terms resolve together, one read per wave of dictionary blocks, and a block
+// several terms share is read and decoded once.
 Status resolve_or_postings(const reader::LogicalIndexReader& idx,
                            const std::vector<std::string>& terms,
                            std::vector<internal::ResolvedDocidPosting>* postings) {
     postings->clear();
-    // Request-scoped (stack-local, single-threaded) cache: OR terms that fall in the
-    // same on-demand DICT block read + zstd-decode + CRC-verify that block once
-    // instead of once per term. The resolved DictEntry is copied out, so the cache
-    // (and any pin it holds) can die when this returns. The shared reader stays const
-    // and lock-free -- no lock is ever held across the decode/IO.
-    reader::DictBlockCache dict_cache;
-    for (std::string_view term : unique_terms(terms)) {
-        bool found = false;
-        format::DictEntry entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        RETURN_IF_ERROR(idx.lookup(term, &found, &entry, &frq_base, &prx_base, &dict_cache));
-        if (!found) continue;
-
-        postings->push_back({std::move(entry), frq_base, prx_base});
+    std::vector<std::string> distinct;
+    for (const std::string& term : terms) {
+        bool maybe_present = false;
+        RETURN_IF_ERROR(idx.may_contain(term, &maybe_present));
+        if (maybe_present) {
+            distinct.push_back(term);
+        }
+    }
+    if (distinct.empty()) {
+        return Status::OK();
+    }
+    std::ranges::sort(distinct);
+    distinct.erase(std::ranges::unique(distinct).begin(), distinct.end());
+    std::vector<internal::ResolvedQueryTerm> resolved;
+    std::vector<uint8_t> found;
+    RETURN_IF_ERROR(internal::resolve_query_terms_batch(idx, distinct, &resolved, &found));
+    for (size_t i = 0; i < distinct.size(); ++i) {
+        if (found[i] != 0) {
+            postings->push_back(
+                    {std::move(resolved[i].entry), resolved[i].frq_base, resolved[i].prx_base});
+        }
     }
     return Status::OK();
 }

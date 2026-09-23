@@ -771,6 +771,11 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
     return Status::OK();
 }
 
+Status LogicalIndexReader::may_contain(std::string_view term, bool* maybe_present) const {
+    uint32_t ordinal = 0;
+    return locate_candidate_dict_block(term, maybe_present, &ordinal);
+}
+
 Status LogicalIndexReader::locate_candidate_dict_block(std::string_view term, bool* maybe_present,
                                                        uint32_t* ordinal) const {
     *maybe_present = false;

@@ -129,17 +129,15 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
         }
         return Status::OK();
     }
+    const std::vector<std::string> exact(terms.begin(), terms.end() - 1);
+    for (const std::string& term : exact) {
+        RETURN_IF_ERROR(internal::check_term_outside_internal_namespace(term));
+    }
     std::vector<ResolvedQueryTerm> exact_terms;
-    exact_terms.reserve(terms.size() - 1);
-    for (size_t i = 0; i + 1 < terms.size(); ++i) {
-        RETURN_IF_ERROR(internal::check_term_outside_internal_namespace(terms[i]));
-        ResolvedQueryTerm resolved;
-        bool found = false;
-        RETURN_IF_ERROR(internal::resolve_query_term(idx, terms[i], &resolved, &found));
-        if (!found) {
-            return Status::OK();
-        }
-        exact_terms.push_back(std::move(resolved));
+    bool all_present = false;
+    RETURN_IF_ERROR(internal::resolve_all_query_terms(idx, exact, &exact_terms, &all_present));
+    if (!all_present) {
+        return Status::OK();
     }
 
     // Expand the tail in the logical plain namespace. The visitor range-seeks
