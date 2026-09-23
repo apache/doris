@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.catalog.SchemaTable;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
@@ -28,8 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
