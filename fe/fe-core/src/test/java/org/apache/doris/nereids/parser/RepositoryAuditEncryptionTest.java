@@ -66,9 +66,11 @@ public class RepositoryAuditEncryptionTest {
         String sql = "CREATE EXTERNAL RESOURCE \"ai_resource\" PROPERTIES ("
                 + "\"type\" = \"ai\", "
                 + "\"ai.api_key\" = \"sk-test\", "
+                + "\"ai.embed.api_key\" = \"embed-sk-test\", "
                 + "\"ai.endpoint\" = \"https://api.test\")";
         String masked = encrypt(sql);
         Assertions.assertFalse(masked.contains("sk-test"), masked);
+        Assertions.assertFalse(masked.contains("embed-sk-test"), masked);
         Assertions.assertTrue(masked.contains("*XXX"), masked);
         Assertions.assertTrue(masked.contains("https://api.test"), masked);
     }
@@ -77,9 +79,11 @@ public class RepositoryAuditEncryptionTest {
     public void testAlterResourceMasksAiApiKey() {
         String sql = "ALTER RESOURCE \"ai_resource\" PROPERTIES ("
                 + "\"ai.api_key\" = \"sk-test\", "
+                + "\"ai.embed.api_key\" = \"embed-sk-test\", "
                 + "\"ai.endpoint\" = \"https://api.test\")";
         String masked = encrypt(sql);
         Assertions.assertFalse(masked.contains("sk-test"), masked);
+        Assertions.assertFalse(masked.contains("embed-sk-test"), masked);
         Assertions.assertTrue(masked.contains("*XXX"), masked);
         Assertions.assertTrue(masked.contains("https://api.test"), masked);
     }

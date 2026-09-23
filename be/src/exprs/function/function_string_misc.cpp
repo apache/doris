@@ -1274,7 +1274,8 @@ public:
     static bool execute_const_null(ColumnString::MutablePtr& res_col,
                                    PaddedPODArray<UInt8>& res_null_map_data,
                                    size_t input_rows_count, size_t null_index) {
-        if (null_index == 1) {
+        // Only a NULL bits argument makes the result NULL; NULL strings are skipped.
+        if (null_index == 0) {
             res_col->insert_many_defaults(input_rows_count);
             res_null_map_data.assign(input_rows_count, (UInt8)1);
             return true;

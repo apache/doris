@@ -206,6 +206,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_PRUNE_PREDICATE = "skip_prune_predicate";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_HIVE_SQL_CACHE = "enable_hive_sql_cache";
+    public static final String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String ENABLE_QUERY_CACHE_INCREMENTAL = "enable_query_cache_incremental";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
@@ -787,7 +788,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
-    public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
+    public static final String FORCE_PUSHDOWN_ZONEMAP_MINMAX = "force_pushdown_zonemap_minmax";
 
     public static final String ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES
             = "enable_mor_value_predicate_pushdown_tables";
@@ -1480,7 +1481,7 @@ public class SessionVariable implements Serializable, Writable {
             description = "Use consistent hashing to split the appearance for external scan")
     public boolean useConsistentHashForExternalScan = false;
 
-    @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false,
+    @VarAttrDef.VarAttr(name = PROFILE_LEVEL, fuzzy = false, needForward = true,
             setter = "setProfileLevel", checker = "checkProfileLevel",
             description = "The level of query profile, "
                     + "1 means only collect Counter of MergedProfile, 2 means print detailed information,"
@@ -1538,6 +1539,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_HIVE_SQL_CACHE, fuzzy = false)
     public boolean enableHiveSqlCache = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_EXTERNAL_SCAN_TASK_REUSE, needForward = true,
+            description = "Whether to reuse equivalent external table scan splits within one statement.")
+    public boolean enableExternalScanTaskReuse = true;
 
     // Forwarded because query cache normalization runs wherever the statement is
     // planned: a forwarded statement is planned by the master in a fresh
@@ -1964,7 +1969,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
-    private int maxJoinNumBushyTree = 8;
+    private int maxJoinNumBushyTree = 9;
 
     @VarAttrDef.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = true;
@@ -2370,10 +2375,13 @@ public class SessionVariable implements Serializable, Writable {
             + "pushdown minmax on unique table.")
     public boolean enablePushDownMinMaxOnUnique = false;
 
-    // Whether enable push down string type minmax to scan node.
-    @VarAttrDef.VarAttr(name = ENABLE_PUSHDOWN_STRING_MINMAX, needForward = true, description = "Set whether to enable "
-            + "push down string type minmax.")
-    public boolean enablePushDownStringMinMax = false;
+    // Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now:
+    // a cut string bound, or one covering rows a delete predicate removed. The alias is the old
+    // name, from when this only governed string bounds.
+    @VarAttrDef.VarAttr(name = FORCE_PUSHDOWN_ZONEMAP_MINMAX, alias = {"enable_pushdown_string_minmax"},
+            needForward = true, description = "Set whether to force a pushed down minmax onto the zone map when its "
+            + "bound is a cut string prefix, or still covers rows a delete predicate removed.")
+    public boolean forcePushDownZonemapMinMax = false;
 
     // Comma-separated list of MOR tables to enable value predicate pushdown.
     @VarAttrDef.VarAttr(name = ENABLE_MOR_VALUE_PREDICATE_PUSHDOWN_TABLES, needForward = true, description = "Comma-sep"
@@ -3051,6 +3059,9 @@ public class SessionVariable implements Serializable, Writable {
                     + "CLucene (V1/V2/V3) index reads. "
                     + "Intended for one-shot / ad-hoc cold queries.")
     public boolean invertedIndexSniiReadNoWriteFileCache = false;
+
+    @VarAttrDef.VarAttr(name = "enable_join_reorder_before_eager_agg", needForward = true)
+    public boolean enableJoinReorderBeforeEagerAgg = true;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -5044,10 +5055,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enablePushDownMinMaxOnUnique = enablePushDownMinMaxOnUnique;
     }
 
-    public boolean isEnablePushDownStringMinMax() {
-        return enablePushDownStringMinMax;
-    }
-
     public String getEnableMorValuePredicatePushdownTables() {
         return enableMorValuePredicatePushdownTables;
     }
@@ -5526,6 +5533,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableInvertedIndexQuery(enableInvertedIndexQuery);
         tResult.setEnableNoNeedReadDataOpt(enableNoNeedReadDataOpt);
+        tResult.setForcePushdownZonemapMinmax(forcePushDownZonemapMinMax);
 
         if (dryRunQuery) {
             tResult.setDryRunQuery(true);

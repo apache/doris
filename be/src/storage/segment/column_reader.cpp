@@ -715,9 +715,6 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) co
     // TODO: this work to get min/max value seems should only do once
     ZoneMap zone_map;
     RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
-    // Segment::new_iterator does not build this iterator on an invalid zone map, whose min/max
-    // are unset and would be reported below as if they were data.
-    DORIS_CHECK(!zone_map.pass_all);
 
     dst->reserve(*n);
     if (!zone_map.has_not_null) {

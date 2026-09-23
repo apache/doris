@@ -33,8 +33,9 @@ import java.util.List;
 
 /**
  * The predicate behind the Arrow Flight deferral gate in StmtExecutor.executeAndSendResult (#67503):
- * a coordinator has to outlive GetFlightInfo only when one of its scans still hands out splits to
- * the BE lazily, i.e. an external-table scan in batch mode holding a batch split source (#62259).
+ * a coordinator has to outlive GetFlightInfo only when the BE still depends on one of its scans
+ * after dispatch - here an external-table scan in batch mode holding a batch split source (#62259).
+ * The other reason, a remote Doris scan's Flight SQL session, is covered by RemoteDorisScanNodeTest.
  */
 public class ArrowFlightDeferralGateTest {
 
@@ -55,15 +56,15 @@ public class ArrowFlightDeferralGateTest {
     }
 
     @Test
-    public void testScanNodeHasBatchSplitSourceOnlyWhenSplitsAreHandedOutLazily() throws Exception {
-        Assertions.assertFalse(scanNode(false).hasBatchSplitSource());
-        Assertions.assertTrue(scanNode(true).hasBatchSplitSource());
+    public void testScanNodeMustOutliveDispatchOnlyWhenSplitsAreHandedOutLazily() throws Exception {
+        Assertions.assertFalse(scanNode(false).coordinatorMustOutliveDispatch());
+        Assertions.assertTrue(scanNode(true).coordinatorMustOutliveDispatch());
     }
 
     @Test
-    public void testCoordinatorHasBatchSplitSourceIfAnyScanDoes() throws Exception {
-        Assertions.assertFalse(coordinator(Lists.newArrayList()).hasBatchSplitSource());
-        Assertions.assertFalse(coordinator(Lists.newArrayList(scanNode(false), scanNode(false))).hasBatchSplitSource());
-        Assertions.assertTrue(coordinator(Lists.newArrayList(scanNode(false), scanNode(true))).hasBatchSplitSource());
+    public void testCoordinatorMustOutliveDispatchIfAnyScanRequiresIt() throws Exception {
+        Assertions.assertFalse(coordinator(Lists.newArrayList()).mustOutliveDispatch());
+        Assertions.assertFalse(coordinator(Lists.newArrayList(scanNode(false), scanNode(false))).mustOutliveDispatch());
+        Assertions.assertTrue(coordinator(Lists.newArrayList(scanNode(false), scanNode(true))).mustOutliveDispatch());
     }
 }

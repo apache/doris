@@ -63,6 +63,7 @@ import java.util.concurrent.locks.LockSupport;
 
 public class TableStreamManager extends MasterDaemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableStreamManager.class);
+    private static final String BASE_TABLE_NOT_FOUND_STALE_REASON = "Base table does not exist";
     @SerializedName(value = "dbStreamMap")
     private Map<Long, Set<Long>> dbStreamMap;
     protected MonitoredReentrantReadWriteLock rwLock;
@@ -356,7 +357,8 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                             // STREAM_COMMENT
                             trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
                             TableIf baseTable = stream.getBaseTableNullable();
-                            if (baseTable == null) {
+                            boolean baseTableExists = baseTable != null;
+                            if (!baseTableExists) {
                                 // BASE_TABLE_NAME
                                 trow.addToColumnValue(new TCell().setStringVal("N/A"));
                                 // BASE_TABLE_DB
@@ -377,11 +379,13 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                                 trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
                             }
                             // ENABLED
-                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
+                            trow.addToColumnValue(
+                                    new TCell().setBoolVal(baseTableExists && !stream.isDisabled()));
                             // IS_STALE
-                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
+                            trow.addToColumnValue(new TCell().setBoolVal(!baseTableExists || stream.isStale()));
                             // STALE_REASON
-                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableExists
+                                    ? stream.getStaleReason() : BASE_TABLE_NOT_FOUND_STALE_REASON));
                             dataBatch.add(trow);
                         } finally {
                             stream.readUnlock();

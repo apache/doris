@@ -115,13 +115,22 @@ public class MTMVRelationManager implements MTMVHookService {
             if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), baseTableName)) {
                 continue;
             }
+            boolean invalidated;
             if (allPartitionsChanged) {
                 mtmv.invalidateIvmBaseline();
+                invalidated = true;
             } else {
-                mtmv.invalidateIvmBaseline(baseTableInfo, changedPartitions);
+                invalidated = mtmv.invalidateIvmBaseline(baseTableInfo, changedPartitions);
             }
-            LOG.info("Invalidated IVM baseline, baseTable={}, mtmv={}, reason={}",
-                    baseTableInfo, mtmvInfo, reason);
+            // A partition change that no MV partition reads leaves nothing to rebuild, and saying that it
+            // invalidated the baseline would claim a persisted barrier that does not exist.
+            if (invalidated) {
+                LOG.info("Invalidated IVM baseline, baseTable={}, mtmv={}, reason={}",
+                        baseTableInfo, mtmvInfo, reason);
+            } else {
+                LOG.info("No MV partition reads the changed base partitions, nothing to invalidate. "
+                        + "baseTable={}, mtmv={}, reason={}", baseTableInfo, mtmvInfo, reason);
+            }
         }
     }
 

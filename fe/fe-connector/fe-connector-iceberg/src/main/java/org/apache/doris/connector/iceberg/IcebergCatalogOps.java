@@ -40,6 +40,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
@@ -323,9 +324,17 @@ public interface IcebergCatalogOps {
             SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
             if (restFlavor && nestedNamespaceEnabled) {
                 return nsCatalog.listNamespaces(parentNs).stream()
-                        .flatMap(childNs -> Stream.concat(
-                                Stream.of(childNs.toString()),
-                                listNestedNamespaces(childNs).stream()))
+                        .flatMap(childNs -> {
+                            try {
+                                List<String> descendants = listNestedNamespaces(childNs);
+                                return Stream.concat(Stream.of(childNs.toString()), descendants.stream());
+                            } catch (NoSuchNamespaceException e) {
+                                // A child can be dropped after its parent was listed. Skip that branch,
+                                // including the stale child name, without hiding failures to list the root.
+                                LOG.debug("Namespace {} was dropped during listing", childNs, e);
+                                return Stream.empty();
+                            }
+                        })
                         .collect(Collectors.toList());
             }
             return nsCatalog.listNamespaces(parentNs).stream()

@@ -61,6 +61,12 @@ suite("test_tablet_size_semantics") {
     """
     sql "sync"
 
+    // Querying the tablet's actual data forces the BE to sync_rowsets() for it directly,
+    // instead of relying on it being picked up as a compaction candidate (which can be
+    // starved for a long time on a busy cluster with many other tablets competing for
+    // compaction slots) or the ~30min background staleness sweep.
+    sql "select * from ${tableName}"
+
     def showTabletRows = sql_return_maparray("show tablets from ${tableName}")
     assertTrue(showTabletRows.size() == 1)
     def showTabletRow = showTabletRows[0]

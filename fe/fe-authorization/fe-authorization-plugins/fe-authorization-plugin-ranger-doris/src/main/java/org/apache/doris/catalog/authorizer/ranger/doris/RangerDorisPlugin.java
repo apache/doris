@@ -17,17 +17,24 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
-import org.apache.ranger.plugin.service.RangerAuthContextListener;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
+import org.apache.doris.catalog.authorizer.ranger.LoadedRangerPlugin;
 
-public class RangerDorisPlugin extends RangerBasePlugin {
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
+
+/**
+ * The plugin over a Ranger service of type {@code doris}: built with the service's policies or not at all, so
+ * that an FE whose instance scope it governs starts with them or does not start; see
+ * {@link LoadedRangerPlugin}.
+ */
+public class RangerDorisPlugin extends LoadedRangerPlugin {
     public RangerDorisPlugin(String serviceName) {
         this(serviceName, null);
     }
 
     public RangerDorisPlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         super(serviceName, null, null);
-        super.init();
-        super.registerAuthContextEventListener(rangerAuthContextListener);
+        // Registered before the load, so that the listener hears of the engine the load installs.
+        registerAuthContextEventListener(rangerAuthContextListener);
+        init();
     }
 }
