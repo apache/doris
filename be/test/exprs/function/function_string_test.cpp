@@ -2476,6 +2476,82 @@ TEST(function_string_test, function_aes_encrypt_dynamic_mode_aad_test) {
     EXPECT_FALSE(status.ok());
 }
 
+TEST(function_string_test, function_aes_encrypt_constant_mode_aad_test) {
+    const InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR, Consted {PrimitiveType::TYPE_VARCHAR},
+            Consted {PrimitiveType::TYPE_VARCHAR}, Consted {PrimitiveType::TYPE_VARCHAR},
+            Consted {PrimitiveType::TYPE_VARCHAR}};
+    const DataSet data_set = {
+            {{std::string("first"), std::string("key"), std::string("1234567890123456"),
+              std::string("AES_128_CBC"), std::string("aad")},
+             Null()},
+            {{std::string("second"), std::string("key"), std::string("1234567890123456"),
+              std::string("AES_128_CBC"), std::string("aad")},
+             Null()}};
+
+    const auto status = check_function<DataTypeString, true>("aes_encrypt", input_types, data_set,
+                                                             -1, -1, true);
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(function_string_test, function_aes_encrypt_nullable_mode_aad_test) {
+    const std::string source = "valid row";
+    const std::string key = "key";
+    const std::string iv = "1234567890123456";
+    const std::string aad = "aad";
+    std::vector<char> encrypted(source.size() + 16 + EncryptionUtil::GCM_TAG_SIZE);
+    const int encrypted_size = EncryptionUtil::encrypt(
+            EncryptionMode::AES_128_GCM, reinterpret_cast<const unsigned char*>(source.data()),
+            source.size(), reinterpret_cast<const unsigned char*>(key.data()), key.size(),
+            iv.data(), iv.size(), true, reinterpret_cast<unsigned char*>(encrypted.data()),
+            reinterpret_cast<const unsigned char*>(aad.data()), aad.size());
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto make_column = [](const std::vector<std::string>& values) {
+        auto column = ColumnString::create();
+        for (const auto& value : values) {
+            column->insert_data(value.data(), value.size());
+        }
+        return column;
+    };
+    auto mode_null_map = ColumnUInt8::create();
+    mode_null_map->get_data() = {1, 0};
+    auto mode_column = ColumnNullable::create(make_column({"AES_128_CBC", "AES_128_GCM"}),
+                                              std::move(mode_null_map));
+
+    Block block;
+    block.insert({make_column({"null row", source}), string_type, "source"});
+    block.insert({make_column({key, key}), string_type, "key"});
+    block.insert({make_column({iv, iv}), string_type, "iv"});
+    block.insert({std::move(mode_column), make_nullable(string_type), "mode"});
+    block.insert({make_column({aad, aad}), string_type, "aad"});
+
+    ColumnNumbers arguments = {0, 1, 2, 3, 4};
+    DataTypes argument_types = {string_type, string_type, string_type, make_nullable(string_type),
+                                string_type};
+    FunctionUtils function_utils(get_return_type_descriptor<DataTypeString>(0, 0), argument_types,
+                                 false);
+    auto* context = function_utils.get_fn_ctx();
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "aes_encrypt", block.get_columns_with_type_and_name(), make_nullable(string_type));
+    ASSERT_NE(function, nullptr);
+    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+
+    block.insert({nullptr, make_nullable(string_type), "result"});
+    const auto status = function->execute(context, block, arguments, block.columns() - 1, 2);
+    EXPECT_TRUE(status.ok());
+    if (status.ok()) {
+        const auto* result = check_and_get_column<ColumnNullable>(
+                block.get_by_position(block.columns() - 1).column.get());
+        ASSERT_NE(result, nullptr);
+        EXPECT_EQ(result->get_null_map_data(), (NullMap {1, 0}));
+        EXPECT_EQ(result->get_nested_column().get_data_at(1).to_string(),
+                  std::string(encrypted.data(), encrypted_size));
+    }
+    static_cast<void>(function->close(context, FunctionContext::THREAD_LOCAL));
+    static_cast<void>(function->close(context, FunctionContext::FRAGMENT_LOCAL));
+}
+
 TEST(function_string_test, function_aes_decrypt_test) {
     std::string func_name = "aes_decrypt";
     {
