@@ -2702,9 +2702,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     private static boolean isHmsStringType(String typeName) {
-        String upperTypeName = typeName.toUpperCase(Locale.ROOT);
-        return "STRING".equals(upperTypeName) || "VARCHAR".equals(upperTypeName)
-                || "CHAR".equals(upperTypeName);
+        return "STRING".equals(typeName.toUpperCase(Locale.ROOT));
     }
 
     private static boolean isIntegralLiteral(String value) {

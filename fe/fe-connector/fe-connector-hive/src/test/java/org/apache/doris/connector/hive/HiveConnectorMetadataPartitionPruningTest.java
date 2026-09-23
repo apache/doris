@@ -122,6 +122,36 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testHmsFilterDeclinesCharAndVarcharPartitionKeys() {
+        for (String typeName : Arrays.asList("CHAR", "VARCHAR")) {
+            List<String> parts = Arrays.asList("code=a", "code=b");
+            boolean[] filterAttempted = {false};
+            FakeHmsClient client = new FakeHmsClient(parts) {
+                @Override
+                public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName,
+                        String filter) {
+                    filterAttempted[0] = true;
+                    return super.listPartitionsByFilter(dbName, tableName, filter);
+                }
+            };
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    client, HiveTestProperties.minimal(), new FakeConnectorContext());
+            HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                    .partitionKeyNames(Collections.singletonList("code"))
+                    .partitionKeyTypes(Collections.singletonMap("code", typeName))
+                    .build();
+
+            Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                    null, handle, new ConnectorFilterConstraint(eq("code", "a")));
+
+            Assertions.assertTrue(result.isPresent(), typeName);
+            Assertions.assertEquals(Collections.singletonList("code=a"), prunedLocations(result), typeName);
+            Assertions.assertFalse(filterAttempted[0], typeName + " must not build an HMS filter");
+            Assertions.assertTrue(client.wasListPartitionNamesCalled(), typeName + " must prune locally");
+        }
+    }
+
+    @Test
     public void testEqOnPartitionColumnPrunes() {
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 applyFilter(partitionedHandle(), eq("year", "2024"));
