@@ -172,4 +172,34 @@ suite("test_iceberg_nested_schema_evolution_ddl", "p0,external,doris,external_do
         FROM ${tableName}
         ORDER BY id
     """
+
+    // Trino compatibility: an existing nested decimal may widen its precision without changing its scale.
+    sql """DROP TABLE IF EXISTS iceberg_nested_decimal_evolution"""
+    sql """
+    CREATE TABLE iceberg_nested_decimal_evolution (
+        id INT,
+        info STRUCT<amount:DECIMAL(5,3)>
+    )
+    """
+    sql """
+    INSERT INTO iceberg_nested_decimal_evolution VALUES
+        (1, STRUCT(CAST(12.345 AS DECIMAL(5,3))))
+    """
+    sql """
+    ALTER TABLE iceberg_nested_decimal_evolution
+    MODIFY COLUMN info STRUCT<amount:DECIMAL(10,3)>
+    """
+
+    qt_nested_decimal_schema """
+        SELECT COLUMN_TYPE
+        FROM ${catalogName}.information_schema.columns
+        WHERE TABLE_SCHEMA = '${dbName}' AND TABLE_NAME = 'iceberg_nested_decimal_evolution'
+          AND COLUMN_NAME = 'info'
+    """
+
+    order_qt_nested_decimal_old_row """
+        SELECT id, element_at(info, 'amount')
+        FROM iceberg_nested_decimal_evolution
+        ORDER BY id
+    """
 }
