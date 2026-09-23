@@ -360,6 +360,8 @@ public:
 
     Status add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
                                   int64_t transaction_id, bool is_recover, int64_t commit_tso);
+    // The earliest pending version that still fences Clone. Failed attempts remain
+    // in the recovery queue but do not block replica repair.
     int64_t get_pending_publish_min_version(int64_t tablet_id);
 
     bool add_broken_path(std::string path);

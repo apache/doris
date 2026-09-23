@@ -1738,7 +1738,16 @@ int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
     if (iter == _async_publish_tasks.end() || iter->second.empty()) {
         return INT64_MAX;
     }
-    return iter->second.begin()->first;
+    for (const auto& [version, request] : iter->second) {
+        // Clone uses this value as its repair ceiling. Keep queued/running requests
+        // fenced, but a failed attempt must not prevent Clone from repairing a
+        // genuinely broken replica. The request and durable marker remain retryable.
+        if (request.attempt == nullptr || !request.attempt->finished() ||
+            request.attempt->result().ok()) {
+            return version;
+        }
+    }
+    return INT64_MAX;
 }
 
 void StorageEngine::_process_async_publish() {

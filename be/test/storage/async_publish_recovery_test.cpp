@@ -177,7 +177,7 @@ TEST_F(AsyncPublishRecoveryTest, MissingTransactionRetainsDurableRequest) {
     ASSERT_TRUE(attempt()->finished());
     EXPECT_FALSE(attempt()->result().ok());
     EXPECT_EQ(marker_count(), 1);
-    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), 11);
+    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), INT64_MAX);
     auto old_attempt = attempt();
     _engine->_process_async_publish();
     EXPECT_EQ(attempt(), old_attempt); // retry backoff, not a 30ms busy loop
@@ -238,6 +238,7 @@ TEST_F(AsyncPublishRecoveryTest, DuplicateRegistrationKeepsQueuedAttempt) {
         _engine->_process_async_publish();
     }
     EXPECT_EQ(attempt(), first);
+    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), 11);
     EXPECT_EQ(_engine->_async_publish_tasks.at(TABLET_ID).size(), 1);
     EXPECT_EQ(marker_count(), 1);
 }
@@ -250,7 +251,7 @@ TEST_F(AsyncPublishRecoveryTest, ThreadPoolRejectionRetainsRequest) {
     ASSERT_TRUE(attempt()->finished());
     EXPECT_FALSE(attempt()->result().ok());
     EXPECT_EQ(marker_count(), 1);
-    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), 11);
+    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), INT64_MAX);
 }
 
 TEST_F(AsyncPublishRecoveryTest, OutOfOrderVersionWaitsForPredecessor) {
@@ -298,7 +299,7 @@ TEST_F(AsyncPublishRecoveryTest, RecoverMarkerAfterFailedAttempt) {
     EXPECT_EQ(marker_count(), 0);
 }
 
-TEST_F(AsyncPublishRecoveryTest, NormalPublishWinningRaceIsIdempotent) {
+TEST_F(AsyncPublishRecoveryTest, AlreadyPublishedVersionIsIdempotent) {
     ASSERT_TRUE(commit_empty_rowset().ok());
     AsyncTabletPublishTask first(*_engine, _tablet, PARTITION_ID, TXN_ID, 11, -1);
     first.handle();
@@ -353,6 +354,20 @@ TEST_F(AsyncPublishRecoveryTest, AbortedPreparedTransactionCannotPublish) {
     EXPECT_FALSE(attempt()->result().ok());
     EXPECT_FALSE(_tablet->check_version_exist({11, 11}));
     EXPECT_EQ(marker_count(), 1); // failure never claims a successful publish
+}
+
+TEST_F(AsyncPublishRecoveryTest, FailedAttemptDoesNotBlockReplicaRepair) {
+    ASSERT_TRUE(enqueue().ok());
+    ASSERT_TRUE(enqueue(12, TXN_ID + 1).ok());
+    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), 11);
+    run_attempt();
+    ASSERT_TRUE(attempt()->finished());
+    ASSERT_FALSE(attempt()->result().ok());
+    // Version 11 has no local rowset. Clone may repair it up to the next pending
+    // version's predecessor, without discarding the local recovery intention.
+    EXPECT_EQ(_engine->get_pending_publish_min_version(TABLET_ID), 12);
+    EXPECT_EQ(marker_count(), 2);
+    EXPECT_EQ(_engine->_async_publish_tasks.at(TABLET_ID).size(), 2);
 }
 
 } // namespace doris
