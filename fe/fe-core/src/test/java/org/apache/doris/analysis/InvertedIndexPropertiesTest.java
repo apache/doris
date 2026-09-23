@@ -254,6 +254,44 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
+    public void testCreateTableRejectsAdjacentDuplicateIdempotentFilterAliases() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "dup_dash", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "-", "replacement", " ")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "dup_icu_once", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "icu_normalizer")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "dup_icu_twice", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "icu_normalizer,icu_normalizer")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "dup_dash_once", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "dup_dash")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "dup_dash_twice", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "dup_dash,dup_dash")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "dup_wd_once", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "word_delimiter")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(7, "dup_wd_twice", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "word_delimiter,word_delimiter")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_icu_once", "dup_icu_once"),
+                                    invertedIndexDefinition("idx_icu_twice", "dup_icu_twice")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_dash_once", "dup_dash_once"),
+                                    invertedIndexDefinition("idx_dash_twice", "dup_dash_twice")))),
+                    () -> Assertions.assertTrue(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_wd_once", "dup_wd_once"),
+                                    invertedIndexDefinition("idx_wd_twice", "dup_wd_twice")))));
+        }
+    }
+
+    @Test
     public void testCreateTableRejectsIneffectiveKeywordBufferSizeAliases() {
         IndexPolicyMgr policyMgr = new IndexPolicyMgr();
         policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "keyword_256", IndexPolicyTypeEnum.TOKENIZER,

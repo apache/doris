@@ -50,7 +50,8 @@ public final class AnalyzerIdentityBuilder {
     private static final String CHAR_REPLACE_DEFAULT_PATTERN = ",._";
     private static final String CHAR_REPLACE_DEFAULT_REPLACEMENT = " ";
     // Token filters that emit the same terms, offsets and provenance when applied twice in a row.
-    private static final Set<String> IDEMPOTENT_TOKEN_FILTERS = ImmutableSet.of("lowercase", "asciifolding");
+    private static final Set<String> IDEMPOTENT_TOKEN_FILTERS = ImmutableSet.of(
+            "lowercase", "asciifolding", "icu_normalizer");
     // Same separator BE uses between bracketed list entries.
     private static final Pattern ENTRY_SEPARATOR = Pattern.compile("(?<=\\])\\s*,\\s*(?=\\[)");
     private static final Set<String> WORD_DELIMITER_TYPES = ImmutableSet.of(
@@ -954,7 +955,10 @@ public final class AnalyzerIdentityBuilder {
             if (Strings.isNullOrEmpty(filter)) {
                 continue;
             }
-            identities.addFirst(filter);
+            // Repeating a char_replace filter rewrites the same bytes to the same byte again.
+            if (!filter.equals(identities.peekFirst()) || !isIdempotentCharFilter(filterName)) {
+                identities.addFirst(filter);
+            }
             fold = foldContextBefore(filterName, fold);
         }
         return fold;
@@ -978,6 +982,14 @@ public final class AnalyzerIdentityBuilder {
         }
         fold.block(sourceBytes);
         return fold;
+    }
+
+    /**
+     * Whether the filter is a usable char_replace, which replaces each pattern byte with the same
+     * single byte and so leaves the stream unchanged when it runs again.
+     */
+    private static boolean isIdempotentCharFilter(String filterName) {
+        return charReplaceSourceBytes(filterName) != null;
     }
 
     /**

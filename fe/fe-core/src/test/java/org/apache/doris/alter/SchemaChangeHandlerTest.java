@@ -1634,6 +1634,40 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testAddInvertedIndexRejectsAdjacentDuplicateIdempotentFilterAliases() throws Exception {
+        createAnalyzerAliasTable("sc_dup_filter_alias");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = Lists.newArrayList(
+                replayAliasPolicy(policyMgr, "alter_dup_dash", IndexPolicyTypeEnum.CHAR_FILTER,
+                        Map.of("type", "char_replace", "pattern", "-", "replacement", " ")),
+                replayAliasPolicy(policyMgr, "alter_dup_icu_once", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "token_filter", "icu_normalizer")),
+                replayAliasPolicy(policyMgr, "alter_dup_icu_twice", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "token_filter", "icu_normalizer,icu_normalizer")),
+                replayAliasPolicy(policyMgr, "alter_dup_dash_once", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "char_filter", "alter_dup_dash")),
+                replayAliasPolicy(policyMgr, "alter_dup_dash_twice", IndexPolicyTypeEnum.ANALYZER,
+                        Map.of("tokenizer", "keyword", "char_filter", "alter_dup_dash,alter_dup_dash")));
+        try {
+            Assertions.assertAll(
+                    () -> expectException("alter table test.sc_dup_filter_alias add index idx_icu_once(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_icu_once\"), "
+                            + "add index idx_icu_twice(c1) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_icu_twice\")",
+                            "already exists"),
+                    () -> expectException("alter table test.sc_dup_filter_alias add index idx_dash_once(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_dash_once\"), "
+                            + "add index idx_dash_twice(c2) "
+                            + "using inverted properties(\"analyzer\"=\"alter_dup_dash_twice\")",
+                            "already exists"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
     private static String storedIndexProperty(String tableName, String indexName, String key) throws Exception {
         OlapTable tbl = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
                 .getTableOrMetaException(tableName, Table.TableType.OLAP);

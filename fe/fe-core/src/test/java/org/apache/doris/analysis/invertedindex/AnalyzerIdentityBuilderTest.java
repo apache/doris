@@ -23,6 +23,7 @@ import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 
+import com.ibm.icu.text.Normalizer2;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -1923,6 +1924,150 @@ public class AnalyzerIdentityBuilderTest {
                     () -> Assertions.assertNotEquals(namedAnalyzerIdentity("pinyin_once"),
                             namedAnalyzerIdentity("pinyin_twice")));
         }
+    }
+
+    @Test
+    public void testAdjacentDuplicateIcuNormalizerFiltersCollapse() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "named_icu", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "icu_normalizer", "name", "NFKC_CF"));
+        replayComponent(policyMgr, 2, "empty_set_icu", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[]"));
+        replayComponent(policyMgr, 3, "icu_nfc", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfc"));
+        replayComponent(policyMgr, 4, "icu_ascii_only", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[a-z]"));
+        String[][] analyzers = {
+                {"icu_once", "icu_normalizer"},
+                {"icu_twice", "icu_normalizer,icu_normalizer"},
+                {"icu_thrice", "icu_normalizer,icu_normalizer,icu_normalizer"},
+                {"icu_named_repeat", "icu_normalizer,named_icu"},
+                {"icu_empty_set_repeat", "named_icu,empty_set_icu"},
+                {"icu_lower", "icu_normalizer,lowercase"},
+                {"icu_lower_icu", "icu_normalizer,lowercase,icu_normalizer"},
+                {"nfc_once", "icu_nfc"},
+                {"nfc_twice", "icu_nfc,icu_nfc"},
+                {"ascii_only_once", "icu_ascii_only"},
+                {"ascii_only_twice", "icu_ascii_only,icu_ascii_only"}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "token_filter", analyzer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String once = namedAnalyzerIdentity("icu_once");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("icu_twice")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("icu_thrice")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("icu_named_repeat")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("icu_empty_set_repeat")),
+                    // Only adjacent repeats of the default form collapse.
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("icu_lower"),
+                            namedAnalyzerIdentity("icu_lower_icu")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("nfc_once"),
+                            namedAnalyzerIdentity("nfc_twice")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("ascii_only_once"),
+                            namedAnalyzerIdentity("ascii_only_twice")));
+        }
+    }
+
+    @Test
+    public void testAdjacentDuplicateWordDelimiterFiltersKeepDistinctIdentities() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "named_word_delimiter", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "word_delimiter", "generate_word_parts", "true",
+                        "split_on_case_change", "true", "preserve_original", "false"));
+        String[][] analyzers = {
+                {"wd_once", "word_delimiter"},
+                {"wd_twice", "word_delimiter,word_delimiter"},
+                {"wd_named_repeat", "word_delimiter,named_word_delimiter"}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "token_filter", analyzer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String once = namedAnalyzerIdentity("wd_once");
+            Assertions.assertAll(
+                    () -> Assertions.assertNotEquals(once, namedAnalyzerIdentity("wd_twice")),
+                    () -> Assertions.assertNotEquals(once, namedAnalyzerIdentity("wd_named_repeat")));
+        }
+    }
+
+    @Test
+    public void testAdjacentDuplicateCharReplaceFiltersCollapse() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        replayComponent(policyMgr, 1, "default_replace", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", ",._", "replacement", " "));
+        replayComponent(policyMgr, 2, "dash_to_space", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "-", "replacement", " "));
+        replayComponent(policyMgr, 3, "dot_to_space", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", ".", "replacement", " "));
+        replayComponent(policyMgr, 4, "dash_to_x", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "-", "replacement", "x"));
+        replayComponent(policyMgr, 5, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer"));
+        String[][] analyzers = {
+                {"replace_once", "char_replace"},
+                {"replace_twice", "char_replace,char_replace"},
+                {"replace_thrice", "char_replace,char_replace,char_replace"},
+                {"replace_named_repeat", "char_replace,default_replace"},
+                {"dash_once", "dash_to_space"},
+                {"dash_twice", "dash_to_space,dash_to_space"},
+                {"dash_dot", "dash_to_space,dot_to_space"},
+                {"dash_dot_dash", "dash_to_space,dot_to_space,dash_to_space"},
+                {"dash_then_x", "dash_to_space,dash_to_x"},
+                {"fold_once", "fold"},
+                {"fold_twice", "fold,fold"}};
+        long id = 10;
+        for (String[] analyzer : analyzers) {
+            replayComponent(policyMgr, id++, analyzer[0], IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", analyzer[1]));
+        }
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String once = namedAnalyzerIdentity("replace_once");
+            String dashOnce = namedAnalyzerIdentity("dash_once");
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("replace_twice")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("replace_thrice")),
+                    () -> Assertions.assertEquals(once, namedAnalyzerIdentity("replace_named_repeat")),
+                    () -> Assertions.assertEquals(dashOnce, namedAnalyzerIdentity("dash_twice")),
+                    // A repeat that another filter separates keeps both entries.
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("dash_dot"),
+                            namedAnalyzerIdentity("dash_dot_dash")),
+                    () -> Assertions.assertNotEquals(dashOnce, namedAnalyzerIdentity("dash_then_x")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("fold_once"),
+                            namedAnalyzerIdentity("fold_twice")));
+        }
+    }
+
+    @Test
+    public void testIcuNfkcCaseFoldIsIdempotentOverEveryCodePoint() {
+        Normalizer2 normalizer = Normalizer2.getNFKCCasefoldInstance();
+        StringBuilder unstable = new StringBuilder();
+        for (int codePoint = Character.MIN_CODE_POINT; codePoint <= Character.MAX_CODE_POINT; ++codePoint) {
+            if (codePoint >= Character.MIN_SURROGATE && codePoint <= Character.MAX_SURROGATE) {
+                continue;
+            }
+            String once = normalizer.normalize(new String(Character.toChars(codePoint)));
+            if (!once.equals(normalizer.normalize(once)) && unstable.length() < 200) {
+                unstable.append(String.format("U+%04X ", codePoint));
+            }
+        }
+        Assertions.assertEquals("", unstable.toString(),
+                "code points whose NFKC_CF form still changes on a second pass");
     }
 
     @Test
