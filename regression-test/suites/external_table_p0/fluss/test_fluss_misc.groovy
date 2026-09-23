@@ -287,8 +287,9 @@ suite("test_fluss_misc", "p0,external") {
                         + "\non=${withV2}\noff=${withoutV2}")
     }
 
-    // LOG, PK_FULL, and a partitioned log table -- the three shapes whose ranges only
-    // the v2 scanner can read.
+    // Plain LOG, PK_FULL, partitioned LOG, a lake-plus-log union, and both segment
+    // views. The union and $log ranges require the fluss V2 reader; $lake is planned
+    // by the paimon sibling and must keep its existing V1 fallback working.
     sameWithScannerV2Off """
         select id, name, price from ${catalogName}.fluss_test.log_basic order by id
     """
@@ -297,6 +298,15 @@ suite("test_fluss_misc", "p0,external") {
     """
     sameWithScannerV2Off """
         select count(*) from ${catalogName}.fluss_test.log_part
+    """
+    sameWithScannerV2Off """
+        select id, name, price from ${requiredCatalog}.fluss_test.lake_log order by id
+    """
+    sameWithScannerV2Off """
+        select id, name, price from ${requiredCatalog}.fluss_test.lake_log\$lake order by id
+    """
+    sameWithScannerV2Off """
+        select id, name, price from ${requiredCatalog}.fluss_test.lake_log\$log order by id
     """
 
     sql """drop database if exists ${internalDb} force"""

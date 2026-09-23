@@ -199,6 +199,9 @@ FE_MODULES=("fe-common" "fe-core")
 # dependency (for Legacy413ProviderTypeContractTest) and -am pulls them into the reactor; fluss is
 # not among them, so it has to be named here or its tests never run.
 FE_MODULES+=("fe-connector/fe-connector-fluss")
+# fe-connector-adbc is likewise not upstream of fe-core, so -am cannot discover
+# its tests unless the module is named explicitly.
+FE_MODULES+=("fe-connector/fe-connector-adbc")
 # The BE Java plugin modules. Nothing else runs these tests: no be-java-extensions module is
 # upstream of fe-core, so -am never reaches one, build.sh builds the reactor with -DskipTests, and
 # no GitHub workflow mentions the directory at all. What is in there is the evidence that the

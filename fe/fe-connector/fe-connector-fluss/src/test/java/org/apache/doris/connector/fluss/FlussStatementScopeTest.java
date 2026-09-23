@@ -17,11 +17,15 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.metadata.TablePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Guards the statement-scope naming norm: every namespace this connector declares is prefixed with its
@@ -49,5 +53,25 @@ public class FlussStatementScopeTest {
             }
         }
         Assertions.assertTrue(checked > 0, "expected at least one *_NAMESPACE constant to guard");
+    }
+
+    @Test
+    public void lakeSnapshotIsSharedAcrossBothHalvesOfOneStatement() {
+        FlussTestSession session = new FlussTestSession(7L, "query-1");
+        TablePath table = TablePath.of("db", "tbl");
+        AtomicInteger loads = new AtomicInteger();
+
+        LakeSnapshot first = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
+            loads.incrementAndGet();
+            return new LakeSnapshot(11L, Collections.emptyMap());
+        });
+        LakeSnapshot second = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
+            loads.incrementAndGet();
+            return new LakeSnapshot(12L, Collections.emptyMap());
+        });
+
+        Assertions.assertSame(first, second);
+        Assertions.assertEquals(11L, second.getSnapshotId());
+        Assertions.assertEquals(1, loads.get(), "$lake and $log must use one readable boundary");
     }
 }

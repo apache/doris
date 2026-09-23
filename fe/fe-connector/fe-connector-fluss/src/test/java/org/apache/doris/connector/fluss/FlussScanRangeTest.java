@@ -116,7 +116,6 @@ public class FlussScanRangeTest {
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("fluss.range_type", "PK_TAIL");
         expected.put("fluss.partition_id", "77");
-        expected.put("fluss.partition_name", "dt=20260101");
         expected.put("fluss.bucket_id", "2");
         expected.put("fluss.log_start_offset", "300");
         expected.put("fluss.log_stop_offset", "305");
@@ -141,7 +140,6 @@ public class FlussScanRangeTest {
         FlussScanRange range = FlussScanRange.log(FlussScanRange.Partition.NONE, 0, 0L, 1L);
 
         Assertions.assertFalse(range.getProperties().containsKey("fluss.partition_id"));
-        Assertions.assertFalse(range.getProperties().containsKey("fluss.partition_name"));
         Assertions.assertTrue(range.getPartitionValues().isEmpty());
     }
 

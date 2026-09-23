@@ -2932,6 +2932,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
+            checker = "checkFlussUnionReadMode",
             options = {"", "auto", "required", "disabled"},
             description = "For this statement, how a fluss table's scan combines the lake with the log: "
                     + "auto reads the lake when it has a readable snapshot and reads fluss alone when it "
@@ -4314,6 +4315,16 @@ public class SessionVariable implements Serializable, Writable {
         if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
             throw new UnsupportedOperationException(
                     "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void checkFlussUnionReadMode(String mode) {
+        String normalized = Strings.nullToEmpty(mode).trim().toLowerCase(Locale.ROOT);
+        if (!normalized.isEmpty() && !"auto".equals(normalized)
+                && !"required".equals(normalized) && !"disabled".equals(normalized)) {
+            throw new UnsupportedOperationException(
+                    "fluss_union_read_mode value is invalid: " + mode
+                            + "; expected auto, required, disabled, or empty");
         }
     }
 

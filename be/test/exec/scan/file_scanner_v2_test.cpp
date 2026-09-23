@@ -549,9 +549,8 @@ TEST(FileScannerV2Test, FlussRangesAreSupportedByTheirRangeKind) {
     lake_without_payload.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
     EXPECT_FALSE(FileScannerV2::is_supported(params, lake_without_payload));
 
-    // A wrapped lake split whose paimon payload names a reader other than the Java one stays on the
-    // V1 fallback, which has no fluss branch: a clean refusal rather than a lake half read without
-    // its suppression.
+    // A suppressed lake split requires the Java Paimon payload the union wrapper understands.
+    // Refuse any other reader cleanly rather than reading a lake half without its suppression.
     auto non_java_split = range_with_format("fluss", TFileFormatType::FORMAT_JNI);
     non_java_split.table_format_params.__set_fluss_params(
             {{"fluss.range_type", "LAKE_SUPPRESS"}, {"fluss.union.tail", ":0:0:9"}});

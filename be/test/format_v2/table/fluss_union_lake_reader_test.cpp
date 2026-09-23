@@ -19,9 +19,13 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -63,6 +67,11 @@ public:
         return Status::OK();
     }
 
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+        ++refresh_calls;
+        return format::TableReader::refresh_conjuncts(std::move(conjuncts));
+    }
+
     Status close() override {
         closed = true;
         return Status::OK();
@@ -72,6 +81,7 @@ public:
     std::vector<Block> blocks;
     bool prune_next_split = false;
     bool closed = false;
+    int refresh_calls = 0;
 };
 
 DataTypePtr int_type() {
@@ -557,6 +567,13 @@ TEST(FlussUnionLakeReaderTest, SuppressesEachBucketWithItsOwnTail) {
 TEST(FlussUnionLakeReaderTest, TimesEachTailItReadsAndNotTheCacheHitThatFollows) {
     SuppressionFixture fixture;
     ASSERT_TRUE(fixture.open(make_key_block({2}, {"b"}), &fixture.profile).ok());
+    auto canned_tail_reader = fixture.reader._test_tail_reader;
+    fixture.reader._test_tail_reader = [canned_tail_reader](const Tail& tail, Block* out) {
+        // RuntimeProfile timers have a coarser resolution than this in-memory fake read on macOS.
+        // Make each actual read observable without changing the cache-hit assertion below.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return canned_tail_reader(tail, out);
+    };
     auto* tail_timer = fixture.profile.get_counter("FlussUnionTailReadTime");
     ASSERT_NE(tail_timer, nullptr);
     EXPECT_EQ(tail_timer->value(), 0);
@@ -643,6 +660,7 @@ TEST(FlussUnionLakeReaderTest, AccumulatesATailThatArrivesInSeveralBatches) {
                         .ok());
     EXPECT_EQ(keys.keys.rows(), 2);
     EXPECT_EQ(keys.records, 2);
+    EXPECT_NE(keys.hash_index, nullptr);
     EXPECT_EQ(ids_of(keys.keys), (std::vector<int32_t> {1, 3}));
 }
 
@@ -676,6 +694,7 @@ TEST(FlussUnionLakeReaderTest, RetainsEachTailKeyOnceHoweverOftenTheTailNamesIt)
 
     EXPECT_EQ(keys.records, 5);
     EXPECT_EQ(keys.keys.rows(), 2);
+    EXPECT_NE(keys.hash_index, nullptr);
     EXPECT_EQ(ids_of(keys.keys), (std::vector<int32_t> {1, 3}));
 }
 
@@ -796,6 +815,89 @@ TEST(FlussUnionLakeReaderTest, ForwardsTheSplitToTheSiblingUntouched) {
 
     ASSERT_EQ(fixture.lake->prepared_ranges.size(), 1);
     EXPECT_EQ(fixture.lake->prepared_ranges[0], range);
+}
+
+TEST(FlussUnionLakeReaderTest, ForwardsLateConjunctsToTheLakeReader) {
+    FlussUnionLakeReader reader;
+    auto scan_params = union_scan_params();
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+    auto* lake = install_lake_reader(&reader);
+
+    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    EXPECT_EQ(lake->refresh_calls, 1);
+}
+
+TEST(FlussUnionLakeReaderTest, DoesNotHoldTheCacheShardLockWhileReadingATail) {
+    ShardedKVCache cache {1};
+    auto scan_params = union_scan_params();
+    FlussUnionLakeReader first;
+    FlussUnionLakeReader second;
+    ASSERT_TRUE(init_reader(&first, &scan_params).ok());
+    ASSERT_TRUE(init_reader(&second, &scan_params).ok());
+    install_lake_reader(&first);
+    install_lake_reader(&second);
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool first_reading = false;
+    bool release_first = false;
+    bool second_reading = false;
+    first._test_tail_reader = [&](const Tail&, Block* out) {
+        std::unique_lock<std::mutex> lock(mutex);
+        first_reading = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return release_first; });
+        *out = make_key_block({1}, {"a"});
+        return Status::OK();
+    };
+    second._test_tail_reader = [&](const Tail&, Block* out) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            second_reading = true;
+        }
+        cv.notify_all();
+        *out = make_key_block({2}, {"b"});
+        return Status::OK();
+    };
+
+    auto options = [&](const std::string& tail) {
+        format::SplitReadOptions value;
+        value.cache = &cache;
+        value.current_range = wrapped_lake_split(tail);
+        return value;
+    };
+    Status first_status;
+    Status second_status;
+    std::thread first_thread([&] { first_status = first.prepare_split(options(":0:10:20")); });
+    bool first_entered;
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        first_entered = cv.wait_for(lock, std::chrono::seconds(2), [&] { return first_reading; });
+        if (!first_entered) {
+            release_first = true;
+        }
+    }
+    if (!first_entered) {
+        cv.notify_all();
+        first_thread.join();
+        FAIL() << "the first tail reader did not start";
+    }
+    std::thread second_thread([&] { second_status = second.prepare_split(options(":1:10:20")); });
+    bool entered_while_first_blocked;
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        entered_while_first_blocked =
+                cv.wait_for(lock, std::chrono::seconds(1), [&] { return second_reading; });
+        release_first = true;
+    }
+    cv.notify_all();
+    first_thread.join();
+    second_thread.join();
+
+    EXPECT_TRUE(entered_while_first_blocked)
+            << "network reads for different tails must not serialize on the cache shard";
+    EXPECT_TRUE(first_status.ok()) << first_status.to_string();
+    EXPECT_TRUE(second_status.ok()) << second_status.to_string();
 }
 
 TEST(FlussUnionLakeReaderTest, ClosesTheLakeHalf) {

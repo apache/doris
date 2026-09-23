@@ -29,12 +29,16 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.exception.DatabaseNotExistException;
+import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.exception.TableNotExistException;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.Schema;
@@ -54,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.function.Function;
 
 /**
@@ -114,19 +119,33 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
 
     private final FlussAdminOps adminOps;
     private final FlussTypeMapping.Options typeMappingOptions;
+    private final Map<String, String> rawCatalogProperties;
     private final Map<String, String> lakeOverrides;
     private final Function<Map<String, String>, Connector> lakeSiblingFactory;
     private final Function<ConnectorTableHandle, Connector> siblingOwner;
+    // Handles live for one query. Weak keys keep their schema pin available for that lifetime without
+    // retaining every resolved $lake handle for as long as the catalog is open.
+    private final Map<ConnectorTableHandle, ConnectorMvccSnapshot> lakePins =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     public FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
-            Map<String, String> lakeOverrides,
+            Map<String, String> rawCatalogProperties, Map<String, String> lakeOverrides,
             Function<Map<String, String>, Connector> lakeSiblingFactory,
             Function<ConnectorTableHandle, Connector> siblingOwner) {
         this.adminOps = adminOps;
         this.typeMappingOptions = typeMappingOptions;
+        this.rawCatalogProperties = rawCatalogProperties;
         this.lakeOverrides = lakeOverrides;
         this.lakeSiblingFactory = lakeSiblingFactory;
         this.siblingOwner = siblingOwner;
+    }
+
+    FlussConnectorMetadata(FlussAdminOps adminOps, FlussTypeMapping.Options typeMappingOptions,
+            Map<String, String> lakeOverrides,
+            Function<Map<String, String>, Connector> lakeSiblingFactory,
+            Function<ConnectorTableHandle, Connector> siblingOwner) {
+        this(adminOps, typeMappingOptions, Collections.emptyMap(), lakeOverrides,
+                lakeSiblingFactory, siblingOwner);
     }
 
     /**
@@ -250,8 +269,19 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     + "', and the fluss connector currently supports only '" + PAIMON_LAKE_FORMAT + "'");
         }
 
-        Connector sibling = lakeSiblingFactory.apply(
-                PaimonSiblingProperties.synthesize(flussHandle.getProperties(), lakeOverrides));
+        LakeSnapshot snapshot;
+        try {
+            snapshot = FlussStatementScope.sharedLakeSnapshot(session, flussHandle.toTablePath(),
+                    () -> adminOps.getReadableLakeSnapshot(flussHandle.toTablePath()));
+        } catch (LakeTableSnapshotNotExistException e) {
+            throw new DorisConnectorException("The lake table of '" + flussHandle.getDatabaseName() + "."
+                    + flussHandle.getTableName() + "' has no readable snapshot yet: nothing has been"
+                    + " tiered to the lake. Start (or wait for) the fluss tiering service for this table",
+                    e);
+        }
+
+        Connector sibling = lakeSiblingFactory.apply(PaimonSiblingProperties.synthesize(
+                rawCatalogProperties, flussHandle.getProperties(), lakeOverrides));
         Optional<ConnectorTableHandle> lakeHandle = forward(session, sibling, m -> m.getTableHandle(
                 session, flussHandle.getDatabaseName(), flussHandle.getTableName()));
         if (!lakeHandle.isPresent()) {
@@ -263,10 +293,21 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     + flussHandle.getTableName() + "' does not exist yet: nothing has been tiered to the"
                     + " lake. Start (or wait for) the fluss tiering service for this table");
         }
+        ConnectorMvccSnapshot pin = forward(session, sibling,
+                m -> m.resolveTimeTravel(session, lakeHandle.get(),
+                        ConnectorTimeTravelSpec.snapshotId(String.valueOf(snapshot.getSnapshotId()))))
+                .orElseThrow(() -> new DorisConnectorException("Fluss reports readable lake snapshot "
+                        + snapshot.getSnapshotId() + " for '" + flussHandle.getDatabaseName() + "."
+                        + flussHandle.getTableName() + "', but the paimon lake no longer contains it"));
+        ConnectorTableHandle pinnedHandle = forward(session, sibling,
+                m -> m.applySnapshot(session, lakeHandle.get(), pin));
+
         // From here on this handle travels back through the engine and returns to the guards below, which
         // route it by asking the sibling whether it is its own. Checked once, here, where a failure still
         // has a cause attached to it.
-        return Optional.of(LakeSibling.requireOwned(sibling, lakeHandle.get()));
+        pinnedHandle = LakeSibling.requireOwned(sibling, pinnedHandle);
+        lakePins.put(pinnedHandle, pin);
+        return Optional.of(pinnedHandle);
     }
 
     /**
@@ -319,7 +360,11 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
         if (owner != null) {
             // tbl$lake: the sibling states the schema, this side states what the sibling cannot know —
             // that fe-core may prune this system table's nested columns.
-            return withSysTableCapabilities(forward(session, owner, m -> m.getTableSchema(session, handle)));
+            ConnectorMvccSnapshot pin = lakePins.get(handle);
+            return withSysTableCapabilities(forward(session, owner,
+                    m -> pin == null
+                            ? m.getTableSchema(session, handle)
+                            : m.getTableSchema(session, handle, pin)));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         TableInfo info = tableInfo(session, flussHandle.toTablePath());
@@ -330,8 +375,8 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             columns.add(toConnectorColumn(column));
         }
 
-        // LinkedHashMap: SHOW CREATE TABLE renders PROPERTIES from this map, and a stable order keeps
-        // the rendered DDL from churning between runs.
+        // LinkedHashMap keeps the connector metadata stable for consumers and tests. Fluss does not
+        // advertise SUPPORTS_SHOW_CREATE_DDL, so this map is not a user-visible DDL rendering contract.
         Map<String, String> properties = new LinkedHashMap<>(info.getProperties().toMap());
         if (flussHandle.isPartitioned()) {
             // "partition_columns" is the key the generic fe-core consumer reads; without it the table is
@@ -355,7 +400,11 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
             ConnectorSession session, ConnectorTableHandle handle) {
         Connector owner = siblingOwner.apply(handle);
         if (owner != null) {
-            return forward(session, owner, m -> m.getColumnHandles(session, handle));
+            ConnectorMvccSnapshot pin = lakePins.get(handle);
+            return forward(session, owner,
+                    m -> pin == null
+                            ? m.getColumnHandles(session, handle)
+                            : m.getColumnHandles(session, handle, pin));
         }
         FlussTableHandle flussHandle = (FlussTableHandle) handle;
         List<Schema.Column> columns = tableInfo(session, flussHandle.toTablePath()).getSchema().getColumns();

@@ -638,11 +638,9 @@ INSERT INTO lake_part VALUES
     (3, 'lp2a', '20260102');
 
 -- ---------------------------------------------------------------------------
--- lake_pk: primary-key table tiered into paimon. Merging a lake with a change
--- log BY KEY is not implemented, so this table is read from fluss alone -- which
--- is the WHOLE table rather than a part of it, because fluss keeps a primary-key
--- table's state in full. That read is the baseline the future merge has to
--- reproduce: $lake shows what paimon holds, the front door shows the answer.
+-- lake_pk: primary-key table tiered into paimon. Doris merges the readable lake
+-- snapshot with the post-snapshot change log by key. The tail written later leaves
+-- an update, a delete and a new key behind so that merge is observable.
 -- Row 2 is updated before tiering, so the lake already holds a merged view
 -- rather than a raw change log.
 -- ---------------------------------------------------------------------------

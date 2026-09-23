@@ -52,13 +52,17 @@ public:
     // For testing only: get current child PID
     pid_t get_child_pid() const { return _child_pid.load(); }
     // For testing only: set child PID directly
-    void set_child_pid_for_test(pid_t pid) { _child_pid.store(pid); }
+    void set_child_pid_for_test(pid_t pid) { _set_child_pid(pid); }
+    // For testing only: invoke the installed handler body deterministically.
+    static void invoke_sigchld_handler_for_test();
     // For testing only: inspect / drive the adopt-external flag
     bool get_adopted_external_for_test() const { return _adopted_external.load(); }
     void set_adopted_external_for_test(bool v) { _adopted_external.store(v); }
 #endif
 
 private:
+    void _set_child_pid(pid_t pid);
+
     std::mutex _start_mutex;
     std::atomic<pid_t> _child_pid {0};
     std::atomic<bool> _adopted_external {false};

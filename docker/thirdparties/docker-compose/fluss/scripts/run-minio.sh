@@ -31,11 +31,46 @@
 set -eo pipefail
 
 READY_DIR=/tmp/fluss-minio
+CONTROL_DIR=/tmp/fluss-minio-control
 ALIAS=lake
 WAIT_SECONDS=120
 
 rm -rf "${READY_DIR}"
 mkdir -p "${READY_DIR}"
+rm -f "${CONTROL_DIR}/CLEANUP_REQUEST" "${CONTROL_DIR}/CLEANUP_DONE" \
+    "${CONTROL_DIR}/CLEANUP_FAILED"
+mkdir -p "${CONTROL_DIR}"
+chmod 0777 "${CONTROL_DIR}"
+
+process_cleanup_requests() {
+    while :; do
+        if [[ ! -f "${CONTROL_DIR}/CLEANUP_REQUEST" ]]; then
+            sleep 1
+            continue
+        fi
+
+        local target
+        target="$(cat "${CONTROL_DIR}/CLEANUP_REQUEST")"
+        rm -f "${CONTROL_DIR}/CLEANUP_REQUEST" "${CONTROL_DIR}/CLEANUP_DONE" \
+            "${CONTROL_DIR}/CLEANUP_FAILED"
+        # The sql-client is allowed to delete one database prefix in this stack's
+        # own bucket, never a bucket/root or an arbitrary mc alias target.
+        if [[ "${target}" != "${FLUSS_LAKE_S3_BUCKET}/"* \
+                || "${target}" == *".."* \
+                || "${target}" == */ ]]; then
+            echo "refusing unsafe minio cleanup target: ${target}" \
+                >"${CONTROL_DIR}/CLEANUP_FAILED"
+            continue
+        fi
+
+        echo "Removing the paimon side of the previous attempt: s3://${target}"
+        if mc rm --recursive --force "${ALIAS}/${target}"; then
+            touch "${CONTROL_DIR}/CLEANUP_DONE"
+        else
+            echo "mc failed to remove s3://${target}" >"${CONTROL_DIR}/CLEANUP_FAILED"
+        fi
+    done
+}
 
 create_bucket() {
     local waited=0
@@ -58,6 +93,7 @@ create_bucket() {
     mc mb -p "${ALIAS}/${FLUSS_LAKE_S3_BUCKET}"
     touch "${READY_DIR}/READY"
     echo "minio ready: bucket ${FLUSS_LAKE_S3_BUCKET} exists"
+    process_cleanup_requests
 }
 
 create_bucket &

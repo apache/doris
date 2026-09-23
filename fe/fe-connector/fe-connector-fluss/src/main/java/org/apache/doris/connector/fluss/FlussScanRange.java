@@ -82,7 +82,6 @@ public class FlussScanRange implements ConnectorScanRange {
 
     public static final String PROP_RANGE_TYPE = "fluss.range_type";
     public static final String PROP_PARTITION_ID = "fluss.partition_id";
-    public static final String PROP_PARTITION_NAME = "fluss.partition_name";
     public static final String PROP_BUCKET_ID = "fluss.bucket_id";
     public static final String PROP_LOG_START_OFFSET = "fluss.log_start_offset";
     public static final String PROP_LOG_STOP_OFFSET = "fluss.log_stop_offset";
@@ -158,7 +157,6 @@ public class FlussScanRange implements ConnectorScanRange {
         props.put(PROP_RANGE_TYPE, rangeType.name());
         if (partition.isPartitioned()) {
             props.put(PROP_PARTITION_ID, String.valueOf(partition.id));
-            props.put(PROP_PARTITION_NAME, partition.name);
         }
         props.put(PROP_BUCKET_ID, String.valueOf(bucketId));
         props.put(PROP_LOG_START_OFFSET, String.valueOf(logStartOffset));

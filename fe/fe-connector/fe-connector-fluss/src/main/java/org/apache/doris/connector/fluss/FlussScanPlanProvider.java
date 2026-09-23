@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -530,8 +531,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 if (bucketState.lakeEnd == null || bucketState.lakeEnd >= bucketState.stop) {
                     continue;
                 }
-                // Offsets of a bucket's log are consecutive per record, so this IS the record count, and
-                // it is the same yardstick the readers apply while replaying the range.
+                // Offset distance is a conservative upper bound, not an exact record count: control
+                // records consume offsets but are not returned by the scanner. The readers enforce the
+                // exact row count; planning can therefore only reject early, never let an oversized tail
+                // through.
                 long rows = bucketState.stop - bucketState.lakeEnd;
                 String where = (state.partition.isPartitioned()
                         ? "partition '" + state.partition.getName() + "', " : "") + "bucket " + bucket;
@@ -593,10 +596,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             List<PartitionState> states) {
         PartitionState state = matchingPartition(lakeSplit, states);
         if (state == null) {
-            // A partition of the lake that this scan does not read from fluss: either one fluss has since
-            // dropped, or one the engine pruned away. Nothing of it can be superseded by a tail this plan
-            // does not read, so the split is wrapped plain.
-            return FlussLakeRange.plain(lakeSplit);
+            throw new DorisConnectorException("The paimon lake planned a split whose partition has no"
+                    + " matching fluss partition in this scan. Its log tail cannot be identified, so"
+                    + " reading the split could return superseded rows twice");
         }
         int bucket = lakeSplitBucket(handle, lakeSplit);
         BucketState bucketState = state.buckets.get(bucket);
@@ -747,7 +749,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // fail instead — the fluss-only read returns the whole table, which is a different row set under
         // the same name.
         if (handle.isLogOnly()) {
-            return resolveLakeBoundary(handle);
+            return resolveLakeBoundary(session, handle);
         }
         if (!handle.isDataLakeEnabled() || mode == FlussCatalogProperties.UnionReadMode.DISABLED) {
             // Not a lake table, or the user asked for the fluss-only read explicitly.
@@ -778,7 +780,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
         LakeSnapshot snapshot;
         try {
-            snapshot = adminOps.getReadableLakeSnapshot(handle.toTablePath());
+            snapshot = FlussStatementScope.sharedLakeSnapshot(session, handle.toTablePath(),
+                    () -> adminOps.getReadableLakeSnapshot(handle.toTablePath()));
         } catch (LakeTableSnapshotNotExistException e) {
             if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
@@ -798,7 +801,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         Connector sibling = lakeSiblingFactory.apply(PaimonSiblingProperties.synthesize(
-                handle.getProperties(), catalogProperties.getLakeOverrides()));
+                catalogProperties.getRawCatalogProperties(), handle.getProperties(),
+                catalogProperties.getLakeOverrides()));
         ConnectorTableHandle lakeHandle = LakeSibling.forward(session, sibling,
                 metadata -> metadata.getTableHandle(
                         session, handle.getDatabaseName(), handle.getTableName()))
@@ -809,13 +813,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // The lake half's ranges are planned by the sibling and mixed into this node's range list, where
         // they are told apart from fluss's by which connector owns them. Checked at birth; see requireOwned.
         LakeSibling.requireOwned(sibling, lakeHandle);
-        // The pin is expressed in the SPI's own terms — a snapshot id and no connector options — so the
-        // sibling translates it into whatever its SDK calls a snapshot. Nothing paimon-specific is named
-        // here. The id needs no mapping either: what fluss records as the lake snapshot IS the id the lake
-        // returned when tiering committed it.
-        ConnectorMvccSnapshot pin = ConnectorMvccSnapshot.builder()
-                .snapshotId(snapshot.getSnapshotId())
-                .build();
+        // Ask the sibling to resolve the id so the pin carries paimon's schema id as well as its data
+        // snapshot. Supplying a bare id would pin file planning but leave slot binding on the latest
+        // schema, which can make the two halves overlap or disagree after schema evolution.
+        ConnectorMvccSnapshot pin = LakeSibling.forward(session, sibling,
+                metadata -> metadata.resolveTimeTravel(session, lakeHandle,
+                        ConnectorTimeTravelSpec.snapshotId(String.valueOf(snapshot.getSnapshotId()))))
+                .orElseThrow(() -> new DorisConnectorException("Fluss reports readable lake snapshot "
+                        + snapshot.getSnapshotId() + " for '" + handle.getDatabaseName() + "."
+                        + handle.getTableName() + "', but the paimon lake no longer contains it"));
         ConnectorTableHandle pinnedHandle = LakeSibling.forward(session, sibling,
                 metadata -> metadata.applySnapshot(session, lakeHandle, pin));
         ConnectorScanPlanProvider siblingProvider = LakeSibling.call(sibling,
@@ -881,7 +887,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * mistake that cannot be noticed downstream — the plan looks exactly like a correct one, and the query
      * returns every row of the table under a name that promised a part of them.
      */
-    private UnionRead resolveLakeBoundary(FlussTableHandle handle) {
+    private UnionRead resolveLakeBoundary(ConnectorSession session, FlussTableHandle handle) {
         if (!handle.isDataLakeEnabled()) {
             // Reachable: the lake can be turned off between resolving the name and planning the scan.
             throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
@@ -890,7 +896,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
         LakeSnapshot snapshot;
         try {
-            snapshot = adminOps.getReadableLakeSnapshot(handle.toTablePath());
+            snapshot = FlussStatementScope.sharedLakeSnapshot(session, handle.toTablePath(),
+                    () -> adminOps.getReadableLakeSnapshot(handle.toTablePath()));
         } catch (LakeTableSnapshotNotExistException e) {
             throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                     + handle.getTableName() + "' has no readable lake snapshot yet, so '$log' has no point"
@@ -970,7 +977,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             if (union == null) {
                 appendLogRanges(ranges, partition, buckets, stopping);
             } else {
-                appendUnionLogRanges(ranges, handle, union, partition, buckets, stopping);
+                Map<Integer, Long> earliest = earliestOffsets(tablePath, flussPartitionName, buckets);
+                appendUnionLogRanges(ranges, handle, union, partition, buckets, stopping, earliest);
             }
             return;
         }
@@ -1055,7 +1063,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private static void appendUnionLogRanges(List<ConnectorScanRange> ranges, FlussTableHandle handle,
             UnionRead union, FlussScanRange.Partition partition, List<Integer> buckets,
-            Map<Integer, Long> stopping) {
+            Map<Integer, Long> stopping, Map<Integer, Long> earliest) {
         for (int bucket : buckets) {
             Long stop = stopping.get(bucket);
             if (stop == null || stop <= 0) {
@@ -1068,6 +1076,17 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             if (lakeEnd == null) {
                 ranges.add(FlussScanRange.log(partition, bucket, LogScanner.EARLIEST_OFFSET, stop));
             } else if (lakeEnd < stop) {
+                Long earliestOffset = earliest.get(bucket);
+                if (earliestOffset == null || earliestOffset > lakeEnd) {
+                    throw new DorisConnectorException("Cannot read fluss table '"
+                            + handle.getDatabaseName() + "." + handle.getTableName() + "': the lake"
+                            + " snapshot ends at offset " + lakeEnd + " for bucket " + bucket
+                            + ", but " + (earliestOffset == null
+                                    ? "fluss did not report the earliest retained log offset"
+                                    : "the log now starts at offset " + earliestOffset)
+                            + ". Part of the log tail has expired; wait for a newer readable lake"
+                            + " snapshot or restore the missing log segment");
+                }
                 ranges.add(FlussScanRange.log(partition, bucket, lakeEnd, stop));
             }
         }
@@ -1230,6 +1249,13 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         + "'), so they cannot be read as one");
             }
         }
+    }
+
+    @Override
+    public boolean supportsFileCache() {
+        // Union reads contain native paimon parquet/orc ranges even though their log ranges use JNI.
+        // Opt in so those native ranges remain subject to the engine's file-cache admission policy.
+        return true;
     }
 
     @Override

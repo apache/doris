@@ -26,7 +26,8 @@
 # WHERE each row ends up:
 #   1. init.sql writes the rows that belong in paimon, with the tiering service
 #      running;
-#   2. the tiering service is stopped once it has committed all of them;
+#   2. the tiering service is stopped once it has committed all of them and the
+#      coordinator has published those commits as readable snapshots;
 #   3. init-lake-tail.sql writes the rows that must stay in the fluss log.
 # Stopping the service is the point: it freezes the division between the two
 # halves. Left running, it would keep consuming the tail, and a suite asserting
@@ -40,6 +41,7 @@ MARKER_DIR=/tmp/fluss-init
 SQL_TEMPLATE=/opt/fluss-sql/init.sql
 LAKE_TAIL_TEMPLATE=/opt/fluss-sql/init-lake-tail.sql
 LAKE_COUNTS_TEMPLATE=/opt/fluss-sql/lake-row-counts.sql
+LAKE_READABLE_COUNTS_TEMPLATE=/opt/fluss-sql/lake-readable-counts.sql
 JOBMANAGER_PORT=8081
 WAIT_SECONDS=180
 SQL_TIMEOUT_SECONDS=900
@@ -52,6 +54,8 @@ ATTEMPTS=3
 SNAPSHOT_TABLES=(pk_basic pk_types pk_part pk_nested lake_pk lake_pk_multi lake_pk_part
     lake_pk_cold lake_pk_part_int big_pk)
 SNAPSHOT_WAIT_SECONDS=180
+MINIO_CONTROL_DIR=/tmp/fluss-minio-control
+MINIO_CLEANUP_WAIT_SECONDS=120
 
 # What each lake fixture must hold in paimon before the tail is written -- the
 # row counts init.sql writes, merged where the table has a primary key. Keep in
@@ -75,6 +79,7 @@ LAKE_EXPECTED_ROWS=(
 # The two large fixtures put 200000 rows through the tiering service, which is
 # most of what this wait is now for; the small ones commit within a round.
 LAKE_TIERING_WAIT_SECONDS=900
+LAKE_READABLE_WAIT_SECONDS=900
 TIERING_JAR_GLOB='/opt/flink/opt/fluss-flink-tiering-*.jar'
 FLINK_BIN=/opt/flink/bin/flink
 
@@ -107,6 +112,12 @@ sed -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
     -e "s|__FLUSS_LAKE_S3_ACCESS_KEY__|${FLUSS_LAKE_S3_ACCESS_KEY}|g" \
     -e "s|__FLUSS_LAKE_S3_SECRET_KEY__|${FLUSS_LAKE_S3_SECRET_KEY}|g" \
     "${LAKE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-row-counts.sql"
+sed -e "s|__FLUSS_BOOTSTRAP_SERVERS__|${FLUSS_BOOTSTRAP_SERVERS}|g" \
+    -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
+    -e "s|__FLUSS_LAKE_S3_ENDPOINT__|${FLUSS_LAKE_S3_ENDPOINT}|g" \
+    -e "s|__FLUSS_LAKE_S3_ACCESS_KEY__|${FLUSS_LAKE_S3_ACCESS_KEY}|g" \
+    -e "s|__FLUSS_LAKE_S3_SECRET_KEY__|${FLUSS_LAKE_S3_SECRET_KEY}|g" \
+    "${LAKE_READABLE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-readable-counts.sql"
 
 # Cancels every job on the cluster. This cluster runs nothing but the tiering
 # service, and a retry must not leave the previous attempt's job consuming the
@@ -176,6 +187,63 @@ wait_for_lake_rows() {
             echo "ERROR: tiering did not reach the expected row counts after ${LAKE_TIERING_WAIT_SECONDS}s:${missing}" >&2
             echo "ERROR: last count output follows" >&2
             cat "${log}" >&2 || true
+            return 1
+        fi
+        sleep 10
+        waited=$((waited + 10))
+    done
+}
+
+# A Paimon commit becomes visible in object storage before the tiering committer
+# publishes it as Fluss's readable snapshot. A successful base-table query alone
+# is insufficient because Fluss deliberately falls back to its log when no readable
+# snapshot exists. The enumerator logs that exact fallback, so compare only the
+# JobManager log bytes emitted by this probe and require both expected results and
+# the absence of the fallback branch.
+wait_for_readable_lake_snapshots() {
+    local waited=0
+    local sql_log="${MARKER_DIR}/lake-readable-counts.log"
+    local before_log="${MARKER_DIR}/jobmanager-before.log"
+    local after_log="${MARKER_DIR}/jobmanager-after.log"
+    local delta_log="${MARKER_DIR}/jobmanager-readable-delta.log"
+    local expected missing before_size after_size
+    while :; do
+        missing=""
+        curl -sf "http://${FLUSS_JOBMANAGER_HOST}:${JOBMANAGER_PORT}/jobmanager/log" \
+            >"${before_log}" || return 1
+        before_size="$(wc -c <"${before_log}")"
+        if timeout "${SQL_TIMEOUT_SECONDS}" /opt/flink/bin/sql-client.sh \
+            -f "${MARKER_DIR}/lake-readable-counts.sql" >"${sql_log}" 2>&1; then
+            for expected in "${LAKE_EXPECTED_ROWS[@]}"; do
+                grep -qF "READABLE:${expected}" "${sql_log}" || missing="${missing} ${expected}"
+            done
+        else
+            missing=" (readable-snapshot query failed)"
+        fi
+
+        curl -sf "http://${FLUSS_JOBMANAGER_HOST}:${JOBMANAGER_PORT}/jobmanager/log" \
+            >"${after_log}" || return 1
+        after_size="$(wc -c <"${after_log}")"
+        if ((after_size >= before_size)); then
+            tail -c "+$((before_size + 1))" "${after_log}" >"${delta_log}"
+        else
+            cp "${after_log}" "${delta_log}"
+        fi
+        if ! grep -qF "fluss-readable-snapshot-probe" "${delta_log}"; then
+            missing="${missing} (probe was not observed in the JobManager log)"
+        fi
+        if grep -qF "No lake snapshot found for table" "${delta_log}"; then
+            missing="${missing} (Fluss still used log-only fallback)"
+        fi
+        if [[ -z "${missing}" ]]; then
+            echo "Readable lake snapshots published:${LAKE_EXPECTED_ROWS[*]}"
+            return 0
+        fi
+        if ((waited >= LAKE_READABLE_WAIT_SECONDS)); then
+            echo "ERROR: Fluss did not publish every readable lake snapshot after ${LAKE_READABLE_WAIT_SECONDS}s:${missing}" >&2
+            echo "ERROR: last readable query and JobManager log delta follow" >&2
+            cat "${sql_log}" >&2 || true
+            cat "${delta_log}" >&2 || true
             return 1
         fi
         sleep 10
@@ -259,15 +327,42 @@ run_sql() {
 # creating one lake table dooms every attempt after it, and the environment comes
 # up "failed after 3 attempts" with the real cause three hundred lines up.
 #
-# Deleting the directory IS dropping the database here: the warehouse is a
-# filesystem catalog, mounted writable for exactly this kind of work, and the
-# host script empties the same directory before the containers start.
 drop_lake_warehouse() {
-    local warehouse="${FLUSS_PAIMON_WAREHOUSE#file://}"
-    if [[ -d "${warehouse}/fluss_test.db" ]]; then
-        echo "Removing the paimon side of the previous attempt: ${warehouse}/fluss_test.db"
-        rm -rf "${warehouse}/fluss_test.db"
-    fi
+    case "${FLUSS_PAIMON_WAREHOUSE}" in
+        s3://*)
+            local target="${FLUSS_PAIMON_WAREHOUSE#s3://}/fluss_test.db"
+            local waited=0
+            rm -f "${MINIO_CONTROL_DIR}/CLEANUP_DONE" \
+                "${MINIO_CONTROL_DIR}/CLEANUP_FAILED"
+            printf '%s\n' "${target}" >"${MINIO_CONTROL_DIR}/CLEANUP_REQUEST.tmp"
+            mv "${MINIO_CONTROL_DIR}/CLEANUP_REQUEST.tmp" \
+                "${MINIO_CONTROL_DIR}/CLEANUP_REQUEST"
+            while [[ ! -f "${MINIO_CONTROL_DIR}/CLEANUP_DONE" ]]; do
+                if [[ -f "${MINIO_CONTROL_DIR}/CLEANUP_FAILED" ]]; then
+                    cat "${MINIO_CONTROL_DIR}/CLEANUP_FAILED" >&2
+                    return 1
+                fi
+                if ((waited >= MINIO_CLEANUP_WAIT_SECONDS)); then
+                    echo "ERROR: minio did not clean s3://${target} within ${MINIO_CLEANUP_WAIT_SECONDS}s" >&2
+                    return 1
+                fi
+                sleep 1
+                waited=$((waited + 1))
+            done
+            ;;
+        file://*)
+            # Kept for the documented local-directory debugging switch.
+            local warehouse="${FLUSS_PAIMON_WAREHOUSE#file://}"
+            if [[ -d "${warehouse}/fluss_test.db" ]]; then
+                echo "Removing the paimon side of the previous attempt: ${warehouse}/fluss_test.db"
+                rm -rf "${warehouse}/fluss_test.db"
+            fi
+            ;;
+        *)
+            echo "ERROR: unsupported paimon warehouse for retry cleanup: ${FLUSS_PAIMON_WAREHOUSE}" >&2
+            return 1
+            ;;
+    esac
 }
 
 run_attempt() {
@@ -276,16 +371,17 @@ run_attempt() {
     # A previous attempt's tiering job would still be consuming the database
     # init.sql is about to drop.
     cancel_all_jobs
-    drop_lake_warehouse
+    drop_lake_warehouse || return 1
     start_tiering_job || return 1
 
     run_sql "${MARKER_DIR}/init.sql" "${MARKER_DIR}/init-attempt-${attempt}.log" || return 1
 
     echo "Fluss init SQL finished; waiting for the tiering service to commit"
     wait_for_lake_rows || return 1
+    wait_for_readable_lake_snapshots || return 1
 
-    # Everything meant for the lake is in the lake. Stop tiering BEFORE writing
-    # the tail, so the tail stays in the fluss log for good.
+    # Everything meant for the lake is both committed and published as readable.
+    # Stop tiering BEFORE writing the tail, so the tail stays in the fluss log.
     cancel_all_jobs
 
     run_sql "${MARKER_DIR}/init-lake-tail.sql" \

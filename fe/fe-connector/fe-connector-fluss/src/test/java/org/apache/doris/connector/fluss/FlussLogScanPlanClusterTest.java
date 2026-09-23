@@ -213,7 +213,8 @@ public class FlussLogScanPlanClusterTest {
         for (ConnectorScanRange range : ranges) {
             Map<String, String> props = range.getProperties();
             // Only the written partition produced ranges; the empty one has nothing to read.
-            Assertions.assertEquals("dt=2026_08_02", props.get("fluss.partition_name"));
+            // The name is carried once, in partition values; the scanner only consumes the id.
+            Assertions.assertFalse(props.containsKey("fluss.partition_name"));
             Assertions.assertEquals(String.valueOf(partitionId), props.get("fluss.partition_id"));
             Assertions.assertEquals(Collections.singletonMap("dt", "2026_08_02"),
                     range.getPartitionValues());

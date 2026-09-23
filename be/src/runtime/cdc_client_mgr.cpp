@@ -33,7 +33,9 @@
 #endif
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <cstring>
 #include <iterator>
 #include <mutex>
 #include <sstream>
@@ -72,13 +74,70 @@ void handle_sigchld(int sig_no) {
     // and its errno check.
     const int saved_errno = errno;
     int status = 0;
-    while (waitpid(cdc_pid, &status, WNOHANG) < 0 && errno == EINTR) {
+    pid_t wait_result;
+    do {
+        wait_result = waitpid(cdc_pid, &status, WNOHANG);
+    } while (wait_result < 0 && errno == EINTR);
+    if (wait_result == cdc_pid) {
+        pid_t expected = cdc_pid;
+        g_cdc_child_pid.compare_exchange_strong(expected, 0, std::memory_order_relaxed);
     }
     errno = saved_errno;
 }
 
-// Check CDC client health
+// Terminate and collect one child owned by this process. The SIGCHLD handler may have won the
+// waitpid race already; ECHILD is therefore success, not a reason to send a signal to a reused pid.
+void terminate_and_reap_child(pid_t pid) {
+    if (pid <= 0) {
+        return;
+    }
+
+    int status = 0;
+    pid_t wait_result;
+    do {
+        wait_result = waitpid(pid, &status, WNOHANG);
+    } while (wait_result < 0 && errno == EINTR);
+    if (wait_result == pid || (wait_result < 0 && errno == ECHILD)) {
+        return;
+    }
+
+    LOG(INFO) << "Stopping CDC client process, pid=" << pid;
+    if (kill(pid, SIGTERM) != 0 && errno != ESRCH) {
+        LOG(WARNING) << "Failed to terminate CDC client process, pid=" << pid
+                     << ", error=" << strerror(errno);
+    }
+    for (int i = 0; i < 20; ++i) {
+        do {
+            wait_result = waitpid(pid, &status, WNOHANG);
+        } while (wait_result < 0 && errno == EINTR);
+        if (wait_result == pid || (wait_result < 0 && errno == ECHILD)) {
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    LOG(INFO) << "Force killing CDC client process, pid=" << pid;
+    if (kill(pid, SIGKILL) != 0 && errno != ESRCH) {
+        LOG(WARNING) << "Failed to kill CDC client process, pid=" << pid
+                     << ", error=" << strerror(errno);
+    }
+    do {
+        wait_result = waitpid(pid, &status, 0);
+    } while (wait_result < 0 && errno == EINTR);
+}
+
 #ifndef BE_TEST
+std::string child_exit_description(int status) {
+    if (WIFEXITED(status)) {
+        return fmt::format("exit code {}", WEXITSTATUS(status));
+    }
+    if (WIFSIGNALED(status)) {
+        return fmt::format("signal {}", WTERMSIG(status));
+    }
+    return fmt::format("wait status {}", status);
+}
+
+// Check CDC client health
 Status check_cdc_client_health(int retry_times, int sleep_time, std::string& health_response) {
     const std::string cdc_health_url =
             "http://127.0.0.1:" + std::to_string(doris::config::cdc_client_port) +
@@ -115,29 +174,24 @@ CdcClientMgr::~CdcClientMgr() {
     stop();
 }
 
+void CdcClientMgr::_set_child_pid(pid_t pid) {
+    _child_pid.store(pid);
+    g_cdc_child_pid.store(pid, std::memory_order_relaxed);
+}
+
+#ifdef BE_TEST
+void CdcClientMgr::invoke_sigchld_handler_for_test() {
+    handle_sigchld(SIGCHLD);
+}
+#endif
+
 void CdcClientMgr::stop() {
+    std::lock_guard<std::mutex> lock(_start_mutex);
     pid_t pid = _child_pid.load();
-    if (pid > 0) {
-        // Check if process is still alive
-        if (kill(pid, 0) == 0) {
-            LOG(INFO) << "Stopping CDC client process, pid=" << pid;
-            // Send SIGTERM for graceful shutdown
-            kill(pid, SIGTERM);
-            // Wait a short time for graceful shutdown
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            // Force kill if still alive
-            if (kill(pid, 0) == 0) {
-                LOG(INFO) << "Force killing CDC client process, pid=" << pid;
-                kill(pid, SIGKILL);
-                int status = 0;
-                waitpid(pid, &status, 0);
-            }
-        }
-        _child_pid.store(0);
-    }
-    // Nothing of ours is left to reap, so stop the handler from waiting on a pid the OS may hand
-    // to somebody else.
-    g_cdc_child_pid.store(0);
+    // Stop publishing before signalling: from here this thread owns the waitpid, and the handler must
+    // not race it or keep a stale pid after teardown.
+    _set_child_pid(0);
+    terminate_and_reap_child(pid);
 
     LOG(INFO) << "CdcClientMgr is stopped";
 }
@@ -171,7 +225,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         } else {
             LOG(INFO) << "CDC client is dead, pid=" << exist_pid;
             // Process is dead, reset PID and continue to start
-            _child_pid.store(0);
+            _set_child_pid(0);
         }
 #endif
     } else if (!_adopted_external.load()) {
@@ -266,7 +320,7 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     sigaction(SIGCHLD, &act, nullptr);
     LOG(INFO) << "Start to fork cdc client process with " << path;
 #ifdef BE_TEST
-    _child_pid.store(99999);
+    _set_child_pid(99999);
     st = Status::OK();
     return st;
 #else
@@ -293,26 +347,44 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         _exit(1);
     } else {
         // Parent process: save PID and wait for startup
-        _child_pid.store(pid);
-        g_cdc_child_pid.store(pid);
+        _set_child_pid(pid);
         // A child that died between fork() returning and the store above raised a SIGCHLD the
         // handler saw with no pid to reap. Collect it here; a child still running just returns 0.
         int forked_status = 0;
-        while (waitpid(pid, &forked_status, WNOHANG) < 0 && errno == EINTR) {
+        pid_t forked_wait_result;
+        do {
+            forked_wait_result = waitpid(pid, &forked_status, WNOHANG);
+        } while (forked_wait_result < 0 && errno == EINTR);
+        if (forked_wait_result == pid) {
+            _set_child_pid(0);
+            st = Status::InternalError(fmt::format("CDC client exited before startup with {}",
+                                                   child_exit_description(forked_status)));
+            st.to_protobuf(result->mutable_status());
+            return st;
+        }
+        if (forked_wait_result < 0) {
+            const int wait_errno = errno;
+            _set_child_pid(0);
+            st = Status::InternalError(
+                    fmt::format("CDC client exited before startup or could not be waited for: {}",
+                                strerror(wait_errno)));
+            st.to_protobuf(result->mutable_status());
+            return st;
         }
 
         // Waiting for cdc to start, failed after more than 3 * 10 seconds
         std::string health_response;
         Status status = check_cdc_client_health(3, 10, health_response);
         if (!status.ok()) {
-            // Reset PID if startup failed
-            _child_pid.store(0);
+            // A failed startup still owns a real child. Stop and reap it before forgetting the pid.
+            _set_child_pid(0);
+            terminate_and_reap_child(pid);
             st = Status::InternalError("Start cdc client failed.");
             st.to_protobuf(result->mutable_status());
         } else if (kill(pid, 0) != 0) {
             // Port healthy but our child has exited: an external process is
             // answering. Treat as adoption instead of masking dead PID as success.
-            _child_pid.store(0);
+            _set_child_pid(0);
             if (!_adopted_external.exchange(true)) {
                 LOG(INFO) << "Forked cdc client " << pid << " exited but port "
                           << doris::config::cdc_client_port

@@ -66,6 +66,9 @@ services:
       - FLUSS_LAKE_S3_BUCKET=${FLUSS_LAKE_S3_BUCKET}
     volumes:
       - ./scripts:/opt/fluss-scripts:ro
+      # The sql-client asks this container (which owns mc and the credentials)
+      # to remove a failed attempt's object-store prefix before retrying.
+      - ./data/minio-control:/tmp/fluss-minio-control
     # The server is started through a script that creates the lake bucket beside
     # it, because the condition this service has to reach is "the bucket exists",
     # not "the server answers" -- the coordinator writes into it as soon as the
@@ -325,6 +328,7 @@ services:
     volumes:
       - ./sql:/opt/fluss-sql:ro
       - ./scripts:/opt/fluss-scripts:ro
+      - ./data/minio-control:/tmp/fluss-minio-control
       - ${FLUSS_REMOTE_DATA_DIR}:${FLUSS_REMOTE_DATA_DIR}:ro
       # Writable, not read-only like the one above: `flink run` builds the
       # tiering job graph in this container, and building it opens the lake
@@ -332,6 +336,9 @@ services:
       - ${FLUSS_PAIMON_WAREHOUSE_DIR}:${FLUSS_PAIMON_WAREHOUSE_DIR}
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/fluss-init/SUCCESS"]
+      # Three SQL attempts can legitimately consume roughly 45 minutes. Do not
+      # let compose --wait kill the stack while the script is still retrying.
+      start_period: 2700s
       interval: 5s
       timeout: 10s
       retries: 120

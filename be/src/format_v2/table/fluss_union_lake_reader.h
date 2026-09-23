@@ -30,6 +30,10 @@
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 
+namespace doris {
+class EqualityDeleteHashIndex;
+}
+
 namespace doris::format::fluss {
 
 /**
@@ -88,6 +92,8 @@ public:
      */
     struct SuppressionKeys {
         Block keys;
+        /** Immutable lookup index built once with the cached key block and shared by every split. */
+        std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
         /** Change-log records those keys came from, for the profile: kept so the ratio is visible. */
         int64_t records = 0;
     };
@@ -96,6 +102,7 @@ public:
 
     Status init(format::TableReadOptions&& options) override;
     Status prepare_split(const format::SplitReadOptions& options) override;
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override;
     Status get_block(Block* block, bool* eos) override;
     bool current_split_pruned() const override;
     bool current_split_uses_metadata_count() const override;
@@ -124,7 +131,8 @@ private:
     Status _accumulate_tail_keys(const Tail& tail, const NextBatch& next_batch,
                                  SuppressionKeys* keys);
     Status _read_tail_keys(const Tail& tail, SuppressionKeys* keys);
-    Status _build_suppression_predicate(const Block& keys);
+    Status _build_suppression_predicate(const SuppressionKeys& keys);
+    Status _clone_conjuncts(VExprContextSPtrs* conjuncts) const;
     Status _suppress(Block* block);
     Block _empty_key_block() const;
     void _init_union_profile();

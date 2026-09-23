@@ -22,6 +22,7 @@ import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
@@ -197,6 +198,7 @@ public final class FlussCatalogProperties {
     private FlussTypeMapping.Options typeMappingOptions;
     private Map<String, String> flussClientConfig;
     private Map<String, String> lakeOverrides;
+    private Map<String, String> rawCatalogProperties;
 
     private FlussCatalogProperties() {
     }
@@ -240,6 +242,7 @@ public final class FlussCatalogProperties {
                 new FlussTypeMapping.Options(p.enableMappingVarbinary, p.enableMappingTimestampTz);
         p.flussClientConfig = deriveFlussClientConfig(properties, p.bootstrapServers);
         p.lakeOverrides = extractLakeOverrides(properties);
+        p.rawCatalogProperties = Collections.unmodifiableMap(new LinkedHashMap<>(properties));
         return p;
     }
 
@@ -410,6 +413,14 @@ public final class FlussCatalogProperties {
      */
     public Map<String, String> getLakeOverrides() {
         return lakeOverrides;
+    }
+
+    /**
+     * The complete gateway catalog property map. A lake sibling starts from this map so engine-wide
+     * type mapping, metadata cache, Hadoop/Kerberos and storage options reach it unchanged.
+     */
+    public Map<String, String> getRawCatalogProperties() {
+        return rawCatalogProperties;
     }
 
     @Override

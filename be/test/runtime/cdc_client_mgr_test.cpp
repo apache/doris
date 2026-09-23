@@ -25,6 +25,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -35,6 +36,7 @@
 #include "common/status.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -364,6 +366,57 @@ TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
     EXPECT_EQ(WEXITSTATUS(child_status), 7);
 
     mgr.stop();
+}
+
+TEST_F(CdcClientMgrTest, SigchldHandlerReapsOwnedChildAndPreservesErrno) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    // Earlier cases install the production SIGCHLD handler process-wide. Temporarily restore the
+    // default disposition so only the deterministic direct invocation below can collect this child;
+    // blocking SIGCHLD on this thread alone cannot stop another test/runtime thread receiving it.
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("exit 7"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    mgr.set_child_pid_for_test(pid);
+
+    siginfo_t child_info {};
+    for (int i = 0; i < 100; ++i) {
+        ASSERT_EQ(waitid(P_PID, pid, &child_info, WEXITED | WNOHANG | WNOWAIT), 0);
+        if (child_info.si_pid == pid) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(child_info.si_pid, pid);
+
+    errno = EBUSY;
+    CdcClientMgr::invoke_sigchld_handler_for_test();
+    EXPECT_EQ(errno, EBUSY);
+
+    int status = 0;
+    errno = 0;
+    EXPECT_EQ(waitpid(pid, &status, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD) << "the handler must collect the cdc child itself";
+
+    mgr.set_child_pid_for_test(0);
 }
 
 // Test start_cdc_client when environment is missing

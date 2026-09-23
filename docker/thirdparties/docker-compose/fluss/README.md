@@ -19,14 +19,16 @@ under the License.
 
 # Fluss regression environment
 
-Stack: ZooKeeper, a fluss coordinator server, one fluss tablet server, and a
-Flink cluster (jobmanager, taskmanager, sql-client). The sql-client container
-builds the fixtures once and then idles; its healthcheck only turns green after
-every statement succeeded, so `--wait` gates on the fixtures being complete.
+Stack: ZooKeeper, MinIO, a fluss coordinator server, one fluss tablet server,
+and a Flink cluster (jobmanager, taskmanager, sql-client). The sql-client
+container builds the fixtures once and then idles; its healthcheck only turns
+green after every statement succeeded, so `--wait` gates on the fixtures being
+complete.
 
 The fluss cluster is lakehouse-enabled: `datalake.format: paimon` with a
-filesystem warehouse under `data/paimon`, and the sql-client container runs the
-fluss lake tiering service as a Flink job while building the fixtures.
+filesystem Paimon catalog whose warehouse is `s3://fluss-lake/wh` in MinIO. The
+sql-client container runs the fluss lake tiering service as a Flink job while
+building the fixtures.
 
 ## Where the images come from
 
@@ -80,18 +82,24 @@ enableFlussTest=true
 | fluss coordinator server | 19123 |
 | fluss tablet server | 19124 |
 | Flink jobmanager UI | 18085 |
+| MinIO S3 API | 19125 |
 
 The servers advertise `<host ip>:<published port>`, because Doris FE/BE run on
 the host rather than inside the compose network.
 
-Two directories are bind mounted at the same absolute path inside the containers
-and on the host, because Doris reads the files in them directly and the path
+The remote-data directory is bind mounted at the same absolute path inside the
+containers and on the host because Doris reads those files directly and the path
 string is recorded rather than translated:
 
 | Directory | Written by | Read by |
 |---|---|---|
 | `data/remote` (`remote.data.dir`) | fluss servers | Doris BE — kv snapshots, remote log segments |
-| `data/paimon` (`datalake.paimon.warehouse`) | the tiering job | Doris FE/BE through the paimon connector |
+
+Lake files are objects under `s3://fluss-lake/wh`, written by the tiering job and
+read by Doris FE/BE through the Paimon connector. `data/paimon` remains only as
+the documented local-directory debugging fallback. `data/minio-control` is a
+small request/response directory used by the sql-client to ask MinIO's `mc` tool
+to remove a failed attempt's `fluss_test.db` prefix before retrying.
 
 ## Fixtures
 
@@ -137,7 +145,8 @@ reads such a table as empty — see the note in `sql/init.sql`.
 Building them takes three steps (`scripts/run-init-sql.sh`):
 
 1. `sql/init.sql` writes the rows that belong in paimon, tiering service running;
-2. `sql/lake-row-counts.sql` is polled until paimon holds every one of them;
+2. `sql/lake-row-counts.sql` is polled until paimon holds every one of them and
+   Fluss exposes the committed snapshot as readable;
 3. the tiering job is cancelled, and only then does `sql/init-lake-tail.sql`
    write the rows that must stay in the fluss log.
 
