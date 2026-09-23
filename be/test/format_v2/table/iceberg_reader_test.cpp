@@ -932,6 +932,38 @@ void write_iceberg_equality_delete_bigint_parquet_file(const std::string& file_p
                                                       builder.build()));
 }
 
+void write_nullable_int64_parquet_file(const std::string& file_path, int32_t field_id,
+                                       const std::string& field_name,
+                                       const std::vector<std::optional<int64_t>>& values) {
+    const auto metadata =
+            arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
+    auto schema = arrow::schema({
+            arrow::field(field_name, arrow::int64(), true)->WithMetadata(metadata),
+    });
+    arrow::Int64Builder value_builder;
+    for (const auto& value : values) {
+        if (value.has_value()) {
+            ASSERT_TRUE(value_builder.Append(*value).ok());
+        } else {
+            ASSERT_TRUE(value_builder.AppendNull().ok());
+        }
+    }
+    auto value_result = value_builder.Finish();
+    ASSERT_TRUE(value_result.ok()) << value_result.status();
+    auto table = arrow::Table::Make(schema, {*value_result});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
 void write_int_pair_parquet_file(const std::string& file_path, const std::vector<int32_t>& ids,
                                  const std::vector<int32_t>& scores,
                                  const std::vector<std::string>& values,
@@ -3674,6 +3706,76 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
     EXPECT_EQ(read_iceberg_ids(&reader, projected_columns), std::vector<int32_t>({1, 3}));
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST(IcebergV2ReaderTest, IcebergEqualityDeletePromotesHistoricalDeleteKeyToCurrentType) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_equality_delete_promotion_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    // The data file was written after INT -> LONG promotion and holds a value outside the old INT
+    // domain. The delete file was written under the old INT schema and deletes the NULL key.
+    write_nullable_int64_parquet_file(
+            file_path, 0, "x", {std::nullopt, int64_t {0}, int64_t {1}, int64_t {4294967296}});
+    write_iceberg_null_equality_delete_parquet_file(delete_file_path, 0, "x");
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(
+            make_table_column(0, "x", make_nullable(std::make_shared<DataTypeInt64>())));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("x", 0, {}, std::nullopt,
+                                        external_primitive_type(TPrimitiveType::BIGINT), false,
+                                        true)})});
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    std::vector<std::optional<int64_t>> values;
+    bool eos = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (block.rows() == 0) {
+            continue;
+        }
+        const auto full_column = block.get_by_position(0).column->convert_to_full_column_if_const();
+        const auto& nullable_column = assert_cast<const ColumnNullable&>(*full_column);
+        const auto& data =
+                assert_cast<const ColumnInt64&>(nullable_column.get_nested_column()).get_data();
+        for (size_t row = 0; row < nullable_column.size(); ++row) {
+            if (nullable_column.get_null_map_data()[row] != 0) {
+                values.push_back(std::nullopt);
+            } else {
+                values.push_back(data[row]);
+            }
+        }
+    }
+
+    // The NULL row is deleted, while 4294967296 must not be narrowed into the old INT domain and
+    // deleted together with it.
+    EXPECT_EQ(values, (std::vector<std::optional<int64_t>> {int64_t {0}, int64_t {1},
+                                                            int64_t {4294967296}}));
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
