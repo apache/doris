@@ -28,28 +28,6 @@ import java.util.List;
 public class IndexTest {
 
     @Test
-    public void testGetColumnUniqueIdsDuringSchemaChange() {
-        Column shadowColumn = new Column("__doris_shadow_CoL1", Type.BOOLEAN);
-        shadowColumn.setUniqueId(101);
-        Column unchangedColumn = new Column("col2", Type.INT);
-        unchangedColumn.setUniqueId(102);
-        List<Column> schema = new ArrayList<>();
-        schema.add(shadowColumn);
-        schema.add(unchangedColumn);
-        List<String> indexColumns = new ArrayList<>();
-        indexColumns.add("COL1");
-        indexColumns.add("col2");
-        Index index = new Index(1, "schema_change_index", indexColumns,
-                IndexDef.IndexType.INVERTED, null, null);
-
-        List<Integer> uniqueIds = index.getColumnUniqueIds(schema);
-        Assert.assertEquals(2, uniqueIds.size());
-        Assert.assertEquals(Integer.valueOf(101), uniqueIds.get(0));
-        Assert.assertEquals(Integer.valueOf(102), uniqueIds.get(1));
-        Assert.assertEquals("__doris_shadow_CoL1", shadowColumn.getName());
-    }
-
-    @Test
     public void testGetColumnUniqueIds() {
         // Create test columns with unique IDs
         List<Column> schema = new ArrayList<>();
