@@ -248,6 +248,11 @@ public:
     IntCounter* upload_rowset_count = nullptr;
     IntCounter* upload_fail_count = nullptr;
 
+    UIntGauge* load_light_work_pool_queue_size = nullptr;
+    UIntGauge* load_light_work_active_threads = nullptr;
+    UIntGauge* load_light_work_pool_max_queue_size = nullptr;
+    UIntGauge* load_light_work_max_threads = nullptr;
+
     UIntGauge* light_work_pool_queue_size = nullptr;
     UIntGauge* heavy_work_pool_queue_size = nullptr;
     UIntGauge* peer_fetch_work_pool_queue_size = nullptr;
