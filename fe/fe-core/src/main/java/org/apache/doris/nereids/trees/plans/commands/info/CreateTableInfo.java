@@ -725,7 +725,8 @@ public class CreateTableInfo {
         keysSet.addAll(keys);
         Set<String> orderKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         orderKeySet.addAll(sortOrderFields.stream().map(SortFieldInfo::getColumnName).collect(Collectors.toSet()));
-        boolean isSystemGeneratedTable = ctx.getState().isInternal();
+        // Internal statistics tables need state columns. The internal-query flag can also be set by user SHOWs.
+        boolean isSystemGeneratedTable = targetIsInternalCatalog && FeConstants.INTERNAL_DB_NAME.equals(dbName);
         columns.forEach(c -> c.validate(targetIsInternalCatalog, keysSet, orderKeySet, finalEnableMergeOnWrite,
                 keysType, isSystemGeneratedTable));
 

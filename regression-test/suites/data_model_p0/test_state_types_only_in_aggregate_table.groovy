@@ -16,93 +16,98 @@
 // under the License.
 
 suite("test_state_types_only_in_aggregate_table") {
-    sql "set enable_agg_state=true"
-
-    sql "drop table if exists state_type_dup_hll"
-    test {
-        sql """
-            create table state_type_dup_hll (
-                k int,
-                v hll not null
-            ) duplicate key(k)
-            distributed by hash(k) buckets 1
-            properties("replication_num" = "1")
-        """
-        exception "type is only supported in aggregate key tables"
-    }
-
-    sql "drop table if exists state_type_unique_quantile"
-    test {
-        sql """
-            create table state_type_unique_quantile (
-                k int,
-                v quantile_state not null
-            ) unique key(k)
-            distributed by hash(k) buckets 1
-            properties("replication_num" = "1")
-        """
-        exception "type is only supported in aggregate key tables"
-    }
-
-    sql "drop table if exists state_type_dup_agg_state"
-    test {
-        sql """
-            create table state_type_dup_agg_state (
-                k int,
-                v agg_state<sum(int not null)> generic
-            ) duplicate key(k)
-            distributed by hash(k) buckets 1
-            properties("replication_num" = "1")
-        """
-        exception "DUP_KEYS table should not specify aggregate type"
-    }
-
-    sql "drop table if exists state_type_alter_dup"
-    sql """
-        create table state_type_alter_dup (
-            k int,
-            v int
-        ) duplicate key(k)
-        distributed by hash(k) buckets 1
-        properties("replication_num" = "1")
-    """
-    test {
-        sql "alter table state_type_alter_dup add column h hll not null"
-        exception "type is only supported in aggregate key tables"
-    }
-    test {
-        sql "alter table state_type_alter_dup add column q quantile_state not null"
-        exception "type is only supported in aggregate key tables"
-    }
-    test {
-        sql "alter table state_type_alter_dup add column a agg_state<sum(int not null)> generic"
-        exception "type is only supported in aggregate key tables"
-    }
-
-    sql "drop table if exists state_type_aggregate"
-    sql """
-        create table state_type_aggregate (
-            k int,
-            h hll hll_union not null,
-            q quantile_state quantile_union not null,
-            a agg_state<sum(int not null)> generic
-        ) aggregate key(k)
-        distributed by hash(k) buckets 1
-        properties("replication_num" = "1")
-    """
-
+    context.reconnectToMasterFe()
     withGlobalLock("allow_non_aggregate_table_state_types") {
-        setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
-            sql "drop table if exists state_type_compatibility_dup"
+        setFeConfigTemporary([allow_non_aggregate_table_state_types: false]) {
+            sql "set enable_agg_state=true"
+            // SHOW executes an internal query, but must not exempt subsequent user DDL.
+            sql "show table status"
+
+            sql "drop table if exists state_type_dup_hll"
+            test {
+                sql """
+                    create table state_type_dup_hll (
+                        k int,
+                        v hll not null
+                    ) duplicate key(k)
+                    distributed by hash(k) buckets 1
+                    properties("replication_num" = "1")
+                """
+                exception "type is only supported in aggregate key tables"
+            }
+
+            sql "drop table if exists state_type_unique_quantile"
+            test {
+                sql """
+                    create table state_type_unique_quantile (
+                        k int,
+                        v quantile_state not null
+                    ) unique key(k)
+                    distributed by hash(k) buckets 1
+                    properties("replication_num" = "1")
+                """
+                exception "type is only supported in aggregate key tables"
+            }
+
+            sql "drop table if exists state_type_dup_agg_state"
+            test {
+                sql """
+                    create table state_type_dup_agg_state (
+                        k int,
+                        v agg_state<sum(int not null)> generic
+                    ) duplicate key(k)
+                    distributed by hash(k) buckets 1
+                    properties("replication_num" = "1")
+                """
+                exception "DUP_KEYS table should not specify aggregate type"
+            }
+
+            sql "drop table if exists state_type_alter_dup"
             sql """
-                create table state_type_compatibility_dup (
+                create table state_type_alter_dup (
                     k int,
-                    h hll not null,
-                    q quantile_state not null
+                    v int
                 ) duplicate key(k)
                 distributed by hash(k) buckets 1
                 properties("replication_num" = "1")
             """
+            test {
+                sql "alter table state_type_alter_dup add column h hll not null"
+                exception "type is only supported in aggregate key tables"
+            }
+            test {
+                sql "alter table state_type_alter_dup add column q quantile_state not null"
+                exception "type is only supported in aggregate key tables"
+            }
+            test {
+                sql "alter table state_type_alter_dup add column a agg_state<sum(int not null)> generic"
+                exception "type is only supported in aggregate key tables"
+            }
+
+            sql "drop table if exists state_type_aggregate"
+            sql """
+                create table state_type_aggregate (
+                    k int,
+                    h hll hll_union not null,
+                    q quantile_state quantile_union not null,
+                    a agg_state<sum(int not null)> generic
+                ) aggregate key(k)
+                distributed by hash(k) buckets 1
+                properties("replication_num" = "1")
+            """
+
+            setFeConfigTemporary([allow_non_aggregate_table_state_types: true]) {
+                sql "drop table if exists state_type_compatibility_dup"
+                sql """
+                    create table state_type_compatibility_dup (
+                        k int,
+                        h hll not null,
+                        q quantile_state not null
+                    ) duplicate key(k)
+                    distributed by hash(k) buckets 1
+                    properties("replication_num" = "1")
+                """
+            }
         }
     }
 }
