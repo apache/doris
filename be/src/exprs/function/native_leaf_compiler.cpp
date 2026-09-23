@@ -114,15 +114,26 @@ Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
                                        segment_v2::IndexReaderHelper::is_need_similarity_score(
                                                query.query_type, &_reader->get_index_meta());
         std::shared_ptr<segment_v2::IndexQueryContext> reader_context = ctx.context;
+        if (reader_will_score || ctx.domain != nullptr) {
+            reader_context = std::make_shared<segment_v2::IndexQueryContext>(*ctx.context);
+        }
         if (reader_will_score) {
             score_sink = std::make_shared<CollectionSimilarity>();
-            reader_context = std::make_shared<segment_v2::IndexQueryContext>(*ctx.context);
             reader_context->collection_similarity = score_sink;
+        }
+        if (ctx.domain != nullptr) {
+            // SEARCH runs without the scan's candidates, so the domain is the only restriction.
+            DORIS_CHECK(ctx.context->candidate_rows == nullptr);
+            reader_context->candidate_rows = ctx.domain;
         }
         RETURN_IF_ERROR(_reader->query_analyzed(reader_context, _stored_field_name,
                                                 query.query_type, query.query_info, rows));
-        // Reply-direction fields land on the copy the reader was given.
+        // Reply-direction fields land on the copy the reader was given. The domain is internal
+        // to SEARCH, so the scan never hears that it was consumed.
         if (reader_context != ctx.context) {
+            if (ctx.domain != nullptr) {
+                reader_context->candidate_rows_consumed = false;
+            }
             ctx.context->merge_reader_outputs(*reader_context);
         }
     }

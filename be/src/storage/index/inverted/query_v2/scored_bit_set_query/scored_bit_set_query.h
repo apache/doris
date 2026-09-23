@@ -22,6 +22,7 @@
 
 #include "roaring/roaring.hh"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_weight.h"
+#include "storage/index/inverted/query_v2/materialized_query.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/scored_bit_set_query/scored_bit_set_weight.h"
 
@@ -36,7 +37,7 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 // Built by the SEARCH leaf builder for clauses the SNII native reader answers with BM25: that
 // reader scores inside its own query() call, so by the time the query tree is assembled the
 // scores already exist and only need carrying to the scorer.
-class ScoredBitSetQuery : public Query {
+class ScoredBitSetQuery : public Query, public MaterializedQuery {
 public:
     ScoredBitSetQuery(std::shared_ptr<roaring::Roaring> bitmap,
                       std::shared_ptr<roaring::Roaring> null_bitmap, ScoredBitSetMapPtr scores)
@@ -55,6 +56,9 @@ public:
         }
         return std::make_shared<ScoredBitSetWeight>(_bitmap, _null_bitmap, _scores);
     }
+
+    const roaring::Roaring& rows() const override { return *_bitmap; }
+    const roaring::Roaring* null_rows() const override { return _null_bitmap.get(); }
 
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;

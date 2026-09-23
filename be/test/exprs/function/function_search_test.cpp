@@ -24,6 +24,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <unordered_map>
@@ -276,7 +277,18 @@ public:
             }
         }
         calls.emplace_back(query_type, last_query_value);
-        return answer(context, bit_map);
+        call_candidates.push_back(context != nullptr && context->candidate_rows != nullptr
+                                          ? std::optional(*context->candidate_rows)
+                                          : std::nullopt);
+        RETURN_IF_ERROR(answer(context, bit_map));
+        // Like SniiIndexReader, a phrase of several terms keeps only the candidate rows.
+        if (context != nullptr && context->candidate_rows != nullptr &&
+            query_type == segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY &&
+            query_info.term_infos.size() > 1) {
+            *bit_map &= *context->candidate_rows;
+            context->candidate_rows_consumed = true;
+        }
+        return Status::OK();
     }
 
     Status answer(const segment_v2::IndexQueryContextPtr& context,
@@ -345,6 +357,8 @@ public:
     const InvertedIndexAnalyzerCtx* last_analyzer_ctx = nullptr;
     // Every analyzed query in call order: its type and its terms as the result tables key them.
     std::vector<std::pair<segment_v2::InvertedIndexQueryType, std::string>> calls;
+    // The candidate rows each of those queries was handed, if any.
+    std::vector<std::optional<roaring::Roaring>> call_candidates;
     std::unordered_map<std::string, roaring::Roaring> query_results;
     std::unordered_map<std::string, std::vector<std::pair<uint32_t, float>>> query_scores;
     // Identity of the similarity the reader was handed, so a test can prove the query's own
@@ -2729,6 +2743,116 @@ TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
     const auto* null_bitmap = scorer->get_null_bitmap();
     ASSERT_NE(nullptr, null_bitmap);
     expect_bitmap_eq(*null_bitmap, {3});
+}
+
+// A phrase beside a required rare term runs only on the rows the term leaves. Those rows are
+// internal to SEARCH, so the scan never hears that candidates were used.
+TEST_F(FunctionSearchTest, TestSniiNativePhraseRunsWithinTheRowsOfARequiredTerm) {
+    SniiScoringFixture fixture(61, 100);
+    fixture.reader->set_query_result("alpha", make_bitmap({3, 7}));
+    fixture.reader->set_query_result("gamma delta", make_bitmap({7, 50}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause("AND", {make_leaf_clause("PHRASE", "gamma delta"),
+                                         make_leaf_clause("TERM", "alpha")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {
+                      {InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"},
+                      {InvertedIndexQueryType::MATCH_PHRASE_QUERY, "gamma delta"}}),
+              fixture.reader->calls);
+    ASSERT_EQ(2U, fixture.reader->call_candidates.size());
+    EXPECT_FALSE(fixture.reader->call_candidates[0].has_value());
+    ASSERT_TRUE(fixture.reader->call_candidates[1].has_value());
+    expect_bitmap_eq(*fixture.reader->call_candidates[1], {3, 7});
+    EXPECT_FALSE(fixture.context->candidate_rows_consumed);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {7});
+}
+
+// A negated clause beside a required term also runs within the term's rows: outside them the AND
+// is FALSE whatever the negation says.
+TEST_F(FunctionSearchTest, TestSniiNativeNegatedPhraseRunsWithinTheRowsOfARequiredTerm) {
+    SniiScoringFixture fixture(62, 100);
+    fixture.reader->set_query_result("alpha", make_bitmap({3, 7, 9}));
+    fixture.reader->set_query_result("gamma delta", make_bitmap({7, 50}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "AND",
+                    {make_leaf_clause("TERM", "alpha"),
+                     make_compound_clause("NOT", {make_leaf_clause("PHRASE", "gamma delta")})}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2U, fixture.reader->call_candidates.size());
+    EXPECT_FALSE(fixture.reader->call_candidates[0].has_value());
+    ASSERT_TRUE(fixture.reader->call_candidates[1].has_value());
+    expect_bitmap_eq(*fixture.reader->call_candidates[1], {3, 7, 9});
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {3, 9});
+}
+
+// Rows a required term leaves are passed on only while they are as selective as the candidates
+// a scan passes, and the phrase then runs on every row.
+TEST_F(FunctionSearchTest, TestSniiNativeWideRowsOfARequiredTermAreNotPassedOn) {
+    SniiScoringFixture fixture(63, 100);
+    roaring::Roaring wide;
+    wide.addRange(0, 50);
+    fixture.reader->set_query_result("alpha", wide);
+    fixture.reader->set_query_result("gamma delta", make_bitmap({7, 50}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause("AND", {make_leaf_clause("PHRASE", "gamma delta"),
+                                         make_leaf_clause("TERM", "alpha")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2U, fixture.reader->call_candidates.size());
+    EXPECT_FALSE(fixture.reader->call_candidates[0].has_value());
+    EXPECT_FALSE(fixture.reader->call_candidates[1].has_value());
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {7});
+}
+
+// Under a nested-document mapper a leaf may live in another document space, so no rows are
+// passed between clauses.
+TEST_F(FunctionSearchTest, TestSniiNativeNoRowsArePassedOnUnderALeafMapper) {
+    SniiScoringFixture fixture(64, 100);
+    fixture.reader->set_query_result("alpha", make_bitmap({3, 7}));
+    fixture.reader->set_query_result("gamma delta", make_bitmap({7, 50}));
+    fixture.resolver->set_leaf_query_mapper(
+            [](const std::string& /*field*/, inverted_index::query_v2::QueryPtr* /*query*/) {
+                return Status::OK();
+            });
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause("AND", {make_leaf_clause("PHRASE", "gamma delta"),
+                                         make_leaf_clause("TERM", "alpha")}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(2U, fixture.reader->call_candidates.size());
+    EXPECT_FALSE(fixture.reader->call_candidates[0].has_value());
+    EXPECT_FALSE(fixture.reader->call_candidates[1].has_value());
 }
 
 // Terms join past a clause of another kind, which keeps its own query.

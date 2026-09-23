@@ -35,6 +35,9 @@ struct SearchLeafContext {
     uint32_t num_rows = 0;
     // Whether the query scores its rows; clauses that only add to the score matter only then.
     bool scoring = true;
+    // The rows that can still be TRUE or UNKNOWN for the Boolean around the leaf; outside them
+    // that Boolean is FALSE, so the leaf may leave them out. Null for every row.
+    const roaring::Roaring* domain = nullptr;
 };
 
 // Turns one lowered leaf into a query_v2 query on the index its field was bound

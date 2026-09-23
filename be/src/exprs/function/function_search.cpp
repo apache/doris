@@ -24,8 +24,10 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <roaring/roaring.hh>
 #include <string>
@@ -34,6 +36,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/block/columns_with_type_and_name.h"
@@ -54,6 +57,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
+#include "storage/index/inverted/query_v2/materialized_query.h"
 #include "storage/index/query/logical/node.h"
 #include "storage/index/query/logical/search_lowering.h"
 #include "storage/olap_common.h"
@@ -382,6 +386,83 @@ Clauses join_term_sets(const logical::Bool& boolean, const Clauses& clauses,
     return planned;
 }
 
+bool is_required(const logical::Bool& boolean, logical::Occur occur) {
+    return boolean.op == logical::BoolOp::kAnd ||
+           (boolean.op == logical::BoolOp::kOccur && occur == logical::Occur::kMust);
+}
+
+// Cheap leaves run first so that dearer ones run within their rows.
+int required_rank(const logical::Node& node) {
+    if (node.as<logical::Phrase>() != nullptr || node.as<logical::Prefix>() != nullptr) {
+        return 1;
+    }
+    if (node.as<logical::Expand>() != nullptr || node.as<logical::Bool>() != nullptr) {
+        return 2;
+    }
+    return 0;
+}
+
+// A domain is passed on while it is as selective as the candidates a scan passes.
+bool passes_domain(const roaring::Roaring& domain, uint32_t num_rows) {
+    const double ratio = config::inverted_index_candidate_pushdown_ratio;
+    if (!std::isfinite(ratio) || ratio <= 0 || ratio > 1) {
+        return false;
+    }
+    return domain.cardinality() < static_cast<uint64_t>(static_cast<double>(num_rows) * ratio);
+}
+
+// Required clauses compile first, cheap leaves first, and each one whose rows are already known
+// narrows the domain the clauses after it compile within: outside those rows the Boolean is
+// FALSE whatever the other clauses say. A nested-document mapper may put a leaf in another
+// document space, so nothing is passed on under it. The clauses keep their places.
+Status compile_clauses(const logical::Bool& boolean, const Clauses& clauses,
+                       const SearchLeafContext& ctx, FieldReaderResolver& resolver,
+                       std::vector<query_v2::QueryPtr>* queries, std::vector<std::string>* keys) {
+    const bool passes_rows = !resolver.maps_leaf_queries();
+    const bool narrows = passes_rows && std::ranges::any_of(clauses, [&](const auto& clause) {
+                             return is_required(boolean, clause.first);
+                         });
+    std::vector<size_t> order(clauses.size());
+    std::iota(order.begin(), order.end(), 0);
+    if (narrows) {
+        std::ranges::stable_sort(order, [&](size_t left, size_t right) {
+            const bool left_required = is_required(boolean, clauses[left].first);
+            const bool right_required = is_required(boolean, clauses[right].first);
+            if (left_required != right_required) {
+                return left_required;
+            }
+            return left_required &&
+                   required_rank(*clauses[left].second) < required_rank(*clauses[right].second);
+        });
+    }
+    std::optional<roaring::Roaring> domain;
+    if (passes_rows && ctx.domain != nullptr) {
+        domain = *ctx.domain;
+    }
+    queries->resize(clauses.size());
+    keys->resize(clauses.size());
+    for (size_t i : order) {
+        SearchLeafContext clause_ctx = ctx;
+        clause_ctx.domain =
+                domain.has_value() && passes_domain(*domain, ctx.num_rows) ? &*domain : nullptr;
+        RETURN_IF_ERROR(compile_node(*clauses[i].second, clause_ctx, resolver, &(*queries)[i],
+                                     &(*keys)[i]));
+        const auto* known =
+                narrows && is_required(boolean, clauses[i].first)
+                        ? dynamic_cast<const query_v2::MaterializedQuery*>((*queries)[i].get())
+                        : nullptr;
+        if (known == nullptr) {
+            continue;
+        }
+        roaring::Roaring possible = known->rows();
+        if (known->null_rows() != nullptr) {
+            possible |= *known->null_rows();
+        }
+        domain = domain.has_value() ? *domain & possible : std::move(possible);
+    }
+    return Status::OK();
+}
+
 // AND, OR and NOT ignore the per-clause occur; OCCUR keeps it and the threshold. A Boolean
 // left with one clause, after dropping clauses that only score or joining term sets, is that
 // clause.
@@ -392,14 +473,14 @@ Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
     if (clauses.size() == 1 && boolean.clauses.size() > 1) {
         return compile_node(*clauses.front().second, ctx, resolver, out, nullptr);
     }
+    std::vector<query_v2::QueryPtr> queries;
+    std::vector<std::string> keys;
+    RETURN_IF_ERROR(compile_clauses(boolean, clauses, ctx, resolver, &queries, &keys));
     if (boolean.op == logical::BoolOp::kOccur) {
         auto builder = query_v2::create_occur_boolean_query_builder();
         builder->set_minimum_number_should_match(boolean.min_should_match);
-        for (const auto& [occur, child] : clauses) {
-            query_v2::QueryPtr child_query;
-            std::string child_binding_key;
-            RETURN_IF_ERROR(compile_node(*child, ctx, resolver, &child_query, &child_binding_key));
-            builder->add(child_query, to_query_occur(occur), std::move(child_binding_key));
+        for (size_t i = 0; i < clauses.size(); ++i) {
+            builder->add(queries[i], to_query_occur(clauses[i].first), std::move(keys[i]));
         }
         *out = builder->build();
         return Status::OK();
@@ -411,11 +492,8 @@ Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
         op = query_v2::OperatorType::OP_NOT;
     }
     auto builder = query_v2::create_operator_boolean_query_builder(op);
-    for (const auto& [occur, child] : clauses) {
-        query_v2::QueryPtr child_query;
-        std::string child_binding_key;
-        RETURN_IF_ERROR(compile_node(*child, ctx, resolver, &child_query, &child_binding_key));
-        builder->add(child_query, std::move(child_binding_key));
+    for (size_t i = 0; i < clauses.size(); ++i) {
+        builder->add(queries[i], std::move(keys[i]));
     }
     *out = builder->build();
     return Status::OK();
