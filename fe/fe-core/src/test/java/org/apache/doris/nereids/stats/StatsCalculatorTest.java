@@ -309,19 +309,11 @@ public class StatsCalculatorTest {
                 .setMaxValue(10)
                 .setNumNulls(0)
                 .build();
-        // "b" is not operative, its stats are only read from the cache if already present
-        ColumnStatistic statB = new ColumnStatisticBuilder(12)
-                .setNdv(5)
-                .setMinValue(1)
-                .setMaxValue(10)
-                .setNumNulls(0)
-                .build();
 
         Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
         Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
         Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
         Mockito.when(olapTableStatistics.getColumnStatistics("a", connectContext)).thenReturn(statA);
-        Mockito.when(olapTableStatistics.getColumnStatisticsIfPresent("b", connectContext)).thenReturn(statB);
         Mockito.when(scan.getTable()).thenReturn(table);
         Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
         Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of());
@@ -342,18 +334,16 @@ public class StatsCalculatorTest {
             ColumnStatistic resultA = statistics.findColumnStatistics(slotA);
             Assertions.assertNotNull(resultA);
             Assertions.assertEquals(3, resultA.ndv, 0.001);
-            // non-operative slot's stats are read from the cache only if already present,
-            // no stats cache load is triggered
-            Assertions.assertEquals(5, statistics.findColumnStatistics(slotB).ndv, 0.001);
+            // the non-operative slot's statistics are neither loaded nor read from the cache: they
+            // are unknown and as wide as their data type, whatever another query loaded before
+            ColumnStatistic resultB = statistics.findColumnStatistics(slotB);
+            Assertions.assertTrue(resultB.isUnKnown());
+            Assertions.assertEquals(IntegerType.INSTANCE.width(), resultB.avgSizeByte);
             // only the operative slot triggers a column stats cache load
             Mockito.verify(olapTableStatistics, Mockito.times(1))
                     .getColumnStatistics("a", connectContext);
             Mockito.verify(olapTableStatistics, Mockito.times(0))
                     .getColumnStatistics("b", connectContext);
-            Mockito.verify(olapTableStatistics, Mockito.times(1))
-                    .getColumnStatisticsIfPresent("b", connectContext);
-            Mockito.verify(olapTableStatistics, Mockito.times(0))
-                    .getColumnStatisticsIfPresent("a", connectContext);
         } finally {
             ConnectContext.remove();
             if (previousContext != null) {
@@ -389,8 +379,6 @@ public class StatsCalculatorTest {
         Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
         Mockito.when(olapTableStatistics.getColumnStatistics(Mockito.anyString(), Mockito.any()))
                 .thenReturn(ColumnStatistic.UNKNOWN);
-        Mockito.when(olapTableStatistics.getColumnStatisticsIfPresent(Mockito.anyString(), Mockito.any()))
-                .thenReturn(ColumnStatistic.UNKNOWN);
         Mockito.when(scan.getTable()).thenReturn(table);
         Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
         Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of());
@@ -405,11 +393,16 @@ public class StatsCalculatorTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
             // "a" and "b" are both not operative and the operative slots have been derived, which
-            // means the query needs no column of this table at all: no column stats are loaded.
+            // means the query needs no column of this table at all: no column stats are loaded, and
+            // the columns are as wide as their data type whatever the cache holds.
             Mockito.when(scan.isOperativeSlotsDerived()).thenReturn(true);
             Statistics statistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
             Assertions.assertTrue(statistics.findColumnStatistics(slotA).isUnKnown());
+            Assertions.assertEquals(IntegerType.INSTANCE.width(),
+                    statistics.findColumnStatistics(slotA).avgSizeByte);
             Assertions.assertTrue(statistics.findColumnStatistics(slotB).isUnKnown());
+            Assertions.assertEquals(IntegerType.INSTANCE.width(),
+                    statistics.findColumnStatistics(slotB).avgSizeByte);
             Mockito.verify(olapTableStatistics, Mockito.never())
                     .getColumnStatistics(Mockito.anyString(), Mockito.any());
 
@@ -420,8 +413,6 @@ public class StatsCalculatorTest {
             new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
             Mockito.verify(olapTableStatistics, Mockito.times(2))
                     .getColumnStatistics(Mockito.anyString(), Mockito.any());
-            Mockito.verify(olapTableStatistics, Mockito.never())
-                    .getColumnStatisticsIfPresent(Mockito.anyString(), Mockito.any());
         } finally {
             ConnectContext.remove();
             if (previousContext != null) {

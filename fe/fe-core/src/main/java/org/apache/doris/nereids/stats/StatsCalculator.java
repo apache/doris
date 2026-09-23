@@ -595,9 +595,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
                 if (!statsNeededSlots.contains(slot)) {
-                    // slot's stats are not needed by the query, use the cached value only if it is
-                    // already loaded, otherwise unknown, without triggering a stats cache load
-                    cache = olapTableStats.getColumnStatisticsIfPresent(slot.getName(), connectContext);
+                    // the query does not need this slot, so its statistics are neither loaded nor
+                    // read from the cache: a cache dependent width would make the row width, and
+                    // with it the broadcast decisions, depend on which columns another query
+                    // happened to load. Unknown statistics carry the width of the data type.
+                    cache = ColumnStatistic.createUnknownByDataType(slot.getDataType());
                 } else if (enablePartitionStatics) {
                     cache = getColumnStatistic(olapTableStats, slot.getName(), selectedPartitionNames);
                 } else {
@@ -621,9 +623,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache;
                 if (!statsNeededSlots.contains(slot)) {
-                    // slot's stats are not needed by the query, use the cached value only if it is
-                    // already loaded, otherwise unknown, without triggering a stats cache load
-                    cache = olapTableStats.getColumnStatisticsIfPresent(slot.getName(), connectContext);
+                    // see above: no load and no cache read for a slot the query does not need
+                    cache = ColumnStatistic.createUnknownByDataType(slot.getDataType());
                 } else {
                     cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 }
