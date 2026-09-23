@@ -20,6 +20,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -148,6 +149,14 @@ private:
         int failed_count {0};
         std::string query_dir;
     };
+
+    // Disks whose usage differs by no more than this are treated as equally empty and
+    // shuffled, so a stale usage snapshot cannot funnel every concurrent caller onto one
+    // disk. 2% of capacity is well below any real imbalance worth reacting to and well
+    // above the drift a 2s-old snapshot can accumulate.
+    static constexpr double USAGE_EQUIVALENCE_BAND = 0.02;
+
+    static std::mt19937& _rng_for_store_selection();
 
     void _init_metrics();
     Status _init_spill_store_map();
