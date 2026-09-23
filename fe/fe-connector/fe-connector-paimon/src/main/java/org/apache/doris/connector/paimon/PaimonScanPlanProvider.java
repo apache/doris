@@ -711,8 +711,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Paimon can cast historical timestamp statistics with the current precision while planning
         // splits. Keep these predicates as Doris residuals so an old file cannot be pruned before JNI
         // widens and repairs its timestamp values.
-        if (filter.isPresent() && !containsTimestampType(rowType)) {
-            PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+        if (filter.isPresent()) {
+            PaimonPredicateConverter converter = new PaimonPredicateConverter(
+                    rowType, containsTimestampType(rowType));
             predicates = converter.convert(filter.get());
         }
 
@@ -1086,9 +1087,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         List<org.apache.paimon.predicate.Predicate> predicates = Collections.emptyList();
         // The same predicate must stay out of the BE Paimon reader: JNI materializes and repairs the
         // value first, then the generic scan path evaluates the residual against the repaired column.
-        if (filter.isPresent() && !containsTimestampType(table.rowType())) {
+        if (filter.isPresent()) {
             RowType rowType = table.rowType();
-            PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+            PaimonPredicateConverter converter = new PaimonPredicateConverter(
+                    rowType, containsTimestampType(rowType));
             predicates = converter.convert(filter.get());
         }
         props.put("paimon.predicate", encodeObjectToString(predicates));

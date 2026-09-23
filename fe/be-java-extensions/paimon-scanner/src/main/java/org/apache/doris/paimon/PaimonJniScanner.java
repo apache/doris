@@ -204,8 +204,9 @@ public class PaimonJniScanner extends JniScanner {
             // replace the widened timestamp types with the evolved (lower-precision) schema.
             readBuilder.withReadType(readType.project(projected));
         }
-        readBuilder.withFilter(requiresDatetimeV2PrecisionRepair
-                ? Collections.emptyList() : getPredicates());
+        // FE removes only predicates that depend on timestamp values being repaired. Safe
+        // non-timestamp predicates remain useful for Paimon file and row pruning.
+        readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
         paimonDataTypeList =
                 Arrays.stream(projected).mapToObj(i -> readType.getTypeAt(i)).collect(Collectors.toList());
