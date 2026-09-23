@@ -246,67 +246,69 @@ private:
         if (input.size == 0) {
             return Status::OK();
         }
-        const std::string_view name = charset_name(character_set);
+        const std::string_view character_set_name = charset_name(character_set);
         if (input.size > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-            return reject_too_large(name);
+            return reject_too_large(character_set_name);
         }
         if constexpr (Encode) {
-            return encode_input(input, character_set, name, utf16_scratch, converted);
+            return encode_input(input, character_set, character_set_name, utf16_scratch, converted);
         } else {
-            return decode_input(input, character_set, name, utf16_scratch, converted);
+            return decode_input(input, character_set, character_set_name, utf16_scratch, converted);
         }
     }
 
-    static Status encode_input(StringRef input, CharacterSet character_set, std::string_view name,
+    static Status encode_input(StringRef input, CharacterSet character_set,
+                               std::string_view character_set_name,
                                std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
         switch (character_set) {
         case CharacterSet::US_ASCII:
-            return copy_validated(input, name,
+            return copy_validated(input, character_set_name,
                                   simdutf::validate_ascii_with_errors(input.data, input.size),
                                   output);
         case CharacterSet::UTF_8:
-            return copy_validated(input, name,
+            return copy_validated(input, character_set_name,
                                   simdutf::validate_utf8_with_errors(input.data, input.size),
                                   output);
         case CharacterSet::ISO_8859_1:
-            return encode_latin1(input, name, output);
+            return encode_latin1(input, character_set_name, output);
         case CharacterSet::UTF_16BE:
-            return encode_utf16(input, name, false, false, utf16_scratch, output);
+            return encode_utf16(input, character_set_name, false, false, utf16_scratch, output);
         case CharacterSet::UTF_16LE:
-            return encode_utf16(input, name, true, false, utf16_scratch, output);
+            return encode_utf16(input, character_set_name, true, false, utf16_scratch, output);
         case CharacterSet::UTF_16:
             // Java's UTF-16 encoder always emits a big-endian BOM.
-            return encode_utf16(input, name, false, true, utf16_scratch, output);
+            return encode_utf16(input, character_set_name, false, true, utf16_scratch, output);
         default:
-            return Status::InvalidArgument("Unsupported character set '{}'", name);
+            return Status::InvalidArgument("Unsupported character set '{}'", character_set_name);
         }
     }
 
-    static Status decode_input(StringRef input, CharacterSet character_set, std::string_view name,
+    static Status decode_input(StringRef input, CharacterSet character_set,
+                               std::string_view character_set_name,
                                std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
         switch (character_set) {
         case CharacterSet::US_ASCII:
-            return copy_validated(input, name,
+            return copy_validated(input, character_set_name,
                                   simdutf::validate_ascii_with_errors(input.data, input.size),
                                   output);
         case CharacterSet::UTF_8:
-            return copy_validated(input, name,
+            return copy_validated(input, character_set_name,
                                   simdutf::validate_utf8_with_errors(input.data, input.size),
                                   output);
         case CharacterSet::ISO_8859_1:
-            return decode_latin1(input, name, output);
+            return decode_latin1(input, character_set_name, output);
         case CharacterSet::UTF_16BE:
-            return decode_utf16(input, name, false, utf16_scratch, output);
+            return decode_utf16(input, character_set_name, false, utf16_scratch, output);
         case CharacterSet::UTF_16LE:
-            return decode_utf16(input, name, true, utf16_scratch, output);
+            return decode_utf16(input, character_set_name, true, utf16_scratch, output);
         case CharacterSet::UTF_16:
-            return decode_utf16_with_bom(input, name, utf16_scratch, output);
+            return decode_utf16_with_bom(input, character_set_name, utf16_scratch, output);
         default:
-            return Status::InvalidArgument("Unsupported character set '{}'", name);
+            return Status::InvalidArgument("Unsupported character set '{}'", character_set_name);
         }
     }
 
-    static Status encode_latin1(StringRef input, std::string_view name,
+    static Status encode_latin1(StringRef input, std::string_view character_set_name,
                                 ColumnString::Chars& output) {
         const size_t start = output.size();
         char* dest = reserve_output(output, input.size);
@@ -317,27 +319,27 @@ private:
             output.resize(start);
             const simdutf::error_code error =
                     detail.error == simdutf::SUCCESS ? simdutf::OTHER : detail.error;
-            return conversion_error(name, error);
+            return conversion_error(character_set_name, error);
         }
         output.resize(start + written);
         return Status::OK();
     }
 
-    static Status decode_latin1(StringRef input, std::string_view name,
+    static Status decode_latin1(StringRef input, std::string_view character_set_name,
                                 ColumnString::Chars& output) {
         const size_t need = simdutf::utf8_length_from_latin1(input.data, input.size);
         char* dest = reserve_output(output, need);
         const size_t written = simdutf::convert_latin1_to_utf8(input.data, input.size, dest);
         if (written != need) {
             output.resize(output.size() - need);
-            return conversion_error(name, simdutf::OTHER);
+            return conversion_error(character_set_name, simdutf::OTHER);
         }
         return Status::OK();
     }
 
-    static Status encode_utf16(StringRef input, std::string_view name, bool little_endian,
-                               bool write_bom, std::vector<char16_t>& utf16_scratch,
-                               ColumnString::Chars& output) {
+    static Status encode_utf16(StringRef input, std::string_view character_set_name,
+                               bool little_endian, bool write_bom,
+                               std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
         utf16_scratch.resize(input.size);
         const simdutf::result result =
                 little_endian ? simdutf::convert_utf8_to_utf16le_with_errors(input.data, input.size,
@@ -345,10 +347,9 @@ private:
                               : simdutf::convert_utf8_to_utf16be_with_errors(input.data, input.size,
                                                                              utf16_scratch.data());
         if (result.error != simdutf::SUCCESS) {
-            return conversion_error(name, result.error);
+            return conversion_error(character_set_name, result.error);
         }
         const size_t payload_bytes = result.count * sizeof(char16_t);
-        const size_t start = output.size();
         char* dest = reserve_output(output, payload_bytes + (write_bom ? 2 : 0));
         if (write_bom) {
             auto* bytes = reinterpret_cast<uint8_t*>(dest);
@@ -361,11 +362,11 @@ private:
     }
 
     // Java's UTF-16 decoder honors either BOM and defaults to big endian without one.
-    static Status decode_utf16_with_bom(StringRef input, std::string_view name,
+    static Status decode_utf16_with_bom(StringRef input, std::string_view character_set_name,
                                         std::vector<char16_t>& utf16_scratch,
                                         ColumnString::Chars& output) {
         if (input.size < 2) {
-            return conversion_error(name, simdutf::TOO_SHORT);
+            return conversion_error(character_set_name, simdutf::TOO_SHORT);
         }
         const auto first = static_cast<uint8_t>(input.data[0]);
         const auto second = static_cast<uint8_t>(input.data[1]);
@@ -379,17 +380,18 @@ private:
         if (input.size == 0) {
             return Status::OK();
         }
-        return decode_utf16(input, name, little_endian, utf16_scratch, output);
+        return decode_utf16(input, character_set_name, little_endian, utf16_scratch, output);
     }
 
-    static Status decode_utf16(StringRef input, std::string_view name, bool little_endian,
-                               std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
+    static Status decode_utf16(StringRef input, std::string_view character_set_name,
+                               bool little_endian, std::vector<char16_t>& utf16_scratch,
+                               ColumnString::Chars& output) {
         if (input.size % 2 != 0) {
-            return conversion_error(name, simdutf::TOO_SHORT);
+            return conversion_error(character_set_name, simdutf::TOO_SHORT);
         }
         const size_t units = input.size / 2;
         if (units > (std::numeric_limits<size_t>::max() / 3)) {
-            return reject_too_large(name);
+            return reject_too_large(character_set_name);
         }
         const char16_t* units_ptr = utf16_units(input, utf16_scratch);
         const size_t start = output.size();
@@ -400,7 +402,7 @@ private:
                         : simdutf::convert_utf16be_to_utf8_with_errors(units_ptr, units, dest);
         if (result.error != simdutf::SUCCESS) {
             output.resize(start);
-            return conversion_error(name, result.error);
+            return conversion_error(character_set_name, result.error);
         }
         output.resize(start + result.count);
         return Status::OK();
