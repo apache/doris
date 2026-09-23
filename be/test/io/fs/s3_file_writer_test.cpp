@@ -1560,10 +1560,11 @@ TEST_P(PrimaryKeyBloomFilterS3FailureTest, CreateMultipartFailure) {
     size_t failed_add_count = 0;
     size_t zero_length_append_count = 0;
     sp->set_call_back("PrimaryKeyBloomFilterIndexWriterImpl::finish_after_add", [&](auto&& args) {
-        auto* st = try_any_cast<Status*>(args.at(0));
+        Status* st = try_any_cast<Status*>(args.at(0));
         auto* writer = try_any_cast<segment_v2::IndexedColumnWriter*>(args.at(1));
         ASSERT_TRUE(st->is<ErrorCode::IO_ERROR>()) << *st;
-        EXPECT_TRUE(st->to_string().contains("injected CreateMultipartUpload error")) << *st;
+        EXPECT_NE(std::string::npos, st->to_string().find("injected CreateMultipartUpload error"))
+                << *st;
         ++failed_add_count;
         EXPECT_EQ(1, writer->_num_values);
         EXPECT_EQ(0, writer->_num_data_pages);

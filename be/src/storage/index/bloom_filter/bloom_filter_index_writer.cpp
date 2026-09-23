@@ -30,6 +30,7 @@
 #include "core/packed_int128.h"
 #include "core/value/decimalv2_value.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "storage/index/indexed_column_writer.h"
 #include "storage/index/primary_key_index.h"
