@@ -18,7 +18,10 @@
 package org.apache.doris.statistics.model;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -35,6 +38,25 @@ public class StatisticsTest {
     @AfterEach
     public void tearDown() {
         ConnectContext.remove();
+    }
+
+    @Test
+    public void testUnknownStatisticsCarryTheTypeWidth() {
+        // the shared instance stays the one byte placeholder the statistics cache compares against
+        Assertions.assertEquals(1, ColumnStatistic.UNKNOWN.avgSizeByte);
+
+        // unknown statistics built for an expression carry the width of its data type, so that the
+        // row width they contribute to the cost model is not one byte per column
+        ColumnStatistic intStats = ColumnStatistic.createUnknownByDataType(IntegerType.INSTANCE, 100);
+        Assertions.assertTrue(intStats.isUnKnown());
+        Assertions.assertEquals(100, intStats.count);
+        Assertions.assertEquals(IntegerType.INSTANCE.width(), intStats.avgSizeByte);
+
+        // character types are capped at the default width, whatever their declared length
+        Assertions.assertEquals(CharacterType.DEFAULT_WIDTH,
+                ColumnStatistic.createUnknownByDataType(CharType.createCharType(1000)).avgSizeByte);
+        Assertions.assertEquals(CharacterType.DEFAULT_WIDTH,
+                ColumnStatistic.createUnknownByDataType(StringType.INSTANCE).avgSizeByte);
     }
 
     @Test

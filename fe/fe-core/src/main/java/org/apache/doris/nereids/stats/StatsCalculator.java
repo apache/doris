@@ -529,7 +529,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
                         if (derivedStats.findColumnStatisticsOrNull(slot) == null) {
                             derivedStats.addColumnStats(slot,
-                                    new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
+                                    ColumnStatistic.createUnknownByDataType(slot.getDataType(), derivedRowCount));
                         }
                     }
                     return derivedStats;
@@ -545,7 +545,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 || ConnectContext.get() == null
                 || ConnectContext.get().getState().isPlanWithUnKnownColumnStats()) {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
-                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                builder.putColumnStatistics(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType()));
             }
             setHasUnknownColStatsInStatementContext();
             builder.setRowCount(tableRowCount);
@@ -557,7 +557,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // get row count from any visible slotReference's colStats
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot,
-                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, tableRowCount).build());
+                        ColumnStatistic.createUnknownByDataType(slot.getDataType(), tableRowCount));
             }
             setHasUnknownColStatsInStatementContext();
             return builder.setRowCount(tableRowCount).build();
@@ -572,7 +572,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (isVisibleSlotReference(slot)) {
                 visibleOutputSlots.add((SlotReference) slot);
             } else {
-                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                builder.putColumnStatistics(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType()));
             }
         }
         // Only operative slots' column stats are needed by the query, column stats of other slots
@@ -1300,7 +1300,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 || ConnectContext.get().getState().isInternal()) {
             builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
-                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                builder.putColumnStatistics(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType()));
             }
             setHasUnknownColStatsInStatementContext();
             return builder.build();
@@ -1330,6 +1330,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 cache = getColumnStatsFromTableCache(catalogRelation, slot);
             }
             ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
+            // column stats that are not available (or not fetched) have no measured value size:
+            // count such a column as wide as its data type instead of one byte
+            colStatsBuilder.normalizeAvgSizeByte(slot.getDataType());
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);

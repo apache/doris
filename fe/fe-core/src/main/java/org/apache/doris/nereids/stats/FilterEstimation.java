@@ -96,7 +96,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             deltaStats.setDeltaRowCount(0);
             deltaStats.setRowCount(inputStats.getDeltaRowCount());
             for (Expression expr : inputStats.columnStatistics().keySet()) {
-                deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
+                deltaStats.putColumnStatistics(expr, ColumnStatistic.createUnknownByDataType(expr.getDataType()));
             }
             Statistics deltaOutputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
             StatisticsBuilder builder = new StatisticsBuilder(inputStats).setDeltaRowCount(0)
@@ -108,7 +108,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
                         if (partial.getRowCount() == 0) {
                             for (Slot slot : conjunct.getInputSlots()) {
-                                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                                builder.putColumnStatistics(slot,
+                                        ColumnStatistic.createUnknownByDataType(slot.getDataType()));
                             }
                         }
                     }
@@ -471,7 +472,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         // A > cast (1 as xxx), min/max of cast is +infinity/-infinity
         // regard the stats for cast as UNKNOWN
         if (statsForRight.minValue != statsForRight.maxValue || statsForRight.isMinMaxInvalid()) {
-            statsForRight = ColumnStatistic.UNKNOWN;
+            statsForRight = ColumnStatistic.createUnknownByDataType(cp.right().getDataType());
         }
         if (cp instanceof EqualPredicate) {
             return estimateColumnEqualToConstant(cp, statsForLeft, statsForRight, context);

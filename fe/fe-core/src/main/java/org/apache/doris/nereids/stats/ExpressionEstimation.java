@@ -150,7 +150,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         }
         List<Expression> childrenExpr = expr.children();
         if (CollectionUtils.isEmpty(childrenExpr)) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.createUnknownByDataType(expr.getDataType());
         }
         return expr.child(0).accept(this, context);
     }
@@ -278,7 +278,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitLiteral(Literal literal, Statistics context) {
         if (ColumnStatistic.UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
-            return ColumnStatistic.UNKNOWN;
+            return ColumnStatistic.createUnknownByDataType(literal.getDataType());
         }
         double literalVal = literal.getDouble();
         HashMap<Literal, Float> hotValues = Maps.newHashMap();
@@ -302,7 +302,8 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         // belong to another subtree), so a missing slot is an expected case here and not an error:
         // it is estimated as unknown statistics, as it always has been.
         ColumnStatistic columnStatistic = context.findColumnStatisticsOrNull(slotReference);
-        return columnStatistic == null ? ColumnStatistic.UNKNOWN : columnStatistic;
+        return columnStatistic == null
+                ? ColumnStatistic.createUnknownByDataType(slotReference.getDataType()) : columnStatistic;
     }
 
     @Override
@@ -385,7 +386,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     .build();
         }
 
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.createUnknownByDataType(binaryArithmetic.getDataType());
     }
 
     private double noneZeroDivisor(double d) {
@@ -489,7 +490,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitBoundFunction(BoundFunction boundFunction, Statistics context) {
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.createUnknownByDataType(boundFunction.getDataType());
     }
 
     @Override
@@ -536,7 +537,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     @Override
     public ColumnStatistic visitMarkJoinReference(
             MarkJoinSlotReference markJoinSlotReference, Statistics context) {
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.createUnknownByDataType(markJoinSlotReference.getDataType());
     }
 
     public ColumnStatistic visitNullIf(NullIf nullIf, Statistics context) {

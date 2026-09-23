@@ -104,7 +104,7 @@ public class Statistics {
             throw new NullPointerException("Statistics of " + expression + " is not derived, rowCount="
                     + rowCount + ", derived expressions: " + expressionToColumnStats.keySet());
         }
-        return ColumnStatistic.UNKNOWN;
+        return ColumnStatistic.createUnknownByDataType(expression.getDataType());
     }
 
     /**
