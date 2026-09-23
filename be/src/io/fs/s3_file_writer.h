@@ -98,6 +98,9 @@ private:
 
     Status _st;
     size_t _bytes_appended = 0;
+    // Used by debug point `S3FileWriter._create_multi_upload_request.inject_error_once`
+    // so that only the first CreateMultipartUpload of this writer fails.
+    bool _debug_create_multipart_failed = false;
 
     std::shared_ptr<FileBuffer> _pending_buf;
 
