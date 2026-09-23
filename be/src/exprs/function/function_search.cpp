@@ -295,12 +295,32 @@ bool has_repeated_term(std::vector<std::string> terms) {
     return std::ranges::adjacent_find(terms) != terms.end();
 }
 
+bool has_required_clause(const Clauses& clauses) {
+    return std::ranges::any_of(
+            clauses, [](const auto& clause) { return clause.first == logical::Occur::kMust; });
+}
+
+// Without scoring, optional clauses beside a required one change neither the rows nor their
+// UNKNOWN state, so they are left out.
+Clauses matching_clauses(const logical::Bool& boolean, bool scoring) {
+    if (scoring || boolean.op != logical::BoolOp::kOccur || boolean.min_should_match != 0 ||
+        !has_required_clause(boolean.clauses)) {
+        return boolean.clauses;
+    }
+    Clauses kept;
+    std::ranges::copy_if(boolean.clauses, std::back_inserter(kept), [](const auto& clause) {
+        return clause.first != logical::Occur::kShould;
+    });
+    return kept;
+}
+
 // Term sets of one field under an AND, an OR, or the required or optional clauses of an occur
 // query join into one set at the place of the first. A nested-document mapper maps leaves one
 // by one, so nothing joins under it; nor does a repeated term, which scores once per clause.
-Clauses join_term_sets(const logical::Bool& boolean, const FieldReaderResolver& resolver) {
+Clauses join_term_sets(const logical::Bool& boolean, const Clauses& clauses,
+                       const FieldReaderResolver& resolver) {
     if (resolver.maps_leaf_queries()) {
-        return boolean.clauses;
+        return clauses;
     }
     struct Group {
         logical::Occur occur;
@@ -310,13 +330,11 @@ Clauses join_term_sets(const logical::Bool& boolean, const FieldReaderResolver& 
         size_t members = 0;
         bool joins = false;
     };
-    const bool has_required = std::ranges::any_of(boolean.clauses, [](const auto& clause) {
-        return clause.first == logical::Occur::kMust;
-    });
+    const bool has_required = has_required_clause(clauses);
     std::vector<Group> groups;
-    std::vector<std::optional<size_t>> group_of(boolean.clauses.size());
-    for (size_t i = 0; i < boolean.clauses.size(); ++i) {
-        const auto& [occur, child] = boolean.clauses[i];
+    std::vector<std::optional<size_t>> group_of(clauses.size());
+    for (size_t i = 0; i < clauses.size(); ++i) {
+        const auto& [occur, child] = clauses[i];
         const std::optional<bool> kind = joined_kind(boolean, occur, has_required);
         const logical::TermSet* set =
                 kind.has_value() ? joinable_set(*child, *kind, resolver) : nullptr;
@@ -345,9 +363,9 @@ Clauses join_term_sets(const logical::Bool& boolean, const FieldReaderResolver& 
     }
     Clauses planned;
     std::vector<bool> placed(groups.size(), false);
-    for (size_t i = 0; i < boolean.clauses.size(); ++i) {
+    for (size_t i = 0; i < clauses.size(); ++i) {
         if (!group_of[i].has_value() || !groups[*group_of[i]].joins) {
-            planned.push_back(boolean.clauses[i]);
+            planned.push_back(clauses[i]);
             continue;
         }
         if (placed[*group_of[i]]) {
@@ -365,10 +383,12 @@ Clauses join_term_sets(const logical::Bool& boolean, const FieldReaderResolver& 
 }
 
 // AND, OR and NOT ignore the per-clause occur; OCCUR keeps it and the threshold. A Boolean
-// whose clauses all joined into one term set is that set.
+// left with one clause, after dropping clauses that only score or joining term sets, is that
+// clause.
 Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out) {
-    const Clauses clauses = join_term_sets(boolean, resolver);
+    const Clauses clauses =
+            join_term_sets(boolean, matching_clauses(boolean, ctx.scoring), resolver);
     if (clauses.size() == 1 && boolean.clauses.size() > 1) {
         return compile_node(*clauses.front().second, ctx, resolver, out, nullptr);
     }
@@ -625,7 +645,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_init_timer : &init_dummy);
         RETURN_IF_ERROR(build_query_recursive(search_param.root, context, resolver, &root_query,
                                               &root_binding_key, default_operator,
-                                              minimum_should_match, num_rows));
+                                              minimum_should_match, num_rows, enable_scoring));
     }
     if (root_query == nullptr) {
         LOG(INFO) << "search: Query tree resolved to empty query, dsl:"
@@ -725,7 +745,7 @@ Status FunctionSearch::build_query_recursive(
         const TSearchClause& clause, const std::shared_ptr<IndexQueryContext>& context,
         FieldReaderResolver& resolver, inverted_index::query_v2::QueryPtr* out,
         std::string* binding_key, const std::string& default_operator, int32_t minimum_should_match,
-        uint32_t num_rows) const {
+        uint32_t num_rows, bool scoring) const {
     DCHECK(out != nullptr);
     *out = nullptr;
     if (binding_key != nullptr) {
@@ -737,8 +757,9 @@ Status FunctionSearch::build_query_recursive(
             clause,
             {.default_operator = default_operator, .minimum_should_match = minimum_should_match},
             catalog, &root));
-    return compile_node(*root, SearchLeafContext {.context = context, .num_rows = num_rows},
-                        resolver, out, binding_key);
+    return compile_node(
+            *root, SearchLeafContext {.context = context, .num_rows = num_rows, .scoring = scoring},
+            resolver, out, binding_key);
 }
 
 void register_function_search(SimpleFunctionFactory& factory) {

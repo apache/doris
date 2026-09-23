@@ -101,7 +101,7 @@ public:
                                  FieldReaderResolver& resolver,
                                  inverted_index::query_v2::QueryPtr* out, std::string* binding_key,
                                  const std::string& default_operator, int32_t minimum_should_match,
-                                 uint32_t num_rows = 0) const;
+                                 uint32_t num_rows = 0, bool scoring = true) const;
 };
 
 } // namespace doris

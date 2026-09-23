@@ -2697,6 +2697,40 @@ TEST_F(FunctionSearchTest, TestSniiNativeOptionalTermsThatDecideTheMatchJoin) {
     expect_bitmap_eq(collect_docs(scorer), {0, 1, 3});
 }
 
+// An unscored query never reads optional terms beside a required one: they change neither the
+// rows nor their UNKNOWN state.
+TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
+    SniiScoringFixture fixture(60, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({2, 3}));
+    fixture.reader->set_query_result("gamma", make_bitmap({0, 2}));
+    fixture.reader->set_null_bitmap(make_bitmap({3}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_compound_clause(
+                    "OCCUR_BOOLEAN",
+                    {with_occur(make_leaf_clause("TERM", "alpha"), TSearchOccur::MUST),
+                     with_occur(make_leaf_clause("TERM", "beta"), TSearchOccur::SHOULD),
+                     with_occur(make_leaf_clause("TERM", "gamma"), TSearchOccur::SHOULD)}),
+            fixture.context, *fixture.resolver, &query, &binding_key, "OR", 0, fixture.num_rows,
+            /*scoring=*/false);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"}}),
+              fixture.reader->calls);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+    ASSERT_TRUE(scorer->has_null_bitmap());
+    const auto* null_bitmap = scorer->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    expect_bitmap_eq(*null_bitmap, {3});
+}
+
 // Terms join past a clause of another kind, which keeps its own query.
 TEST_F(FunctionSearchTest, TestSniiNativeTermsJoinPastAPhrase) {
     SniiScoringFixture fixture(52, 4);

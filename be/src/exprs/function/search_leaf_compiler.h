@@ -33,6 +33,8 @@ namespace doris {
 struct SearchLeafContext {
     std::shared_ptr<segment_v2::IndexQueryContext> context;
     uint32_t num_rows = 0;
+    // Whether the query scores its rows; clauses that only add to the score matter only then.
+    bool scoring = true;
 };
 
 // Turns one lowered leaf into a query_v2 query on the index its field was bound
