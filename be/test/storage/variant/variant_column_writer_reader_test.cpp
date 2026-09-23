@@ -957,6 +957,35 @@ TEST(VariantPathBuilderTest, TypedArrayConversionDoesNotDependOnOtherElementKind
     EXPECT_EQ(mixed, (std::vector<std::string> {"[\"2024-01-01\", null]", "[\"2024-01-02\"]"}));
 }
 
+TEST(VariantPathBuilderTest, TypedStringArrayConversionKeepsNullElements) {
+    VariantBatchBuilder value_builder;
+    {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        row.add_string(StringRef("a"));
+        row.add_int(1);
+        row.add_null();
+        array.finish();
+        row.finish();
+    }
+    {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        row.add_string(StringRef("b"));
+        row.add_null();
+        array.finish();
+        row.finish();
+    }
+    const VariantBatchBuilder values = value_builder.finish_batch();
+    const DataTypePtr declared_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+
+    const std::vector<std::string> mixed =
+            convert_typed_path_rows(values, {0, 1}, 2, declared_type);
+    EXPECT_EQ(mixed[1], convert_typed_path_rows(values, {1}, 2, declared_type)[1]);
+    EXPECT_EQ(mixed, (std::vector<std::string> {"[\"a\", \"1\", null]", "[\"b\", null]"}));
+}
+
 TEST(VariantPathBuilderTest, TypedConversionDropsKindsCastCannotConvert) {
     VariantBatchBuilder value_builder;
     {
@@ -2853,11 +2882,11 @@ TEST_F(VariantColumnWriterReaderTest, v2_typed_date_paths_keep_strings_batched_w
     _tablet_schema->mutable_column_by_uid(1).add_sub_column(int_path);
     init_tablet_from_current_schema(11019);
 
-    // Row 1 puts numbers on the typed paths of row 0 in the same batch. Only its own values may be
-    // dropped; row 0 must convert as it does when written alone.
+    // Row 1 puts numbers on the typed paths where row 0 has strings, in the same batch. Each row
+    // must convert as it does when written alone.
     const std::vector<std::string> jsons {
             R"({"d":"2024-01-01","i":"5","ts":"2024-01-01 10:00:00.123456"})",
-            R"({"d":5,"i":"x","ts":5})",
+            R"({"d":5,"i":1.5,"ts":5})",
     };
     ColumnPtr source;
     DataTypePtr source_type;
@@ -2879,13 +2908,13 @@ TEST_F(VariantColumnWriterReaderTest, v2_typed_date_paths_keep_strings_batched_w
     ASSERT_TRUE(read_variant_path_rows(footer, file_path, "i", FieldType::OLAP_FIELD_TYPE_INT,
                                        &integers)
                         .ok());
-    EXPECT_EQ(integers, (std::vector<std::string> {"5", "NULL"}));
+    EXPECT_EQ(integers, (std::vector<std::string> {"5", "1"}));
 
     std::vector<std::optional<std::string>> actual;
     ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
     EXPECT_EQ(actual, (std::vector<std::optional<std::string>> {
                               R"({"d":"2024-01-01","i":5,"ts":"2024-01-01 10:00:00.123000"})",
-                              "{}",
+                              R"({"i":1})",
                       }));
 }
 

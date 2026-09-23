@@ -27,24 +27,25 @@ suite("test_predefine_mixed_value_kinds", "p0") {
     sql """
         CREATE TABLE test_predefine_mixed_value_kinds (
             k INT,
-            v VARIANT<'ts': DATETIME(3), 'd': DATE, 'i': INT, 's': STRING, 'arr': ARRAY<DATE>>
+            v VARIANT<'ts': DATETIME(3), 'd': DATE, 'i': INT, 's': STRING, 'arr': ARRAY<DATE>,
+                      'tags': ARRAY<STRING>>
         ) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    // Rows 1 and 2 share one batch, which mixes strings with numbers or booleans on every typed
-    // path. Rows 3 and 4 repeat them in batches of their own, so each pair must read the same.
+    // Rows 1 and 2 share one batch, which mixes strings with numbers on every typed path. Rows 3
+    // and 4 repeat them in batches of their own, so each pair must read the same.
     sql """
         INSERT INTO test_predefine_mixed_value_kinds VALUES
-        (1, PARSE_TO_VARIANT('{"ts": "2024-01-01 10:00:00.123456", "d": "2024-01-01", "i": "5", "s": "abc", "arr": ["2024-01-01", 5]}')),
-        (2, PARSE_TO_VARIANT('{"ts": 5, "d": 5, "i": "x", "s": true, "arr": ["2024-01-02"]}'))
+        (1, PARSE_TO_VARIANT('{"ts": "2024-01-01 10:00:00.123456", "d": "2024-01-01", "i": "5", "s": "abc", "arr": ["2024-01-01", 5], "tags": ["a", 1, null]}')),
+        (2, PARSE_TO_VARIANT('{"ts": 5, "d": 5, "i": 1.5, "s": 1.5, "arr": ["2024-01-02"], "tags": ["b", null]}'))
     """
     sql """
         INSERT INTO test_predefine_mixed_value_kinds VALUES
-        (3, PARSE_TO_VARIANT('{"ts": "2024-01-01 10:00:00.123456", "d": "2024-01-01", "i": "5", "s": "abc", "arr": ["2024-01-01", 5]}'))
+        (3, PARSE_TO_VARIANT('{"ts": "2024-01-01 10:00:00.123456", "d": "2024-01-01", "i": "5", "s": "abc", "arr": ["2024-01-01", 5], "tags": ["a", 1, null]}'))
     """
     sql """
         INSERT INTO test_predefine_mixed_value_kinds VALUES
-        (4, PARSE_TO_VARIANT('{"ts": 5, "d": 5, "i": "x", "s": true, "arr": ["2024-01-02"]}'))
+        (4, PARSE_TO_VARIANT('{"ts": 5, "d": 5, "i": 1.5, "s": 1.5, "arr": ["2024-01-02"], "tags": ["b", null]}'))
     """
     order_qt_mixed_variant """ SELECT k, CAST(v AS STRING) FROM test_predefine_mixed_value_kinds """
     order_qt_mixed_paths """
