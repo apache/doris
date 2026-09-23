@@ -35,7 +35,10 @@ suite("test_uuid_aggregate_matrix", "p0") {
              list_unlimited: "ARRAY_SORT(COLLECT_LIST(${u},-1))", set_unlimited: "ARRAY_SORT(COLLECT_SET(${u},-1))",
              list_null_limit: "COLLECT_LIST(${u},NULL)", set_null_limit: "COLLECT_SET(${u},NULL)",
              histogram_null: "HISTOGRAM(${u},NULL)", topn_null: "TOPN_ARRAY(${u},NULL)",
-             topn_zero_capacity: "TOPN_ARRAY(${u},100,0)", topn_null_capacity: "TOPN_ARRAY(${u},100,NULL)",
+             // Non-positive expansion rates retain all candidates, including serialized partial states.
+             topn_zero_rate: "ARRAY_SORT(TOPN_ARRAY(${u},100,0))",
+             topn_negative_rate: "ARRAY_SORT(TOPN_ARRAY(${u},100,-1))",
+             topn_null_rate: "TOPN_ARRAY(${u},100,NULL)",
              any_member: "IF(COUNT(${u})=0,ANY_VALUE(${u}) IS NULL,ARRAY_CONTAINS(COLLECT_SET(${u}),ANY_VALUE(${u})))"]
         }, [aggregate:true])
         matrix.run(delegate, "binary_p${phase}", 'uuid_matrix_aggregate', ['u','v'], { u,v ->
@@ -60,12 +63,6 @@ suite("test_uuid_aggregate_matrix", "p0") {
             [union_values: "ARRAY_SORT(GROUP_ARRAY_UNION(${a}))", intersection: "ARRAY_SORT(GROUP_ARRAY_INTERSECT(${a}))"]
         }, [aggregate:true])
     }
-    // Unlike COLLECT_LIST, COLLECT_SET accepts a column limit. Keep it constant within
-    // each group and verify cardinality plus membership without fixing arbitrary winners.
-    matrix.run(delegate, 'set_limit', 'uuid_matrix_aggregate', ['u','num'], { u,n ->
-        [size_matches: "SIZE(COLLECT_SET(${u},${n})) = LEAST(IFNULL(${n},0),COUNT(DISTINCT ${u}))",
-         members_match: "ARRAY_CONTAINS_ALL(COLLECT_SET(${u}),COLLECT_SET(${u},${n}))"]
-    }, [aggregate:true,groupBy:'num'])
     sql "SET enable_agg_state=true"
     // Keep the aggregate-state signature nullable while its constant child folds.
     // Raw non-nullable constant states hit a pre-existing generic MERGE rewrite bug,
@@ -126,7 +123,7 @@ suite("test_uuid_aggregate_matrix", "p0") {
         // Group per UUID: TOPN ties cannot make the expected array order arbitrary.
         qt_topn """SELECT u,TOPN_ARRAY(u,1),TOPN_ARRAY(u,2,4),COLLECT_LIST(u,2),COLLECT_SET(u,2)
                    FROM uuid_matrix_aggregate GROUP BY u ORDER BY u NULLS FIRST"""
-        for (String query : ['HISTOGRAM(u,num)', 'TOPN_ARRAY(u,num)', 'COLLECT_LIST(u,num)']) {
+        for (String query : ['HISTOGRAM(u,num)', 'TOPN_ARRAY(u,num)', 'COLLECT_LIST(u,num)', 'COLLECT_SET(u,num)']) {
             test {
                 sql "SELECT ${query} FROM uuid_matrix_aggregate"
                 exception "constant"

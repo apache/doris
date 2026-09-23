@@ -15,29 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_uuid_variant_identity", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-        qt_native_uuid_variant_type """
-            SELECT variant_type(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT)),
-                   CAST(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT) AS UUID),
-                   variant_type(CAST(CAST(NULL AS UUID) AS VARIANT))
-        """
-        sql "DROP TABLE IF EXISTS uuid_variant_identity"
-        sql """
-            CREATE TABLE uuid_variant_identity (
-                id INT, v VARIANT<'u':UUID, PROPERTIES('variant_enable_doc_mode'='false')>
-            )
-            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
-            PROPERTIES('replication_num'='1')
-        """
-        sql """
-            INSERT INTO uuid_variant_identity VALUES
-            (1, parse_to_variant('{"u":"00112233-4455-6677-8899-aabbccddeeff"}')),
-            (2, parse_to_variant('{"u":null}'))
-        """
-        order_qt_persisted_uuid_variant_type """
-            SELECT id, variant_type(v['u']), CAST(v['u'] AS UUID)
-            FROM uuid_variant_identity ORDER BY id
-        """
-    }
+suite("test_uuid_variant_identity") {
+    qt_native_uuid_variant_type """
+        SELECT variant_type(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT)),
+               CAST(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT) AS UUID),
+               variant_type(CAST(CAST(NULL AS UUID) AS VARIANT))
+    """
+    sql "DROP TABLE IF EXISTS uuid_variant_identity"
+    sql """
+        CREATE TABLE uuid_variant_identity (
+            id INT, v VARIANT<'u':UUID, PROPERTIES('variant_enable_doc_mode'='false')>
+        )
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES('replication_num'='1')
+    """
+    sql """
+        INSERT INTO uuid_variant_identity VALUES
+        (1, parse_to_variant('{"u":"00112233-4455-6677-8899-aabbccddeeff"}')),
+        (2, parse_to_variant('{"u":null}'))
+    """
+    order_qt_persisted_uuid_variant_type """
+        SELECT id, variant_type(v['u']), CAST(v['u'] AS UUID)
+        FROM uuid_variant_identity ORDER BY id
+    """
 }
