@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <unicode/ucnv.h>
-#include <unicode/ucnv_err.h>
+#include <simdutf.h>
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -88,111 +88,43 @@ Status parse_character_set(StringRef value, CharacterSet& character_set) {
             std::string(value.data, value.size));
 }
 
-using ConverterPtr = std::unique_ptr<UConverter, decltype(&ucnv_close)>;
+Status conversion_error(std::string_view character_set_name, simdutf::error_code error) {
+    return Status::InvalidArgument("Character conversion using '{}' failed: {}", character_set_name,
+                                   simdutf::error_to_string(error));
+}
 
-class ConverterPair {
-public:
-    ConverterPair() : _source(nullptr, ucnv_close), _target(nullptr, ucnv_close) {}
+Status reject_too_large(std::string_view character_set_name) {
+    return Status::InvalidArgument("Input is too large for character conversion using '{}'",
+                                   character_set_name);
+}
 
-    Status open(std::string_view source_name, std::string_view target_name) {
-        UErrorCode error = U_ZERO_ERROR;
-        _source.reset(ucnv_open(source_name.data(), &error));
-        if (U_FAILURE(error)) {
-            return Status::InternalError("Failed to open ICU converter '{}': {}", source_name,
-                                         u_errorName(error));
-        }
+// Grow the byte buffer, then return the address of the newly reserved range.
+char* reserve_output(ColumnString::Chars& output, size_t extra) {
+    const size_t start = output.size();
+    ColumnString::check_chars_length(start + extra, 0);
+    output.resize(start + extra);
+    return reinterpret_cast<char*>(output.data() + start);
+}
 
-        error = U_ZERO_ERROR;
-        ucnv_setToUCallBack(_source.get(), UCNV_TO_U_CALLBACK_STOP, nullptr, nullptr, nullptr,
-                            &error);
-        if (U_FAILURE(error)) {
-            return Status::InternalError("Failed to configure ICU converter '{}': {}", source_name,
-                                         u_errorName(error));
-        }
-
-        error = U_ZERO_ERROR;
-        _target.reset(ucnv_open(target_name.data(), &error));
-        if (U_FAILURE(error)) {
-            return Status::InternalError("Failed to open ICU converter '{}': {}", target_name,
-                                         u_errorName(error));
-        }
-
-        error = U_ZERO_ERROR;
-        ucnv_setFromUCallBack(_target.get(), UCNV_FROM_U_CALLBACK_STOP, nullptr, nullptr, nullptr,
-                              &error);
-        if (U_FAILURE(error)) {
-            return Status::InternalError("Failed to configure ICU converter '{}': {}", target_name,
-                                         u_errorName(error));
-        }
-        return Status::OK();
+Status copy_validated(StringRef input, std::string_view character_set_name,
+                      simdutf::result validation, ColumnString::Chars& output) {
+    if (validation.error != simdutf::SUCCESS) {
+        return conversion_error(character_set_name, validation.error);
     }
+    memcpy(reserve_output(output, input.size), input.data, input.size);
+    return Status::OK();
+}
 
-    Status convert(StringRef input, std::string_view character_set_name,
-                   ColumnString::Chars& output) {
-        if (input.size == 0) {
-            return Status::OK();
-        }
-        if (input.size > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-            return Status::InvalidArgument("Input is too large for character conversion using '{}'",
-                                           character_set_name);
-        }
-
-        // Keep only a bounded Unicode pivot, rather than materializing the entire UTF-16
-        // string and scanning both the source and the pivot twice to preflight sizes.
-        UChar pivot[1024];
-        UChar* pivot_source = pivot;
-        UChar* pivot_target = pivot;
-        const char* source = input.data;
-        const char* source_limit = input.data + input.size;
-        bool reset = true;
-        size_t available = input.size;
-        while (true) {
-            const size_t written = output.size();
-            constexpr size_t MAX_OUTPUT_SIZE = std::numeric_limits<UInt32>::max();
-            if (UNLIKELY(written == MAX_OUTPUT_SIZE)) {
-                ColumnString::check_chars_length(written + 1, 0);
-            }
-            output.reserve(written + std::min(available, MAX_OUTPUT_SIZE - written));
-            // Reuse the spare capacity of the block's result/scratch buffer. In particular,
-            // expanding rows should not need an overflow/retry on every conversion. Never
-            // reserve beyond ColumnString's UInt32 offset limit before it can report overflow.
-            const size_t target_size =
-                    std::min({output.capacity() - written, MAX_OUTPUT_SIZE - written,
-                              static_cast<size_t>(std::numeric_limits<int32_t>::max())});
-            output.resize_assume_reserved(written + target_size);
-            char* target = reinterpret_cast<char*>(output.data()) + written;
-            const char* target_limit = reinterpret_cast<char*>(output.data()) + output.size();
-            UErrorCode error = U_ZERO_ERROR;
-            ucnv_convertEx(_target.get(), _source.get(), &target, target_limit, &source,
-                           source_limit, pivot, &pivot_source, &pivot_target, pivot + 1024, reset,
-                           true, &error);
-            output.resize(target - reinterpret_cast<char*>(output.data()));
-            // Validate bytes actually produced, not the allocation bound: conversion may
-            // shrink the input, and spare capacity is not part of the result column.
-            ColumnString::check_chars_length(output.size(), 0);
-            if (error == U_BUFFER_OVERFLOW_ERROR) {
-                // Resume this row without resetting either converter or discarding pending
-                // pivot/output bytes. A new row resets the converters on its first call.
-                reset = false;
-                available *= 2;
-                continue;
-            }
-            if (U_FAILURE(error)) {
-                return conversion_error(character_set_name, error);
-            }
-            return Status::OK();
-        }
+// Doris string bytes are not guaranteed to be char16_t-aligned.
+const char16_t* utf16_units(StringRef input, std::vector<char16_t>& aligned) {
+    if (reinterpret_cast<uintptr_t>(input.data) % alignof(char16_t) == 0) {
+        return reinterpret_cast<const char16_t*>(input.data);
     }
-
-private:
-    static Status conversion_error(std::string_view character_set_name, UErrorCode error) {
-        return Status::InvalidArgument("Character conversion using '{}' failed: {}",
-                                       character_set_name, u_errorName(error));
-    }
-
-    ConverterPtr _source;
-    ConverterPtr _target;
-};
+    const size_t units = input.size / 2;
+    aligned.resize(units);
+    memcpy(aligned.data(), input.data, input.size);
+    return aligned.data();
+}
 
 template <bool Encode>
 class FunctionCharacterEncoding : public IFunction {
@@ -250,10 +182,10 @@ public:
         if (has_nullable) {
             result_null_column = ColumnUInt8::create(input_rows_count, 0);
         }
-        ConverterCache converters;
         // Varbinary owns out-of-line values in an arena and inlines small values. Share one
-        // tracked scratch buffer across charsets so that its capacity is not retained seven times.
+        // tracked scratch buffer across rows so that its capacity is not retained per row.
         ColumnString::Chars scratch;
+        std::vector<char16_t> utf16_scratch;
         CharacterSet constant_character_set = CharacterSet::UTF_8;
         if (character_set_is_const && input_rows_count != 0 &&
             !(character_set_null_map && (*character_set_null_map)[0])) {
@@ -275,13 +207,14 @@ public:
             const StringRef input = input_nested->get_data_at(input_index);
             if constexpr (Encode) {
                 scratch.clear();
-                RETURN_IF_ERROR(convert_input(input, constant_character_set, converters, scratch));
+                RETURN_IF_ERROR(
+                        convert_input(input, constant_character_set, utf16_scratch, scratch));
                 result_column->insert_data(reinterpret_cast<const char*>(scratch.data()),
                                            scratch.size());
             } else {
                 // Write straight into the result column, including when the buffer grows.
                 auto& chars = result_column->get_chars();
-                RETURN_IF_ERROR(convert_input(input, constant_character_set, converters, chars));
+                RETURN_IF_ERROR(convert_input(input, constant_character_set, utf16_scratch, chars));
                 result_column->get_offsets().push_back(chars.size());
             }
         }
@@ -298,76 +231,179 @@ public:
 
 private:
     using ResultColumn = std::conditional_t<Encode, ColumnVarbinary, ColumnString>;
-    static constexpr auto UTF16_LITTLE_ENDIAN_CONVERTER = static_cast<size_t>(CharacterSet::SIZE);
-    using ConverterCache =
-            std::array<std::unique_ptr<ConverterPair>, UTF16_LITTLE_ENDIAN_CONVERTER + 1>;
-
-    struct ConversionSpec {
-        StringRef input;
-        size_t converter_index;
-        std::string_view converter_character_set;
-    };
 
     static typename ResultColumn::MutablePtr create_result_column() {
         return ResultColumn::create();
     }
 
-    static ConversionSpec get_conversion_spec(StringRef input, CharacterSet character_set) {
-        const auto character_set_index = static_cast<size_t>(character_set);
-        ConversionSpec spec {input, character_set_index,
-                             SUPPORTED_CHARACTER_SETS[character_set_index]};
-        if (character_set != CharacterSet::UTF_16) {
-            return spec;
-        }
-
-        // Java's UTF-16 encoder always emits a big-endian BOM. ICU's generic UTF-16 converter
-        // follows the host byte order, so encode with UTF-16BE and add the BOM explicitly.
-        spec.converter_character_set =
-                SUPPORTED_CHARACTER_SETS[static_cast<size_t>(CharacterSet::UTF_16BE)];
-        if constexpr (Encode) {
-            return spec;
-        }
-
-        // Java's UTF-16 decoder honors either BOM and defaults to big endian without a BOM.
-        if (input.size < 2) {
-            return spec;
-        }
-        const auto first = static_cast<uint8_t>(input.data[0]);
-        const auto second = static_cast<uint8_t>(input.data[1]);
-        if (first == 0xFE && second == 0xFF) {
-            spec.input = input.substring(2);
-        } else if (first == 0xFF && second == 0xFE) {
-            spec.input = input.substring(2);
-            spec.converter_index = UTF16_LITTLE_ENDIAN_CONVERTER;
-            spec.converter_character_set =
-                    SUPPORTED_CHARACTER_SETS[static_cast<size_t>(CharacterSet::UTF_16LE)];
-        }
-        return spec;
+    static std::string_view charset_name(CharacterSet character_set) {
+        return SUPPORTED_CHARACTER_SETS[static_cast<size_t>(character_set)];
     }
 
     static Status convert_input(StringRef input, CharacterSet character_set,
-                                ConverterCache& converters, ColumnString::Chars& converted) {
-        const ConversionSpec spec = get_conversion_spec(input, character_set);
-        if (converters[spec.converter_index] == nullptr) {
-            converters[spec.converter_index] = std::make_unique<ConverterPair>();
-            if constexpr (Encode) {
-                RETURN_IF_ERROR(converters[spec.converter_index]->open(
-                        "UTF-8", spec.converter_character_set));
-            } else {
-                RETURN_IF_ERROR(converters[spec.converter_index]->open(spec.converter_character_set,
-                                                                       "UTF-8"));
-            }
+                                std::vector<char16_t>& utf16_scratch,
+                                ColumnString::Chars& converted) {
+        if (input.size == 0) {
+            return Status::OK();
         }
-
+        const std::string_view name = charset_name(character_set);
+        if (input.size > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+            return reject_too_large(name);
+        }
         if constexpr (Encode) {
-            if (character_set == CharacterSet::UTF_16 && input.size != 0) {
-                converted.push_back(0xFE);
-                converted.push_back(0xFF);
-            }
+            return encode_input(input, character_set, name, utf16_scratch, converted);
+        } else {
+            return decode_input(input, character_set, name, utf16_scratch, converted);
         }
-        return converters[spec.converter_index]->convert(
-                spec.input, SUPPORTED_CHARACTER_SETS[static_cast<size_t>(character_set)],
-                converted);
+    }
+
+    static Status encode_input(StringRef input, CharacterSet character_set, std::string_view name,
+                               std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
+        switch (character_set) {
+        case CharacterSet::US_ASCII:
+            return copy_validated(input, name,
+                                  simdutf::validate_ascii_with_errors(input.data, input.size),
+                                  output);
+        case CharacterSet::UTF_8:
+            return copy_validated(input, name,
+                                  simdutf::validate_utf8_with_errors(input.data, input.size),
+                                  output);
+        case CharacterSet::ISO_8859_1:
+            return encode_latin1(input, name, output);
+        case CharacterSet::UTF_16BE:
+            return encode_utf16(input, name, false, false, utf16_scratch, output);
+        case CharacterSet::UTF_16LE:
+            return encode_utf16(input, name, true, false, utf16_scratch, output);
+        case CharacterSet::UTF_16:
+            // Java's UTF-16 encoder always emits a big-endian BOM.
+            return encode_utf16(input, name, false, true, utf16_scratch, output);
+        default:
+            return Status::InvalidArgument("Unsupported character set '{}'", name);
+        }
+    }
+
+    static Status decode_input(StringRef input, CharacterSet character_set, std::string_view name,
+                               std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
+        switch (character_set) {
+        case CharacterSet::US_ASCII:
+            return copy_validated(input, name,
+                                  simdutf::validate_ascii_with_errors(input.data, input.size),
+                                  output);
+        case CharacterSet::UTF_8:
+            return copy_validated(input, name,
+                                  simdutf::validate_utf8_with_errors(input.data, input.size),
+                                  output);
+        case CharacterSet::ISO_8859_1:
+            return decode_latin1(input, name, output);
+        case CharacterSet::UTF_16BE:
+            return decode_utf16(input, name, false, utf16_scratch, output);
+        case CharacterSet::UTF_16LE:
+            return decode_utf16(input, name, true, utf16_scratch, output);
+        case CharacterSet::UTF_16:
+            return decode_utf16_with_bom(input, name, utf16_scratch, output);
+        default:
+            return Status::InvalidArgument("Unsupported character set '{}'", name);
+        }
+    }
+
+    static Status encode_latin1(StringRef input, std::string_view name,
+                                ColumnString::Chars& output) {
+        const size_t start = output.size();
+        char* dest = reserve_output(output, input.size);
+        const size_t written = simdutf::convert_utf8_to_latin1(input.data, input.size, dest);
+        if (written == 0) {
+            const simdutf::result detail =
+                    simdutf::convert_utf8_to_latin1_with_errors(input.data, input.size, dest);
+            output.resize(start);
+            const simdutf::error_code error =
+                    detail.error == simdutf::SUCCESS ? simdutf::OTHER : detail.error;
+            return conversion_error(name, error);
+        }
+        output.resize(start + written);
+        return Status::OK();
+    }
+
+    static Status decode_latin1(StringRef input, std::string_view name,
+                                ColumnString::Chars& output) {
+        const size_t need = simdutf::utf8_length_from_latin1(input.data, input.size);
+        char* dest = reserve_output(output, need);
+        const size_t written = simdutf::convert_latin1_to_utf8(input.data, input.size, dest);
+        if (written != need) {
+            output.resize(output.size() - need);
+            return conversion_error(name, simdutf::OTHER);
+        }
+        return Status::OK();
+    }
+
+    static Status encode_utf16(StringRef input, std::string_view name, bool little_endian,
+                               bool write_bom, std::vector<char16_t>& utf16_scratch,
+                               ColumnString::Chars& output) {
+        utf16_scratch.resize(input.size);
+        const simdutf::result result =
+                little_endian ? simdutf::convert_utf8_to_utf16le_with_errors(input.data, input.size,
+                                                                             utf16_scratch.data())
+                              : simdutf::convert_utf8_to_utf16be_with_errors(input.data, input.size,
+                                                                             utf16_scratch.data());
+        if (result.error != simdutf::SUCCESS) {
+            return conversion_error(name, result.error);
+        }
+        const size_t payload_bytes = result.count * sizeof(char16_t);
+        const size_t start = output.size();
+        char* dest = reserve_output(output, payload_bytes + (write_bom ? 2 : 0));
+        if (write_bom) {
+            auto* bytes = reinterpret_cast<uint8_t*>(dest);
+            bytes[0] = 0xFE;
+            bytes[1] = 0xFF;
+            dest += 2;
+        }
+        memcpy(dest, utf16_scratch.data(), payload_bytes);
+        return Status::OK();
+    }
+
+    // Java's UTF-16 decoder honors either BOM and defaults to big endian without one.
+    static Status decode_utf16_with_bom(StringRef input, std::string_view name,
+                                        std::vector<char16_t>& utf16_scratch,
+                                        ColumnString::Chars& output) {
+        if (input.size < 2) {
+            return conversion_error(name, simdutf::TOO_SHORT);
+        }
+        const auto first = static_cast<uint8_t>(input.data[0]);
+        const auto second = static_cast<uint8_t>(input.data[1]);
+        bool little_endian = false;
+        if (first == 0xFE && second == 0xFF) {
+            input = input.substring(2);
+        } else if (first == 0xFF && second == 0xFE) {
+            input = input.substring(2);
+            little_endian = true;
+        }
+        if (input.size == 0) {
+            return Status::OK();
+        }
+        return decode_utf16(input, name, little_endian, utf16_scratch, output);
+    }
+
+    static Status decode_utf16(StringRef input, std::string_view name, bool little_endian,
+                               std::vector<char16_t>& utf16_scratch, ColumnString::Chars& output) {
+        if (input.size % 2 != 0) {
+            return conversion_error(name, simdutf::TOO_SHORT);
+        }
+        const size_t units = input.size / 2;
+        if (units > (std::numeric_limits<size_t>::max() / 3)) {
+            return reject_too_large(name);
+        }
+        const char16_t* units_ptr = utf16_units(input, utf16_scratch);
+        const size_t start = output.size();
+        char* dest = reserve_output(output, units * 3);
+        const simdutf::result result =
+                little_endian
+                        ? simdutf::convert_utf16le_to_utf8_with_errors(units_ptr, units, dest)
+                        : simdutf::convert_utf16be_to_utf8_with_errors(units_ptr, units, dest);
+        if (result.error != simdutf::SUCCESS) {
+            output.resize(start);
+            return conversion_error(name, result.error);
+        }
+        output.resize(start + result.count);
+        return Status::OK();
     }
 };
 
