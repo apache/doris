@@ -19,6 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -33,11 +34,14 @@ import org.apache.doris.datasource.metacache.paimon.PaimonTableLoader;
 
 import org.apache.paimon.table.Table;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 
 /**
@@ -109,6 +113,13 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSchemaCacheKey::getNameMapping)));
     }
 
+    @Override
+    public boolean supportsInvalidationWithoutCatalogEntries() {
+        // Paimon's SDK CachingCatalog can be populated by direct paths such as metadata TVFs
+        // before this Doris engine creates a catalog entry group.
+        return true;
+    }
+
     public Table getPaimonTable(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getPaimonTable();
@@ -116,6 +127,56 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     public Table getPaimonTable(NameMapping nameMapping) {
         return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getPaimonTable();
+    }
+
+    @Override
+    public void invalidateTable(long catalogId, String dbName, String tableName) {
+        try {
+            invalidatePaimonTables(catalogId, nameMapping -> matchTable(nameMapping, dbName, tableName));
+        } finally {
+            super.invalidateTable(catalogId, dbName, tableName);
+        }
+    }
+
+    @Override
+    public void invalidateTable(ExternalTable table) {
+        try {
+            tableLoader.invalidate(table.getOrBuildNameMapping());
+        } finally {
+            super.invalidateTable(table.getCatalog().getId(), table.getDbName(), table.getName());
+        }
+    }
+
+    @Override
+    public void invalidateDb(long catalogId, String dbName) {
+        try {
+            invalidatePaimonTables(catalogId, nameMapping -> matchDb(nameMapping, dbName));
+        } finally {
+            super.invalidateDb(catalogId, dbName);
+        }
+    }
+
+    @Override
+    public void invalidateDb(ExternalDatabase<?> database) {
+        try {
+            tableLoader.invalidateDatabase(database);
+        } finally {
+            super.invalidateDb(database.getCatalog().getId(), database.getFullName());
+        }
+    }
+
+    private void invalidatePaimonTables(long catalogId, Predicate<NameMapping> predicate) {
+        MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables = tableEntry.getIfInitialized(catalogId);
+        if (tables == null) {
+            return;
+        }
+        List<NameMapping> nameMappings = new ArrayList<>();
+        tables.forEach((nameMapping, ignored) -> {
+            if (predicate.test(nameMapping)) {
+                nameMappings.add(nameMapping);
+            }
+        });
+        nameMappings.forEach(tableLoader::invalidate);
     }
 
     public PaimonSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
@@ -555,9 +616,13 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void invalidateCatalogEntries(long catalogId) {
-        latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
-        fenceCaptureLocks.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
-        super.invalidateCatalogEntries(catalogId);
+        try {
+            tableLoader.invalidateCatalog(catalogId);
+        } finally {
+            latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+            fenceCaptureLocks.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+            super.invalidateCatalogEntries(catalogId);
+        }
     }
 
     @Override

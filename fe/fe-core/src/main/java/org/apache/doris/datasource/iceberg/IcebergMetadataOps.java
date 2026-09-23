@@ -275,26 +275,24 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+    public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         try {
-            executeCatalogOperation(() -> {
-                performDropDb(dbName, ifExists, force);
-                return null;
-            });
+            return executeCatalogOperation(() -> performDropDb(dbName, ifExists, force));
         } catch (Exception e) {
             throw new DdlException(
                 "Failed to drop database: " + dbName + ", error message is:" + e.getMessage(), e);
         }
     }
 
-    private void performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private boolean performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = getDatabaseWithinCatalogGeneration(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
-                return;
+                return false;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+                return false;
             }
         }
         if (force) {
@@ -316,12 +314,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     LOG.info("drop database[{}] with force, drop all views, num: {}", dbName, remoteViewNames.size());
                 }
             } catch (NoSuchNamespaceException e) {
-                // just ignore
+                // The remote namespace is already gone, but the resolved local database object
+                // still has to be unregistered, so treat the drop as handled.
                 LOG.info("drop database[{}] force which does not exist", dbName);
-                return;
+                return true;
             }
         }
         nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));
+        return true;
     }
 
     @Override

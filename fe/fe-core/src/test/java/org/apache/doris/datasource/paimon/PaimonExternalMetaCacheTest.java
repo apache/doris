@@ -19,12 +19,16 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -34,15 +38,22 @@ import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.persist.EditLog;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogLoader;
+import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.options.CatalogOptions;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.privilege.PrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
@@ -89,8 +100,12 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class PaimonExternalMetaCacheTest {
     @Rule
@@ -2152,6 +2167,554 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testRefreshTableInvalidatesPaimonCatalogCacheAfterExternalDrop() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("refresh_after_external_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 94L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "paimon_refresh_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        dorisCatalog.catalog.createDatabase("other_db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Identifier otherIdentifier = Identifier.create("other_db", "other_table");
+        Schema schema = Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+        dorisCatalog.catalog.createTable(otherIdentifier, schema, false);
+
+        Map<String, String> externalProperties = new HashMap<>(properties);
+        externalProperties.put("paimon.cache-enabled", "false");
+        PaimonExternalCatalog externalCatalog = new PaimonExternalCatalog(
+                95L, "external_paimon", null, externalProperties, "");
+        externalCatalog.makeSureInitialized();
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+            NameMapping otherNameMapping = new NameMapping(
+                    catalogId, "other_db", "other_table", "other_db", "other_table");
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getCatalog()).thenReturn(dorisCatalog);
+            Mockito.when(dorisTable.getDbName()).thenReturn("db");
+            Mockito.when(dorisTable.getName()).thenReturn("table");
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(nameMapping);
+            ExternalDatabase<?> dorisDatabase = Mockito.mock(ExternalDatabase.class);
+            Mockito.when(dorisDatabase.getCatalog()).thenReturn(dorisCatalog);
+            Mockito.when(dorisDatabase.getFullName()).thenReturn("db");
+            Mockito.when(dorisDatabase.getRemoteName()).thenReturn("db");
+
+            // TVFs and table-existence checks can populate only Paimon's CachingCatalog. A
+            // REFRESH TABLE still has the resolved ExternalTable and must invalidate that direct
+            // SDK handle even when Doris' table entry was never populated.
+            Table staleTable = dorisCatalog.getPaimonTable(nameMapping);
+
+            externalCatalog.catalog.dropTable(identifier, false);
+            Assert.assertSame(staleTable, dorisCatalog.getPaimonTable(nameMapping));
+
+            cacheMgr.invalidateTableCache(dorisTable);
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+
+            externalCatalog.catalog.createTable(identifier, schema, false);
+            dorisCatalog.getPaimonTable(nameMapping);
+            Table otherTable = dorisCatalog.getPaimonTable(otherNameMapping);
+            externalCatalog.catalog.dropTable(identifier, false);
+            cacheMgr.invalidateDb(dorisDatabase);
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+            Assert.assertSame("database refresh must preserve other databases' SDK table cache",
+                    otherTable, dorisCatalog.getPaimonTable(otherNameMapping));
+
+            externalCatalog.catalog.createTable(identifier, schema, false);
+            dorisCatalog.getPaimonTable(nameMapping);
+            externalCatalog.catalog.dropTable(identifier, false);
+            cacheMgr.invalidateCatalog(catalogId);
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+
+            dorisCatalog.resetToUninitialized(false);
+            cacheMgr.invalidateCatalog(catalogId);
+            Assert.assertFalse("cache retirement after ALTER must preserve lazy initialization",
+                    dorisCatalog.isInitialized());
+        } finally {
+            dorisCatalog.catalog.close();
+            externalCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testCatalogRefreshWaitsForInFlightSdkTablePublication() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("refresh_fences_inflight_load");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 96L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "paimon_refresh_fence_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        CachingCatalog cachingCatalog = new CachingCatalog(delegate, new Options());
+        dorisCatalog.catalog = cachingCatalog;
+        Identifier identifier = Identifier.create("db", "table");
+        NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+        Table staleTable = Mockito.mock(Table.class);
+        Table freshTable = Mockito.mock(Table.class);
+        AtomicReference<Table> remoteTable = new AtomicReference<>(staleTable);
+        AtomicBoolean blockFirstLoad = new AtomicBoolean(true);
+        java.util.concurrent.CountDownLatch loadEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseLoad = new java.util.concurrent.CountDownLatch(1);
+        Mockito.when(delegate.getTable(identifier)).thenAnswer(invocation -> {
+            if (blockFirstLoad.compareAndSet(true, false)) {
+                loadEntered.countDown();
+                Assert.assertTrue(releaseLoad.await(5L, TimeUnit.SECONDS));
+            }
+            return remoteTable.get();
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Table> load = executor.submit(() -> dorisCatalog.getPaimonTable(nameMapping));
+            Assert.assertTrue(loadEntered.await(5L, TimeUnit.SECONDS));
+            Future<?> refresh = executor.submit(() -> {
+                dorisCatalog.invalidatePaimonCatalog();
+                return null;
+            });
+
+            Field lockField = PaimonExternalCatalog.class.getDeclaredField("sdkCatalogCacheLock");
+            lockField.setAccessible(true);
+            ReentrantReadWriteLock cacheLock = (ReentrantReadWriteLock) lockField.get(dorisCatalog);
+            waitForQueuedLockThread(cacheLock,
+                    "refresh must wait for the in-flight SDK cache publication");
+
+            releaseLoad.countDown();
+            Assert.assertSame(staleTable, load.get(5L, TimeUnit.SECONDS));
+            refresh.get(5L, TimeUnit.SECONDS);
+            Assert.assertNull(cachingCatalog.tableCache().getIfPresent(identifier));
+
+            remoteTable.set(freshTable);
+            Assert.assertSame(freshTable, dorisCatalog.getPaimonTable(nameMapping));
+        } finally {
+            releaseLoad.countDown();
+            executor.shutdownNow();
+            cachingCatalog.close();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testReloadWaitsForDirectSdkMissAndPublishesFreshTableLast() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("reload_fences_direct_miss");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 99L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "paimon_reload_fence_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        CachingCatalog cachingCatalog = new CachingCatalog(delegate, new Options());
+        dorisCatalog.catalog = cachingCatalog;
+        Identifier identifier = Identifier.create("db", "table");
+        NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+        Table staleTable = Mockito.mock(Table.class);
+        Table freshTable = Mockito.mock(Table.class);
+        AtomicReference<Table> remoteTable = new AtomicReference<>(staleTable);
+        AtomicBoolean blockFirstLoad = new AtomicBoolean(true);
+        java.util.concurrent.CountDownLatch loadEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch reloadEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseLoad = new java.util.concurrent.CountDownLatch(1);
+        Mockito.when(delegate.getTable(identifier)).thenAnswer(invocation -> {
+            Table loaded = remoteTable.get();
+            if (blockFirstLoad.compareAndSet(true, false)) {
+                loadEntered.countDown();
+                Assert.assertTrue(releaseLoad.await(5L, TimeUnit.SECONDS));
+            } else {
+                reloadEntered.countDown();
+            }
+            return loaded;
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Table> directLoad = executor.submit(() -> dorisCatalog.getPaimonTable(nameMapping));
+            Assert.assertTrue(loadEntered.await(5L, TimeUnit.SECONDS));
+            remoteTable.set(freshTable);
+            Future<Table> reload = executor.submit(() -> dorisCatalog.reloadPaimonTable(nameMapping));
+            Assert.assertFalse("same-table reload must wait for the direct SDK miss",
+                    reloadEntered.await(200L, TimeUnit.MILLISECONDS));
+
+            releaseLoad.countDown();
+            Assert.assertSame(staleTable, directLoad.get(5L, TimeUnit.SECONDS));
+            Assert.assertTrue(reloadEntered.await(5L, TimeUnit.SECONDS));
+            Assert.assertSame(freshTable, reload.get(5L, TimeUnit.SECONDS));
+            Assert.assertSame(freshTable, dorisCatalog.getPaimonTable(nameMapping));
+        } finally {
+            releaseLoad.countDown();
+            executor.shutdownNow();
+            cachingCatalog.close();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testWrappedCaseInsensitiveSdkCacheInvalidationAcrossRefreshScopes() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("wrapped_case_insensitive_invalidation");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 104L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "wrapped_case_insensitive_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        Mockito.when(delegate.caseSensitive()).thenReturn(false);
+        AtomicReference<Table> remoteTable = new AtomicReference<>(Mockito.mock(Table.class));
+        Mockito.when(delegate.getTable(Mockito.any(Identifier.class)))
+                .thenAnswer(invocation -> remoteTable.get());
+        CachingCatalog cachingCatalog = new CachingCatalog(delegate, new Options());
+        dorisCatalog.catalog = new DelegateCatalog(cachingCatalog) {
+            @Override
+            public CatalogLoader catalogLoader() {
+                return wrapped.catalogLoader();
+            }
+        };
+        NameMapping upperMapping = new NameMapping(catalogId, "DB", "TABLE", "DB", "TABLE");
+        NameMapping lowerMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+
+        try {
+            Table staleTable = dorisCatalog.getPaimonTable(upperMapping);
+            Table tableRefreshValue = Mockito.mock(Table.class);
+            remoteTable.set(tableRefreshValue);
+            dorisCatalog.invalidatePaimonTable(lowerMapping);
+            Assert.assertSame(tableRefreshValue, dorisCatalog.getPaimonTable(upperMapping));
+
+            Table databaseRefreshValue = Mockito.mock(Table.class);
+            remoteTable.set(databaseRefreshValue);
+            dorisCatalog.invalidatePaimonDatabase("db");
+            Assert.assertSame(databaseRefreshValue, dorisCatalog.getPaimonTable(upperMapping));
+
+            Table catalogRefreshValue = Mockito.mock(Table.class);
+            remoteTable.set(catalogRefreshValue);
+            dorisCatalog.invalidatePaimonCatalog();
+            Assert.assertSame(catalogRefreshValue, dorisCatalog.getPaimonTable(upperMapping));
+            Assert.assertNotSame(staleTable, catalogRefreshValue);
+        } finally {
+            cachingCatalog.close();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testCatalogRefreshSkipsPerDatabaseEngineInvalidation() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("catalog_refresh_single_engine_invalidation");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 106L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "catalog_refresh_single_engine_invalidation_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db1", false);
+        dorisCatalog.catalog.createDatabase("db2", false);
+
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assert.assertTrue(dorisCatalog.getDb("db1").isPresent());
+            Assert.assertTrue(dorisCatalog.getDb("db2").isPresent());
+            Mockito.clearInvocations(cacheMgr);
+
+            dorisCatalog.onRefreshCache(true);
+
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(Mockito.any(ExternalDatabase.class));
+            Mockito.verify(cacheMgr).invalidateCatalog(catalogId);
+
+            Assert.assertTrue(dorisCatalog.getDb("db1").isPresent());
+            Assert.assertTrue(dorisCatalog.getDb("db2").isPresent());
+            Mockito.clearInvocations(cacheMgr);
+            dorisCatalog.onRefreshCache(false);
+
+            Mockito.verify(cacheMgr, Mockito.times(2)).invalidateDb(Mockito.any(ExternalDatabase.class));
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testReloadsForDifferentTablesDoNotShareCatalogWriteLock() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("parallel_table_reloads");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 105L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "parallel_table_reloads_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        Mockito.when(delegate.caseSensitive()).thenReturn(true);
+        java.util.concurrent.CountDownLatch loadsEntered = new java.util.concurrent.CountDownLatch(2);
+        java.util.concurrent.CountDownLatch releaseLoads = new java.util.concurrent.CountDownLatch(1);
+        Mockito.when(delegate.getTable(Mockito.any(Identifier.class))).thenAnswer(invocation -> {
+            loadsEntered.countDown();
+            Assert.assertTrue(releaseLoads.await(5L, TimeUnit.SECONDS));
+            return Mockito.mock(Table.class);
+        });
+        CachingCatalog cachingCatalog = new CachingCatalog(delegate, new Options());
+        dorisCatalog.catalog = cachingCatalog;
+        NameMapping first = new NameMapping(catalogId, "db", "table_a", "db", "table_a");
+        NameMapping second = new NameMapping(catalogId, "db", "table_b", "db", "table_b");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Table> firstReload = executor.submit(() -> dorisCatalog.reloadPaimonTable(first));
+            Future<Table> secondReload = executor.submit(() -> dorisCatalog.reloadPaimonTable(second));
+            Assert.assertTrue("unrelated table reloads must reach the SDK concurrently",
+                    loadsEntered.await(5L, TimeUnit.SECONDS));
+            releaseLoads.countDown();
+            Assert.assertNotNull(firstReload.get(5L, TimeUnit.SECONDS));
+            Assert.assertNotNull(secondReload.get(5L, TimeUnit.SECONDS));
+        } finally {
+            releaseLoads.countDown();
+            executor.shutdownNow();
+            cachingCatalog.close();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testReplayRefreshInvalidatesSdkOnlyPaimonCache() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("replay_refresh_sdk_only");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 100L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "paimon_replay_refresh_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+
+        Map<String, String> externalProperties = new HashMap<>(properties);
+        externalProperties.put("paimon.cache-enabled", "false");
+        PaimonExternalCatalog externalCatalog = new PaimonExternalCatalog(
+                101L, "external_paimon", null, externalProperties, "");
+        externalCatalog.makeSureInitialized();
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            RefreshManager refreshManager = new RefreshManager();
+
+            dorisCatalog.getPaimonTable(nameMapping);
+            externalCatalog.catalog.dropTable(identifier, false);
+            refreshManager.replayRefreshTable(ExternalObjectLog.createForRefreshTable(
+                    catalogId, "db", "table", System.currentTimeMillis()));
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+
+            externalCatalog.catalog.createTable(identifier, schema, false);
+            dorisCatalog.getPaimonTable(nameMapping);
+            externalCatalog.catalog.dropTable(identifier, false);
+            refreshManager.replayRefreshDb(ExternalObjectLog.createForRefreshDb(catalogId, "db"));
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+        } finally {
+            dorisCatalog.catalog.close();
+            externalCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testReplayDropInvalidatesSdkOnlyPaimonCache() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("replay_drop_sdk_only");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 102L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "paimon_replay_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+
+        Map<String, String> externalProperties = new HashMap<>(properties);
+        externalProperties.put("paimon.cache-enabled", "false");
+        PaimonExternalCatalog externalCatalog = new PaimonExternalCatalog(
+                103L, "external_paimon", null, externalProperties, "");
+        externalCatalog.makeSureInitialized();
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+
+            dorisCatalog.getPaimonTable(nameMapping);
+            externalCatalog.catalog.dropTable(identifier, false);
+            metadataOps.afterDropTable("db", "table");
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+
+            externalCatalog.catalog.createTable(identifier, schema, false);
+            dorisCatalog.getPaimonTable(nameMapping);
+            externalCatalog.catalog.dropTable(identifier, false);
+            externalCatalog.catalog.dropDatabase("db", false, false);
+            metadataOps.afterDropDb("db");
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+        } finally {
+            dorisCatalog.catalog.close();
+            externalCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testCatalogResetWaitsForInFlightSdkTableLoad() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("reset_fences_inflight_load");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 97L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "paimon_reset_fence_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        dorisCatalog.catalog = delegate;
+        Identifier identifier = Identifier.create("db", "table");
+        NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+        Table table = Mockito.mock(Table.class);
+        java.util.concurrent.CountDownLatch loadEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseLoad = new java.util.concurrent.CountDownLatch(1);
+        Mockito.when(delegate.getTable(identifier)).thenAnswer(invocation -> {
+            loadEntered.countDown();
+            Assert.assertTrue(releaseLoad.await(5L, TimeUnit.SECONDS));
+            return table;
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Table> load = executor.submit(() -> dorisCatalog.getPaimonTable(nameMapping));
+            Assert.assertTrue(loadEntered.await(5L, TimeUnit.SECONDS));
+            Future<?> reset = executor.submit(() -> dorisCatalog.resetToUninitialized(false));
+
+            Field lockField = PaimonExternalCatalog.class.getDeclaredField("sdkCatalogCacheLock");
+            lockField.setAccessible(true);
+            ReentrantReadWriteLock cacheLock = (ReentrantReadWriteLock) lockField.get(dorisCatalog);
+            waitForQueuedLockThread(cacheLock,
+                    "catalog reset must wait for the in-flight SDK table load");
+            Assert.assertFalse(reset.isDone());
+
+            releaseLoad.countDown();
+            Assert.assertSame(table, load.get(5L, TimeUnit.SECONDS));
+            reset.get(5L, TimeUnit.SECONDS);
+            Assert.assertFalse(dorisCatalog.isInitialized());
+            Mockito.verify(delegate).close();
+        } finally {
+            releaseLoad.countDown();
+            executor.shutdownNow();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testDeserializedCatalogRefreshPreservesLazyInitialization() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("deserialized_refresh");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                98L, "paimon_deserialized_refresh_test", null, properties, "");
+
+        Field lockField = PaimonExternalCatalog.class.getDeclaredField("sdkCatalogCacheLock");
+        lockField.setAccessible(true);
+        lockField.set(dorisCatalog, null);
+        dorisCatalog.gsonPostProcess();
+
+        dorisCatalog.invalidatePaimonDatabase("db");
+        dorisCatalog.invalidatePaimonCatalog();
+        Assert.assertFalse(dorisCatalog.isInitialized());
+        Assert.assertNotNull(lockField.get(dorisCatalog));
+    }
+
+    private void waitForQueuedLockThread(ReentrantReadWriteLock cacheLock, String message) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L);
+        while (!cacheLock.hasQueuedThreads() && System.nanoTime() < deadline) {
+            Thread.yield();
+        }
+        Assert.assertTrue(message, cacheLock.hasQueuedThreads());
+    }
+
+    private void assertPaimonCatalogTableMissing(PaimonExternalCatalog catalog, NameMapping nameMapping) {
+        try {
+            catalog.getPaimonTable(nameMapping);
+            Assert.fail("the externally dropped table must not remain visible after refresh");
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to get Paimon table"));
+        }
+    }
+
+    @Test
     public void testPartitionProjectionRejectsUnsafeEffectiveTableBeforeEnumeration() throws Exception {
         FileStoreTable unsafeTable = newPartitionedTable(
                 "unsafe", Collections.singletonMap("scan.manifest.parallelism", "0"));
@@ -2557,7 +3120,7 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testInvalidateTablePrecise() {
+    public void testInvalidateTablePrecise() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
@@ -2582,8 +3145,19 @@ public class PaimonExternalMetaCacheTest {
             snapshotEntry.put(snapshotKey, new PaimonSnapshotCacheValue(
                     PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 2L, null)));
 
-            cache.invalidateTable(catalogId, "db1", "tbl1");
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                    .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                cache.invalidateTable(catalogId, "db1", "tbl1");
+            }
 
+            Mockito.verify(dorisCatalog).invalidatePaimonTable(t1);
+            Mockito.verify(dorisCatalog, Mockito.never()).invalidatePaimonTable(t2);
             Assert.assertNull(tableEntry.getIfPresent(t1));
             Assert.assertNotNull(tableEntry.getIfPresent(t2));
             Assert.assertNull(snapshotEntry.getIfPresent(snapshotKey));
@@ -2593,7 +3167,7 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testInvalidateDbAndStats() {
+    public void testInvalidateDbAndStats() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
@@ -2618,8 +3192,19 @@ public class PaimonExternalMetaCacheTest {
             schemaEntry.put(db1Schema, new SchemaCacheValue(Collections.emptyList()));
             schemaEntry.put(db2Schema, new SchemaCacheValue(Collections.emptyList()));
 
-            cache.invalidateDb(catalogId, "db1");
+            PaimonExternalCatalog dorisCatalog = Mockito.mock(PaimonExternalCatalog.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                    .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                cache.invalidateDb(catalogId, "db1");
+            }
 
+            Mockito.verify(dorisCatalog).invalidatePaimonTable(db1Table);
+            Mockito.verify(dorisCatalog, Mockito.never()).invalidatePaimonTable(db2Table);
             Assert.assertNull(tableEntry.getIfPresent(db1Table));
             Assert.assertNotNull(tableEntry.getIfPresent(db2Table));
             Assert.assertNull(schemaEntry.getIfPresent(db1Schema));
@@ -2653,4 +3238,538 @@ public class PaimonExternalMetaCacheTest {
             executor.shutdownNow();
         }
     }
+
+    @Test
+    public void testDatabaseInvalidationClearsPartitionCacheInOneBatch() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("batch_partition_invalidation");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 107L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "batch_partition_invalidation_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        Mockito.when(delegate.caseSensitive()).thenReturn(true);
+        Mockito.when(delegate.getTable(Mockito.any(Identifier.class)))
+                .thenAnswer(invocation -> Mockito.mock(Table.class));
+        Mockito.when(delegate.listPartitions(Mockito.any(Identifier.class)))
+                .thenReturn(Collections.emptyList());
+        Options options = new Options();
+        options.set(CatalogOptions.CACHE_PARTITION_MAX_NUM, 4096L);
+        CachingCatalog cachingCatalog = Mockito.spy(new CachingCatalog(delegate, options));
+        dorisCatalog.catalog = cachingCatalog;
+        try {
+            List<Identifier> matched = new ArrayList<>();
+            List<Identifier> unrelated = new ArrayList<>();
+            for (int i = 0; i < 16; i++) {
+                Identifier id = Identifier.create("db1", "t" + i);
+                matched.add(id);
+                cachingCatalog.getTable(id);
+                cachingCatalog.listPartitions(id);
+            }
+            for (int i = 0; i < 16; i++) {
+                Identifier id = Identifier.create("db2", "u" + i);
+                unrelated.add(id);
+                cachingCatalog.getTable(id);
+                cachingCatalog.listPartitions(id);
+            }
+            Mockito.clearInvocations(cachingCatalog, delegate);
+
+            dorisCatalog.invalidatePaimonDatabase("db1");
+
+            // The batch path must not re-scan the table cache once per matched identifier.
+            Mockito.verify(cachingCatalog, Mockito.never()).invalidateTable(Mockito.any(Identifier.class));
+            cachingCatalog.listPartitions(matched.get(0));
+            Mockito.verify(delegate, Mockito.times(1)).listPartitions(matched.get(0));
+            cachingCatalog.listPartitions(unrelated.get(0));
+            Mockito.verify(delegate, Mockito.never()).listPartitions(unrelated.get(0));
+        } finally {
+            cachingCatalog.close();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testDropDatabaseIfExistsNoOpDoesNotFlushSdkCacheOrJournal() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("drop_if_exists_noop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 108L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "drop_if_exists_noop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        Catalog originalCatalog = dorisCatalog.catalog;
+        Catalog delegate = Mockito.mock(Catalog.class);
+        Mockito.when(delegate.caseSensitive()).thenReturn(true);
+        Mockito.when(delegate.listDatabases()).thenReturn(Collections.emptyList());
+        AtomicReference<Table> remoteTable = new AtomicReference<>(Mockito.mock(Table.class));
+        Mockito.when(delegate.getTable(Mockito.any(Identifier.class)))
+                .thenAnswer(invocation -> remoteTable.get());
+        CachingCatalog cachingCatalog = new CachingCatalog(delegate, new Options());
+        dorisCatalog.catalog = cachingCatalog;
+        NameMapping mapping = new NameMapping(catalogId, "db", "tbl", "db", "tbl");
+
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            dorisCatalog.getPaimonTable(mapping);
+            Mockito.clearInvocations(delegate, editLog, cacheMgr);
+            remoteTable.set(Mockito.mock(Table.class));
+
+            dorisCatalog.dropDb("missing_db", true, false);
+
+            Mockito.verify(editLog, Mockito.never()).logDropDb(Mockito.any());
+            Mockito.verify(cacheMgr, Mockito.never())
+                    .invalidateCatalogByEngine(Mockito.anyLong(), Mockito.anyString());
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(Mockito.any(ExternalDatabase.class));
+            dorisCatalog.getPaimonTable(mapping);
+            Mockito.verify(delegate, Mockito.never()).getTable(Mockito.any(Identifier.class));
+        } finally {
+            cachingCatalog.close();
+            originalCatalog.close();
+        }
+    }
+
+    @Test
+    public void testResolvedDropInvalidatesDatabaseSdkCacheExactlyOnce() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("resolved_drop_single_invalidation");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 109L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "resolved_drop_single_invalidation_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = Mockito.spy(new ExternalMetaCacheMgr(true));
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            dorisCatalog.getPaimonTable(new NameMapping(catalogId, "db", "table", "db", "table"));
+            Mockito.clearInvocations(cacheMgr);
+
+            metadataOps.afterDropDb("db");
+
+            // The cached database's synchronous removal listener performs the typed SDK
+            // invalidation; the explicit duplicate must not run a second scan under the fence.
+            Mockito.verify(cacheMgr, Mockito.times(1)).invalidateDb(Mockito.any(ExternalDatabase.class));
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testAlternateCaseReplayDropUnregistersCanonicalDatabaseAndSdkCache() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("alternate_case_replay_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "1");
+        long catalogId = 112L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "alternate_case_replay_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+
+        Map<String, String> externalProperties = new HashMap<>(properties);
+        externalProperties.put("paimon.cache-enabled", "false");
+        PaimonExternalCatalog externalCatalog = new PaimonExternalCatalog(
+                113L, "alternate_case_external_paimon", null, externalProperties, "");
+        externalCatalog.makeSureInitialized();
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        NameMapping nameMapping = new NameMapping(catalogId, "db", "table", "db", "table");
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            dorisCatalog.getPaimonTable(nameMapping);
+
+            externalCatalog.catalog.dropTable(identifier, false);
+            externalCatalog.catalog.dropDatabase("db", false, false);
+
+            // Replay the committed drop with the user's alternate-case spelling: the cached
+            // database resolves through local-name normalization, so it must be evicted by its
+            // canonical key or neither the SDK handle nor the local object is retired.
+            metadataOps.afterDropDb("DB");
+
+            assertPaimonCatalogTableMissing(dorisCatalog, nameMapping);
+            Assert.assertFalse(dorisCatalog.getDbForReplay("db").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+            externalCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testAlternateCaseLeaderDropEvictsResolvedDatabase() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("alternate_case_leader_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "1");
+        long catalogId = 114L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "alternate_case_leader_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Catalog remoteCatalog = Mockito.mock(Catalog.class);
+            Mockito.when(remoteCatalog.caseSensitive()).thenReturn(false);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, remoteCatalog);
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+
+            metadataOps.dropDb("DB", true, false);
+
+            Assert.assertFalse(dorisCatalog.getDbForReplay("db").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testMode2UnresolvedReplayDropRetiresCanonicalLegacyDatabase() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("mode2_unresolved_replay_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        long catalogId = 115L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "mode2_unresolved_replay_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> lowerCaseToDatabaseName = (Map<String, String>) mappingField.get(dorisCatalog);
+            // Seed the mode-2 mapping so the canonical "db" object is cached under its local name,
+            // then drop the mapping to model a follower names refresh that observed the remote drop.
+            lowerCaseToDatabaseName.put("db", "db");
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            mappingField.set(dorisCatalog, new HashMap<String, String>());
+
+            metadataOps.afterDropDb("DB");
+
+            // The canonical legacy database object must not survive an unresolved replay, otherwise
+            // a same-name recreation would reuse its stale nested table-name cache.
+            Assert.assertFalse(dorisCatalog.getDbForReplay("db").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testMode2UnresolvedLeaderNoOpDropRetiresCanonicalLegacyDatabase() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("mode2_leader_noop_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        long catalogId = 116L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "mode2_leader_noop_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> lowerCaseToDatabaseName = (Map<String, String>) mappingField.get(dorisCatalog);
+            lowerCaseToDatabaseName.put("db", "db");
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            mappingField.set(dorisCatalog, new HashMap<String, String>());
+
+            // Model the leader's no-op decision (no remote mutation) while a retained canonical
+            // database object still exists under the lost mode-2 mapping. The cleanup hook must
+            // still retire it even though the drop is not journaled.
+            PaimonMetadataOps noOpMetadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog) {
+                @Override
+                public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) {
+                    return false;
+                }
+            };
+            Assert.assertFalse(noOpMetadataOps.dropDb("DB", true, false));
+
+            Assert.assertFalse(dorisCatalog.getDbForReplay("db").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testAfterDropTableInvalidationFailureIsBestEffort() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("after_drop_table_best_effort");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 118L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "after_drop_table_best_effort_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            @SuppressWarnings("unchecked")
+            ExternalDatabase<? extends ExternalTable> db = Mockito.mock(ExternalDatabase.class);
+            Mockito.when(db.getFullName()).thenReturn("db");
+            Mockito.when(db.unregisterTableForReplay("table"))
+                    .thenThrow(new RuntimeException("injected invalidation failure"));
+            dorisCatalog.addDatabaseForTest(db);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+
+            // The remote table drop is already committed, so a cache-invalidation failure must not
+            // escape afterDropTable and suppress ExternalCatalog.dropTable's edit-log write.
+            metadataOps.afterDropTable("db", "table");
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testMode2UnresolvedTableDropRetiresCanonicalLegacyDatabase() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("mode2_unresolved_table_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        long catalogId = 119L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "mode2_unresolved_table_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> lowerCaseToDatabaseName = (Map<String, String>) mappingField.get(dorisCatalog);
+            lowerCaseToDatabaseName.put("db", "db");
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            mappingField.set(dorisCatalog, new HashMap<String, String>());
+
+            // Replay an alternate-case DROP TABLE log after the mode-2 mapping is lost: the database
+            // cannot be resolved, so the retained canonical object must be retired as well.
+            metadataOps.afterDropTable("DB", "table");
+
+            Assert.assertFalse(dorisCatalog.getDbForReplay("db").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testMode2LostTableMappingDropRetiresCanonicalTableObject() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("mode2_lost_table_mapping_drop");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "2");
+        long catalogId = 120L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "mode2_lost_table_mapping_drop_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Identifier identifier = Identifier.create("db", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(identifier, schema, false);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            PaimonMetadataOps metadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog);
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable("db");
+            Field tableMappingField = ExternalDatabase.class.getDeclaredField("lowerCaseToTableName");
+            tableMappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> tableMapping = (Map<String, String>) tableMappingField.get(dorisDb);
+            tableMapping.put("table", "table");
+            Assert.assertNotNull(dorisDb.getTableNullable("table"));
+            // Drop the case-insensitive table-name mapping while the canonical table object stays cached.
+            tableMappingField.set(dorisDb, new HashMap<String, String>());
+
+            metadataOps.afterDropTable("db", "TABLE");
+
+            // Simulate the mapping being restored by a same-name recreation: the retained canonical
+            // table object must already have been retired.
+            Map<String, String> restoredMapping = new HashMap<>();
+            restoredMapping.put("table", "table");
+            tableMappingField.set(dorisDb, restoredMapping);
+            Assert.assertFalse(dorisDb.getTableForReplay("table").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
+
+    @Test
+    public void testReplayRefreshTableColdTargetKeepsCachedSibling() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("cold_target_hot_sibling");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        long catalogId = 121L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "cold_target_hot_sibling_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("db", false);
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(Identifier.create("db", "cold"), schema, false);
+        dorisCatalog.catalog.createTable(Identifier.create("db", "sibling"), schema, false);
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assert.assertTrue(dorisCatalog.getDb("db").isPresent());
+            ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable("db");
+            // Cache the sibling but leave the target cold: both share an intact name mapping.
+            Assert.assertNotNull(dorisDb.getTableNullable("sibling"));
+            Assert.assertFalse(dorisDb.getTableForReplay("cold").isPresent());
+
+            new RefreshManager().replayRefreshTable(
+                    ExternalObjectLog.createForRefreshTable(catalogId, "db", "cold", 0L));
+
+            Assert.assertTrue("a cold target must not evict its cached sibling",
+                    dorisDb.getTableForReplay("sibling").isPresent());
+        } finally {
+            dorisCatalog.catalog.close();
+        }
+    }
 }
+
+
+
+
+
+
+
+
