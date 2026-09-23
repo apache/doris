@@ -29,6 +29,14 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
+    // Capture the settings this suite overrides before the try block, so the
+    // finally block can restore them even when the try body failed midway:
+    // a def inside the try body is out of scope in finally, and interpolating
+    // it there would throw and mask the original failure (the sibling suites
+    // declare the captures outside the try for the same reason).
+    def originalForceJni = sql("select @@force_jni_scanner")[0][0]
+    def originalV2 = sql("select @@enable_file_scanner_v2")[0][0]
+
     try {
         sql """drop catalog if exists ${catalogName}"""
         sql """create catalog if not exists ${catalogName} properties (
@@ -36,9 +44,6 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             "paimon.catalog.type" = "filesystem",
             "warehouse" = "hdfs://${externalEnvIp}:${hdfsPort}/user/doris/paimon1"
         );"""
-        // Capture the settings this suite overrides so finally can restore them.
-        def originalForceJni = sql("select @@force_jni_scanner")[0][0]
-        def originalV2 = sql("select @@enable_file_scanner_v2")[0][0]
 
         sql """switch ${catalogName}"""
         sql """use db1"""

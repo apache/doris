@@ -255,6 +255,71 @@ TEST_F(PaimonRustTableReaderTest, FillsPartitionConstantsForMissingArrowColumns)
     EXPECT_EQ(std::string(value.data(), value.size()), "2024-01-01");
 }
 
+TEST_F(PaimonRustTableReaderTest, DirectPathTruncatesBoundedStringColumns) {
+    // The pinned rust reader maps paimon CHAR(n)/VARCHAR(n) to lengthless Arrow
+    // Utf8, so the direct Arrow path must enforce truncate_char_or_varchar_
+    // columns itself: a value written under an old wider schema and read into
+    // a column narrowed to VARCHAR(3) truncates to "abc" — the semantics
+    // TableReader::finalize_chunk applies on the normal path, which this
+    // direct path bypasses. Unbounded STRING columns and non-string columns
+    // stay untouched, and with the option off nothing truncates.
+    const auto fill_block = [] {
+        const auto varchar3 = make_nullable(
+                std::make_shared<DataTypeString>(3, PrimitiveType::TYPE_VARCHAR));
+        const auto string_type = make_nullable(std::make_shared<DataTypeString>());
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        Block block = Block({ColumnWithTypeAndName(varchar3->create_column(), varchar3, "v"),
+                             ColumnWithTypeAndName(string_type->create_column(), string_type, "s"),
+                             ColumnWithTypeAndName(int_type->create_column(), int_type, "k")});
+        for (auto [idx, field] :
+             std::initializer_list<std::pair<size_t, Field>> {
+                     {0, Field::create_field<TYPE_STRING>("abcdefghij")},
+                     {1, Field::create_field<TYPE_STRING>("0123456789ABCDEF")},
+                     {2, Field::create_field<TYPE_INT>(1)},
+                     {0, Field::create_field<TYPE_STRING>("ab")},
+                     {1, Field::create_field<TYPE_STRING>("xyz")},
+                     {2, Field::create_field<TYPE_INT>(2)}}) {
+            auto column = IColumn::mutate(block.get_by_position(idx).column);
+            column->insert(field);
+            block.get_by_position(idx).column = std::move(column);
+        }
+        return block;
+    };
+    const auto value_at = [](const Block& block, size_t idx, size_t row) {
+        Field field;
+        block.get_by_position(idx).column->get(row, field);
+        const auto& value = field.get<TYPE_STRING>();
+        return std::string(value.data(), value.size());
+    };
+
+    // Option off (the SetUp default): historical values return unchanged.
+    {
+        PaimonRustTableReader reader;
+        ASSERT_TRUE(init_reader_with_count(&reader, std::vector<GlobalIndex> {}).ok());
+        Block block = fill_block();
+        ASSERT_TRUE(reader.TEST_truncate_char_or_varchar_columns(&block).ok());
+        EXPECT_EQ(value_at(block, 0, 0), "abcdefghij");
+    }
+
+    // Option on: the VARCHAR(3) column truncates to its declared length; the
+    // unbounded STRING column and the INT column stay untouched.
+    _query_options.__set_truncate_char_or_varchar_columns(true);
+    _runtime_state = RuntimeState::create_unique(_query_options, _query_globals);
+    {
+        PaimonRustTableReader reader;
+        ASSERT_TRUE(init_reader_with_count(&reader, std::vector<GlobalIndex> {}).ok());
+        Block block = fill_block();
+        ASSERT_TRUE(reader.TEST_truncate_char_or_varchar_columns(&block).ok());
+        EXPECT_EQ(value_at(block, 0, 0), "abc");
+        EXPECT_EQ(value_at(block, 0, 1), "ab");
+        EXPECT_EQ(value_at(block, 1, 0), "0123456789ABCDEF");
+        EXPECT_EQ(value_at(block, 1, 1), "xyz");
+        Field int_field;
+        block.get_by_position(2).column->get(0, int_field);
+        EXPECT_EQ(int_field.get<TYPE_INT>(), 1);
+    }
+}
+
 TEST_F(PaimonRustTableReaderTest, MaterializesInSessionTimezone) {
     // TIMESTAMP_LTZ values materialize as session-local civil times: the
     // materialization timezone must come from the session, not a fixed default

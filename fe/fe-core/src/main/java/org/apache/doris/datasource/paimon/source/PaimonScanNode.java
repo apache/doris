@@ -142,6 +142,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     // tested: s3 / s3a -> the s3.* family, oss -> the fs.oss.* family, plus
     // the credential-free hdfs and local-filesystem parsers (hadoop conf and
     // local paths pass through untouched). See isRustVerifiedLocationScheme.
+    // An hdfs:// location additionally requires the credential-free backend
+    // shape of isRustVerifiedHdfsBackend: the same storage properties carry a
+    // Kerberized catalog's principal / keytab, its proxy user and its HA
+    // nameservice config, none of which the rust HDFS parser can honor.
     private static final Set<String> RUST_VERIFIED_LOCATION_SCHEMES =
             new HashSet<>(Arrays.asList("s3", "s3a", "oss", "hdfs", "file"));
 
@@ -358,6 +362,16 @@ public class PaimonScanNode extends FileQueryScanNode {
      * delivers those credentials only as AWS_* aliases that those parsers do not read.
      * A null location cannot be verified (and cannot ship paimon_table either), so it is
      * not rust-eligible.
+     *
+     * <p>The scheme must also appear in the exact lowercase form the pinned crate consumes.
+     * URI schemes are case-insensitive, but the crate lowercases only its storage
+     * dispatch: its object-store path extraction strips a lowercase {@code s3://} prefix
+     * from the original string, and the hdfs / file helpers likewise match only lowercase
+     * prefixes. A {@code S3://} or {@code Hdfs://} warehouse also produces DataSplit file
+     * paths in that original casing (serialized by the paimon SDK before the FE sees
+     * them), so the mixed-case shape fails the rust open beyond the transported location.
+     * Those valid URI variants must therefore route to JNI, whose Java stack is
+     * case-insensitive everywhere.
      */
     @VisibleForTesting
     static boolean isRustVerifiedLocationScheme(String location) {
@@ -370,8 +384,70 @@ public class PaimonScanNode extends FileQueryScanNode {
             // parser, which needs no credentials.
             return true;
         }
-        return RUST_VERIFIED_LOCATION_SCHEMES.contains(
-                location.substring(0, sep).toLowerCase(Locale.ROOT));
+        return RUST_VERIFIED_LOCATION_SCHEMES.contains(location.substring(0, sep));
+    }
+
+    // Whether the location is an hdfs:// table (the only HDFS-family scheme in
+    // RUST_VERIFIED_LOCATION_SCHEMES; viewfs / jfs never pass it).
+    private static boolean isHdfsLocationScheme(String location) {
+        if (location == null) {
+            return false;
+        }
+        int sep = location.indexOf("://");
+        return sep > 0 && "hdfs".equalsIgnoreCase(location.substring(0, sep));
+    }
+
+    /**
+     * Whether an HDFS catalog's shipped backend properties carry no identity the
+     * pinned paimon-rust HDFS parser would silently drop. The parser reads only
+     * the hdfs.name-node / hdfs.enable-append keys: no kerberos, no proxy user,
+     * no hadoop HA resolution. A Kerberized catalog (or one with hadoop.username,
+     * or with HA nameservice config) would pass the location scheme gate, open
+     * as the BE process's ambient identity and fail — or silently miss — the
+     * catalog's configured access, while the same query works through JNI. Only
+     * the open-tested credential-free shape stays rust-eligible: simple (or
+     * unset) authentication, no principal / keytab / proxy user, no HA
+     * nameservice resolution. Generic fs.* / dfs.* tunables still pass through
+     * untouched — fs.defaultFS always ships and carries no identity.
+     */
+    @VisibleForTesting
+    static boolean isRustVerifiedHdfsBackend(Map<String, String> backendStorageProperties) {
+        if (backendStorageProperties == null) {
+            return true;
+        }
+        // Authentication type: "simple" (or unset) authenticates as the same
+        // ambient OS user on both readers; kerberos (or anything else) needs the
+        // channel the rust parser does not read.
+        for (String authKey : new String[] {"hadoop.security.authentication",
+                "hdfs.security.authentication"}) {
+            String value = backendStorageProperties.get(authKey);
+            if (value != null && !"simple".equalsIgnoreCase(value.trim())) {
+                return false;
+            }
+        }
+        // Kerberos identity and the proxy user: any of these configured means
+        // the open must carry a specific identity, which only JNI can honor.
+        for (String identityKey : new String[] {"hadoop.kerberos.principal",
+                "hadoop.kerberos.keytab", "hadoop.username"}) {
+            String value = backendStorageProperties.get(identityKey);
+            if (value != null && !value.trim().isEmpty()) {
+                return false;
+            }
+        }
+        // HA nameservice resolution: the rust parser receives no dfs.* config,
+        // so a nameservice-authority location (dfs.nameservices / dfs.ha.*)
+        // cannot be resolved; the proven shape is a single name-node URI.
+        String nameServices = backendStorageProperties.get("dfs.nameservices");
+        if (nameServices != null && !nameServices.trim().isEmpty()) {
+            return false;
+        }
+        for (Map.Entry<String, String> entry : backendStorageProperties.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().startsWith("dfs.ha.")
+                    && entry.getValue() != null && !entry.getValue().trim().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -619,6 +695,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && "orc".equals(fileFormat.toLowerCase(Locale.ROOT))
                     && paimonFileStoreTable.schema().fields().stream().anyMatch(field ->
                             field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
+            // Projected VARIANT columns stay on JNI: the rust leaf feeds its
+            // Arrow arrays to the slot serdes, and DataTypeVariantV2SerDe::
+            // read_column_from_arrow unconditionally returns
+            // NOT_IMPLEMENTED_ERROR — a nested Variant (ARRAY / MAP / STRUCT
+            // containing one) reaches the same decoder through the container
+            // serdes. desc carries only the slots this query projects, so a
+            // table whose VARIANT column is not projected still scans on
+            // rust. Gate until the rust leaf has a Variant Arrow decoder.
+            boolean projectedVariant = desc.getSlots().stream()
+                    .anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()));
             // Scheme capability gate: the pinned paimon-rust storage
             // dispatcher (io/storage.rs) selects the FileIO parser from the
             // table location's URI scheme, and libpaimon_c.a compiles in
@@ -638,6 +724,15 @@ public class PaimonScanNode extends FileQueryScanNode {
             // paimon_table that only a real location can provide (BE rejects
             // a split without it).
             boolean schemeCapabilityVerified = isRustVerifiedLocationScheme(source.getTableLocation());
+            // An hdfs:// location is scheme-verified only together with the credential-free
+            // backend shape: the backend storage properties that ship to BE also carry an
+            // HDFS catalog's authentication (kerberos principal / keytab, proxy user, HA
+            // nameservice config), none of which the pinned rust HDFS parser reads — the
+            // scan would open as the BE process's ambient identity instead of the
+            // catalog's configured one and fail the access JNI honors. See
+            // isRustVerifiedHdfsBackend.
+            boolean hdfsBackendVerified = !isHdfsLocationScheme(source.getTableLocation())
+                    || isRustVerifiedHdfsBackend(backendStorageProperties);
             // With merge-on-read=true the whole table already routes to JNI (dvMergeOnRead);
             // for the remaining partial-update/aggregation DV tables, a split that is
             // not fully materialized (uncompacted level-0 data, or retractions not
@@ -652,7 +747,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
                     && !dvMergeOnRead && !splitDvNotMaterialized
-                    && !orcLtzSchema && schemeCapabilityVerified && paimonFileStoreTable != null;
+                    && !orcLtzSchema && !projectedVariant && schemeCapabilityVerified
+                    && hdfsBackendVerified && paimonFileStoreTable != null;
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));

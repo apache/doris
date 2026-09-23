@@ -2570,6 +2570,11 @@ public class PaimonScanNodeTest {
                 {"abfss://bucket@account/wh/db.db/t", "PAIMON_JNI"},
                 {"az://bucket/wh/db.db/t", "PAIMON_JNI"},
                 {"azure://bucket/wh/db.db/t", "PAIMON_JNI"},
+                // Uppercase URI-scheme variants of otherwise verified schemes:
+                // the crate strips only a lowercase prefix, and the DataSplit's
+                // file paths carry the original casing too -> JNI.
+                {"S3://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"Hdfs://nn/wh/db.db/t", "PAIMON_JNI"},
                 // A null location cannot be verified (and cannot ship
                 // paimon_table for the rust reader) -> JNI.
                 {null, "PAIMON_JNI"},
@@ -2629,17 +2634,197 @@ public class PaimonScanNodeTest {
 
     @Test
     public void testIsRustVerifiedLocationSchemeClassification() {
-        // The scheme extraction must be case-insensitive (URI schemes are)
-        // and must treat a plain path without a URI scheme as a local
-        // filesystem location, which reads through the crate's LocalFs
-        // parser and needs no credentials.
+        // A plain path without a URI scheme is a local-filesystem location, which
+        // reads through the crate's LocalFs parser and needs no credentials. The
+        // scheme must appear in the exact lowercase form the pinned crate
+        // consumes: it lowercases only its storage dispatch, while its path
+        // extraction strips a lowercase prefix from the original string — a
+        // S3:// or Hdfs:// warehouse must route to JNI instead (the Java stack
+        // is case-insensitive everywhere).
         Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("s3://bucket/wh"));
-        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("S3://bucket/wh"));
-        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("OSS://bucket/wh"));
         Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("/local/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("S3://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("OSS://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("Hdfs://nn/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("FILE:///paimon/wh"));
         Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("cosn://bucket/wh"));
         Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("COSN://bucket/wh"));
         Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("viewfs://cluster/wh"));
         Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme(null));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsAuthenticatedHdfsBackends() throws Exception {
+        // The pinned paimon-rust HDFS parser reads only the hdfs.name-node /
+        // hdfs.enable-append keys: no kerberos, no proxy user, no hadoop HA
+        // resolution. A Kerberized HDFS catalog (or one with hadoop.username /
+        // HA nameservice config) passes the location scheme gate, so the scan
+        // would open as the BE process's ambient identity and fail the access
+        // JNI honors — those shapes must fall back to JNI; the credential-free
+        // shape stays rust-eligible.
+        for (String[][] shape : new String[][][] {
+                // Production-shaped credential-free HdfsProperties output: an
+                // fs.defaultFS, the always-written simple-auth markers and
+                // pass-through tunables, none of which carry an identity.
+                {new String[] {"fs.defaultFS", "hdfs://nn:8020"},
+                        new String[] {"hdfs.security.authentication", "simple"},
+                        new String[] {"ipc.client.fallback-to-simple-auth-allowed", "true"},
+                        new String[] {"PAIMON_RUST"}},
+                // A null / empty map is the anonymous default the parser
+                // supports (the regression suite's plain hdfs:// table).
+                {new String[] {"PAIMON_RUST"}},
+                // Kerberos: authentication type plus principal / keytab, as
+                // HdfsProperties emits them for a Kerberized catalog.
+                {new String[] {"hadoop.security.authentication", "kerberos"},
+                        new String[] {"hadoop.kerberos.principal", "hdfs/_HOST@REALM"},
+                        new String[] {"hadoop.kerberos.keytab", "/etc/security/hdfs.keytab"},
+                        new String[] {"PAIMON_JNI"}},
+                {new String[] {"hdfs.security.authentication", "kerberos"}, new String[] {"PAIMON_JNI"}},
+                // Proxy user: hadoop.username authenticates as a specific user
+                // the rust parser would drop.
+                {new String[] {"hadoop.username", "hive"}, new String[] {"PAIMON_JNI"}},
+                // HA nameservice resolution: dfs.nameservices / dfs.ha.* config
+                // cannot be resolved without the dfs.* channel.
+                {new String[] {"dfs.nameservices", "ns1"},
+                        new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"},
+                        new String[] {"PAIMON_JNI"}},
+                {new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"}, new String[] {"PAIMON_JNI"}}}) {
+            Map<String, String> backendProperties = new HashMap<>();
+            for (int i = 0; i < shape.length - 1; i++) {
+                backendProperties.put(shape[i][0], shape[i][1]);
+            }
+            TPaimonReaderType expected = TPaimonReaderType.valueOf(
+                    shape[shape.length - 1][0]);
+
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getTableLocation()).thenReturn("hdfs://nn/wh/db.db/t");
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expected == TPaimonReaderType.PAIMON_RUST) {
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties", backendProperties);
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("hdfs_auth_gate.parquet")));
+            Assert.assertEquals("backend " + backendProperties, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testIsRustVerifiedHdfsBackendClassification() {
+        // The anonymous / null map is the open-tested shape; the always-written
+        // simple-auth markers and fs.defaultFS carry no identity; every
+        // auth-bearing key (type, principal, keytab, proxy user) and the HA
+        // nameservice config route to JNI.
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(null));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(Collections.emptyMap()));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "fs.defaultFS", "hdfs://nn:8020",
+                "hadoop.security.authentication", "simple")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.security.authentication", "kerberos")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.security.authentication", "KERBEROS")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.kerberos.principal", "hdfs/_HOST@REALM")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.kerberos.keytab", "/etc/security/hdfs.keytab")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.username", "hive")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.nameservices", "ns1")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.ha.namenodes.ns1", "nn1,nn2")));
+        // A blank value is the unset case (values are null-filtered upstream,
+        // but a blank site-config entry must not gate an otherwise
+        // credential-free catalog).
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.username", " ")));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsProjectedVariantColumns() throws Exception {
+        // The rust leaf feeds its Arrow arrays to the slot serdes, and
+        // DataTypeVariantV2SerDe::read_column_from_arrow unconditionally returns
+        // NOT_IMPLEMENTED_ERROR — a nested Variant (ARRAY / MAP / STRUCT
+        // containing one) reaches the same decoder through the container
+        // serdes. Projections containing Variant must route to JNI; a table
+        // whose VARIANT column is not projected by this query stays on rust.
+        Type[][] shapes = new Type[][] {
+                // Plain projected columns -> rust.
+                new Type[] {Type.INT, Type.STRING},
+                // A projected VARIANT -> JNI.
+                new Type[] {Type.INT, Type.VARIANT},
+                // Nested Variant inside every container kind -> JNI.
+                new Type[] {new ArrayType(Type.VARIANT)},
+                new Type[] {new MapType(Type.STRING, Type.VARIANT)},
+                new Type[] {new StructType(new StructField("v", Type.VARIANT))},
+                // The same containers without Variant stay rust-eligible.
+                new Type[] {new ArrayType(Type.INT)},
+                new Type[] {new MapType(Type.STRING, Type.INT)}};
+        boolean[] expectRust = new boolean[] {true, false, false, false, false, true, true};
+
+        for (int i = 0; i < shapes.length; i++) {
+            TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+            for (int j = 0; j < shapes[i].length; j++) {
+                SlotDescriptor slot = new SlotDescriptor(new SlotId(j), desc);
+                slot.setType(shapes[i][j]);
+                desc.addSlot(slot);
+            }
+
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), desc, false, vars,
+                    ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://bucket/wh/db.db/t");
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expectRust[i]) {
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
+                    "AWS_ACCESS_KEY", "ak",
+                    "AWS_SECRET_KEY", "sk",
+                    "AWS_ENDPOINT", "http://127.0.0.1:19001",
+                    "AWS_REGION", "us-east-1"));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("variant_gate.parquet")));
+            Assert.assertEquals("projection " + Arrays.toString(shapes[i]),
+                    expectRust[i] ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
     }
 }

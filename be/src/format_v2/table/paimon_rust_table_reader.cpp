@@ -28,6 +28,9 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_const.h"
+#include "core/assert_cast.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "format_v2/column_mapper.h"
@@ -589,7 +592,42 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
     }
     // Partition columns and other projected columns absent from the arrow batch
     // are back-filled from split metadata / defaults.
-    return _fill_non_arrow_columns(block, rows, materialized_indices);
+    RETURN_IF_ERROR(_fill_non_arrow_columns(block, rows, materialized_indices));
+    // This direct Arrow path bypasses TableReader::finalize_chunk, whose last
+    // step enforces truncate_char_or_varchar_columns — without it, a column
+    // narrowed by schema evolution returns untruncated historical values.
+    RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+    return Status::OK();
+}
+
+Status PaimonRustTableReader::_truncate_char_or_varchar_columns(Block* block) {
+    if (_runtime_state == nullptr ||
+        !_runtime_state->query_options().truncate_char_or_varchar_columns) {
+        return Status::OK();
+    }
+    for (size_t idx = 0; idx < block->columns(); ++idx) {
+        const auto& column_type = block->get_by_position(idx).type;
+        if (column_type == nullptr) {
+            continue;
+        }
+        const auto type = remove_nullable(column_type);
+        const auto primitive = type->get_primitive_type();
+        if (primitive != TYPE_VARCHAR && primitive != TYPE_CHAR) {
+            continue;
+        }
+        const auto target_len =
+                assert_cast<const DataTypeString*>(type.get())->len();
+        if (target_len <= 0) {
+            continue;
+        }
+        // Reuses TableReader's vectorized truncation (substring(column, 1,
+        // len)); the base variant maps through column_mapper metadata, which
+        // the direct rust path does not populate, so iterate the block's own
+        // slot-derived types here — the arrow side is always lengthless Utf8,
+        // so any bounded CHAR/VARCHAR target truncates to its declared length.
+        _truncate_char_or_varchar_column(block, idx, target_len);
+    }
+    return Status::OK();
 }
 
 Status PaimonRustTableReader::_fill_non_arrow_columns(
