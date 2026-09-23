@@ -4408,13 +4408,17 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum(String clusterName) {
+        // Apply the limit after resolving user properties, automatic sizing, and historical session values.
+        return Math.min(resolveParallelExecInstanceNum(clusterName), 256);
+    }
+
+    private int resolveParallelExecInstanceNum(String clusterName) {
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
             int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
                     .getParallelFragmentExecInstanceNum(connectContext.getQualifiedUser());
             if (userParallelExecInstanceNum > 0) {
-                // User properties restored from older images or journals may exceed the write-time limit.
-                return Math.min(userParallelExecInstanceNum, 256);
+                return userParallelExecInstanceNum;
             }
         }
         String resolvedClusterName = clusterName;

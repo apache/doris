@@ -25,11 +25,17 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.mysql.privilege.UserPropertyMgr;
+import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -38,7 +44,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.util.Collections;
 
-public class SessionVariableUserParallelismTest {
+public class SessionVariableParallelismTest {
     private static final String USER = "parallelism_test";
     private UserPropertyMgr propertyMgr;
     private SessionVariable sessionVariable;
@@ -64,6 +70,40 @@ public class SessionVariableUserParallelismTest {
     @AfterEach
     public void tearDown() {
         ConnectContext.remove();
+    }
+
+    @Test
+    public void testAutomaticParallelismLimit() throws Exception {
+        sessionVariable.setPipelineTaskNum("0");
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        SystemInfoService systemInfo = new SystemInfoService();
+        systemInfo.addBackend(backend);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
+            // Executor report, max_instance_num, effective parallelism.
+            for (int[] values : new int[][] {{1024, 1024, 256}, {1024, 64, 64}, {1024, 256, 256},
+                    {510, 1024, 255}, {511, 1024, 256}, {512, 1024, 256}, {513, 1024, 256},
+                    {8, 1024, 4}, {9, 1024, 5}}) {
+                backend.setPipelineExecutorSize(values[0]);
+                sessionVariable.maxInstanceNum = values[1];
+                assertEffectiveParallelism(values[2]);
+            }
+
+            // A positive user property still takes precedence over automatic sizing.
+            propertyMgr.updateUserProperty(USER, Collections.singletonList(
+                    Pair.of("parallel_fragment_exec_instance_num", "7")), false);
+            assertEffectiveParallelism(7);
+        }
+    }
+
+    @Test
+    public void testHistoricalSessionParallelismLimit() throws Exception {
+        for (int value : new int[] {257, 2000, Integer.MAX_VALUE}) {
+            sessionVariable.readFromJson("{\"parallel_pipeline_task_num\":" + value + "}");
+            assertEffectiveParallelism(256);
+        }
+        sessionVariable.setPipelineTaskNum("8");
+        assertEffectiveParallelism(8);
     }
 
     @Test
@@ -116,5 +156,7 @@ public class SessionVariableUserParallelismTest {
     private void assertEffectiveParallelism(int expected) {
         Assertions.assertEquals(expected, sessionVariable.getParallelExecInstanceNum(""));
         Assertions.assertEquals(expected, sessionVariable.toThrift().getParallelInstance());
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), null, DataPartition.RANDOM);
+        Assertions.assertEquals(expected, fragment.getParallelExecNum());
     }
 }
