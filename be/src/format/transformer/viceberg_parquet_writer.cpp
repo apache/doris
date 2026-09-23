@@ -60,12 +60,12 @@ VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter
                                              const ParquetFileOptions& parquet_options,
                                              const std::string* iceberg_schema_json,
                                              const iceberg::Schema& iceberg_schema,
-                                             bool collect_column_stats)
+                                             const std::vector<int32_t>& nan_count_field_ids)
         : VParquetWriter(state, file_writer, output_vexpr_ctxs, std::move(column_names),
                          output_object_data, parquet_options),
           _iceberg_schema(iceberg_schema),
           _iceberg_schema_json(iceberg_schema_json == nullptr ? "" : *iceberg_schema_json),
-          _collect_column_stats(collect_column_stats) {}
+          _nan_count_field_ids(nan_count_field_ids.begin(), nan_count_field_ids.end()) {}
 
 Status VIcebergParquetWriter::open() {
     RETURN_IF_ERROR(VParquetWriter::open());
@@ -79,18 +79,23 @@ Status VIcebergParquetWriter::open() {
 // prune the file at all (see the FLOAT/DOUBLE leaves in FE IcebergPredicateConverter).
 //
 // A field listed here is a claim that every one of its values was counted, which is what makes a
-// reported zero trustworthy. Only top-level FLOAT/DOUBLE columns qualify: a floating field nested in
-// a struct/list/map is not a block column of its own, so it is left out of the map entirely and stays
-// "unknown" -- conservative and unprunable, rather than wrongly claimed NaN-free.
+// reported zero trustworthy. Two independent narrowings apply, and a field excluded by either one stays
+// absent from the map -- "unknown", which iceberg reads conservatively -- rather than wrongly claimed
+// NaN-free:
+//   - policy: _nan_count_field_ids, the fields whose count FE would keep under the table's metrics
+//     config. Counting one FE drops is a pure waste of a data pass, and iceberg disables metrics for
+//     everything past the first 100 fields by default, so a wide table hits this with no property set.
+//   - capability: only top-level columns, because a floating field nested in a struct/list/map is not a
+//     block column of its own.
 void VIcebergParquetWriter::_init_nan_value_counts() {
-    if (!_collect_column_stats) {
-        return;
-    }
     const auto& columns = _iceberg_schema.columns();
     for (size_t i = 0; i < columns.size(); ++i) {
         const auto type_id = columns[i].field_type()->type_id();
-        if (type_id == iceberg::TypeID::FLOAT || type_id == iceberg::TypeID::DOUBLE) {
-            const int32_t field_id = columns[i].field_id();
+        if (type_id != iceberg::TypeID::FLOAT && type_id != iceberg::TypeID::DOUBLE) {
+            continue;
+        }
+        const int32_t field_id = columns[i].field_id();
+        if (_nan_count_field_ids.contains(field_id)) {
             _nan_counted_columns.emplace_back(i, field_id);
             _nan_value_counts[field_id] = 0;
         }
