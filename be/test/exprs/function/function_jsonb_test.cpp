@@ -1002,6 +1002,37 @@ TEST(FunctionJsonbTEST, JsonLengthConstNullablePathMultiRows) {
               PaddedPODArray<Int32>({2, 3, 0}));
 }
 
+TEST(FunctionJsonbTEST, JsonLengthConstJsonVaryingPathMultiRows) {
+    constexpr size_t rows = 3;
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    auto path_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(std::make_shared<DataTypeInt32>());
+
+    auto jsonb_column = jsonb_type->create_column();
+    ASSERT_TRUE(insert_cell(jsonb_column, jsonb_type, STRING(R"({"a":[1,2]})")));
+
+    Block block;
+    block.insert({ColumnConst::create(std::move(jsonb_column), rows), jsonb_type, "jsonb"});
+    block.insert({create_path_column({"$.a", "$.a[0]", "$.missing"}), path_type, "path"});
+
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "json_length", block.get_columns_with_type_and_name(), return_type);
+    ASSERT_NE(func, nullptr);
+
+    FunctionUtils fn_utils(return_type, {jsonb_type, path_type}, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+    block.insert({nullptr, return_type, "result"});
+    ASSERT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, rows).ok());
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), NullMap({0, 0, 1}));
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(result.get_nested_column()).get_data(),
+              PaddedPODArray<Int32>({2, 1, 0}));
+}
+
 TEST(FunctionJsonbTEST, JsonContains) {
     std::string func_name = "json_contains";
 
