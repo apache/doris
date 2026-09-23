@@ -18,77 +18,73 @@
 #include "util/url_coding.h"
 
 #include <gtest/gtest.h>
-#include <stdio.h>
-#include <stdlib.h>
 
-#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace doris {
 
-// Tests encoding/decoding of input.  If expected_encoded is non-empty, the
-// encoded string is validated against it.
-void test_url(const string& input, const string& expected_encoded, bool hive_compat) {
+// Encode the input, then decode it again and check we are back where we started.
+void test_url(const std::string& input, const std::string& expected_encoded) {
     std::string intermediate;
-    url_encode(input, &intermediate, hive_compat);
-    std::string output;
+    url_encode(input, &intermediate);
 
     if (!expected_encoded.empty()) {
         EXPECT_EQ(intermediate, expected_encoded);
     }
 
-    EXPECT_TRUE(UrlDecode(intermediate, &output, hive_compat));
+    std::string output;
+    EXPECT_TRUE(url_decode(intermediate, &output));
     EXPECT_EQ(input, output);
-
-    // Convert string to vector and try that also
-    std::vector<uint8_t> input_vector;
-    input_vector.resize(input.size());
-    memcpy(&input_vector[0], input.c_str(), input.size());
-    std::string intermediate2;
-    url_encode(input_vector, &intermediate2, hive_compat);
-    EXPECT_EQ(intermediate, intermediate2);
 }
 
-void test_base64(const string& input, const string& expected_encoded) {
+void test_base64(const std::string& input, const std::string& expected_encoded) {
     std::string intermediate;
-    Base64Encode(input, &intermediate);
-    std::string output;
+    base64_encode(input, &intermediate);
 
     if (!expected_encoded.empty()) {
         EXPECT_EQ(intermediate, expected_encoded);
     }
 
-    EXPECT_TRUE(Base64Decode(intermediate, &output));
+    std::string output;
+    EXPECT_TRUE(base64_decode(intermediate, &output));
     EXPECT_EQ(input, output);
-
-    // Convert string to vector and try that also
-    std::vector<uint8_t> input_vector;
-    input_vector.resize(input.size());
-    memcpy(&input_vector[0], input.c_str(), input.size());
-    std::string intermediate2;
-    Base64Encode(input_vector, &intermediate2);
-    EXPECT_EQ(intermediate, intermediate2);
 }
 
-// Test URL encoding. Check that the values that are put in are the
-// same that come out.
 TEST(UrlCodingTest, Basic) {
     std::string input = "ABCDEFGHIJKLMNOPQRSTUWXYZ1234567890~!@#$%^&*()<>?,./:\";'{}|[]\\_+-=";
-    test_url(input, "", false);
-    test_url(input, "", true);
-}
-
-TEST(UrlCodingTest, HiveExceptions) {
-    test_url(" +", " +", true);
+    test_url(input, "");
 }
 
 TEST(UrlCodingTest, BlankString) {
-    test_url("", "", false);
-    test_url("", "", true);
+    test_url("", "");
 }
 
 TEST(UrlCodingTest, PathSeparators) {
-    test_url("/home/doris/directory/", "%2Fhome%2Fdoris%2Fdirectory%2F", false);
-    test_url("/home/doris/directory/", "%2Fhome%2Fdoris%2Fdirectory%2F", true);
+    test_url("/home/doris/directory/", "%2Fhome%2Fdoris%2Fdirectory%2F");
+}
+
+TEST(UrlCodingTest, Spaces) {
+    std::string output;
+    EXPECT_TRUE(url_decode("my+db", &output));
+    EXPECT_EQ(output, "my db");
+    EXPECT_TRUE(url_decode("my%20db", &output));
+    EXPECT_EQ(output, "my db");
+}
+
+TEST(UrlCodingTest, MalformedEscapeIsRejected) {
+    std::string output;
+    // A '%' must be followed by exactly two hexadecimal digits.
+    EXPECT_FALSE(url_decode("prod%zzbackup", &output));
+    EXPECT_FALSE(url_decode("a%1gb", &output));
+    EXPECT_FALSE(url_decode("a%%20b", &output));
+    // A '%' at, or one character from, the end of the input.
+    EXPECT_FALSE(url_decode("mydb%", &output));
+    EXPECT_FALSE(url_decode("mydb%2", &output));
+    // Both digit cases are accepted.
+    EXPECT_TRUE(url_decode("%2d%2D", &output));
+    EXPECT_EQ(output, "--");
 }
 
 TEST(Base64Test, Basic) {
@@ -103,7 +99,7 @@ TEST(Base64Test, Basic) {
 TEST(HtmlEscapingTest, Basic) {
     std::string before = "<html><body>&amp";
     std::stringstream after;
-    EscapeForHtml(before, &after);
+    escape_for_html(before, &after);
     EXPECT_EQ(after.str(), "&lt;html&gt;&lt;body&gt;&amp;amp");
 }
 
