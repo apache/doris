@@ -194,4 +194,29 @@ class TableStatsMetaTest {
         Assertions.assertEquals(-95, meta.getBaseIndexDeltaRowCount(table));
         Assertions.assertEquals(5, meta.getRowCount(BASE_INDEX_ID) + meta.getBaseIndexDeltaRowCount(table));
     }
+
+    @Test
+    void testDeltaRowCountOfInjectedRowCountAfterDropStats() {
+        OlapTable table = mockOlapTable();
+        TableStatsMeta meta = new TableStatsMeta();
+        // The table was truncated and 5 rows are loaded into it.
+        meta.reset(table);
+        meta.updatedRows.set(5);
+        // The user supplies the row count of the table as of now.
+        AnalysisInfo injected = new AnalysisInfoBuilder().setRowCount(5)
+                .setJobColumns(new HashSet<>()).setUserInject(true).build();
+        injected.addIndexRowCount(BASE_INDEX_ID, 5);
+        meta.update(injected, table);
+        Assertions.assertTrue(meta.userInjected);
+        // The row count supplied by the user is reported as long as it applies.
+        Assertions.assertEquals(0, meta.getBaseIndexDeltaRowCount(table));
+        Assertions.assertEquals(5, meta.getRowCount(BASE_INDEX_ID));
+
+        // Dropping the statistics of a column clears userInjected without clearing the row count. It and the
+        // baseline describe the same snapshot, so the loaded rows are not counted twice.
+        meta.userInjected = false;
+        Assertions.assertEquals(0, meta.getBaseIndexDeltaRowCount(table));
+        Assertions.assertEquals(5, meta.getRowCount(BASE_INDEX_ID) + meta.getBaseIndexDeltaRowCount(table));
+    }
+
 }

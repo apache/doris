@@ -259,10 +259,12 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 // job was built, remember how many they were, they are not delta rows. The baseline may
                 // only advance together with the collected base index row count, an analysis of another
                 // index (a materialized view) doesn't touch it.
-                // Statistics supplied by the user are not collected from the table, they carry no baseline.
-                if (!analyzedJob.userInject
-                        && analyzedJob.indexesRowCount.containsKey(olapTable.getBaseIndexId())) {
-                    updatedRowsBase.set(analyzedJob.updateRows);
+                if (analyzedJob.indexesRowCount.containsKey(olapTable.getBaseIndexId())) {
+                    // A row count supplied by the user replaces the collected one and describes the table as
+                    // of now, so the rows loaded so far are part of it and the baseline has to move to the
+                    // current value. Keeping the older baseline would count those rows again once DROP STATS
+                    // clears userInjected.
+                    updatedRowsBase.set(analyzedJob.userInject ? updatedRows.get() : analyzedJob.updateRows);
                 }
                 clearStaleIndexRowCount(olapTable);
                 if (analyzedJob.jobColumns.containsAll(
