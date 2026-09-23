@@ -3031,6 +3031,12 @@ protected:
         RETURN_IF_ERROR_RESULT(writer->flush());
         RowsetSharedPtr rowset;
         RETURN_IF_ERROR_RESULT(writer->build(rowset));
+        // This helper constructs a visible historical rowset without going through publish. Keep
+        // its metadata consistent with the publish invariant enforced for TSO-enabled schemas.
+        if (schema->is_tso_enabled()) {
+            constexpr int64_t kHistoryCommitTso = 100;
+            rowset->make_visible(context.version, kHistoryCommitTso);
+        }
         return rowset;
     }
 
