@@ -35,10 +35,12 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_ipv4.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -911,6 +913,8 @@ TEST(VariantPathBuilderTest, TypedConversionDoesNotDependOnOtherValueKindsInBatc
           DataTypePtr(std::make_shared<DataTypeDateTimeV2>(3)),
           DataTypePtr(std::make_shared<DataTypeInt32>()),
           DataTypePtr(std::make_shared<DataTypeDecimal128>(38, 2)),
+          DataTypePtr(std::make_shared<DataTypeIPv4>()),
+          DataTypePtr(std::make_shared<DataTypeTimeStampTz>(3)),
           DataTypePtr(std::make_shared<DataTypeString>())}) {
         SCOPED_TRACE(declared_type->get_name());
         const std::vector<std::string> mixed =

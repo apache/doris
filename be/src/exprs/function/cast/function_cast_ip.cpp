@@ -34,8 +34,10 @@ WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_
     auto make_ip_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
-        if constexpr (IsDataTypeNumber<FromDataType> || IsStringType<FromDataType> ||
-                      IsIPType<FromDataType>) {
+        // Admit only the sources cast_to_ip.h implements. Any other source would reach the generic
+        // CastToImpl and fail at execution instead of being rejected as unsupported.
+        if constexpr (IsStringType<FromDataType> || (std::is_same_v<FromDataType, DataTypeIPv4> &&
+                                                     std::is_same_v<IpType, DataTypeIPv6>)) {
             if (context->enable_strict_mode()) {
                 cast_to_ip = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, IpType>>();

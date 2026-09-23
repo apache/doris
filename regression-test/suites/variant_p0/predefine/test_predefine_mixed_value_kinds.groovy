@@ -71,4 +71,28 @@ suite("test_predefine_mixed_value_kinds", "p0") {
     order_qt_unconvertible """
         SELECT k, CAST(v AS STRING), v['d'], v['i'], v['arr'] FROM test_predefine_unconvertible_value_kinds
     """
+
+    // CAST converts only strings to IPV4 and TIMESTAMPTZ; a number has no conversion there and is
+    // dropped, while a valid string in the same batch is kept. TIMESTAMPTZ is only checked for
+    // NULL, since its text depends on the session time zone.
+    sql "DROP TABLE IF EXISTS test_predefine_ip_timestamptz_value_kinds"
+    sql """
+        CREATE TABLE test_predefine_ip_timestamptz_value_kinds (
+            k INT,
+            v VARIANT<'ip': IPV4, 'tz': TIMESTAMPTZ(3)>
+        ) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_predefine_ip_timestamptz_value_kinds VALUES
+        (1, PARSE_TO_VARIANT('{"ip": "12.12.12.12", "tz": "2024-01-01 10:00:00.123 +08:00"}')),
+        (2, PARSE_TO_VARIANT('{"ip": 13, "tz": 20240102}'))
+    """
+    sql """ INSERT INTO test_predefine_ip_timestamptz_value_kinds VALUES (3, PARSE_TO_VARIANT('{"ip": 13, "tz": 20240102}')) """
+    order_qt_ip_timestamptz """
+        SELECT k, v['ip'], v['tz'] IS NULL FROM test_predefine_ip_timestamptz_value_kinds
+    """
+    qt_ip_timestamptz_cast """
+        SELECT CAST(PARSE_TO_VARIANT('13') AS IPV4), CAST(PARSE_TO_VARIANT('20240102') AS TIMESTAMPTZ)
+    """
 }

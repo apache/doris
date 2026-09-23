@@ -16,3 +16,11 @@
 2	{}	\N	\N	\N
 3	{"arr":[3],"d":"2024-01-03","i":3}	2024-01-03	3	[3]
 
+-- !ip_timestamptz --
+1	12.12.12.12	false
+2	\N	true
+3	\N	true
+
+-- !ip_timestamptz_cast --
+\N	\N
+
