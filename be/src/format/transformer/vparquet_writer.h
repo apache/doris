@@ -20,6 +20,7 @@
 #include <arrow/io/interfaces.h>
 #include <arrow/result.h>
 #include <arrow/status.h>
+#include <cctz/time_zone.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/file_writer.h>
@@ -28,7 +29,7 @@
 
 #include <cstdint>
 
-#include "format/table/iceberg/schema.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "format/transformer/vfile_format_transformer.h"
 
 namespace doris {
@@ -85,23 +86,20 @@ struct ParquetFileOptions {
     bool enable_int96_timestamps = false;
 };
 
-// a wrapper of parquet output stream
-class VParquetTransformer final : public VFileFormatTransformer {
+// Writes Doris blocks as Parquet files, including schema and Arrow conversion.
+class VParquetWriter : public VFileFormatTransformer {
 public:
-    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                        const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<std::string> column_names, bool output_object_data,
-                        const ParquetFileOptions& parquet_options,
-                        const std::string* iceberg_schema_json = nullptr,
-                        const iceberg::Schema* iceberg_schema = nullptr);
+    VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                   const VExprContextSPtrs& output_vexpr_ctxs,
+                   std::vector<std::string> column_names, bool output_object_data,
+                   const ParquetFileOptions& parquet_options);
 
-    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                        const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
-                        const ParquetFileOptions& parquet_options,
-                        const std::string* iceberg_schema_json = nullptr);
+    VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                   const VExprContextSPtrs& output_vexpr_ctxs,
+                   std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
+                   const ParquetFileOptions& parquet_options);
 
-    ~VParquetTransformer() override = default;
+    ~VParquetWriter() override = default;
 
     Status open() override;
 
@@ -111,25 +109,29 @@ public:
 
     int64_t written_len() override;
 
-    Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
+protected:
+    // Construct the schema and column bindings together for each writer instance.
+    virtual std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
+            DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
+            const cctz::time_zone& timezone) const;
+    std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:
+    std::unique_ptr<ArrowBlockConvertor> _arrow_block_convertor;
     Status _parse_properties();
-    Status _parse_schema();
     arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<::parquet::WriterProperties> _parquet_writer_properties;
     std::shared_ptr<::parquet::ArrowWriterProperties> _arrow_properties;
     std::unique_ptr<::parquet::arrow::FileWriter> _writer;
-    std::shared_ptr<arrow::Schema> _arrow_schema;
 
     std::vector<std::string> _column_names;
     std::vector<TParquetSchema> _parquet_schemas;
     const ParquetFileOptions _parquet_options;
-    const std::string* _iceberg_schema_json;
+    std::string _timezone;
+    cctz::time_zone _timezone_obj;
     uint64_t _write_size = 0;
-    const iceberg::Schema* _iceberg_schema;
 };
 
 } // namespace doris
