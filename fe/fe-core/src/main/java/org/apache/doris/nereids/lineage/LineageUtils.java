@@ -275,7 +275,7 @@ public final class LineageUtils {
             if (key == null) {
                 continue;
             }
-            if (DatasourcePrintableMap.HIDDEN_KEY.contains(key) || DatasourcePrintableMap.SENSITIVE_KEY.contains(key)) {
+            if (DatasourcePrintableMap.HIDDEN_KEY.contains(key) || DatasourcePrintableMap.isSensitiveKey(key)) {
                 continue;
             }
             if (catalog instanceof ExternalCatalog && ExternalCatalog.HIDDEN_PROPERTIES.contains(key)) {

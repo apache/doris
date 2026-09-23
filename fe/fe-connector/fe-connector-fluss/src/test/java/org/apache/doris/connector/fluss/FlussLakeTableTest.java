@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
+import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.metadata.TableStats;
 import org.apache.fluss.types.DataTypes;
@@ -83,6 +84,7 @@ public class FlussLakeTableTest {
                 .column("id", DataTypes.BIGINT())
                 .buckets(1)
                 .build());
+        adminOps.readableLakeSnapshot = new LakeSnapshot(7L, Collections.emptyMap());
         return adminOps;
     }
 
@@ -250,8 +252,9 @@ public class FlussLakeTableTest {
         Assertions.assertEquals("db", ((RecordingLakeSibling.Handle) handle).dbName);
         Assertions.assertEquals("lake_table", ((RecordingLakeSibling.Handle) handle).tableName);
         Assertions.assertEquals(1, builtSiblings.size(), "one lake configuration, one sibling");
-        Assertions.assertEquals(Collections.singletonList("getTableHandle:db.lake_table"),
-                builtSiblings.get(0).calls);
+        Assertions.assertEquals(Arrays.asList("getTableHandle:db.lake_table", "resolveTimeTravel:7",
+                "applySnapshot:7:{}"), builtSiblings.get(0).calls);
+        Assertions.assertEquals(7L, ((RecordingLakeSibling.Handle) handle).pinnedSnapshotId);
     }
 
     @Test
@@ -277,10 +280,12 @@ public class FlussLakeTableTest {
         Map<String, String> expected = new HashMap<>();
         expected.put("paimon.catalog.type", "filesystem");
         expected.put("warehouse", "s3://bucket/lake");
+        expected.put("s3.access-key", "AK");
         // This is the metadata half of the wiring; the scan planner configures a sibling of its own from
         // the same catalog. Both have to pass the overrides on: one that did not would build a SECOND
         // sibling for the same catalog, reading a different warehouse under the same table's name.
-        // The credential is absent because storage is configured through the catalog, not the sibling.
+        // The raw credential is retained for paimon's catalog/filesystem clients; user-visible rendering
+        // masks it independently, and the shared connector context still owns the engine filesystem.
         Assertions.assertEquals(expected, builtSiblings.get(0).properties);
     }
 
@@ -371,6 +376,8 @@ public class FlussLakeTableTest {
         Assertions.assertEquals(RecordingLakeSibling.FORMAT_TYPE, schema.getTableFormatType());
         Assertions.assertEquals(1, schema.getColumns().size());
         Assertions.assertEquals(RecordingLakeSibling.COLUMN_NAME, schema.getColumns().get(0).getName());
+        Assertions.assertTrue(builtSiblings.get(0).calls.contains("getTableSchemaAt:17"),
+                "slot binding must use the schema id resolved for the readable lake snapshot");
     }
 
     /**
@@ -416,6 +423,8 @@ public class FlussLakeTableTest {
         Assertions.assertEquals(
                 Collections.singleton(RecordingLakeSibling.COLUMN_NAME),
                 metadata.getColumnHandles(session, lakeHandle(metadata)).keySet());
+        Assertions.assertTrue(builtSiblings.get(0).calls.contains("getColumnHandlesAt:17"),
+                "column handles must use the same pinned schema as the table schema");
     }
 
     @Test

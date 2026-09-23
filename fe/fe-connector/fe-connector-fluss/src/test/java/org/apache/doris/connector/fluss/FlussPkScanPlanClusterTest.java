@@ -39,6 +39,7 @@ import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.BinaryString;
 import org.apache.fluss.row.GenericRow;
 import org.apache.fluss.server.testutils.FlussClusterExtension;
+import org.apache.fluss.testutils.common.CommonTestUtils;
 import org.apache.fluss.types.DataTypes;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -47,10 +48,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Primary-key split planning against a real fluss cluster started in this JVM.
@@ -200,7 +203,7 @@ public class FlussPkScanPlanClusterTest {
 
     @Test
     public void primaryKeyTableNothingWasWrittenToPlansNoRanges() {
-        Assertions.assertTrue(plan("pk_table").isEmpty());
+        Assertions.assertTrue(planAfterLeaderElection("pk_table").isEmpty());
     }
 
     /**
@@ -237,7 +240,9 @@ public class FlussPkScanPlanClusterTest {
         Assertions.assertEquals(1, ranges.size());
         Map<String, String> props = ranges.get(0).getProperties();
         Assertions.assertEquals("PK_FULL", props.get("fluss.range_type"));
-        Assertions.assertEquals("dt=2026_08_03", props.get("fluss.partition_name"));
+        Assertions.assertFalse(props.containsKey("fluss.partition_name"));
+        Assertions.assertEquals(Collections.singletonMap("dt", "2026_08_03"),
+                ranges.get(0).getPartitionValues());
         Assertions.assertEquals(String.valueOf(partitionId), props.get("fluss.partition_id"));
         KvSnapshots snapshots = admin.getLatestKvSnapshots(tablePath, "2026_08_03").get();
         Assertions.assertEquals(String.valueOf(snapshots.getSnapshotId(0).orElse(-1L)),
@@ -253,6 +258,18 @@ public class FlussPkScanPlanClusterTest {
                 .getTableHandle(session, db, tableName).orElseThrow(AssertionError::new);
         return connector.getScanPlanProvider().planScan(session,
                 ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+    }
+
+    private List<ConnectorScanRange> planAfterLeaderElection(String tableName) {
+        AtomicReference<List<ConnectorScanRange>> ranges = new AtomicReference<>();
+        CommonTestUtils.retry(Duration.ofSeconds(30), () -> {
+            try {
+                ranges.set(plan(tableName));
+            } catch (RuntimeException e) {
+                throw new AssertionError("bucket leader is not ready", e);
+            }
+        });
+        return ranges.get();
     }
 
     private static long tableId(TablePath tablePath) throws Exception {

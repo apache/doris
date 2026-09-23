@@ -134,8 +134,8 @@ suite("test_fluss_lake_override", "p0,external") {
         sql """select * from ${wrongCatalog}.fluss_test.lake_log\$lake"""
         exception "nothing has been tiered"
     }
+    sql """set fluss_union_read_mode = 'required'"""
     test {
-        sql """set fluss_union_read_mode = 'required'"""
         sql """select * from ${wrongCatalog}.fluss_test.lake_log"""
         exception "warehouse and the fluss cluster disagree"
     }

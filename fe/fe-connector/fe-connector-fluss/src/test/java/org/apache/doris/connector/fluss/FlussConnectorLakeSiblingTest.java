@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -166,6 +167,25 @@ public class FlussConnectorLakeSiblingTest {
     }
 
     @Test
+    public void invalidationsReachOnlyAnAlreadyBuiltLakeSibling() {
+        RecordingContext context = new RecordingContext();
+        FlussConnector connector = connector(context);
+
+        connector.invalidateAll();
+        Assertions.assertTrue(context.requestedTypes.isEmpty(), "refresh must not force-build paimon");
+
+        RecordingLakeSibling sibling =
+                (RecordingLakeSibling) connector.getOrCreateLakeSibling(lakeProperties("/lake"));
+        connector.invalidateTable("db", "tbl");
+        connector.invalidateDb("db");
+        connector.invalidatePartition("db", "tbl", Collections.singletonList("dt=20260101"));
+        connector.invalidateAll();
+
+        Assertions.assertEquals(Arrays.asList("invalidateTable:db.tbl", "invalidateDb:db",
+                "invalidatePartition:db.tbl:[dt=20260101]", "invalidateAll"), sibling.calls);
+    }
+
+    @Test
     public void closingTheConnectorClosesTheSibling() throws IOException {
         RecordingContext context = new RecordingContext();
         FlussConnector connector = connector(context);
@@ -175,9 +195,15 @@ public class FlussConnectorLakeSiblingTest {
         connector.close();
 
         Assertions.assertTrue(sibling.closed);
-        // And the reference must be dropped, or a reopened catalog would keep routing to a closed sibling.
-        // A now-different lake configuration being accepted is what proves the slot is free again.
-        Assertions.assertNotSame(sibling, connector.getOrCreateLakeSibling(lakeProperties("/other")));
+        // A closed connector is terminal. Reopening either resource would race with catalog teardown and
+        // hand an executing statement an object that close() has already detached.
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> connector.getOrCreateLakeSibling(lakeProperties("/other")));
+        Assertions.assertTrue(failure.getMessage().contains("already closed"), failure.getMessage());
+        Assertions.assertEquals(1, context.requestedTypes.size(), "close must prevent sibling resurrection");
+
+        // Connector.close is allowed to be called more than once during catalog teardown.
+        connector.close();
     }
 
     @Test

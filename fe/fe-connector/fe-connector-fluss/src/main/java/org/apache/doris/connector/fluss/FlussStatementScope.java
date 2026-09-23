@@ -20,6 +20,7 @@ package org.apache.doris.connector.fluss;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScopes;
 
+import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 
@@ -46,6 +47,9 @@ final class FlussStatementScope {
      */
     static final String TABLE_INFO_NAMESPACE = "fluss.table_info";
 
+    /** Namespace for the readable lake boundary shared by $lake, $log and union planning. */
+    static final String LAKE_SNAPSHOT_NAMESPACE = "fluss.lake_snapshot";
+
     private FlussStatementScope() {
     }
 
@@ -53,6 +57,13 @@ final class FlussStatementScope {
             Supplier<TableInfo> loader) {
         return ConnectorStatementScopes.resolveInStatement(
                 session, TABLE_INFO_NAMESPACE,
+                tablePath.getDatabaseName(), tablePath.getTableName(), loader);
+    }
+
+    static LakeSnapshot sharedLakeSnapshot(ConnectorSession session, TablePath tablePath,
+            Supplier<LakeSnapshot> loader) {
+        return ConnectorStatementScopes.resolveInStatement(
+                session, LAKE_SNAPSHOT_NAMESPACE,
                 tablePath.getDatabaseName(), tablePath.getTableName(), loader);
     }
 }

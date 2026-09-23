@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -284,6 +285,26 @@ final class RecordingLakeSibling implements Connector {
     }
 
     @Override
+    public void invalidateTable(String dbName, String tableName) {
+        calls.add("invalidateTable:" + dbName + "." + tableName);
+    }
+
+    @Override
+    public void invalidateDb(String dbName) {
+        calls.add("invalidateDb:" + dbName);
+    }
+
+    @Override
+    public void invalidateAll() {
+        calls.add("invalidateAll");
+    }
+
+    @Override
+    public void invalidatePartition(String dbName, String tableName, List<String> partitionNames) {
+        calls.add("invalidatePartition:" + dbName + "." + tableName + ":" + partitionNames);
+    }
+
+    @Override
     public void close() {
         closed = true;
     }
@@ -308,10 +329,35 @@ final class RecordingLakeSibling implements Connector {
         }
 
         @Override
+        public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
+                ConnectorMvccSnapshot snapshot) {
+            calls.add("getTableSchemaAt:" + snapshot.getSchemaId());
+            return getTableSchema(session, handle);
+        }
+
+        @Override
         public Map<String, ConnectorColumnHandle> getColumnHandles(
                 ConnectorSession session, ConnectorTableHandle handle) {
             calls.add("getColumnHandles");
             return lakeColumns;
+        }
+
+        @Override
+        public Map<String, ConnectorColumnHandle> getColumnHandles(ConnectorSession session,
+                ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+            calls.add("getColumnHandlesAt:" + snapshot.getSchemaId());
+            return getColumnHandles(session, handle);
+        }
+
+        @Override
+        public Optional<ConnectorMvccSnapshot> resolveTimeTravel(ConnectorSession session,
+                ConnectorTableHandle handle, ConnectorTimeTravelSpec spec) {
+            long snapshotId = Long.parseLong(spec.getStringValue());
+            calls.add("resolveTimeTravel:" + snapshotId);
+            return Optional.of(ConnectorMvccSnapshot.builder()
+                    .snapshotId(snapshotId)
+                    .schemaId(17L)
+                    .build());
         }
 
         /**

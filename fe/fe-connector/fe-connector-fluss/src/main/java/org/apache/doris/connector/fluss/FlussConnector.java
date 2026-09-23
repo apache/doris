@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -61,6 +62,7 @@ public class FlussConnector implements Connector {
     private final ConnectorContext context;
 
     private volatile Connection connection;
+    private volatile boolean closed;
 
     // The embedded paimon SIBLING connector this catalog delegates its lake tables to. Built lazily in the
     // PAIMON plugin's OWN child-first classloader via context.createSiblingConnector, never co-packaged
@@ -89,7 +91,8 @@ public class FlussConnector implements Connector {
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new FlussConnectorMetadata(adminOps(), properties.getTypeMappingOptions(),
-                properties.getLakeOverrides(), this::getOrCreateLakeSibling, this::lakeSiblingOwning);
+                properties.getRawCatalogProperties(), properties.getLakeOverrides(),
+                this::getOrCreateLakeSibling, this::lakeSiblingOwning);
     }
 
     /**
@@ -142,7 +145,8 @@ public class FlussConnector implements Connector {
      * <p>Deliberately a peek, never a build: a query that never touches a lake table must not construct a
      * paimon catalog (nor fail when the paimon plugin is absent).
      */
-    private Connector lakeSiblingOwning(ConnectorTableHandle handle) {
+    private synchronized Connector lakeSiblingOwning(ConnectorTableHandle handle) {
+        throwIfClosed();
         Connector sibling = lakeSibling;
         return sibling != null && sibling.ownsHandle(handle) ? sibling : null;
     }
@@ -161,21 +165,18 @@ public class FlussConnector implements Connector {
      * <p>Package-private (not private) so a unit test can drive the sibling wiring without
      * {@link #getMetadata} first opening a real fluss connection.
      */
-    Connector getOrCreateLakeSibling(Map<String, String> siblingProperties) {
+    synchronized Connector getOrCreateLakeSibling(Map<String, String> siblingProperties) {
+        throwIfClosed();
         if (lakeSibling == null) {
-            synchronized (this) {
-                if (lakeSibling == null) {
-                    Connector sibling =
-                            context.createSiblingConnector(PAIMON_CONNECTOR_TYPE, siblingProperties);
-                    if (sibling == null) {
-                        throw new DorisConnectorException(
-                                "Cannot read the lake table of fluss catalog '" + catalogName
-                                        + "': the paimon connector plugin is not available");
-                    }
-                    lakeSiblingProperties = Collections.unmodifiableMap(new HashMap<>(siblingProperties));
-                    lakeSibling = sibling;
-                }
+            Connector sibling =
+                    context.createSiblingConnector(PAIMON_CONNECTOR_TYPE, siblingProperties);
+            if (sibling == null) {
+                throw new DorisConnectorException(
+                        "Cannot read the lake table of fluss catalog '" + catalogName
+                                + "': the paimon connector plugin is not available");
             }
+            lakeSiblingProperties = Collections.unmodifiableMap(new HashMap<>(siblingProperties));
+            lakeSibling = sibling;
         }
         if (!lakeSiblingProperties.equals(siblingProperties)) {
             throw new DorisConnectorException(
@@ -205,6 +206,35 @@ public class FlussConnector implements Connector {
     }
 
     @Override
+    public synchronized void invalidateTable(String dbName, String tableName) {
+        if (lakeSibling != null) {
+            lakeSibling.invalidateTable(dbName, tableName);
+        }
+    }
+
+    @Override
+    public synchronized void invalidateDb(String dbName) {
+        if (lakeSibling != null) {
+            lakeSibling.invalidateDb(dbName);
+        }
+    }
+
+    @Override
+    public synchronized void invalidateAll() {
+        if (lakeSibling != null) {
+            lakeSibling.invalidateAll();
+        }
+    }
+
+    @Override
+    public synchronized void invalidatePartition(
+            String dbName, String tableName, List<String> partitionNames) {
+        if (lakeSibling != null) {
+            lakeSibling.invalidatePartition(dbName, tableName, partitionNames);
+        }
+    }
+
+    @Override
     public ConnectorTestResult testConnection(ConnectorSession session) {
         try {
             adminOps().listDatabases();
@@ -222,10 +252,21 @@ public class FlussConnector implements Connector {
      */
     @Override
     public void close() throws IOException {
+        Connector sibling;
+        Connection toClose;
+        synchronized (this) {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            sibling = lakeSibling;
+            lakeSibling = null;
+            lakeSiblingProperties = null;
+            toClose = connection;
+            connection = null;
+        }
+
         IOException siblingFailure = null;
-        Connector sibling = lakeSibling;
-        lakeSibling = null;
-        lakeSiblingProperties = null;
         if (sibling != null) {
             try {
                 sibling.close();
@@ -235,8 +276,6 @@ public class FlussConnector implements Connector {
             }
         }
 
-        Connection toClose = connection;
-        connection = null;
         if (toClose != null) {
             try {
                 toClose.close();
@@ -255,15 +294,19 @@ public class FlussConnector implements Connector {
                 properties.getBootstrapServers());
     }
 
-    private Connection getOrCreateConnection() {
+    private synchronized Connection getOrCreateConnection() {
+        throwIfClosed();
         if (connection == null) {
-            synchronized (this) {
-                if (connection == null) {
-                    connection = createConnection();
-                }
-            }
+            connection = createConnection();
         }
         return connection;
+    }
+
+    private void throwIfClosed() {
+        if (closed) {
+            throw new DorisConnectorException(
+                    "Fluss catalog '" + catalogName + "' is already closed");
+        }
     }
 
     private Connection createConnection() {

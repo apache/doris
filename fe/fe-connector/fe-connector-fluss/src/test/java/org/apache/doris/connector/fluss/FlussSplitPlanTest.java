@@ -362,9 +362,11 @@ public class FlussSplitPlanTest {
         List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
 
         Assertions.assertEquals(2, ranges.size());
-        Assertions.assertEquals("dt=20260101", ranges.get(0).getProperties().get("fluss.partition_name"));
+        Assertions.assertEquals(Collections.singletonMap("dt", "20260101"),
+                ranges.get(0).getPartitionValues());
         assertPkRange(ranges.get(0), 0, 5L, 50L, 60L);
-        Assertions.assertEquals("dt=20260102", ranges.get(1).getProperties().get("fluss.partition_name"));
+        Assertions.assertEquals(Collections.singletonMap("dt", "20260102"),
+                ranges.get(1).getPartitionValues());
         assertPkRange(ranges.get(1), 0, -1L, -2L, 8L);
     }
 
@@ -495,6 +497,8 @@ public class FlussSplitPlanTest {
         plan(LOG_TABLE, catalog("fluss.lake.paimon.warehouse", "s3://bucket/lake"));
 
         Map<String, String> expected = new HashMap<>();
+        expected.put("fluss.bootstrap.servers", "localhost:9123");
+        expected.put("fluss.lake.paimon.warehouse", "s3://bucket/lake");
         expected.put("paimon.catalog.type", "filesystem");
         expected.put("warehouse", "s3://bucket/lake");
         Assertions.assertEquals(expected, sibling().properties);
@@ -641,6 +645,13 @@ public class FlussSplitPlanTest {
                 sibling.populatedNodeProperties.get("paimon.serialized_table"));
     }
 
+    @Test
+    public void flussProviderOptsIntoFileCacheGovernanceForNativeLakeRanges() {
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(
+                adminOps, FlussCatalogProperties.of(catalog()), this::lakeSibling);
+        Assertions.assertTrue(provider.supportsFileCache());
+    }
+
     /**
      * The split between file columns and partition columns is decided ONCE for the scan node, so two
      * halves that disagree about it would read different columns out of the same tuple. They cannot
@@ -773,6 +784,22 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(2, ranges.size());
         assertLogRange(ranges.get(0), 0, 4L, 9L);
         assertLogRange(ranges.get(1), 1, 6L, 9L);
+    }
+
+    @Test
+    public void logUnionFailsDuringPlanningWhenItsTailHasExpired() {
+        registerLakeTable(1);
+        lakeSnapshotAt(7L, offsets(4L));
+        latestOffsets(null, 9L);
+        earliestOffsets(null, 5L);
+        lakeRanges(1);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(LOG_TABLE, catalog()));
+        Assertions.assertTrue(failure.getMessage().contains("log now starts at offset 5"),
+                failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("lake snapshot ends at offset 4"),
+                failure.getMessage());
     }
 
     /**
@@ -1318,7 +1345,8 @@ public class FlussSplitPlanTest {
         assertTailRange(ranges.get(4), 1, 400L, 405L);
         assertTailRange(ranges.get(5), 2, 500L, 505L);
         assertTailRange(ranges.get(6), 3, 600L, 605L);
-        Assertions.assertEquals("dt=20260102", ranges.get(6).getProperties().get("fluss.partition_name"));
+        Assertions.assertEquals(Collections.singletonMap("dt", "20260102"),
+                ranges.get(6).getPartitionValues());
         Assertions.assertEquals(Arrays.asList(
                 "listOffsets(db.pk_tbl, 20260101, [0, 1], LatestSpec)",
                 "listOffsets(db.pk_tbl, 20260101, [0, 1], EarliestSpec)",
@@ -1327,13 +1355,9 @@ public class FlussSplitPlanTest {
                 offsetCalls(), adminOps.calls.toString());
     }
 
-    /**
-     * A lake split of a partition this scan does not read from fluss — one fluss has dropped, or one the
-     * engine pruned away — has no tail to be bound to and is passed through. It cannot be dropped either:
-     * partition pruning removes the fluss half of a partition, not the predicate that pruned it.
-     */
+    /** A lake split without a matching fluss partition cannot safely be classified as unsuppressed. */
     @Test
-    public void lakeSplitOfAPartitionThisScanDoesNotReadIsPassedThrough() {
+    public void lakeSplitOfAPartitionThisScanDoesNotReadIsRefused() {
         registerPartitionedPkLakeTable(1, "20260101");
         adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L}));
         kvSnapshots("20260101", new long[] {1L}, new long[] {10L});
@@ -1342,10 +1366,10 @@ public class FlussSplitPlanTest {
         lakeSplits(
                 RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "20251231")));
 
-        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
-
-        assertPlainLake(ranges.get(0));
-        assertTailRange(ranges.get(1), 0, 100L, 105L);
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog()));
+        Assertions.assertTrue(failure.getMessage().contains("no matching fluss partition"),
+                failure.getMessage());
     }
 
     /**
@@ -2174,13 +2198,11 @@ public class FlussSplitPlanTest {
     /** Latest offsets for buckets 0..n-1 of {@code partitionName} ({@code null} = unpartitioned). */
     private void latestOffsets(String partitionName, long... offsets) {
         adminOps.latestOffsetsByPartition.put(partitionName, byBucket(offsets));
+        // Unless a test stages truncation explicitly, the log still retains every planned tail.
+        adminOps.earliestOffsetsByPartition.putIfAbsent(partitionName, byBucket(new long[offsets.length]));
     }
 
-    /**
-     * Earliest offsets for buckets 0..n-1 — how far back fluss can still serve. Only a union read of a
-     * primary-key table asks for these, which is why the log-table fixtures do not set them: a test that
-     * needed them and did not say so gets an error from the recorder, not a default.
-     */
+    /** Earliest offsets for buckets 0..n-1 — how far back fluss can still serve. */
     private void earliestOffsets(String partitionName, long... offsets) {
         adminOps.earliestOffsetsByPartition.put(partitionName, byBucket(offsets));
     }
@@ -2244,7 +2266,9 @@ public class FlussSplitPlanTest {
     private static void assertPartition(ConnectorScanRange range, String partitionName,
             long partitionId, int bucket, long stop) {
         Map<String, String> props = range.getProperties();
-        Assertions.assertEquals(partitionName, props.get("fluss.partition_name"));
+        Assertions.assertFalse(props.containsKey("fluss.partition_name"));
+        Assertions.assertEquals(partitionName.substring(partitionName.indexOf('=') + 1),
+                range.getPartitionValues().get("dt"));
         Assertions.assertEquals(String.valueOf(partitionId), props.get("fluss.partition_id"));
         assertLogRange(range, bucket, -2L, stop);
     }

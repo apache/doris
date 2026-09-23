@@ -44,6 +44,38 @@ suite("test_fluss_lake_only", "p0,external") {
     String minioPort = context.config.otherConfigs.get("fluss_minio_port")
     String bootstrapServers = "${externalEnvIp}:${coordinatorPort}"
     String catalogName = "test_fluss_lake_only"
+    String mappedCatalog = "test_fluss_lake_only_mapped"
+    String maskingCatalog = "test_fluss_lake_only_masking"
+
+    // SHOW CREATE CATALOG is available without opening a connection. Exercise both
+    // credential namespaces with unique markers so this fails if any raw value leaks.
+    sql """drop catalog if exists ${maskingCatalog}"""
+    sql """
+        create catalog ${maskingCatalog} properties (
+            "type" = "fluss",
+            "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.client.security.sasl.username" = "FLUSS_USER_SECRET_MARKER",
+            "fluss.client.security.sasl.password" = "FLUSS_PASSWORD_SECRET_MARKER",
+            "fluss.client.security.sasl.jaas.config" = "FLUSS_JAAS_SECRET_MARKER",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "FLUSS_LAKE_KEY_SECRET_MARKER",
+            "fluss.lake.paimon.s3.secret-key" = "FLUSS_LAKE_SECRET_MARKER"
+        );
+    """
+    def maskingDdl = sql("""show create catalog ${maskingCatalog}""")[0][1].toString()
+    ["FLUSS_USER_SECRET_MARKER", "FLUSS_PASSWORD_SECRET_MARKER", "FLUSS_JAAS_SECRET_MARKER",
+            "FLUSS_LAKE_KEY_SECRET_MARKER", "FLUSS_LAKE_SECRET_MARKER"].each { marker ->
+        assertFalse(maskingDdl.contains(marker), "SHOW CREATE CATALOG leaked ${marker}: ${maskingDdl}")
+    }
+    ["fluss.client.security.sasl.username", "fluss.client.security.sasl.password",
+            "fluss.client.security.sasl.jaas.config", "fluss.lake.paimon.s3.access-key",
+            "fluss.lake.paimon.s3.secret-key"].each { key ->
+        assertTrue(maskingDdl.contains("\"${key}\" = \"*XXX\""),
+                "SHOW CREATE CATALOG did not mask ${key}: ${maskingDdl}")
+    }
+    assertTrue(maskingDdl.contains("http://${externalEnvIp}:${minioPort}"),
+            "non-sensitive lake endpoint should remain visible: ${maskingDdl}")
+    sql """drop catalog ${maskingCatalog}"""
 
     sql """drop catalog if exists ${catalogName}"""
     sql """
@@ -105,6 +137,33 @@ suite("test_fluss_lake_only", "p0,external") {
     // only would satisfy the loop.
     assertEquals(flussTypes.size(), lakeTypes.size(),
             "the lake table should list exactly the fluss table's columns, but has ${lakeTypes.keySet()}")
+
+    // Mapping switches are catalog-wide. They must reach both the Fluss mapping and the
+    // embedded Paimon sibling, or one table exposes two schemas depending on its suffix.
+    sql """drop catalog if exists ${mappedCatalog}"""
+    sql """
+        create catalog ${mappedCatalog} properties (
+            "type" = "fluss",
+            "fluss.bootstrap.servers" = "${bootstrapServers}",
+            "fluss.lake.paimon.s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "fluss.lake.paimon.s3.access-key" = "minioadmin",
+            "fluss.lake.paimon.s3.secret-key" = "minioadmin",
+            "enable.mapping.varbinary" = "true",
+            "enable.mapping.timestamp_tz" = "true"
+        );
+    """
+    sql """switch ${mappedCatalog}"""
+    sql """use fluss_test"""
+    def mappedFlussTypes = typesOf("lake_types")
+    def mappedLakeTypes = typesOf("lake_types\$lake")
+    assertEquals(mappedFlussTypes, mappedLakeTypes,
+            "mapping switches must produce the same schema through tbl and tbl\$lake")
+    assertTrue(mappedFlussTypes.get("f_binary").toLowerCase().startsWith("varbinary"),
+            "enable.mapping.varbinary did not reach both readers: ${mappedFlussTypes}")
+    assertTrue(mappedFlussTypes.get("f_timestamp_ltz").toLowerCase().startsWith("timestamptz"),
+            "enable.mapping.timestamp_tz did not reach both readers: ${mappedFlussTypes}")
+    sql """switch ${catalogName}"""
+    sql """use fluss_test"""
 
     // Parity of the values, not just of the declared types: the row is recorded
     // here read through paimon, and the same row read through fluss is recorded in
@@ -175,5 +234,6 @@ suite("test_fluss_lake_only", "p0,external") {
     // lake table twice. The recorded listing is what says so.
     order_qt_tables """show tables"""
 
+    sql """drop catalog if exists ${mappedCatalog}"""
     sql """drop catalog if exists ${catalogName}"""
 }

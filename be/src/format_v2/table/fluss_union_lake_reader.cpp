@@ -38,6 +38,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris::format::fluss {
 namespace {
@@ -266,6 +267,16 @@ Status FlussUnionLakeReader::prepare_split(const format::SplitReadOptions& optio
     return _prepare_suppression(options);
 }
 
+Status FlussUnionLakeReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
+    if (_lake_reader == nullptr) {
+        return Status::OK();
+    }
+    VExprContextSPtrs child_conjuncts;
+    RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
+    return _lake_reader->refresh_conjuncts(std::move(child_conjuncts));
+}
+
 Status FlussUnionLakeReader::_prepare_suppression(const format::SplitReadOptions& options) {
     const auto& range = options.current_range;
     if (!range.__isset.table_format_params || !range.table_format_params.__isset.fluss_params) {
@@ -321,28 +332,31 @@ Status FlussUnionLakeReader::_load_suppression_keys(const format::SplitReadOptio
     // Length-prefixed so that no boundary between the fixed prefix and the tail can be reinterpreted
     // as part of the tail itself. One scan node reads one table, so the tail alone identifies it.
     const auto cache_key = fmt::format("fluss_union_tail:{}:{}", tail.spec.size(), tail.spec);
-    Status read_status = Status::OK();
     bool cache_hit = false;
     auto* cached = options.cache->get<SuppressionKeys>(
-            cache_key,
-            [&]() -> SuppressionKeys* {
-                auto keys = std::make_unique<SuppressionKeys>();
-                read_status = _read_tail_keys(tail, keys.get());
-                if (!read_status.ok()) {
-                    return nullptr;
-                }
-                return keys.release();
-            },
-            &cache_hit);
-    RETURN_IF_ERROR(read_status);
+            cache_key, []() -> SuppressionKeys* { return nullptr; }, &cache_hit);
+    if (cached == nullptr) {
+        // A tail read is network I/O. KVCache invokes its create callback while holding a shard
+        // mutex, so do that I/O before the insertion attempt; otherwise one slow bucket blocks every
+        // unrelated tail that hashes to the same shard.
+        auto loaded = std::make_unique<SuppressionKeys>();
+        RETURN_IF_ERROR(_read_tail_keys(tail, loaded.get()));
+        update_counter(_tail_keys_read_counter, loaded->records);
+
+        bool raced_cache_hit = false;
+        cached = options.cache->get<SuppressionKeys>(
+                cache_key, [&]() -> SuppressionKeys* { return loaded.release(); },
+                &raced_cache_hit);
+        cache_hit = raced_cache_hit;
+        if (!raced_cache_hit) {
+            update_counter(_tail_keys_retained_counter, cast_set<int64_t>(cached->keys.rows()));
+        }
+    }
     DORIS_CHECK(cached != nullptr);
     if (cache_hit) {
         update_counter(_tail_cache_hit_counter, 1);
-    } else {
-        update_counter(_tail_keys_read_counter, cached->records);
-        update_counter(_tail_keys_retained_counter, cast_set<int64_t>(cached->keys.rows()));
     }
-    return _build_suppression_predicate(cached->keys);
+    return _build_suppression_predicate(*cached);
 }
 
 Block FlussUnionLakeReader::_empty_key_block() const {
@@ -384,6 +398,7 @@ Status FlussUnionLakeReader::_accumulate_tail_keys(const Tail& tail, const NextB
             // whether the table can be read at all.
             keys->records = cast_set<int64_t>(builder.rows());
             keys->keys = EqualityDeletePredicate::distinct_rows(builder.to_block());
+            keys->hash_index = EqualityDeletePredicate::build_hash_index(keys->keys);
             return Status::OK();
         }
     }
@@ -449,22 +464,28 @@ Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* 
         return _accumulate_tail_keys(
                 tail, [&](Block* batch, bool* eos) { return reader.get_block(batch, eos); }, keys);
     };
-    const auto status = drain();
-    // A fluss connection left open keeps its netty and metadata-updater threads alive for the life
-    // of the BE process, so the reader is closed on the failing path too.
-    const auto close_status = reader.close();
+    Status status;
+    Status close_status = Status::OK();
+    {
+        // Status-returning failures and C++ exceptions both pass through this scope. A leaked fluss
+        // connection keeps its netty and metadata-updater threads alive for the life of the BE.
+        Defer close_reader {[&]() { close_status = reader.close(); }};
+        status = drain();
+    }
     RETURN_IF_ERROR(status);
     return close_status;
 }
 
-Status FlussUnionLakeReader::_build_suppression_predicate(const Block& keys) {
+Status FlussUnionLakeReader::_build_suppression_predicate(const SuppressionKeys& keys) {
     std::vector<int> key_positions;
     key_positions.reserve(_key_column_indexes.size());
     for (const auto index : _key_column_indexes) {
         key_positions.push_back(cast_set<int>(index));
     }
-    DORIS_CHECK(keys.columns() == key_positions.size());
-    auto predicate = std::make_shared<EqualityDeletePredicate>(keys, key_positions);
+    DORIS_CHECK(keys.keys.columns() == key_positions.size());
+    DORIS_CHECK(keys.hash_index != nullptr);
+    auto predicate =
+            std::make_shared<EqualityDeletePredicate>(keys.keys, key_positions, keys.hash_index);
     for (size_t i = 0; i < _key_column_indexes.size(); ++i) {
         const auto position = key_positions[i];
         // The block this runs against is the table-schema block the lake half returns, so a key
@@ -473,10 +494,26 @@ Status FlussUnionLakeReader::_build_suppression_predicate(const Block& keys) {
         predicate->add_child(VSlotRef::create_shared(position, position, -1, _key_columns[i].type,
                                                      _key_columns[i].name));
     }
-    _suppression = VExprContext::create_shared(std::move(predicate));
+    auto suppression = VExprContext::create_shared(std::move(predicate));
     RowDescriptor row_desc;
-    RETURN_IF_ERROR(_suppression->prepare(_runtime_state, row_desc));
-    return _suppression->open(_runtime_state);
+    RETURN_IF_ERROR(suppression->prepare(_runtime_state, row_desc));
+    RETURN_IF_ERROR(suppression->open(_runtime_state));
+    // Publish only a fully opened predicate. If preparation ever gains a reachable failure mode, the
+    // previous tail remains paired with its own predicate instead of being silently mislabeled.
+    _suppression = std::move(suppression);
+    return Status::OK();
+}
+
+Status FlussUnionLakeReader::_clone_conjuncts(VExprContextSPtrs* conjuncts) const {
+    DORIS_CHECK(conjuncts != nullptr);
+    conjuncts->clear();
+    conjuncts->reserve(_conjuncts.size());
+    for (const auto& conjunct : _conjuncts) {
+        VExprSPtr root;
+        RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
+        conjuncts->push_back(VExprContext::create_shared(std::move(root)));
+    }
+    return Status::OK();
 }
 
 Status FlussUnionLakeReader::get_block(Block* block, bool* eos) {

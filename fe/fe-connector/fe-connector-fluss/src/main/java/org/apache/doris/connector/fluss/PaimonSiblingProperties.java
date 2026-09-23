@@ -54,9 +54,11 @@ import java.util.Map;
  * omission and there is no alias to fix: a lake on authenticated storage is readable only if the CATALOG
  * supplies those settings, which is what {@link FlussCatalogProperties#LAKE_OPTION_PREFIX} is for.
  *
- * <p><b>Storage settings do not appear in the result at all</b>, whichever side they came from: they
- * configure the catalog's storage rather than its lake catalog, and go to the engine's storage layer
- * instead ({@link LakeStorageOptions}).
+ * <p>The result starts with the complete gateway catalog property map. This is intentional: engine-wide
+ * type-mapping switches, paimon metadata-cache settings, Hadoop/Kerberos settings, and raw storage
+ * options are all consumed by the paimon connector itself. The shared connector context still supplies
+ * the engine-owned filesystem; retaining the raw settings here also lets paimon configure its catalog
+ * and filesystem clients consistently with that context.
  */
 final class PaimonSiblingProperties {
 
@@ -102,8 +104,8 @@ final class PaimonSiblingProperties {
      * <p>Fails loud on a lake configuration this connector cannot serve, rather than handing the paimon
      * connector a half-built map and letting it fail with a message about a catalog nobody created.
      */
-    static Map<String, String> synthesize(Map<String, String> flussTableProperties,
-            Map<String, String> catalogLakeOverrides) {
+    static Map<String, String> synthesize(Map<String, String> gatewayCatalogProperties,
+            Map<String, String> flussTableProperties, Map<String, String> catalogLakeOverrides) {
         Map<String, String> lakeOptions = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : flussTableProperties.entrySet()) {
             if (entry.getKey().startsWith(LAKE_OPTION_PREFIX)) {
@@ -111,11 +113,6 @@ final class PaimonSiblingProperties {
             }
         }
         lakeOptions.putAll(catalogLakeOverrides);
-        // Storage is configured once per catalog and read by both the FE and the BE; the sibling gets the
-        // lake catalog's settings only. See LakeStorageOptions for why leaving these in would be worse
-        // than dropping them.
-        lakeOptions.keySet().removeIf(LakeStorageOptions::isStorageOption);
-
         String catalogType = dorisCatalogType(lakeOptions.remove(FLUSS_METASTORE));
 
         String warehouse = lakeOptions.remove(WAREHOUSE);
@@ -129,11 +126,17 @@ final class PaimonSiblingProperties {
         }
 
         // LinkedHashMap so a failure message or a log line renders the same order every time.
-        Map<String, String> siblingProperties = new LinkedHashMap<>();
+        Map<String, String> siblingProperties = new LinkedHashMap<>(gatewayCatalogProperties);
         siblingProperties.put(PAIMON_CATALOG_TYPE, catalogType);
         siblingProperties.put(WAREHOUSE, warehouse);
         siblingProperties.putAll(lakeOptions);
         return siblingProperties;
+    }
+
+    /** Kept for narrow translation tests; production always supplies the gateway catalog map. */
+    static Map<String, String> synthesize(Map<String, String> flussTableProperties,
+            Map<String, String> catalogLakeOverrides) {
+        return synthesize(java.util.Collections.emptyMap(), flussTableProperties, catalogLakeOverrides);
     }
 
     /**

@@ -74,6 +74,9 @@ suite("test_fluss_union_log", "p0,external") {
     sql """switch ${unionCatalog}"""
     sql """use fluss_test"""
     sql """set enable_file_scanner_v2 = true"""
+    // TIMESTAMP_LTZ is selected into a recorded result below. Keep its rendering
+    // independent of the FE host's JVM time zone.
+    sql """set time_zone = 'Asia/Shanghai'"""
 
     def rowsOf = { String query -> sql(query).collect { row -> row.collect { it.toString() } } }
     def planOf = { String query ->
