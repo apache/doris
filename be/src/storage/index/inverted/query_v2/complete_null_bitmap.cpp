@@ -477,6 +477,15 @@ index_query::TruthSet collect_truth_set(const ScorerPtr& scorer, const NullBitma
     if (scorer == nullptr) {
         return result;
     }
+    // Candidates dense enough to scan cost less to intersect once than to test row by row.
+    constexpr uint64_t dense_candidate_factor = 4;
+    if (candidates != nullptr &&
+        candidates->cardinality() * dense_candidate_factor >= scorer->cost()) {
+        result = collect_truth_set(scorer, resolver);
+        result.true_rows &= *candidates;
+        result.null_rows &= *candidates;
+        return result;
+    }
     if (const auto* nulls = scorer->get_null_bitmap(resolver); nulls != nullptr) {
         result.null_rows = candidates == nullptr ? *nulls : *nulls & *candidates;
     }

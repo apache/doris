@@ -254,6 +254,37 @@ TEST(BooleanTruthContractTest, RequiredCandidatesLimitLaterNullableScoring) {
     }
 }
 
+// An unscored AND reads its children cheapest first, each only within the rows the ones before
+// it leave TRUE or UNKNOWN.
+TEST(BooleanTruthContractTest, OperatorAndReadsABroadChildWithinSelectiveRows) {
+    constexpr uint32_t row_count = 4096;
+    TruthRows broad;
+    broad.true_rows->addRange(0, row_count);
+    broad.true_rows->remove(40);
+    broad.null_rows->add(40);
+    TruthRows selective;
+    selective.true_rows->add(10);
+    selective.true_rows->add(40);
+    selective.null_rows->add(30);
+    auto work = std::make_shared<ScorerWork>();
+    OperatorBooleanQueryBuilder builder(OperatorType::OP_AND);
+    builder.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, work));
+    builder.add(std::make_shared<ForwardOnlyQuery>(selective, 1.0F));
+    QueryExecutionContext context;
+    context.segment_num_rows = row_count;
+    auto scorer = builder.build()->weight(false)->scorer(context);
+
+    roaring::Roaring actual;
+    for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+        actual.add(doc);
+    }
+    EXPECT_EQ(actual, roaring::Roaring::bitmapOf(1, 10));
+    const auto* nulls = scorer->get_null_bitmap();
+    ASSERT_NE(nulls, nullptr);
+    EXPECT_EQ(*nulls, roaring::Roaring::bitmapOf(2, 30, 40));
+    EXPECT_LE(work->advances + work->seeks, 8U);
+}
+
 void verify_final_true_scoring(const std::array<TruthRows, 3>& rows, bool scoring) {
     SCOPED_TRACE(scoring);
     std::array<std::shared_ptr<ScorerWork>, 3> work;

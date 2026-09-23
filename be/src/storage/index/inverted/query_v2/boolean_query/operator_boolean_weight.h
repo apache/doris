@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/check.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/buffered_union_scorer.h"
@@ -151,22 +153,26 @@ private:
     }
 
     index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
-        index_query::TruthSet result;
         if (_type == OperatorType::OP_AND) {
-            result.true_rows.addRange(0, context.segment_num_rows);
+            // Cheaper children run first, so the others read only the rows they leave.
+            std::vector<ScorerPtr> scorers;
+            scorers.reserve(_sub_weights.size());
+            for (size_t i = 0; i < _sub_weights.size(); ++i) {
+                scorers.push_back(_sub_weights[i]->scorer(context, _binding_keys[i]));
+                DORIS_CHECK(scorers.back() != nullptr);
+            }
+            std::ranges::stable_sort(scorers, {},
+                                     [](const ScorerPtr& scorer) { return scorer->cost(); });
+            return intersect_truth_sets(
+                    scorers, context.segment_num_rows,
+                    [&](const ScorerPtr& scorer, const roaring::Roaring* candidates) {
+                        return collect_truth_set(scorer, context.null_resolver, candidates);
+                    });
         }
+        index_query::TruthSet result;
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
             auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
-            const auto child = collect_truth_set(scorer, context.null_resolver);
-            switch (_type) {
-            case OperatorType::OP_AND:
-                result.intersect_with(child);
-                break;
-            case OperatorType::OP_OR:
-            case OperatorType::OP_NOT:
-                result.union_with(child);
-                break;
-            }
+            result.union_with(collect_truth_set(scorer, context.null_resolver));
         }
         if (_type == OperatorType::OP_NOT) {
             result.negate(context.segment_num_rows);

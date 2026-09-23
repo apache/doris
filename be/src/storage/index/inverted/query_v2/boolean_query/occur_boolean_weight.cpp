@@ -270,15 +270,9 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_nullable_scorer(
         }
         return collect_truth_set(scorer, resolver, candidates);
     };
-    index_query::TruthSet result;
-    result.true_rows.addRange(0, _max_doc);
-    std::optional<roaring::Roaring> candidates;
-    for (auto& scorer : required) {
-        result.intersect_with(collect_positive(scorer, candidates ? &*candidates : nullptr));
-        if (result.true_rows.isEmpty() && result.null_rows.isEmpty()) {
-            return std::make_shared<EmptyScorer>();
-        }
-        candidates = result.true_rows | result.null_rows;
+    index_query::TruthSet result = intersect_truth_sets(required, _max_doc, collect_positive);
+    if (!required.empty() && result.true_rows.isEmpty() && result.null_rows.isEmpty()) {
+        return std::make_shared<EmptyScorer>();
     }
     DorisVector<index_query::TruthSet> should_results;
     should_results.reserve(optional.size());
