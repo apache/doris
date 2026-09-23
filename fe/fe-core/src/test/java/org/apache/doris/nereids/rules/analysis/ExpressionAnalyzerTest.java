@@ -42,8 +42,59 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 public class ExpressionAnalyzerTest {
+
+    @Test
+    void testSkipQualifierOccupancyForLocalBindingHit() {
+        SlotReference localSlot = new SlotReference(
+                new ExprId(1), "c", BigIntType.INSTANCE, true, ImmutableList.of("t"));
+        Scope outerScope = new Scope(ImmutableList.of());
+        Scope localScope = new Scope(Optional.of(outerScope), ImmutableList.of(localSlot)) {
+            @Override
+            public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+                throw new AssertionError("Qualifier occupancy should not be evaluated for a binding hit");
+            }
+        };
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, localScope, null, true, true);
+
+        Assertions.assertEquals(localSlot, analyzer.analyze(new UnboundSlot("t", "c")));
+    }
+
+    @Test
+    void testOuterRelationProbeDoesNotEvaluateQualifierOccupancy() {
+        SlotReference outerSlot = new SlotReference(
+                new ExprId(1), "c", BigIntType.INSTANCE, true, ImmutableList.of("t"));
+        Scope outerScope = new Scope(ImmutableList.of(outerSlot)) {
+            @Override
+            public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+                throw new AssertionError("Outer relation probe should only bind slots");
+            }
+        };
+        Scope localScope = new Scope(Optional.of(outerScope), ImmutableList.of());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, localScope, null, true, true);
+
+        Assertions.assertEquals(outerSlot, analyzer.analyze(new UnboundSlot("t", "c")));
+        Assertions.assertEquals(ImmutableList.of(outerSlot), ImmutableList.copyOf(outerScope.getCorrelatedSlots()));
+    }
+
+    @Test
+    void testKeepQualifierOccupancyLazyInExactBinding() {
+        Scope scope = new Scope(ImmutableList.of()) {
+            @Override
+            public Set<List<String>> findRelationQualifiersIgnoreCase(String relationName) {
+                throw new AssertionError("Exact binding should preserve lazy qualifier occupancy");
+            }
+        };
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, null, true, true);
+
+        ExpressionAnalyzer.SlotBinding binding = Assertions.assertDoesNotThrow(
+                () -> analyzer.bindExactSlotsByThisScope(new UnboundSlot("t", "c"), scope, true));
+        Assertions.assertTrue(binding.getBoundSlots().isEmpty());
+        Assertions.assertThrows(AssertionError.class, binding::isRelationQualifierOccupied);
+    }
 
     @Test
     void testPreProcessUnboundFunctionForThreeArgsDataTimeFunction() {
