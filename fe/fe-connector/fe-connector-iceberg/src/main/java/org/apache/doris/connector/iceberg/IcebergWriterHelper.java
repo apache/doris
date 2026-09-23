@@ -565,4 +565,43 @@ final class IcebergWriterHelper {
                 .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
                         != MetricsModes.None.get());
     }
+
+    /**
+     * Field ids of the FLOAT/DOUBLE fields whose NaN count would survive this table's metrics policy, i.e.
+     * whose effective mode is not {@code none}. Threaded to the BE so it counts only what
+     * {@link #buildDataFileMetrics} would keep.
+     *
+     * <p>This exists because a NaN count is the one statistic BE cannot read back from the parquet footer --
+     * it is an extra pass over the values. {@link #shouldCollectColumnStats} is table-wide and stays true as
+     * soon as any single field is enabled, which is not a fine enough gate: iceberg gives the first
+     * {@code write.metadata.metrics.max-inferred-column-defaults} (100) fields the default mode and
+     * {@code none} to everything after it, so a wide table disables most of its columns with no property set
+     * at all. Without this list BE would scan every float column on every block and FE would then drop most
+     * of the results.</p>
+     *
+     * <p>The list is the metrics POLICY, not a capability claim: BE counts the subset it can actually reach
+     * (today, top-level columns), and a field it does not count simply stays absent from the manifest, which
+     * iceberg reads as "may contain NaN".</p>
+     */
+    static List<Integer> nanCountFieldIds(Table table, Schema writerSchema) {
+        return nanCountFieldIds(MetricsConfig.forTable(table), writerSchema);
+    }
+
+    static List<Integer> nanCountFieldIds(IcebergWriteSchemaContext context, Schema writerSchema) {
+        return nanCountFieldIds(context.getMetricsConfig(), writerSchema);
+    }
+
+    private static List<Integer> nanCountFieldIds(MetricsConfig metricsConfig, Schema writerSchema) {
+        return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
+                .filter(field -> isFloatingType(field.type()))
+                .map(Types.NestedField::fieldId)
+                .filter(fieldId -> MetricsUtil.metricsMode(writerSchema, metricsConfig, fieldId)
+                        != MetricsModes.None.get())
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    private static boolean isFloatingType(Type type) {
+        return type.typeId() == Type.TypeID.FLOAT || type.typeId() == Type.TypeID.DOUBLE;
+    }
 }

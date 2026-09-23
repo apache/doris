@@ -718,6 +718,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // table (all columns metrics=none) skips BE collection entirely. Same schema the sink advertises.
         tSink.setCollectColumnStats(
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schemaContext.getSchema()));
+        // A NaN count is the one statistic the parquet footer does not carry, so BE pays an extra pass for it.
+        // The table-wide flag above is too coarse to gate that pass -- see IcebergWriterHelper#nanCountFieldIds.
+        tSink.setNanCountFieldIds(
+                IcebergWriterHelper.nanCountFieldIds(schemaContext, schemaContext.getSchema()));
 
         // Partition spec (only for a partitioned table, mirroring legacy spec().isPartitioned()).
         PartitionSpec partitionSpec = schemaContext.getPartitionSpec();
@@ -789,6 +793,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             tSink.setSchemaJson(SchemaParser.toJson(rewriteSchema));
             // #65782: the collect flag must reflect the same (v3-appended) schema the sink advertises.
             tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, rewriteSchema));
+            tSink.setNanCountFieldIds(IcebergWriterHelper.nanCountFieldIds(table, rewriteSchema));
         }
         return tSink;
     }

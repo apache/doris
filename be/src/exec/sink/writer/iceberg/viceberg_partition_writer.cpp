@@ -53,6 +53,9 @@ VIcebergPartitionWriter::VIcebergPartitionWriter(
     if (t_sink.iceberg_table_sink.__isset.collect_column_stats) {
         _collect_column_stats = t_sink.iceberg_table_sink.collect_column_stats;
     }
+    if (t_sink.iceberg_table_sink.__isset.nan_count_field_ids) {
+        _nan_count_field_ids = t_sink.iceberg_table_sink.nan_count_field_ids;
+    }
 }
 
 Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile,
@@ -107,7 +110,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                               .enable_int96_timestamps = false};
         _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
-                parquet_options, _iceberg_schema_json, _schema, _collect_column_stats);
+                parquet_options, _iceberg_schema_json, _schema, _nan_count_field_ids);
         open_status = _file_format_transformer->open();
         break;
     }
