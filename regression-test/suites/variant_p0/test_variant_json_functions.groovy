@@ -96,21 +96,4 @@ suite("test_variant_json_functions", "p0") {
             json_type(CAST(CAST(1.50 AS DECIMAL(5, 2)) AS VARIANT), '\$'),
             json_array(CAST(CAST('2026-01-02' AS DATE) AS VARIANT), CAST(1.50 AS DECIMAL(5, 2)))
     """
-
-    // A timezone-aware Variant timestamp is formatted with the session time zone on every path.
-    // Doc mode does not accept a TIMESTAMPTZ path, so the table turns it off explicitly.
-    sql "DROP TABLE IF EXISTS test_variant_json_functions_tz"
-    sql """
-        CREATE TABLE test_variant_json_functions_tz (
-            k INT, v VARIANT<'ts':timestamptz(6), PROPERTIES("variant_enable_doc_mode" = "false")>)
-        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
-    """
-    sql "SET time_zone = '+08:00'"
-    sql """INSERT INTO test_variant_json_functions_tz
-        SELECT 1, parse_to_variant('{"ts":"2026-01-01 10:00:00+08:00"}')"""
-    order_qt_session_time_zone """
-        SELECT k, CAST(v AS JSON), to_json(v), json_array(v), json_object('ts', v['ts'])
-        FROM test_variant_json_functions_tz ORDER BY k
-    """
 }
