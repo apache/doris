@@ -2,3 +2,6 @@
 -- !anchor_functions --
 1	['a']	["a"]	["", "aa"]	2
 
+-- !word_boundary_functions --
+0		[]
+

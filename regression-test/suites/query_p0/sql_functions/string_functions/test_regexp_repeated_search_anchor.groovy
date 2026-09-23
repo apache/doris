@@ -23,4 +23,10 @@ suite("test_regexp_repeated_search_anchor") {
                split_by_regexp('aaa', '^a'),
                size(split_by_regexp('aaa', '^a'))
     """
+
+    qt_word_boundary_functions """
+        SELECT regexp_count(repeat('a', 10000), '\\\\b'),
+               regexp_extract_all(repeat('a', 10000), '(\\\\b)'),
+               regexp_extract_all_array(repeat('a', 10000), '(\\\\b)')
+    """
 }

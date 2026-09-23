@@ -4183,6 +4183,7 @@ TEST(function_string_test, function_regexp_count_mixed_const_test) {
             {{std::string("abcd"), std::string("")}, std::int32_t(0)},
             {{std::string("book keeper"), std::string("oo|ee")}, std::int32_t(2)},
             {{std::string("aaa"), std::string("^a")}, std::int32_t(1)},
+            {{std::string(10000, 'a'), std::string("\\b")}, std::int32_t(0)},
             {{Null(), std::string("\\d+")}, Null()},
             {{std::string("abcd"), Null()}, Null()},
     };

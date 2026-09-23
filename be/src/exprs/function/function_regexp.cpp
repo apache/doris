@@ -55,6 +55,20 @@
 
 namespace doris {
 
+static bool advance_re2_search_position(const char* data, size_t size,
+                                        const re2::StringPiece& match, size_t& pos) {
+    const size_t match_pos = match.data() - data;
+    if (match.empty()) {
+        if (match_pos == size) {
+            return false;
+        }
+        pos = match_pos + 1;
+    } else {
+        pos = match_pos + match.size();
+    }
+    return true;
+}
+
 // Helper structure to hold either RE2 or Boost.Regex
 struct RegexpExtractEngine {
     std::unique_ptr<re2::RE2> re2_regex;
@@ -154,16 +168,17 @@ struct RegexpExtractEngine {
                 if (!success) {
                     break;
                 }
+                const bool can_continue = advance_re2_search_position(data, size, matches[0], pos);
                 if (matches[0].empty()) {
-                    pos += 1;
+                    if (!can_continue) {
+                        break;
+                    }
                     continue;
                 }
                 // Extract first capturing group
                 if (matches.size() > 1 && !matches[1].empty()) {
                     results.emplace_back(matches[1].data(), matches[1].size());
                 }
-                // Move position forward
-                pos = matches[0].data() - data + matches[0].size();
             }
         } else if (is_boost()) {
             const char* search_start = data;
@@ -229,12 +244,14 @@ struct RegexpCountImpl {
             if (!success) {
                 break;
             }
+            const bool can_continue = advance_re2_search_position(str.data, str.size, match, pos);
             if (match.empty()) {
-                pos += 1;
+                if (!can_continue) {
+                    break;
+                }
                 continue;
             }
             count++;
-            pos = match.data() - str.data + match.size();
         }
 
         return count;
