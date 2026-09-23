@@ -104,6 +104,22 @@ suite("test_regexp_invalid_pattern") {
         exception "Could not compile regexp pattern"
     }
 
+    // A SQL NULL pattern yields NULL for that row even when the bytes left under the NULL
+    // slot (here the invalid '[' of row 2, kept by concat) do not compile.
+    order_qt_extract_null_payload "SELECT id, regexp_extract(s, concat(p, if(id = 2, NULL, '')), 1) FROM test_regexp_invalid_pattern"
+    order_qt_extract_or_null_null_payload "SELECT id, regexp_extract_or_null(s, concat(p, if(id = 2, NULL, '')), 1) FROM test_regexp_invalid_pattern"
+    order_qt_extract_all_null_payload "SELECT id, regexp_extract_all(s, concat(p, if(id = 2, NULL, ''))) FROM test_regexp_invalid_pattern"
+    order_qt_extract_all_array_null_payload "SELECT id, regexp_extract_all_array(s, concat(p, if(id = 2, NULL, ''))) FROM test_regexp_invalid_pattern"
+    order_qt_replace_null_payload "SELECT id, regexp_replace(s, concat(p, if(id = 2, NULL, '')), repl) FROM test_regexp_invalid_pattern"
+    order_qt_replace_one_null_payload "SELECT id, regexp_replace_one(s, concat(p, if(id = 2, NULL, '')), repl) FROM test_regexp_invalid_pattern"
+    order_qt_count_null_payload "SELECT id, regexp_count(s, concat(p, if(id = 2, NULL, ''))) FROM test_regexp_invalid_pattern"
+
+    // NULL constant pattern and NULL input string keep propagating NULL.
+    order_qt_extract_null_const "SELECT id, regexp_extract(s, NULL, 1), regexp_extract(NULL, p, 1) FROM test_regexp_invalid_pattern WHERE id = 1"
+    order_qt_extract_all_null_const "SELECT id, regexp_extract_all(s, NULL), regexp_extract_all_array(NULL, p) FROM test_regexp_invalid_pattern WHERE id = 1"
+    order_qt_replace_null_const "SELECT id, regexp_replace(s, NULL, repl), regexp_replace_one(s, p, NULL) FROM test_regexp_invalid_pattern WHERE id = 1"
+    order_qt_count_null_const "SELECT id, regexp_count(s, NULL), regexp_count(NULL, p) FROM test_regexp_invalid_pattern WHERE id = 1"
+
     // Constant string with column pattern is a column path too.
     test {
         sql "SELECT regexp_extract('abc', p, 0) FROM test_regexp_invalid_pattern WHERE id = 2"
