@@ -135,8 +135,10 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. support TIMESTAMP_NS in Thrift descriptors and PBlock exchange.
 // 15: start from master
 //   a. distinguish Hive OpenCSVSerde row semantics from generic CSV decoding during upgrades.
+// 16: start from master
+//   a. use exact logical frames for map_agg_v2 aggregate state serialization.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_HIVE_OPEN_CSV_VERSION;
+const int BeExecVersionManager::max_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

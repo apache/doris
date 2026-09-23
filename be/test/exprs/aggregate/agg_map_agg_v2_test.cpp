@@ -18,16 +18,20 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "core/column/column_map.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_ipv4.h"
 #include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "core/pod_array.h"
+#include "exprs/aggregate/aggregate_function_map_v2.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_merge.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
@@ -94,6 +98,42 @@ void check_state_union_and_merge_round_trip(const DataTypePtr& key_type,
     EXPECT_EQ(result_map.get_keys().size(), keys.size());
 }
 
+template <bool use_exact_key_frame>
+std::pair<size_t, size_t> serialize_and_deserialize_state(const DataTypePtr& key_type,
+                                                          const std::vector<Field>& keys,
+                                                          int be_exec_version) {
+    const DataTypes argument_types {make_nullable(key_type),
+                                    make_nullable(std::make_shared<DataTypeInt32>())};
+    AggregateFunctionMapAggDataV2<use_exact_key_frame> state(argument_types, be_exec_version);
+    for (size_t i = 0; i < keys.size(); ++i) {
+        state.add_single(keys[i], Field::create_field<TYPE_INT>(static_cast<Int32>(i)));
+    }
+
+    auto serialized_state = ColumnString::create();
+    BufferWritable writer(*serialized_state);
+    state.write(writer);
+    writer.commit();
+
+    PaddedPODArray<UInt8> key_frame;
+    PaddedPODArray<UInt8> value_frame;
+    BufferReadable frame_reader(serialized_state->get_data_at(0));
+    frame_reader.read_binary(key_frame);
+    frame_reader.read_binary(value_frame);
+
+    AggregateFunctionMapAggDataV2<use_exact_key_frame> restored_state(argument_types,
+                                                                      be_exec_version);
+    BufferReadable state_reader(serialized_state->get_data_at(0));
+    restored_state.read(state_reader);
+
+    auto result_type = std::make_shared<DataTypeMap>(argument_types[0], argument_types[1]);
+    auto result = result_type->create_column();
+    restored_state.insert_result_into(*result);
+    const auto& result_map = assert_cast<const ColumnMap&>(*result);
+    EXPECT_EQ(result_map.get_keys().size(), keys.size());
+
+    return {key_frame.size(), value_frame.size()};
+}
+
 } // namespace
 
 TEST(AggregateFunctionMapAggV2Test, SupportsIpKeyTypes) {
@@ -107,6 +147,11 @@ TEST(AggregateFunctionMapAggV2Test, SupportsIpKeyTypes) {
                 BeExecVersionManager::get_newest_version());
 
         ASSERT_NE(function, nullptr) << key_type->get_name();
+
+        auto legacy_function = AggregateFunctionSimpleFactory::instance().get(
+                "map_agg_v2", argument_types, nullptr, false,
+                SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1);
+        EXPECT_EQ(legacy_function, nullptr) << key_type->get_name();
     }
 }
 
@@ -126,6 +171,23 @@ TEST(AggregateFunctionMapAggV2Test, IpStateUnionAndMergeRoundTrip) {
         ipv6_keys.push_back(Field::create_field<TYPE_IPV6>(IPv6(i + 1)));
     }
     check_state_union_and_merge_round_trip(std::make_shared<DataTypeIPv6>(), ipv6_keys);
+}
+
+TEST(AggregateFunctionMapAggV2Test, ExactAndLegacyStateFrames) {
+    constexpr auto key_count = SERIALIZED_MEM_SIZE_LIMIT / sizeof(Int32) + 1;
+    std::vector<Field> keys;
+    keys.reserve(key_count);
+    for (size_t i = 0; i < key_count; ++i) {
+        keys.push_back(Field::create_field<TYPE_INT>(static_cast<Int32>(i + 1)));
+    }
+
+    const auto exact_frame_sizes = serialize_and_deserialize_state<true>(
+            std::make_shared<DataTypeInt32>(), keys, SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION);
+    const auto legacy_frame_sizes = serialize_and_deserialize_state<false>(
+            std::make_shared<DataTypeInt32>(), keys, SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1);
+
+    EXPECT_LT(exact_frame_sizes.first, legacy_frame_sizes.first);
+    EXPECT_EQ(exact_frame_sizes.second, legacy_frame_sizes.second);
 }
 
 } // namespace doris

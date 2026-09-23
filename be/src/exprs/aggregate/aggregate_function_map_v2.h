@@ -20,17 +20,22 @@
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <string>
+
+#include "common/check.h"
 #include "core/assert_cast.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_map.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_map.h"
 #include "core/field.h"
+#include "core/pod_array.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
 
+template <bool use_exact_key_frame>
 struct AggregateFunctionMapAggDataV2 {
     using Map = doris::flat_hash_map<Field, int64_t>;
 
@@ -119,50 +124,51 @@ struct AggregateFunctionMapAggDataV2 {
     }
 
     void write(BufferWritable& buf) const {
-        auto serialized_bytes =
-                _key_type->get_uncompressed_serialized_bytes(*_key_column, _be_version);
-
-        std::string serialized_buffer;
-        serialized_buffer.resize(serialized_bytes);
-
-        auto* buf_ptr = _key_type->serialize(*_key_column, serialized_buffer.data(), _be_version);
-        int64_t written_bytes = buf_ptr - serialized_buffer.data();
-        DCHECK_LE(written_bytes, serialized_bytes);
-
-        serialized_buffer.resize(written_bytes);
-        buf.write_binary(serialized_buffer);
-
-        serialized_bytes =
-                _value_type->get_uncompressed_serialized_bytes(*_value_column, _be_version);
-
-        serialized_buffer.resize(serialized_bytes);
-
-        buf_ptr = _value_type->serialize(*_value_column, serialized_buffer.data(), _be_version);
-        written_bytes = buf_ptr - serialized_buffer.data();
-        DCHECK_LE(written_bytes, serialized_bytes);
-
-        serialized_buffer.resize(written_bytes);
-        buf.write_binary(serialized_buffer);
+        write_column(*_key_type, *_key_column, buf, use_exact_key_frame);
+        write_column(*_value_type, *_value_column, buf, true);
     }
 
     void read(BufferReadable& buf) {
-        std::string deserialized_buffer;
-
-        buf.read_binary(deserialized_buffer);
-
-        const auto* ptr =
-                _key_type->deserialize(deserialized_buffer.data(), &_key_column, _be_version);
-        auto read_bytes = ptr - deserialized_buffer.data();
-        DCHECK_EQ(read_bytes, deserialized_buffer.size());
-
-        buf.read_binary(deserialized_buffer);
-
-        ptr = _value_type->deserialize(deserialized_buffer.data(), &_value_column, _be_version);
-        read_bytes = ptr - deserialized_buffer.data();
-        DCHECK_EQ(read_bytes, deserialized_buffer.size());
+        read_column(*_key_type, &_key_column, buf, use_exact_key_frame);
+        read_column(*_value_type, &_value_column, buf, true);
     }
 
 private:
+    void write_column(const IDataType& type, const IColumn& column, BufferWritable& buf,
+                      bool use_exact_frame) const {
+        const auto max_serialized_bytes =
+                type.get_uncompressed_serialized_bytes(column, _be_version);
+        std::string serialized_buffer(max_serialized_bytes, '\0');
+
+        const auto* end = type.serialize(column, serialized_buffer.data(), _be_version);
+        const auto written_bytes = end - serialized_buffer.data();
+        DORIS_CHECK_LE(written_bytes, max_serialized_bytes);
+
+        if (use_exact_frame) {
+            serialized_buffer.resize(written_bytes);
+        }
+        buf.write_binary(serialized_buffer);
+    }
+
+    void read_column(const IDataType& type, MutableColumnPtr* column, BufferReadable& buf,
+                     bool use_exact_frame) const {
+        PaddedPODArray<UInt8> frame;
+        buf.read_binary(frame);
+
+        const auto* begin = reinterpret_cast<const char*>(frame.data());
+        const auto* frame_end = begin + frame.size();
+        const auto* end = type.deserialize(begin, column, _be_version);
+        if (use_exact_frame) {
+            DORIS_CHECK_EQ(end, frame_end);
+            return;
+        }
+
+        DORIS_CHECK_LE(end, frame_end);
+        const auto expected_frame_size =
+                type.get_uncompressed_serialized_bytes(**column, _be_version);
+        DORIS_CHECK_EQ(frame.size(), expected_frame_size);
+    }
+
     Map _map;
     Arena _arena;
     IColumn::MutablePtr _key_column;
