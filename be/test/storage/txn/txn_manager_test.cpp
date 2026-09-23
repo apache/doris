@@ -418,6 +418,41 @@ TEST_F(TxnManagerTest, PublishVersionWithCommitTSO) {
     EXPECT_EQ(rowset_meta->commit_tso(), TsoRange(commit_tso, commit_tso));
 }
 
+TEST_F(TxnManagerTest, PublishTsoEnabledRowsetRequiresCommitTSO) {
+    TabletColumn commit_tso_column;
+    commit_tso_column.set_unique_id(4);
+    commit_tso_column.set_name(COMMIT_TSO_COL);
+    commit_tso_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    commit_tso_column.set_is_nullable(false);
+    commit_tso_column.set_length(8);
+    commit_tso_column.set_index_length(8);
+    _schema->append_column(std::move(commit_tso_column));
+    ASSERT_TRUE(_rowset->tablet_schema()->is_tso_enabled());
+
+    auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
+    auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
+                                                  tablet_id, _tablet_uid, load_id, _rowset,
+                                                  std::move(guard), false);
+    ASSERT_TRUE(st.ok()) << st;
+
+    Version new_version(10, 10);
+    TabletPublishStatistics stats;
+    std::shared_ptr<TabletTxnInfo> tablet_txn_info;
+    st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                              _tablet_uid, new_version, &stats, tablet_txn_info);
+    ASSERT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
+    EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos) << st;
+    EXPECT_EQ(_rowset->rowset_meta_state(), RowsetStatePB::COMMITTED);
+
+    constexpr int64_t kCommitTso = 123456;
+    st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
+                                              _tablet_uid, new_version, &stats, tablet_txn_info,
+                                              kCommitTso);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(_rowset->version(), new_version);
+    EXPECT_EQ(_rowset->commit_tso(), TsoRange(kCommitTso, kCommitTso));
+}
+
 TEST_F(TxnManagerTest, TxnWithRowBinlog) {
     auto binlog_rowset = create_binlog_rowset(30000, _rowset->version());
     RowBinlogTxnInfo attach_row_binlog;

@@ -517,16 +517,24 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     read_options.version = Version(0, 0);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
-    // Before publish, VERSION is available, but reading either TSO column without the rowset's
-    // commit TSO is a caller error rather than a request to expose the physical placeholder.
+    // Before publish, version [0-0] and TSO [-1--1] identify a physical read. Preserve the
+    // placeholders written into the segment instead of requiring runtime TSO metadata.
     MutableColumnPtr version_column;
     MutableColumnPtr binlog_timestamp_column;
     MutableColumnPtr commit_tso_column;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
     ASSERT_NO_FATAL_FAILURE(
+            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
+
+    // Once a non-zero version is assigned, missing TSO metadata is invalid.
+    read_options.version = Version(1, 1);
+    ASSERT_NO_FATAL_FAILURE(
             expect_missing_commit_tso_error(segment, kBinlogTimestampCid, read_options));
     ASSERT_NO_FATAL_FAILURE(expect_missing_commit_tso_error(segment, kCommitTsoCid, read_options));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
 
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso1, kCommitTso1);
