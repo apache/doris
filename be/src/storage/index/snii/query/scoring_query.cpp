@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <numeric>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -32,7 +33,6 @@
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
-#include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/windowed_posting.h"
 
 namespace doris::snii::query {
@@ -335,23 +335,32 @@ Status scoring_query_candidates(const LogicalIndexReader& idx,
         candidate_docids.push_back(docid);
     }
     std::vector<double> candidate_scores(candidate_docids.size(), 0.0);
-    reader::DictBlockCache dict_block_cache;
+
+    // The distinct terms resolve together, one read per wave of dictionary blocks. The clauses
+    // then add their scores in the caller's order, a repeated term once per clause.
+    std::vector<std::string> distinct;
+    distinct.reserve(terms.size());
+    for (const auto& term : terms) {
+        distinct.push_back(term.physical_term);
+    }
+    std::ranges::sort(distinct);
+    distinct.erase(std::ranges::unique(distinct).begin(), distinct.end());
+    std::vector<LogicalIndexReader::BatchLookupResult> resolved;
+    RETURN_IF_ERROR(idx.lookup_batch(distinct, &resolved));
 
     for (const auto& term : terms) {
-        bool found = false;
-        DictEntry entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        RETURN_IF_ERROR(idx.lookup(term.physical_term, &found, &entry, &frq_base, &prx_base,
-                                   &dict_block_cache));
-        if (!found) {
+        const auto slot = std::ranges::lower_bound(distinct, term.physical_term) - distinct.begin();
+        const LogicalIndexReader::BatchLookupResult& resolved_term =
+                resolved[static_cast<size_t>(slot)];
+        if (!resolved_term.found) {
             continue;
         }
 
         const ScorerContext scorer = ScorerContext::from_idf(term.idf);
         RETURN_IF_ERROR(accumulate_resolved_candidate_scores(
-                idx, segment_stats, entry, frq_base, prx_base, candidate_docids, scorer,
-                collection_avgdl, params, &candidate_scores));
+                idx, segment_stats, resolved_term.entry, resolved_term.frq_base,
+                resolved_term.prx_base, candidate_docids, scorer, collection_avgdl, params,
+                &candidate_scores));
     }
 
     std::vector<ScoredDoc> scored_candidates;

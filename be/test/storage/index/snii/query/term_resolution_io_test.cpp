@@ -19,16 +19,20 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <roaring/roaring.hh>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "storage/index/snii/io/file_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
+#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
 
@@ -114,6 +118,7 @@ protected:
                                                 {.docid = 2, .positions = {position}},
                                                 {.docid = 3, .positions = {position}}}));
         }
+        input.encoded_norms.assign(input.doc_count, encode_norm(terms.size()));
         writer::SniiCompoundWriter compound_writer(&_file);
         assert_ok(compound_writer.add_logical_index(input));
         assert_ok(compound_writer.finish());
@@ -202,6 +207,37 @@ TEST_F(SniiTermResolutionIoTest, AndWithoutTheFilterReadsEveryCandidateBlockInOn
     assert_ok(boolean_and(_index, {"alphz", "charlie", "delta"}, &docids));
 
     EXPECT_TRUE(docids.empty());
+    EXPECT_EQ(_counter.rounds(), 1U);
+    EXPECT_EQ(_counter.ranges(), 2U);
+}
+
+// Scoring resolves its distinct terms together, and a repeated term still scores once per clause.
+TEST_F(SniiTermResolutionIoTest, ScoringReadsItsColdDictionaryBlocksInOneRound) {
+    open_index();
+    stats::SniiStatsProvider segment_stats;
+    assert_ok(stats::SniiStatsProvider::open(&_index, &segment_stats));
+    const std::vector<CollectionScoringTerm> clauses = {{.physical_term = "alpha", .idf = 0.5},
+                                                        {.physical_term = "charlie", .idf = 1.5},
+                                                        {.physical_term = "alpha", .idf = 0.5},
+                                                        {.physical_term = "delta", .idf = 2.5}};
+    roaring::Roaring candidates;
+    candidates.addRange(0, kAllDocs.size());
+    constexpr double kCollectionAvgdl = 4.0;
+    _counter.reset();
+    std::vector<ScoredDoc> scored;
+    assert_ok(scoring_query_candidates(_index, segment_stats, clauses, candidates, kCollectionAvgdl,
+                                       Bm25Params {}, &scored));
+
+    double expected = 0.0;
+    for (const CollectionScoringTerm& clause : clauses) {
+        expected += ScorerContext::from_idf(clause.idf)
+                            .score(1, encode_norm(4), kCollectionAvgdl, Bm25Params {});
+    }
+    ASSERT_EQ(scored.size(), kAllDocs.size());
+    for (size_t i = 0; i < scored.size(); ++i) {
+        EXPECT_EQ(scored[i].docid, kAllDocs[i]);
+        EXPECT_DOUBLE_EQ(scored[i].score, expected);
+    }
     EXPECT_EQ(_counter.rounds(), 1U);
     EXPECT_EQ(_counter.ranges(), 2U);
 }
