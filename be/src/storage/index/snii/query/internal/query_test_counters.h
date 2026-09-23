@@ -47,9 +47,8 @@
 //   - resolved_term_payload_pointer_reuses
 //                           : non-empty inline FRQ/PRX vectors whose data pointer
 //                             survives an entry move into TermPlan.
-//   - phrase_position_epoch_cache_hits / misses
-//                           : same-document PhrasePositionLoader lookups served
-//                             from the plan span cache vs loaded from its cursor.
+//   - phrase_position_loads : term positions a phrase reads from its cursors, one
+//                             per distinct term and candidate at most.
 //
 // The seam is active only under SNII_QUERY_TEST_COUNTERS, which is auto-enabled by
 // the library-wide BE_TEST define (be/CMakeLists.txt `if (MAKE_TEST)`) used to
@@ -82,8 +81,7 @@ struct QueryTestCounters {
     uint64_t resolved_term_entry_copies = 0;
     uint64_t resolved_term_entry_moves = 0;
     uint64_t resolved_term_payload_pointer_reuses = 0;
-    uint64_t phrase_position_epoch_cache_hits = 0;
-    uint64_t phrase_position_epoch_cache_misses = 0;
+    uint64_t phrase_position_loads = 0;
 };
 
 // `inline` gives a single shared instance across all TUs that include this header

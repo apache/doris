@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
-#include "storage/index/inverted/query_v2/phrase_query/postings_with_offset.h"
+#include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/query_v2/size_hint.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
 
@@ -222,8 +222,8 @@ left_right_intersection:
     template std::enable_if_t<std::is_same_v<T, T>, T&>                         \
     Intersection<T, T>::docset_mut_specialized<T>(size_t ord);
 
-INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<PostingsPtr>>)
-INSTANTIATE_INTERSECTION(std::shared_ptr<PostingsWithOffset<SegmentPostingsPtr>>)
+INSTANTIATE_INTERSECTION(PostingsPtr)
+INSTANTIATE_INTERSECTION(SegmentPostingsPtr)
 INSTANTIATE_INTERSECTION(MockDocSetPtr)
 
 #undef INSTANTIATE_INTERSECTION

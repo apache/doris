@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <numeric>
 #include <random>
@@ -26,8 +27,57 @@
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/postings/loaded_postings.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/query/phrase/phrase_verifier.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
+
+// Positions of each distinct term in one document, counting how often the verifier reads them.
+struct CountingTermPositions {
+    Status operator()(size_t term, index_query::PhrasePositionSpan* span) {
+        ++loads[term];
+        *span = {positions[term].data(), positions[term].data() + positions[term].size()};
+        return Status::OK();
+    }
+
+    std::vector<std::vector<uint32_t>> positions;
+    std::vector<uint32_t> loads = std::vector<uint32_t>(positions.size());
+};
+
+TEST(PhraseVerifierTest, ReadsARepeatedTermOncePerDocument) {
+    CountingTermPositions terms {.positions = {{3, 4}, {5}}};
+    const std::vector<uint32_t> offsets {0, 1, 2};
+    const std::vector<uint64_t> costs {1, 1, 1};
+    index_query::PhraseVerifier verifier({0, 0, 1}, offsets, costs, 0, false);
+
+    float frequency = 0.0F;
+    ASSERT_TRUE(verifier.verify(std::ref(terms), true, &frequency).ok());
+    EXPECT_FLOAT_EQ(frequency, 1.0F);
+    EXPECT_EQ(terms.loads, (std::vector<uint32_t> {1, 1}));
+}
+
+TEST(PhraseVerifierTest, ReadsTheOtherClausesOnlyAfterTheCheapestPairMatches) {
+    CountingTermPositions terms {.positions = {{1}, {2}, {7}, {9}}};
+    const std::vector<uint32_t> offsets {0, 1, 2, 3};
+    const std::vector<uint64_t> costs {50, 40, 2, 3};
+    index_query::PhraseVerifier verifier({0, 1, 2, 3}, offsets, costs, 0, false);
+
+    float frequency = 1.0F;
+    ASSERT_TRUE(verifier.verify(std::ref(terms), true, &frequency).ok());
+    EXPECT_FLOAT_EQ(frequency, 0.0F);
+    EXPECT_EQ(terms.loads, (std::vector<uint32_t> {0, 0, 1, 1}));
+}
+
+// A stopword dropped before the first clause leaves offsets that do not start at zero.
+TEST(PhraseVerifierTest, CountsOffsetsFromTheFirstClause) {
+    CountingTermPositions terms {.positions = {{0}, {1}, {2}}};
+    const std::vector<uint32_t> offsets {1, 2, 3};
+    const std::vector<uint64_t> costs {1, 1, 1};
+    index_query::PhraseVerifier verifier({0, 1, 2}, offsets, costs, 0, false);
+
+    float frequency = 0.0F;
+    ASSERT_TRUE(verifier.verify(std::ref(terms), true, &frequency).ok());
+    EXPECT_FLOAT_EQ(frequency, 1.0F);
+}
 
 TEST(PhraseScorerContractTest, SlopAcceptsOneGapButNotTwoOrATransposition) {
     const std::vector<uint32_t> docs {0, 1, 2, 3};

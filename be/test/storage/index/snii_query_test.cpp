@@ -1568,8 +1568,7 @@ TEST(SniiPhraseMatcherInvariantTest, ThreeClauseMaterializedCursorSurvivesRemain
             index_reader, std::move(plan), &docids, nullptr, nullptr, nullptr,
             internal::ExactPhrasePositionAccess::kMaterializedOnly));
     EXPECT_EQ(docids, (std::vector<uint32_t> {100}));
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_hits, 0U);
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_misses, 3U);
+    EXPECT_EQ(internal::query_test_counters().phrase_position_loads, 3U);
 }
 
 TEST(SniiPhraseMatcherInvariantTest, ThreeClauseRepeatedPlanKeepsPairCursorAlive) {
@@ -1584,8 +1583,7 @@ TEST(SniiPhraseMatcherInvariantTest, ThreeClauseRepeatedPlanKeepsPairCursorAlive
     assert_ok(
             phrase_query(index_reader, {"repeat_cursor", "repeat_cursor", "repeat_tail"}, &docids));
     EXPECT_EQ(docids, (std::vector<uint32_t> {300}));
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_hits, 1U);
-    EXPECT_EQ(internal::query_test_counters().phrase_position_epoch_cache_misses, 2U);
+    EXPECT_EQ(internal::query_test_counters().phrase_position_loads, 2U);
 }
 
 TEST(SniiPhraseQueryTest, DenseTermWithMissingDocKeepsCandidateOrdinals) {

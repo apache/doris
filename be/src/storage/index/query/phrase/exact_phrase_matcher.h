@@ -25,14 +25,16 @@
 #include <vector>
 
 #include "common/check.h"
+#include "common/compiler_util.h"
 #include "common/status.h"
 #include "storage/index/query/phrase/position_math.h"
 #include "storage/index/query/phrase/position_span.h"
 
 namespace doris::index_query {
 
-inline bool contains_two_term_phrase(PhrasePositionSpan left_span, PhrasePositionSpan right_span,
-                                     uint32_t right_delta) {
+ALWAYS_INLINE inline bool contains_two_term_phrase(PhrasePositionSpan left_span,
+                                                   PhrasePositionSpan right_span,
+                                                   uint32_t right_delta) {
     const uint32_t* left = left_span.first;
     const uint32_t* right = right_span.first;
     if (left == left_span.second || right == right_span.second) {
@@ -123,21 +125,18 @@ private:
 
 namespace exact_phrase_matcher_detail {
 
-template <bool PreserveAnchorMultiplicity>
-size_t consume_matching_prefix(PhrasePositionSpan& anchor, PhrasePositionSpan& other) {
+inline size_t consume_matching_prefix(PhrasePositionSpan& anchor, PhrasePositionSpan& other) {
     if (anchor.first == anchor.second || other.first == other.second) {
         return 0;
     }
     auto [left, right] = std::mismatch(anchor.first, anchor.second, other.first, other.second);
     auto count = static_cast<size_t>(left - anchor.first);
-    if constexpr (PreserveAnchorMultiplicity) {
-        if (count > 0) {
-            const uint32_t last_match = left[-1];
-            // The other span may end before the anchor's duplicate positions do.
-            while (left != anchor.second && *left == last_match) {
-                ++left;
-                ++count;
-            }
+    if (count > 0) {
+        const uint32_t last_match = left[-1];
+        // The other span may end before the anchor's duplicate positions do.
+        while (left != anchor.second && *left == last_match) {
+            ++left;
+            ++count;
         }
     }
     anchor.first = left;
@@ -169,8 +168,9 @@ void visit_position_matches(PhrasePositionSpan anchor, PhrasePositionSpan other,
 
 } // namespace exact_phrase_matcher_detail
 
-inline uint32_t count_two_term_phrase(PhrasePositionSpan left_span, PhrasePositionSpan right_span,
-                                      uint32_t right_delta) {
+ALWAYS_INLINE inline uint32_t count_two_term_phrase(PhrasePositionSpan left_span,
+                                                    PhrasePositionSpan right_span,
+                                                    uint32_t right_delta) {
     if (left_span.first == left_span.second || right_span.first == right_span.second) {
         return 0;
     }
@@ -193,7 +193,7 @@ inline uint32_t count_two_term_phrase(PhrasePositionSpan left_span, PhrasePositi
     }
     if (right_delta == 0) {
         const size_t prefix =
-                exact_phrase_matcher_detail::consume_matching_prefix<true>(left_span, right_span);
+                exact_phrase_matcher_detail::consume_matching_prefix(left_span, right_span);
         DCHECK_LE(prefix, std::numeric_limits<uint32_t>::max());
         frequency = static_cast<uint32_t>(prefix);
     }
@@ -203,37 +203,6 @@ inline uint32_t count_two_term_phrase(PhrasePositionSpan left_span, PhrasePositi
                 frequency += static_cast<uint32_t>(matched);
             });
     return frequency;
-}
-
-// Only the original first clause contributes position multiplicity to the frequency.
-template <bool PreserveAnchorMultiplicity>
-void retain_exact_phrase_positions(std::vector<uint32_t>& anchor, PhrasePositionSpan other) {
-    PhrasePositionSpan remaining {anchor.data(), anchor.data() + anchor.size()};
-    size_t count = exact_phrase_matcher_detail::consume_matching_prefix<PreserveAnchorMultiplicity>(
-            remaining, other);
-    if constexpr (PreserveAnchorMultiplicity) {
-        exact_phrase_matcher_detail::visit_position_matches(
-                remaining, other, 0, [&](uint32_t position, bool matched) {
-                    anchor[count] = position;
-                    count += static_cast<size_t>(matched);
-                });
-    } else {
-        size_t left_index = count;
-        const uint32_t* right = other.first;
-        while (left_index < anchor.size() && right != other.second) {
-            const uint32_t left_value = anchor[left_index];
-            if (left_value < *right) {
-                ++left_index;
-            } else if (left_value == *right) {
-                anchor[count++] = left_value;
-                ++left_index;
-                ++right;
-            } else {
-                ++right;
-            }
-        }
-    }
-    anchor.resize(count);
 }
 
 template <typename Cost>
