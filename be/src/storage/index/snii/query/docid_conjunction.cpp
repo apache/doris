@@ -357,6 +357,39 @@ bool intersect_bounded_span_with_ordinals(CandidateIt begin, CandidateIt end,
     return true;
 }
 
+// Interleaved inputs merge with a branch per step; within a bounded span a bitset of the
+// term's documents answers each candidate with one test instead.
+bool intersect_bounded_span(CandidateIt begin, CandidateIt end,
+                            const std::vector<uint32_t>& term_docids, size_t candidate_count,
+                            std::vector<uint32_t>* out) {
+    if (candidate_count < kBoundedSpanBitsetMinInput ||
+        term_docids.size() < kBoundedSpanBitsetMinInput) {
+        return false;
+    }
+
+    const uint32_t first = std::min(*begin, term_docids.front());
+    const uint32_t last = std::max(*(end - 1), term_docids.back());
+    const uint64_t width = static_cast<uint64_t>(last) - first + 1;
+    if (width > kBoundedSpanBitsetDocs || term_docids.size() > width) {
+        return false;
+    }
+
+    const auto word_count = static_cast<size_t>((width + 63) >> 6);
+    std::array<uint64_t, kBoundedSpanBitsetWords> bits;
+    std::fill_n(bits.begin(), word_count, 0);
+    for (uint32_t docid : term_docids) {
+        const uint32_t off = docid - first;
+        bits[off >> 6] |= 1ULL << (off & 63);
+    }
+    for (auto it = begin; it != end; ++it) {
+        const uint32_t off = *it - first;
+        if ((bits[off >> 6] & (1ULL << (off & 63))) != 0) {
+            out->push_back(*it);
+        }
+    }
+    return true;
+}
+
 size_t log2_ceil(size_t n) {
     if (n <= 1) return 1;
     --n;
@@ -373,6 +406,12 @@ void intersect_window_candidate_range(CandidateIt begin, CandidateIt end,
                                       uint32_t last, std::vector<uint32_t>* out) {
     const size_t candidate_count = static_cast<size_t>(end - begin);
     if (candidate_count == 0 || term_docids.empty()) return;
+    // Terms of the same documents meet identical inputs, which are the result as they are.
+    if (candidate_count == term_docids.size() && *begin == term_docids.front() &&
+        *(end - 1) == term_docids.back() && std::equal(begin, end, term_docids.begin())) {
+        out->insert(out->end(), begin, end);
+        return;
+    }
 
     const uint64_t width = static_cast<uint64_t>(last) - first + 1;
     const uint64_t missing_count = term_docids.size() <= width ? width - term_docids.size() : width;
@@ -408,6 +447,9 @@ void intersect_window_candidate_range(CandidateIt begin, CandidateIt end,
                 out->push_back(*it);
             }
         }
+        return;
+    }
+    if (intersect_bounded_span(begin, end, term_docids, candidate_count, out)) {
         return;
     }
     std::set_intersection(begin, end, term_docids.begin(), term_docids.end(),
