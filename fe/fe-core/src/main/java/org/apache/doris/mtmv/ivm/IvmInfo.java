@@ -53,8 +53,9 @@ public class IvmInfo {
     @SerializedName("ps")
     private String planSignature;
 
-    @SerializedName("rv")
-    private long refreshVersion;
+    /** The prefix of the sequence values this MV's rows are stamped with; see IvmSequenceCalculator. */
+    @SerializedName("sp")
+    private long sequencePrefix;
 
     public IvmInfo() {
     }
@@ -65,7 +66,7 @@ public class IvmInfo {
         this.pendingBaselineRebuildPartitions = new HashSet<>(other.pendingBaselineRebuildPartitions);
         this.useFullKeys = other.useFullKeys;
         this.planSignature = other.planSignature;
-        this.refreshVersion = other.refreshVersion;
+        this.sequencePrefix = other.sequencePrefix;
     }
 
     public boolean isEnableIvm() {
@@ -121,12 +122,12 @@ public class IvmInfo {
         this.planSignature = planSignature;
     }
 
-    public long getRefreshVersion() {
-        return refreshVersion;
+    public long getSequencePrefix() {
+        return sequencePrefix;
     }
 
-    public void advanceRefreshVersion() {
-        refreshVersion++;
+    public void advanceSequencePrefix() {
+        sequencePrefix++;
     }
 
     @Override
