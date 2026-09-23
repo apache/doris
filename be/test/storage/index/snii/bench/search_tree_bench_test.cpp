@@ -220,6 +220,12 @@ std::vector<SearchCase> search_cases() {
              .expected = [](ClauseOracle& o) {
                  return o.phrase("retry attempt") & o.term("1234");
              }});
+    cases.push_back({.label = "phrase_2",
+                     .root = leaf("PHRASE", "retry attempt"),
+                     .expected = [](ClauseOracle& o) { return o.phrase("retry attempt"); }});
+    cases.push_back({.label = "phrase_4",
+                     .root = leaf("PHRASE", "retry attempt 2 job"),
+                     .expected = [](ClauseOracle& o) { return o.phrase("retry attempt 2 job"); }});
     cases.push_back({.label = "occur_must_should",
                      .root = compound("OCCUR_BOOLEAN",
                                       {with_occur(leaf("TERM", "retry"), TSearchOccur::MUST),
