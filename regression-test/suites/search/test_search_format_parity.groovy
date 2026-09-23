@@ -91,15 +91,10 @@ suite("test_search_format_parity") {
     same("several tokens with minimum_should_match",
          "search('quick fox brown', '{\"default_field\":\"body\",\"minimum_should_match\":2}')",
          [1, 2, 3])
-    // One DSL token that analyzes to several terms carries the threshold on the leaf: V2
-    // builds the boolean, the SNII field still refuses it, and a single term never
-    // carries a threshold.
-    def leafMsm = "search('body:quick/fox', '{\"minimum_should_match\":2}')"
-    assertEquals([1, 2, 3], ids("V2", leafMsm), "V2: leaf-level minimum_should_match")
-    test {
-        sql "SELECT id FROM ${tables.SNII} WHERE ${leafMsm} ORDER BY id"
-        exception "minimum_should_match"
-    }
+    // One DSL token that analyzes to several terms carries the threshold on the leaf; it
+    // is counted above the field on every format, and a single term never carries one.
+    same("leaf-level minimum_should_match",
+         "search('body:quick/fox', '{\"minimum_should_match\":2}')", [1, 2, 3])
     same("single token with minimum_should_match",
          "search('fox', '{\"default_field\":\"body\",\"minimum_should_match\":2}')", [1, 2, 3])
 

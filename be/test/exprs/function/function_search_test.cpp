@@ -53,6 +53,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
+#include "storage/index/query/logical/search_lowering.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "util/defer_op.h"
 #include "util/thrift_util.h"
@@ -1977,46 +1978,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermDefaultOperatorAndMapsToMatchAllQue
     EXPECT_EQ("alpha beta", reader->last_query_value);
 }
 
-// minimum_should_match ("at least N of M terms") has no SNII query type -- EQUAL_QUERY is
-// unconditionally ANY and MATCH_ALL_QUERY is unconditionally ALL, with nothing in between. SNII
-// must refuse it explicitly for a TERM clause instead of silently answering a plain OR query.
-TEST_F(FunctionSearchTest, TestSniiNativeTermRejectsMinimumShouldMatch) {
-    auto context = std::make_shared<IndexQueryContext>();
-    auto index_meta = make_test_inverted_index(
-            22, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
-    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
-    auto reader =
-            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    segment_v2::InvertedIndexIterator iterator;
-    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
-
-    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
-    data_type_with_names.emplace(
-            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
-    std::unordered_map<std::string, IndexIterator*> iterators;
-    iterators["body"] = &iterator;
-    TSearchFieldBinding field_binding;
-    field_binding.field_name = "body";
-    field_binding.index_properties = index_meta.properties();
-    field_binding.__isset.index_properties = true;
-    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
-
-    auto clause = make_leaf_clause("TERM", "alpha beta");
-    inverted_index::query_v2::QueryPtr query;
-    std::string binding_key;
-    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
-                                                         &binding_key, "OR", 2, 4);
-
-    ASSERT_FALSE(status.ok());
-    EXPECT_EQ(ErrorCode::NOT_IMPLEMENTED_ERROR, status.code());
-    EXPECT_NE(std::string::npos, status.to_string().find("minimum_should_match"));
-    EXPECT_EQ(0, reader->query_calls);
-    EXPECT_EQ(0, index_file_reader->open_calls);
-}
-
 // A single-token TERM value has nothing for minimum_should_match to select "at least N of"
 // among -- there is only one term. Lowering drops the threshold for one token, so the
-// reader sees a plain one-term MATCH_ANY_QUERY instead of a refusal.
+// reader sees a plain one-term MATCH_ANY_QUERY.
 TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch) {
     auto context = std::make_shared<IndexQueryContext>();
     auto index_meta = make_test_inverted_index(
@@ -2430,6 +2394,162 @@ TEST_F(FunctionSearchTest, TestSniiNativeScoredQueryFallsBackToConstantScorerWit
     EXPECT_EQ(0U, scorer->doc());
     EXPECT_FLOAT_EQ(1.0F, scorer->score());
     expect_bitmap_eq(collect_docs(scorer), {0, 1, 2});
+}
+
+// Records the term sets the SEARCH compile step hands to a field's compiler and answers each
+// one-term set from a fixed table, without touching an index.
+class RecordingTermSetCompiler final : public SearchLeafCompiler {
+public:
+    explicit RecordingTermSetCompiler(std::map<std::string, roaring::Roaring> rows)
+            : _rows(std::move(rows)) {}
+
+    Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& /*ctx*/,
+                   inverted_index::query_v2::QueryPtr* out) override {
+        const auto* set = leaf.as<index_query::logical::TermSet>();
+        if (set == nullptr) {
+            return Status::InternalError("the recording compiler only takes term sets");
+        }
+        leaves.push_back(*set);
+        roaring::Roaring rows;
+        if (set->terms.size() == 1 && _rows.contains(set->terms.front())) {
+            rows = _rows.at(set->terms.front());
+        }
+        *out = std::make_shared<inverted_index::query_v2::BitSetQuery>(std::move(rows));
+        return Status::OK();
+    }
+
+    std::vector<index_query::logical::TermSet> leaves;
+
+private:
+    std::map<std::string, roaring::Roaring> _rows;
+};
+
+// A TERM value with a threshold is counted above the field's compiler: every term becomes its
+// own leaf on that field, and the nested-document mapper sees the whole threshold as one leaf,
+// so rows are counted before they are mapped.
+TEST_F(FunctionSearchTest, TestTermThresholdIsCountedAboveTheFieldCompiler) {
+    SniiScoringFixture fixture(45, 4);
+    FieldReaderBinding binding;
+    ASSERT_TRUE(fixture.resolver
+                        ->resolve("body", index_query::logical::search_clause_query_type("TERM"),
+                                  &binding)
+                        .ok());
+    auto compiler = std::make_shared<RecordingTermSetCompiler>(
+            std::map<std::string, roaring::Roaring> {{"alpha", make_bitmap({0, 1, 2})},
+                                                     {"beta", make_bitmap({1, 2})},
+                                                     {"gamma", make_bitmap({2, 3})}});
+    fixture.resolver->_cache.at(binding.binding_key).leaf_compiler = compiler;
+    std::vector<std::string> mapped_fields;
+    fixture.resolver->set_leaf_query_mapper(
+            [&mapped_fields](const std::string& field,
+                             inverted_index::query_v2::QueryPtr* /*query*/) {
+                mapped_fields.push_back(field);
+                return Status::OK();
+            });
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_leaf_clause("TERM", "alpha beta gamma"), fixture.context, *fixture.resolver,
+            &query, &binding_key, "OR", 2, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const std::vector<std::string> terms = {"alpha", "beta", "gamma"};
+    ASSERT_EQ(terms.size(), compiler->leaves.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        EXPECT_EQ(std::vector<std::string> {terms[i]}, compiler->leaves[i].terms);
+        EXPECT_FALSE(compiler->leaves[i].require_all);
+        EXPECT_EQ(0U, compiler->leaves[i].min_should_match);
+    }
+    EXPECT_EQ(std::vector<std::string> {"body"}, mapped_fields);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
+// SNII answers "at least N of M terms" through one MATCH_ANY query per term; a row the field
+// leaves NULL stays UNKNOWN.
+TEST_F(FunctionSearchTest, TestSniiNativeTermMinimumShouldMatchCountsMatchingTerms) {
+    SniiScoringFixture fixture(46, 5);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({1, 2}));
+    fixture.reader->set_query_result("gamma", make_bitmap({2, 3}));
+    fixture.reader->set_null_bitmap(make_bitmap({4}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_leaf_clause("TERM", "alpha beta gamma"), fixture.context, *fixture.resolver,
+            &query, &binding_key, "OR", 2, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(3, fixture.reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, fixture.reader->last_query_type);
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+    ASSERT_TRUE(scorer->has_null_bitmap());
+    const auto* null_bitmap = scorer->get_null_bitmap();
+    ASSERT_NE(nullptr, null_bitmap);
+    expect_bitmap_eq(*null_bitmap, {4});
+}
+
+// A row's score is the sum of the BM25 values the reader published for the terms it matched.
+TEST_F(FunctionSearchTest, TestSniiNativeTermMinimumShouldMatchSumsMatchingTermScores) {
+    SniiScoringFixture fixture(47, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({1, 2}));
+    fixture.reader->set_query_result("gamma", make_bitmap({2, 3}));
+    fixture.reader->set_query_scores("alpha", {{0, 1.0F}, {1, 2.0F}, {2, 4.0F}});
+    fixture.reader->set_query_scores("beta", {{1, 8.0F}, {2, 16.0F}});
+    fixture.reader->set_query_scores("gamma", {{2, 32.0F}, {3, 64.0F}});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_leaf_clause("TERM", "alpha beta gamma"), fixture.context, *fixture.resolver,
+            &query, &binding_key, "OR", 2, fixture.num_rows);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto weight = query->weight(true);
+    ASSERT_NE(nullptr, weight);
+    auto exec_ctx = fixture.exec_context();
+    auto roaring = std::make_shared<roaring::Roaring>();
+    inverted_index::query_v2::collect_multi_segment_doc_set(weight, exec_ctx, binding_key, roaring,
+                                                            fixture.context->collection_similarity,
+                                                            /*enable_scoring=*/true);
+
+    expect_bitmap_eq(*roaring, {1, 2});
+    auto collected = read_collected_scores(*fixture.context->collection_similarity, *roaring);
+    ASSERT_EQ(2U, collected.size());
+    EXPECT_FLOAT_EQ(10.0F, collected[1]);
+    EXPECT_FLOAT_EQ(52.0F, collected[2]);
+}
+
+// An all-of set with a threshold gets the CLucene answer: the threshold counts optional clauses,
+// an all-of set has none, so no row matches.
+TEST_F(FunctionSearchTest, TestSniiNativeAllOfTermWithThresholdMatchesNothing) {
+    SniiScoringFixture fixture(48, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
+    fixture.reader->set_query_result("beta", make_bitmap({1, 2}));
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(make_leaf_clause("TERM", "alpha beta"),
+                                                         fixture.context, *fixture.resolver, &query,
+                                                         &binding_key, "and", 2, fixture.num_rows);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {});
 }
 
 TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledForSniiNativeExecution) {

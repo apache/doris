@@ -274,8 +274,26 @@ Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
     return Status::OK();
 }
 
+// A threshold counts the set's terms above the field's compiler, so every format
+// answers it the same way: each term is its own leaf on the field.
+Status compile_term_threshold(const logical::TermSet& set, const SearchLeafContext& ctx,
+                              SearchLeafCompiler& compiler, query_v2::QueryPtr* out) {
+    auto builder = query_v2::create_occur_boolean_query_builder();
+    builder->set_minimum_number_should_match(set.min_should_match);
+    const query_v2::Occur occur = set.require_all ? query_v2::Occur::MUST : query_v2::Occur::SHOULD;
+    for (const auto& term : set.terms) {
+        const auto leaf = logical::make_node(logical::TermSet {
+                .field = set.field, .terms = {term}, .require_all = false, .min_should_match = 0});
+        query_v2::QueryPtr term_query;
+        RETURN_IF_ERROR(compiler.compile(*leaf, ctx, &term_query));
+        builder->add(term_query, occur, set.field.binding);
+    }
+    *out = builder->build();
+    return Status::OK();
+}
+
 // A leaf goes to the compiler of the index it was bound to; its binding key and
-// the leaf mapper follow it.
+// the leaf mapper follow it. A term threshold stays one leaf for the mapper.
 Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out,
                     std::string* binding_key) {
@@ -304,7 +322,12 @@ Status compile_node(const logical::Node& node, const SearchLeafContext& ctx,
         return Status::InternalError("search: field '{}' has no compiler for binding '{}'",
                                      field->name, field->binding);
     }
-    RETURN_IF_ERROR(binding->leaf_compiler->compile(node, ctx, out));
+    const auto* set = node.as<logical::TermSet>();
+    if (set != nullptr && set->min_should_match > 0) {
+        RETURN_IF_ERROR(compile_term_threshold(*set, ctx, *binding->leaf_compiler, out));
+    } else {
+        RETURN_IF_ERROR(binding->leaf_compiler->compile(node, ctx, out));
+    }
     return resolver.map_leaf_query(field->name, out);
 }
 

@@ -45,20 +45,12 @@ query_v2::QueryPtr term_query(const SearchLeafContext& ctx, const std::wstring& 
 }
 
 // One term is queried as itself; several form the boolean the clause asked for.
+// The SEARCH compile step counts a threshold before a set reaches this compiler.
 query_v2::QueryPtr term_set_query(const SearchLeafContext& ctx, const std::wstring& field,
                                   const std::string& binding_key, const logical::TermSet& set) {
+    DORIS_CHECK(set.min_should_match == 0);
     if (set.terms.size() == 1) {
         return term_query(ctx, field, set.terms.front());
-    }
-    if (set.min_should_match > 0) {
-        auto builder = query_v2::create_occur_boolean_query_builder();
-        builder->set_minimum_number_should_match(set.min_should_match);
-        const query_v2::Occur occur =
-                set.require_all ? query_v2::Occur::MUST : query_v2::Occur::SHOULD;
-        for (const auto& term : set.terms) {
-            builder->add(term_query(ctx, field, term), occur, binding_key);
-        }
-        return builder->build();
     }
     auto builder = query_v2::create_operator_boolean_query_builder(
             set.require_all ? query_v2::OperatorType::OP_AND : query_v2::OperatorType::OP_OR);

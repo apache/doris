@@ -63,13 +63,9 @@ Status plan_native_query(const logical::Node& leaf, NativeQuery* out) {
         *out = {.query_type = InvertedIndexQueryType::EQUAL_QUERY,
                 .query_info = single_terms({term->term})};
     } else if (const auto* set = leaf.as<logical::TermSet>()) {
-        // The reader knows all-of and any-of, never a partial threshold.
-        if (set->min_should_match > 0) {
-            return Status::NotSupported(
-                    "SNII native SEARCH does not support minimum_should_match for TERM "
-                    "clauses (got {})",
-                    set->min_should_match);
-        }
+        // The reader knows all-of and any-of; the SEARCH compile step counts a
+        // threshold above it.
+        DORIS_CHECK(set->min_should_match == 0);
         *out = {.query_type = set->require_all ? InvertedIndexQueryType::MATCH_ALL_QUERY
                                                : InvertedIndexQueryType::MATCH_ANY_QUERY,
                 .query_info = single_terms(set->terms)};
