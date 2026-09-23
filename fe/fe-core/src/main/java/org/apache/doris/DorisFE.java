@@ -151,6 +151,7 @@ public class DorisFE {
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
             Config.validateWebSqlConfig();
+            Config.validateMtmvCacheConfig();
             // inverted_index_storage_format's runtime callback is not invoked while parsing
             // fe.conf/fe_custom.conf, so validate the loaded value here after both files are loaded
             // and merged, to reject a "V1" left over in the config files at startup.
