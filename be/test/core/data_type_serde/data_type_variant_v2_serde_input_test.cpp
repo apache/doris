@@ -22,7 +22,6 @@
 #include <string_view>
 #include <vector>
 
-#include "common/config.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -36,18 +35,6 @@
 
 namespace doris {
 namespace {
-
-class ScopedInvalidJsonMode {
-public:
-    explicit ScopedInvalidJsonMode(bool value)
-            : _old(config::variant_throw_exeception_on_invalid_json) {
-        config::variant_throw_exeception_on_invalid_json = value;
-    }
-    ~ScopedInvalidJsonMode() { config::variant_throw_exeception_on_invalid_json = _old; }
-
-private:
-    bool _old;
-};
 
 Status deserialize_json(const DataTypeVariantV2SerDe& serde, ColumnVariantV2& column,
                         std::string_view text) {
@@ -91,30 +78,26 @@ ColumnVariantV2::MutablePtr typed_int(int32_t value) {
 TEST(DataTypeVariantV2SerdeInputTest, JsonUsesT15ValidEmptyAndInvalidPolicies) {
     DataTypeVariantV2SerDe serde;
     auto column = ColumnVariantV2::create();
-    {
-        ScopedInvalidJsonMode mode(false);
-        EXPECT_TRUE(deserialize_json(serde, *column, R"({"b":[1,null]})").ok());
-        EXPECT_TRUE(deserialize_json(serde, *column, {}).ok());
-        EXPECT_TRUE(deserialize_json(serde, *column, "not-json").ok());
-    }
-    ASSERT_EQ(column->size(), 3);
+    // The serde re-reads JSON that it wrote, so text the parser rejects keeps its text instead of
+    // failing, for example an integer beyond 64 bits in a serialized aggregate state.
+    EXPECT_TRUE(deserialize_json(serde, *column, R"({"b":[1,null]})").ok());
+    EXPECT_TRUE(deserialize_json(serde, *column, {}).ok());
+    EXPECT_TRUE(deserialize_json(serde, *column, "not-json").ok());
+    EXPECT_TRUE(deserialize_json(serde, *column, "18446744073709551616").ok());
+    ASSERT_EQ(column->size(), 4);
     EXPECT_EQ(json_at(serde, *column, 0), R"({"b":[1,null]})");
-    EXPECT_EQ(json_at(serde, *column, 1), "{}");
+    EXPECT_EQ(json_at(serde, *column, 1), R"("")");
     EXPECT_EQ(json_at(serde, *column, 2), R"("not-json")");
+    EXPECT_EQ(json_at(serde, *column, 3), R"("18446744073709551616")");
+
+    const std::string long_key(300, 'k');
+    const std::string long_key_json = R"({")" + long_key + R"(":1})";
+    ASSERT_TRUE(deserialize_json(serde, *column, long_key_json).ok());
+    EXPECT_EQ(json_at(serde, *column, 4), long_key_json);
 
     const size_t before = column->size();
-    {
-        ScopedInvalidJsonMode mode(true);
-        EXPECT_EQ(deserialize_json(serde, *column, "not-json").code(), ErrorCode::INVALID_ARGUMENT);
-    }
-    EXPECT_EQ(column->size(), before);
-
     const std::string invalid_utf8("\xC3\x28", 2);
-    {
-        ScopedInvalidJsonMode mode(false);
-        EXPECT_EQ(deserialize_json(serde, *column, invalid_utf8).code(),
-                  ErrorCode::INVALID_ARGUMENT);
-    }
+    EXPECT_EQ(deserialize_json(serde, *column, invalid_utf8).code(), ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(column->size(), before);
 }
 
@@ -125,11 +108,10 @@ TEST(DataTypeVariantV2SerdeInputTest, VectorFailureIsAtomicAndCounterIsNotAdvanc
     const size_t before = column->size();
 
     std::string valid = R"({"a":1})";
-    std::string invalid = "{";
+    std::string invalid("\xC3\x28", 2);
     std::vector<Slice> slices {{valid.data(), valid.size()}, {invalid.data(), invalid.size()}};
     uint64_t num_deserialized = 0;
     DataTypeSerDe::FormatOptions options;
-    ScopedInvalidJsonMode mode(true);
     const Status status =
             serde.deserialize_column_from_json_vector(*column, slices, &num_deserialized, options);
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);

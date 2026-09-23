@@ -344,12 +344,20 @@ void require_jsonb_write(bool written, const char* operation) {
     }
 }
 
+// Most JSON text read here was written by a Variant serde, for example into an aggregate state, so
+// it must read back every value a Variant can hold, including keys longer than the parse limit. A
+// CAST from a JSON string to ARRAY<VARIANT> or STRUCT also passes the elements it splits out.
+JsonToVariantOptions serde_json_options() {
+    return {.max_json_key_length = std::numeric_limits<uint32_t>::max(),
+            .throw_on_invalid_json = false};
+}
+
 } // namespace
 
 Status DataTypeVariantV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                               const FormatOptions&) const {
     RETURN_IF_CATCH_EXCEPTION({
-        JsonStringToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder(serde_json_options());
         encoder.add_json({slice.data, slice.size});
         VariantBatchBuilder block = encoder.finish_batch();
         destination(column).insert_encoded_batch(block);
@@ -392,7 +400,7 @@ Status DataTypeVariantV2SerDe::deserialize_column_from_json_vector(IColumn& colu
         if (slices.empty()) {
             return Status::OK();
         }
-        JsonStringToVariantEncoder encoder;
+        JsonStringToVariantEncoder encoder(serde_json_options());
         for (const Slice& slice : slices) {
             encoder.add_json({slice.data, slice.size});
         }
