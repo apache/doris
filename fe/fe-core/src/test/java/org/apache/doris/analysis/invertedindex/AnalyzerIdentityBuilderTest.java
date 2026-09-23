@@ -1341,6 +1341,24 @@ public class AnalyzerIdentityBuilderTest {
         Map<String, String> separateChineseDedup = new HashMap<>(separateChinese);
         separateChineseDedup.put("remove_duplicated_term", "true");
         replayPinyinPair(policyMgr, 8, "pinyin_chinese_dedup", separateChineseDedup);
+        Map<String, String> firstLetterOnly = Map.of("keep_full_pinyin", "false",
+                "keep_none_chinese", "false", "keep_joined_full_pinyin", "false");
+        replayPinyinPair(policyMgr, 9, "pinyin_first_only", firstLetterOnly);
+        Map<String, String> firstLetterOnlyDedup = new HashMap<>(firstLetterOnly);
+        firstLetterOnlyDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 10, "pinyin_first_only_dedup", firstLetterOnlyDedup);
+        Map<String, String> firstAndJoined = Map.of("keep_full_pinyin", "false",
+                "keep_none_chinese", "false", "keep_joined_full_pinyin", "true");
+        replayPinyinPair(policyMgr, 11, "pinyin_first_and_joined", firstAndJoined);
+        Map<String, String> firstAndJoinedDedup = new HashMap<>(firstAndJoined);
+        firstAndJoinedDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 12, "pinyin_first_and_joined_dedup", firstAndJoinedDedup);
+        Map<String, String> originalOnly = Map.of("keep_first_letter", "false", "keep_full_pinyin", "false",
+                "keep_none_chinese", "false", "keep_original", "true");
+        replayPinyinPair(policyMgr, 13, "pinyin_original_only", originalOnly);
+        Map<String, String> originalOnlyDedup = new HashMap<>(originalOnly);
+        originalOnlyDedup.put("remove_duplicated_term", "true");
+        replayPinyinPair(policyMgr, 14, "pinyin_original_only_dedup", originalOnlyDedup);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
 
@@ -1354,6 +1372,14 @@ public class AnalyzerIdentityBuilderTest {
                                 pinyinIdentity(resolve, "pinyin_joined_only_dedup", type)),
                         () -> Assertions.assertEquals(pinyinIdentity(resolve, "pinyin_nothing", type),
                                 pinyinIdentity(resolve, "pinyin_nothing_dedup", type)),
+                        () -> Assertions.assertEquals(pinyinIdentity(resolve, "pinyin_first_only", type),
+                                pinyinIdentity(resolve, "pinyin_first_only_dedup", type)),
+                        () -> Assertions.assertEquals(
+                                pinyinIdentity(resolve, "pinyin_first_and_joined", type),
+                                pinyinIdentity(resolve, "pinyin_first_and_joined_dedup", type)),
+                        () -> Assertions.assertEquals(
+                                pinyinIdentity(resolve, "pinyin_original_only", type),
+                                pinyinIdentity(resolve, "pinyin_original_only_dedup", type)),
                         () -> Assertions.assertNotEquals(pinyinIdentity(resolve, "pinyin_full", type),
                                 pinyinIdentity(resolve, "pinyin_full_dedup", type)),
                         () -> Assertions.assertNotEquals(pinyinIdentity(resolve, "pinyin_chinese", type),
@@ -1457,6 +1483,7 @@ public class AnalyzerIdentityBuilderTest {
                 {"wd_a_lower_b_digit", "[a => LOWER],[b => DIGIT]"},
                 {"wd_ascii_defaults_b_digit", "[A => UPPER],[1 => DIGIT],[_ => SUBWORD_DELIM],[b => DIGIT]"},
                 {"wd_a_lower", "[a => LOWER]"},
+                {"wd_b_lower", "[b => LOWER]"},
                 {"wd_a_alpha", "[a => ALPHA]"},
                 {"wd_a_digit", "[a => DIGIT]"},
                 {"wd_a_b_lower", "[a => LOWER],[b => LOWER]"},
@@ -1480,7 +1507,9 @@ public class AnalyzerIdentityBuilderTest {
             Object absent = resolve.invoke(null, "wd_absent", filter);
             Object digitB = resolve.invoke(null, "wd_b_digit", filter);
             Object lowerA = resolve.invoke(null, "wd_a_lower", filter);
+            Object lowerB = resolve.invoke(null, "wd_b_lower", filter);
             Assertions.assertAll(
+                    () -> Assertions.assertEquals(lowerA, lowerB),
                     () -> Assertions.assertEquals(digitB, resolve.invoke(null, "wd_a_lower_b_digit", filter)),
                     () -> Assertions.assertEquals(digitB,
                             resolve.invoke(null, "wd_ascii_defaults_b_digit", filter)),
@@ -1850,15 +1879,21 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
-    public void testAdjacentDuplicateLowercaseFiltersCollapse() {
+    public void testAdjacentDuplicateIdempotentFiltersCollapse() {
         IndexPolicyMgr policyMgr = new IndexPolicyMgr();
         replayComponent(policyMgr, 1, "named_lower", IndexPolicyTypeEnum.TOKEN_FILTER,
                 Map.of("type", "lowercase"));
+        replayComponent(policyMgr, 2, "ascii_keep", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "asciifolding", "preserve_original", "true"));
         String[][] analyzers = {
                 {"lower_once", "lowercase"},
                 {"lower_twice", "lowercase,lowercase"},
                 {"lower_thrice", "lowercase,lowercase,lowercase"},
                 {"lower_named_lower", "lowercase,named_lower"},
+                {"fold_once", "asciifolding"},
+                {"fold_twice", "asciifolding,asciifolding"},
+                {"fold_keep_once", "ascii_keep"},
+                {"fold_keep_twice", "ascii_keep,ascii_keep"},
                 {"lower_ascii", "lowercase,asciifolding"},
                 {"lower_ascii_lower", "lowercase,asciifolding,lowercase"},
                 {"pinyin_once", "pinyin"},
@@ -1878,6 +1913,10 @@ public class AnalyzerIdentityBuilderTest {
                     () -> Assertions.assertEquals(once, namedAnalyzerIdentity("lower_twice")),
                     () -> Assertions.assertEquals(once, namedAnalyzerIdentity("lower_thrice")),
                     () -> Assertions.assertEquals(once, namedAnalyzerIdentity("lower_named_lower")),
+                    () -> Assertions.assertEquals(namedAnalyzerIdentity("fold_once"),
+                            namedAnalyzerIdentity("fold_twice")),
+                    () -> Assertions.assertNotEquals(namedAnalyzerIdentity("fold_keep_once"),
+                            namedAnalyzerIdentity("fold_keep_twice")),
                     // Only adjacent duplicates collapse, and only for a filter proven idempotent.
                     () -> Assertions.assertNotEquals(namedAnalyzerIdentity("lower_ascii"),
                             namedAnalyzerIdentity("lower_ascii_lower")),
@@ -1907,6 +1946,14 @@ public class AnalyzerIdentityBuilderTest {
                 "keep_none_chinese", "false", "keep_original", "false", "keep_joined_full_pinyin", "true");
         replayPinyinPair(policyMgr, 9, "pinyin_joined", withJoined);
         replayPinyinPair(policyMgr, 10, "pinyin_joined_cased", casedPinyin(withJoined));
+        Map<String, String> untokenizedAscii = Map.of("keep_first_letter", "false",
+                "keep_original", "false", "none_chinese_pinyin_tokenize", "false");
+        replayPinyinPair(policyMgr, 11, "pinyin_untokenized_ascii", untokenizedAscii);
+        replayPinyinPair(policyMgr, 12, "pinyin_untokenized_ascii_cased", casedPinyin(untokenizedAscii));
+        Map<String, String> separateAscii = Map.of("keep_first_letter", "false",
+                "keep_original", "false", "keep_none_chinese_together", "false");
+        replayPinyinPair(policyMgr, 13, "pinyin_separate_ascii", separateAscii);
+        replayPinyinPair(policyMgr, 14, "pinyin_separate_ascii_cased", casedPinyin(separateAscii));
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
         Method resolve = resolveComponentIdentityMethod();
@@ -1917,13 +1964,19 @@ public class AnalyzerIdentityBuilderTest {
                     () -> Assertions.assertEquals(
                             pinyinIdentity(resolve, "pinyin_only", IndexPolicyTypeEnum.TOKENIZER),
                             pinyinIdentity(resolve, "pinyin_only_cased", IndexPolicyTypeEnum.TOKENIZER)),
-                    // Any output that can carry the source case keeps lower_case significant.
+                    // Outputs that can carry the source case keep lowercase significant.
                     () -> Assertions.assertNotEquals(
                             pinyinIdentity(resolve, "pinyin_original", IndexPolicyTypeEnum.TOKENIZER),
                             pinyinIdentity(resolve, "pinyin_original_cased", IndexPolicyTypeEnum.TOKENIZER)),
-                    () -> Assertions.assertNotEquals(
+                    () -> Assertions.assertEquals(
                             pinyinIdentity(resolve, "pinyin_ascii", IndexPolicyTypeEnum.TOKENIZER),
                             pinyinIdentity(resolve, "pinyin_ascii_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_untokenized_ascii", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_untokenized_ascii_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_separate_ascii", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_separate_ascii_cased", IndexPolicyTypeEnum.TOKENIZER)),
                     () -> Assertions.assertNotEquals(
                             pinyinIdentity(resolve, "pinyin_first_letter", IndexPolicyTypeEnum.TOKENIZER),
                             pinyinIdentity(resolve, "pinyin_first_letter_cased", IndexPolicyTypeEnum.TOKENIZER)),

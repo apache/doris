@@ -50,7 +50,7 @@ public final class AnalyzerIdentityBuilder {
     private static final String CHAR_REPLACE_DEFAULT_PATTERN = ",._";
     private static final String CHAR_REPLACE_DEFAULT_REPLACEMENT = " ";
     // Token filters that emit the same terms, offsets and provenance when applied twice in a row.
-    private static final Set<String> IDEMPOTENT_TOKEN_FILTERS = ImmutableSet.of("lowercase");
+    private static final Set<String> IDEMPOTENT_TOKEN_FILTERS = ImmutableSet.of("lowercase", "asciifolding");
     // Same separator BE uses between bracketed list entries.
     private static final Pattern ENTRY_SEPARATOR = Pattern.compile("(?<=\\])\\s*,\\s*(?=\\[)");
     private static final Set<String> WORD_DELIMITER_TYPES = ImmutableSet.of(
@@ -659,13 +659,13 @@ public final class AnalyzerIdentityBuilder {
             }
             types.put(character.codePointAt(0), type);
         }
-        // A rule that restates BE's own classification changes nothing, but a table made only of
-        // such rules still replaces BE's default table, which classifies Latin-1 differently.
+        // An explicit table uses BE's generated classification, including when all rules restate it.
         TreeMap<Integer, String> effectiveTypes = new TreeMap<>(types);
         effectiveTypes.entrySet().removeIf(
                 entry -> entry.getValue().equals(defaultWordDelimiterType(entry.getKey())));
-        if (effectiveTypes.isEmpty()) {
-            effectiveTypes = types;
+        if (effectiveTypes.isEmpty() && !types.isEmpty()) {
+            properties.put("type_table", "");
+            return;
         }
         List<String> canonicalRules = new ArrayList<>();
         for (Map.Entry<Integer, String> entry : effectiveTypes.entrySet()) {
@@ -802,11 +802,11 @@ public final class AnalyzerIdentityBuilder {
             properties.remove("trim_whitespace");
         }
 
-        // With every per-character candidate disabled at most one term is emitted per input, the
-        // joined pinyin or the token filter's fallback original, so nothing can be a duplicate.
-        if (Boolean.FALSE.equals(keepFirstLetter) && Boolean.FALSE.equals(keepFullPinyin)
-                && Boolean.FALSE.equals(keepSeparateFirstLetter) && Boolean.FALSE.equals(keepOriginal)
-                && Boolean.FALSE.equals(keepNoneChinese)
+        // Without per-character outputs, all remaining candidates have position 1.
+        // Deduplicating by term or by term and position has the same effect.
+        if (Boolean.FALSE.equals(keepNoneChinese)
+                && Boolean.FALSE.equals(keepFullPinyin)
+                && Boolean.FALSE.equals(keepSeparateFirstLetter)
                 && Boolean.FALSE.equals(effectiveBoolean(properties, "keep_separate_chinese", false))) {
             properties.remove("remove_duplicated_term");
         }
@@ -836,15 +836,16 @@ public final class AnalyzerIdentityBuilder {
             properties.remove("keep_none_chinese_in_joined_full_pinyin");
         }
 
-        // With the original, ASCII, first-letter and joined outputs all disabled, every candidate
-        // the tokenizer emits comes from the pinyin dictionary, which is already lower case. The
-        // token filter keeps the setting: it falls back to the original token when nothing else
-        // would be emitted.
+        // The ASCII alphabet tokenizer and pinyin dictionary already emit lowercase candidates.
+        // The token filter keeps this setting because its fallback can carry the source case.
         if (expectedType == IndexPolicyTypeEnum.TOKENIZER
                 && Boolean.FALSE.equals(keepFirstLetter)
-                && Boolean.FALSE.equals(keepNoneChinese)
                 && Boolean.FALSE.equals(keepOriginal)
-                && Boolean.FALSE.equals(keepJoinedFullPinyin)) {
+                && Boolean.FALSE.equals(keepJoinedFullPinyin)
+                && (Boolean.FALSE.equals(keepNoneChinese)
+                        || (Boolean.TRUE.equals(keepNoneChinese)
+                                && Boolean.TRUE.equals(keepNoneChineseTogether)
+                                && Boolean.TRUE.equals(noneChinesePinyinTokenize)))) {
             properties.remove("lowercase");
         }
     }
