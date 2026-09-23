@@ -33,7 +33,7 @@ namespace doris {
 
 class ResourceContext;
 std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
-        std::shared_ptr<ResourceContext> context, uint64_t limit);
+        std::shared_ptr<ResourceContext> context);
 
 // The SDK imports only ArrowArray, using its pinned table schema to interpret every buffer.
 Status validate_paimon_cpp_batch(const arrow::RecordBatch& batch, const arrow::Schema& schema);

@@ -114,8 +114,8 @@ Status sdk_status(const paimon::Status& status) {
 
 class QueryMemoryPool final : public paimon::MemoryPool {
 public:
-    QueryMemoryPool(std::shared_ptr<ResourceContext> context, uint64_t limit)
-            : _context(std::move(context)), _limit(limit) {}
+    explicit QueryMemoryPool(std::shared_ptr<ResourceContext> context)
+            : _context(std::move(context)) {}
 
     void* Malloc(uint64_t size, uint64_t alignment = 0) override {
         if (size > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
@@ -125,7 +125,7 @@ public:
         const uint64_t charged = std::max<uint64_t>(size, 1);
         uint64_t used = _used.load();
         do {
-            if (used > _limit || charged > _limit - used) {
+            if (charged > std::numeric_limits<uint64_t>::max() - used) {
                 throw std::bad_alloc();
             }
         } while (!_used.compare_exchange_weak(used, used + charged));
@@ -184,7 +184,6 @@ public:
 
 private:
     std::shared_ptr<ResourceContext> _context;
-    uint64_t _limit;
     Allocator<false> _allocator;
     std::atomic<uint64_t> _used {0};
     std::atomic<uint64_t> _peak {0};
@@ -280,8 +279,8 @@ Status take_paimon_rows(const std::shared_ptr<arrow::RecordBatch>& input,
 } // namespace
 
 std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
-        std::shared_ptr<ResourceContext> context, uint64_t limit) {
-    return std::make_shared<QueryMemoryPool>(std::move(context), limit);
+        std::shared_ptr<ResourceContext> context) {
+    return std::make_shared<QueryMemoryPool>(std::move(context));
 }
 
 class CppPaimonWriteBackend::Impl {
@@ -342,13 +341,7 @@ public:
         // target instead of requiring a full table-ordered block.
         _schema = arrow::schema(std::move(write_fields));
         auto context = state->get_query_ctx()->resource_ctx();
-        int64_t limit = config::paimon_cpp_writer_memory_limit_bytes;
-        const auto query_limit = state->query_mem_tracker()->limit();
-        if (query_limit > 0) {
-            limit = std::min(limit, query_limit / std::max(1, state->task_num()));
-        }
-        if (limit <= 0) return Status::MemoryLimitExceeded("No Paimon native writer memory budget");
-        _pool = make_paimon_query_memory_pool(context, limit);
+        _pool = make_paimon_query_memory_pool(context);
         _arrow_pool = std::make_shared<QueryArrowPool>(context);
 
         _partition_keys = table_schema.value()->PartitionKeys();
@@ -384,11 +377,10 @@ public:
             return Status::NotSupported(
                     "Native Paimon dynamic and postpone primary-key routing is not enabled");
         }
-        COUNTER_SET(ADD_COUNTER(profile, "PaimonSdkPoolLimit", TUnit::BYTES), limit);
         _sdk_pool_peak = ADD_COUNTER(profile, "PaimonSdkPoolPeak", TUnit::BYTES);
         _conversion_peak = ADD_COUNTER(profile, "PaimonArrowConversionPeak", TUnit::BYTES);
         profile->add_info_string("PaimonMemoryScope",
-                                 "SDK pool limit excludes conversion, IO and non-pool allocations");
+                                 "SDK pool and Arrow conversion use the query ResourceContext");
         io::FSPropertiesRef fs_properties(storage.file_type);
         fs_properties.properties = &storage.properties;
         io::FileDescription file_description;

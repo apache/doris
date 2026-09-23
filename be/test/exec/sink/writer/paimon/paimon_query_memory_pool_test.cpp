@@ -27,7 +27,7 @@
 
 namespace doris {
 
-TEST(PaimonQueryMemoryPoolTest, AllocatorOomRollsBackAndAllowsNextAllocation) {
+TEST(PaimonQueryMemoryPoolTest, TracksUsageAndRollsBackAllocatorOom) {
     TUniqueId query_id;
     query_id.hi = 7;
     query_id.lo = 9;
@@ -39,15 +39,12 @@ TEST(PaimonQueryMemoryPoolTest, AllocatorOomRollsBackAndAllowsNextAllocation) {
     address.port = 9030;
     auto query = QueryContext::create(query_id, ExecEnv::GetInstance(), options, address, true,
                                       address, QuerySource::INTERNAL_FRONTEND);
-    auto pool = make_paimon_query_memory_pool(query->resource_ctx(), 1024);
+    auto pool = make_paimon_query_memory_pool(query->resource_ctx());
     const double old_probability = config::mem_alloc_fault_probability;
     Defer restore {[&] { config::mem_alloc_fault_probability = old_probability; }};
     config::mem_alloc_fault_probability = 0;
     auto* ptr = static_cast<unsigned char*>(pool->Malloc(64, 64));
     memset(ptr, 0x5a, 64);
-    EXPECT_EQ(64, pool->CurrentUsage());
-    EXPECT_THROW(pool->Malloc(2048), std::bad_alloc);
-    EXPECT_THROW(pool->Realloc(ptr, 64, 2048), std::bad_alloc);
     EXPECT_EQ(64, pool->CurrentUsage());
 
     // Exercise Doris Allocator itself (MEM_ALLOC_FAILED), not a mocked SDK Status.
@@ -66,9 +63,10 @@ TEST(PaimonQueryMemoryPoolTest, AllocatorOomRollsBackAndAllowsNextAllocation) {
     std::thread worker([pool, ptr] { pool->Free(ptr, 128); });
     worker.join();
     EXPECT_EQ(0, pool->CurrentUsage());
-    auto next_writer_pool = make_paimon_query_memory_pool(query->resource_ctx(), 1024);
-    void* next = next_writer_pool->Malloc(64);
-    next_writer_pool->Free(next, 64);
+    auto next_writer_pool = make_paimon_query_memory_pool(query->resource_ctx());
+    // No private per-writer cap: the query, workload group and process trackers govern memory.
+    void* next = next_writer_pool->Malloc(2048);
+    next_writer_pool->Free(next, 2048);
     EXPECT_EQ(0, next_writer_pool->CurrentUsage());
 }
 
