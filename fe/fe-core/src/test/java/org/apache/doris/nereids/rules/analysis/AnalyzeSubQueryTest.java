@@ -500,6 +500,42 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testComputedProjectionBelowTheAggregationOfTheDomainIsRejected() {
+        // The projection computes the columns which the aggregation above it reads from the rows of
+        // the correlated domain, and the rewrite drops the projections between the filter of the
+        // WHERE clause and the aggregation (see containsAComputedProjectionBelowTheAggregation): the
+        // computed column of the projection would be missing below the aggregation.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id NOT IN (SELECT max(c) FROM"
+                                + " (SELECT count(z) c FROM (SELECT T2.id, T2.score + 1 z FROM T2"
+                                + " WHERE T2.score = T1.id) p GROUP BY p.id HAVING count(z) > 0) x)"));
+        Assertions.assertTrue(exception.getMessage().contains("below the aggregation"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testProjectionOfTheDomainBelowTheAggregationIsAccepted() {
+        // a projection which only passes the columns of its child through is redundant below the
+        // aggregation of the domain, so the rewrite drops it and keeps the subquery
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id NOT IN (SELECT max(c) FROM"
+                        + " (SELECT count(id) c FROM (SELECT T2.score, T2.id FROM T2"
+                        + " WHERE T2.score = T1.id) p GROUP BY p.id) x)");
+    }
+
+    @Test
+    public void testConstantProjectionOfTheDomainIsAccepted() {
+        // the subquery does not aggregate the rows of its domain, so the rules which rewrite a set
+        // membership read those rows (see UnCorrelatedApplyFilter): only the projections below an
+        // aggregation are dropped by the rewrite of the aggregating subqueries, so the constant
+        // projection of the select list of this subquery is accepted
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.score + 2 IN (SELECT 1 FROM T2"
+                        + " WHERE T1.id IS NULL AND T1.id IS NOT NULL)");
+    }
+
+    @Test
     public void testExistsCorrelatedScalarAggUnionOrderBy() {
         // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
         // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().

@@ -433,4 +433,23 @@ suite("correlated_in_scalar_aggregate") {
             JOIN cisa_i j ON i.g = j.g WHERE i.k = o.k)
         ORDER BY o.k
     """
+    // The projection below the aggregation of the domain computes the column which that aggregation
+    // reads (i.g + 1), and the rewrite drops the projections between the filter of the WHERE clause
+    // and the aggregation: the computed column would be missing below the aggregation, so the
+    // subquery is reported instead of returning a wrong result (the same subquery without the
+    // expression, whose projection only passes the columns of its child through, is rewritten and
+    // returns 2 for the outer key 2 while the outer keys without any matching inner row compare
+    // with the null of the max of the empty derived table and are not returned)
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k NOT IN (SELECT max(c) FROM" +
+                " (SELECT count(z) c FROM (SELECT i.k, i.g + 1 z FROM cisa_i i WHERE i.k = o.k) p" +
+                " GROUP BY p.k HAVING count(z) > 0) x)"
+        exception "access outer query's column before a projection below the aggregation is not supported"
+    }
+    order_qt_not_in_with_a_passthrough_projection_below_the_aggregation """
+        SELECT o.k FROM cisa_o o WHERE o.k NOT IN (SELECT max(c) FROM
+            (SELECT count(g) c FROM (SELECT i.k, i.g FROM cisa_i i WHERE i.k = o.k) p
+                GROUP BY p.g) x)
+        ORDER BY o.k
+    """
 }

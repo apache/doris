@@ -234,3 +234,6 @@
 -- !in_with_a_join_below_the_correlated_predicate --
 2
 
+-- !not_in_with_a_passthrough_projection_below_the_aggregation --
+2
+

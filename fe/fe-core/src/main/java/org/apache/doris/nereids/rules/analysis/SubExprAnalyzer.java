@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -224,6 +225,18 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                 throw new AnalysisException(
                         "access outer query's column before join is not supported "
                                 + analyzedResult.getLogicalPlan());
+            }
+            if (containsAComputedProjectionBelowTheAggregation(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
+                // The projection computes the columns which the aggregation above it reads from the
+                // rows of the domain of an outer row, and the rewrite drops the projections between
+                // the filter of the WHERE clause and the aggregation (it reads the columns of the
+                // domain from the child of that filter): the computed columns of the projection
+                // would be missing below the aggregation, so the subquery is reported instead of
+                // building a plan which reads a column no node below the aggregation produces.
+                throw new AnalysisException(
+                        "access outer query's column before a projection below the aggregation is "
+                                + "not supported " + analyzedResult.getLogicalPlan());
             }
         }
 
@@ -776,6 +789,66 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
         return plan.children().stream()
                 .anyMatch(child -> containsAJoinAboveTheCorrelatedPredicate(child, correlatedSlots));
+    }
+
+    /**
+     * Whether a projection below the innermost aggregation of the subquery computes its own columns
+     * from the rows of the correlated domain (see visitInSubquery), instead of passing the columns of
+     * the nodes below it through. The rewrite which unnests a correlated IN subquery reads the rows of
+     * the domain of an outer row from the child of the filter of the WHERE clause (see
+     * pullUpCorrelatedFilter of UnCorrelatedApplyAggregateFilter), so it drops the projections between
+     * that filter and the innermost aggregation: a projection which only passes the columns of its
+     * child through is redundant there, while the columns which a projection computes itself would be
+     * missing below the aggregation which reads them. For example the subquery of
+     *
+     *     select k from o where k not in (select max(c) from
+     *         (select count(z) c from (select i.g, i.v + 1 z from i where i.k = o.k) p
+     *             group by p.g having count(z) > 0) x)
+     *
+     * is reported as unsupported for that reason. A projection above the innermost aggregation is kept
+     * by the rewrite, which rebuilds the aggregations around it (see rebuildTheAggregationChain), so
+     * the subquery of
+     *
+     *     select k from o where k in (select count(*) + 1 from i where i.k = o.k)
+     *
+     * is accepted.
+     */
+    private static boolean containsAComputedProjectionBelowTheAggregation(Plan plan,
+            ImmutableSet<Slot> correlatedSlots) {
+        List<Plan> path = new ArrayList<>(8);
+        for (Plan node = plan; node != null; node = theChildWhichHoldsTheOuterSlots(node, correlatedSlots)) {
+            path.add(node);
+            if (readsAnOuterSlot(node, correlatedSlots)) {
+                break;
+            }
+        }
+        int innermostAggregation = -1;
+        for (int i = 0; i < path.size(); ++i) {
+            if (path.get(i) instanceof LogicalAggregate) {
+                innermostAggregation = i;
+            }
+        }
+        if (innermostAggregation < 0) {
+            // the subquery does not aggregate the rows of its domain, so the rewrites of the other
+            // rules read its rows (see UnCorrelatedApplyFilter): only the projections below an
+            // aggregation are dropped by the rewrite of the aggregating subqueries
+            return false;
+        }
+        for (int i = innermostAggregation + 1; i < path.size(); ++i) {
+            if (!(path.get(i) instanceof LogicalProject)) {
+                continue;
+            }
+            for (NamedExpression project : ((LogicalProject<?>) path.get(i)).getProjects()) {
+                if (project instanceof Slot) {
+                    // a projection which passes a column of its child through is redundant below the
+                    // aggregation of the domain: the rewrite reads that column from the child of the
+                    // filter of the WHERE clause
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
