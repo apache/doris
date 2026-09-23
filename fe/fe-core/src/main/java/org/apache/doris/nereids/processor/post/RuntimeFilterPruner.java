@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,12 +28,14 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
@@ -44,7 +47,9 @@ import org.apache.doris.statistics.model.Statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -61,6 +66,11 @@ import java.util.Set;
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
 public class RuntimeFilterPruner extends PlanPostProcessor {
+
+    // Records CTE producers whose subtree is an effective RF source (e.g. contains TopN/Limit/
+    // a visible-column filter, i.e. its output is bounded/selective). Keyed by CTEId, filled when
+    // visiting the producer side of a CTE anchor, consumed when visiting its consumers.
+    private final Map<CTEId, RuntimeFilterContext.EffectiveSrcType> effectiveCteProducers = new HashMap<>();
 
     @Override
     public Plan visit(Plan plan, CascadesContext context) {
@@ -122,9 +132,49 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalCTEAnchor<? extends Plan, ? extends Plan> visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext context) {
+        // Visit the producer subtree first: if its root is an effective RF source
+        // (bounded/selective output, e.g. TopN/Limit/visible-column filter/global agg),
+        // record it so that consumers of this CTE can inherit the effectiveness.
+        // Without this, a join whose build side is a CTE consumer of such a producer gets
+        // its runtime filters pruned as "ineffective" merely because the consumer's
+        // statistics are unknown (always the case for external tables).
         cteAnchor.child(0).accept(this, context);
+        RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
+        if (rfCtx.isEffectiveSrcNode(cteAnchor.child(0))) {
+            effectiveCteProducers.put(cteAnchor.getCteId(), rfCtx.getEffectiveSrcType(cteAnchor.child(0)));
+        }
         cteAnchor.child(1).accept(this, context);
         return cteAnchor;
+    }
+
+    @Override
+    public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer consumer, CascadesContext context) {
+        RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
+        // Inherit effectiveness recorded from the producer subtree (see visitPhysicalCTEAnchor).
+        RuntimeFilterContext.EffectiveSrcType producerType = effectiveCteProducers.get(consumer.getCteId());
+        if (producerType != null) {
+            rfCtx.addEffectiveSrcNode(consumer, producerType);
+        }
+        // A consumer is also a relation that can be the target of RFs.
+        List<Slot> slots = rfCtx.getTargetListByScan(consumer);
+        for (Slot slot : slots) {
+            if (!rfCtx.getTargetExprIdToFilter().get(slot.getExprId()).isEmpty()) {
+                rfCtx.addEffectiveSrcNode(consumer, RuntimeFilterContext.EffectiveSrcType.REF);
+                break;
+            }
+        }
+        return consumer;
+    }
+
+    @Override
+    public PhysicalPartitionTopN<? extends Plan> visitPhysicalPartitionTopN(
+            PhysicalPartitionTopN<? extends Plan> partitionTopN, CascadesContext context) {
+        partitionTopN.child().accept(this, context);
+        // Same rationale as PhysicalTopN: bounded output (at most partitionLimit rows per group)
+        // makes RFs built from it highly selective regardless of statistics.
+        context.getRuntimeFilterContext().addEffectiveSrcNode(partitionTopN,
+                RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        return partitionTopN;
     }
 
     @Override
@@ -250,6 +300,21 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalHashAggregate visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> aggregate,
                                                             CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        // A global aggregate without any group-by key (e.g. the MAX(dt) in
+        //   WHERE dt = (SELECT MAX(dt) FROM t))
+        // produces exactly ONE output row, so an equi-join RF built from it reduces the probe side
+        // to a single value and is always maximally selective -- regardless of column statistics.
+        // This is the same "cardinality <= 1" guarantee that PhysicalAssertNumRows provides (and
+        // which is treated as an effective source below); a no-group-by global aggregate lets the
+        // planner elide the AssertNumRows, so we must recognize the aggregate itself as effective,
+        // otherwise the RF gets pruned for tables without stats (e.g. Hive external tables) and the
+        // "latest partition" pattern can never benefit from runtime-filter partition pruning.
+        if (aggregate.getGroupByExpressions().isEmpty()) {
+            aggregate.child(0).accept(this, context);
+            ctx.addEffectiveSrcNode(aggregate, RuntimeFilterContext.EffectiveSrcType.NATIVE);
+            return aggregate;
+        }
         return propagateEffectiveSrc(aggregate, context);
     }
 

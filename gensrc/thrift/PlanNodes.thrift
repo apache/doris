@@ -1031,7 +1031,11 @@ enum TPushAggOp {
 	MINMAX = 1,
 	COUNT = 2,
 	MIX = 3,
-	COUNT_ON_INDEX = 4
+	COUNT_ON_INDEX = 4,
+	// The aggregation only depends on partition columns of an external table.
+	// The scanner just returns one row (partition column values) per scan range
+	// without opening/reading any data file.
+	PARTITION_VALUE = 5
 }
 
 struct TScoreRangeInfo {

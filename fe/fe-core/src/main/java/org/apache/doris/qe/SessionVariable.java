@@ -805,6 +805,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
+    public static final String ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION
+            = "enable_partition_column_value_only_optimization";
+
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
 
     public static final String MAX_MSG_SIZE_OF_RESULT_RECEIVER = "max_msg_size_of_result_receiver";
@@ -2928,6 +2931,13 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION,
+            fuzzy = true,
+            description = "when an aggregation(min/max) only depends on partition columns of an external table, "
+                    + "the scanner returns one row of partition column values per scan range based on partition "
+                    + "metadata, without opening or reading any data file")
+    private boolean enablePartitionColumnValueOnlyOptimization = true;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
@@ -6382,6 +6392,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableCountPushDownForExternalTable() {
         return enableCountPushDownForExternalTable;
+    }
+
+    public boolean isEnablePartitionColumnValueOnlyOptimization() {
+        return enablePartitionColumnValueOnlyOptimization;
     }
 
     public boolean isForceToLocalShuffle() {

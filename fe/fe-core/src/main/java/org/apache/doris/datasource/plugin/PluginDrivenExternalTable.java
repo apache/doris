@@ -323,6 +323,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether THIS table's partition column values come from the data file path, i.e. whether a
+     * pure min/max aggregation over partition columns can be answered from partition metadata alone,
+     * without opening any data file. Consulted by {@code AggregateStrategies} when it decides whether to
+     * push such an aggregation down as {@code PARTITION_VALUE}.
+     *
+     * <p>Resolved per-table via {@link #hasCapability}: hive emits it for its HIVE and hudi-on-HMS tables
+     * only, so iceberg/paimon-on-HMS are excluded even though they are served by the same HMS catalog
+     * (legacy {@code dlaType HIVE || HUDI}). This is precisely the discrimination the legacy
+     * {@code instanceof HMSExternalTable} check could not make: an iceberg or paimon table reached
+     * through an HMS catalog IS an {@code HMSExternalTable}.</p>
+     */
+    public boolean supportsPartitionValueOnly() {
+        return hasCapability(ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY);
+    }
+
+    /**
      * Whether this table supports a table-scoped capability, resolved connector-wide OR per-table. A
      * uniform-format connector (iceberg — every table orc/parquet) declares the capability for all its tables
      * via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is per-table
