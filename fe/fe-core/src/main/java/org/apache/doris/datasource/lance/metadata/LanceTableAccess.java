@@ -17,18 +17,69 @@
 
 package org.apache.doris.datasource.lance.metadata;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
-/** Access parameters resolved for one read; credentials are not versioned dataset metadata. */
+/**
+ * Access parameters resolved for one read; credentials are not versioned dataset metadata.
+ *
+ * <p>A storage-versioned dataset is opened by URI: Lance resolves versions from the
+ * {@code _versions/} directory of the dataset itself. A namespace-managed dataset
+ * ({@code DescribeTableResponse.managed_versioning = true}) is opened through the namespace
+ * client instead, so the SDK asks the namespace for the manifest of the latest or requested
+ * version and copies a still-staged manifest to its canonical path. A reader which only knows
+ * the dataset URI, such as the BE lance-c reader, can then open the same version afterwards.
+ *
+ * <p>The dataset URI and storage options are kept in both modes. They are what the BE receives,
+ * and in namespace mode they are also the initial options the SDK overlays the namespace-vended
+ * options on.
+ */
 public final class LanceTableAccess {
     private final String datasetUri;
     private final Map<String, String> storageOptions;
+    private final List<String> namespaceTableId;
+    private final String branch;
 
+    /** A dataset whose versions live in its own {@code _versions/} directory. */
     public LanceTableAccess(String datasetUri, Map<String, String> storageOptions) {
-        this.datasetUri = datasetUri;
+        this(datasetUri, storageOptions, null, null);
+    }
+
+    private LanceTableAccess(String datasetUri, Map<String, String> storageOptions,
+            List<String> namespaceTableId, String branch) {
+        this.datasetUri = Objects.requireNonNull(datasetUri, "datasetUri");
         this.storageOptions = Collections.unmodifiableMap(new HashMap<>(storageOptions));
+        this.namespaceTableId = namespaceTableId == null
+                ? null : Collections.unmodifiableList(new ArrayList<>(namespaceTableId));
+        this.branch = branch;
+    }
+
+    /**
+     * The same table on one of its branches. A branch is a separate manifest chain with its own
+     * root directory, which the SDK reports as the checked-out dataset's URI; a reader that opens
+     * by URI, such as the BE, addresses the branch by that root. The storage options and namespace
+     * identity are unchanged.
+     */
+    public LanceTableAccess onBranch(String branchName, String branchUri) {
+        return new LanceTableAccess(Objects.requireNonNull(branchUri, "branchUri"), storageOptions,
+                namespaceTableId, Objects.requireNonNull(branchName, "branchName"));
+    }
+
+    /** The branch this access addresses, if not the main chain. */
+    public Optional<String> getBranch() {
+        return Optional.ofNullable(branch);
+    }
+
+    /** A dataset whose versions are recorded by the namespace that owns {@code namespaceTableId}. */
+    public static LanceTableAccess managedByNamespace(String datasetUri,
+            Map<String, String> storageOptions, List<String> namespaceTableId) {
+        return new LanceTableAccess(datasetUri, storageOptions,
+                Objects.requireNonNull(namespaceTableId, "namespaceTableId"), null);
     }
 
     public String getDatasetUri() {
@@ -37,5 +88,15 @@ public final class LanceTableAccess {
 
     public Map<String, String> getStorageOptions() {
         return storageOptions;
+    }
+
+    /** Whether versions are resolved through the namespace rather than the dataset directory. */
+    public boolean isManagedVersioning() {
+        return namespaceTableId != null;
+    }
+
+    /** The namespace table identifier the SDK opens a managed dataset with; null otherwise. */
+    public List<String> getNamespaceTableId() {
+        return namespaceTableId;
     }
 }

@@ -58,6 +58,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 /** Common immutable planning state and validation for Lance external-search relation TVFs. */
 abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctionIf {
@@ -70,6 +71,9 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
     private static final String FULLY_QUALIFIED_TABLE_NAME_ERROR =
             "'table' must be a fully qualified catalog.database.table name";
     private static final long UINT32_MAX = 0xFFFF_FFFFL;
+    /** A trailing @tag/@branch/... or FOR VERSION/TIME AS OF on the 'table' argument. */
+    private static final Pattern SELECTOR_SUFFIX = Pattern.compile(
+            "(?i)(@\\s*(tag|branch|incr|options)\\b|\\sfor\\s+(version|time)\\b)");
 
     private final String displayName;
     private final TableName sourceTableName;
@@ -257,15 +261,27 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
         return result;
     }
 
+    /**
+     * The search TVFs always read the latest version of the main chain. A name that only fails to
+     * parse because it carries a selector gets a message saying so; a backquoted name containing
+     * '@' or ' for ' parses and is never affected.
+     */
+    private static String tableNameError(String value) {
+        return SELECTOR_SUFFIX.matcher(value).find()
+                ? "'table' of a Lance search function cannot select a version, tag or branch;"
+                        + " it always searches the latest version"
+                : FULLY_QUALIFIED_TABLE_NAME_ERROR;
+    }
+
     protected static TableName parseTableName(String value) throws AnalysisException {
         Expression expression;
         try {
             expression = new NereidsParser().parseExpression(value);
         } catch (ParseException e) {
-            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR, e);
+            throw new AnalysisException(tableNameError(value), e);
         }
         if (!(expression instanceof UnboundSlot)) {
-            throw new AnalysisException(FULLY_QUALIFIED_TABLE_NAME_ERROR);
+            throw new AnalysisException(tableNameError(value));
         }
         List<String> names = ((UnboundSlot) expression).getNameParts();
         if (names.size() != 3) {

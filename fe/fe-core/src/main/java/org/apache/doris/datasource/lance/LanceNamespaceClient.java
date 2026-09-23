@@ -27,7 +27,11 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Ticker;
+import org.apache.arrow.memory.BufferAllocator;
 import org.apache.commons.lang3.StringUtils;
+import org.lance.Dataset;
+import org.lance.ReadOptions;
+import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
 import org.lance.namespace.errors.TableNotFoundException;
@@ -35,9 +39,12 @@ import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListNamespacesResponse;
+import org.lance.namespace.model.ListTableVersionsRequest;
+import org.lance.namespace.model.ListTableVersionsResponse;
 import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.TableExistsRequest;
+import org.lance.namespace.model.TableVersion;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -227,9 +234,8 @@ final class LanceNamespaceClient {
 
     private CachedTableAccess loadTableAccess(List<String> tableId) {
         DescribeTableResponse table = describeTable(tableId);
-        if (Boolean.TRUE.equals(table.getManagedVersioning())) {
-            throw new UnsupportedOperationException(
-                    "Lance managed versioning is not supported by the current BE reader");
+        if (Boolean.TRUE.equals(table.getIsOnlyDeclared())) {
+            throw new RuntimeException("Lance table is declared in the namespace but has no data yet");
         }
         String datasetUri = StringUtils.firstNonBlank(table.getTableUri(), table.getLocation());
         if (datasetUri == null) {
@@ -241,8 +247,71 @@ final class LanceNamespaceClient {
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
         Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
                 storageProperties, table.getStorageOptions());
-        return new CachedTableAccess(new LanceTableAccess(datasetUri, storageOptions),
-                tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+        LanceTableAccess access;
+        if (Boolean.TRUE.equals(table.getManagedVersioning())) {
+            // The namespace, not the dataset directory, records which manifest each version has.
+            // The FE opens the dataset through the namespace so the SDK resolves the version there
+            // and finalizes a still-staged manifest to its canonical path; the BE then opens the
+            // same version by URI, which is all lance-c supports. The SDK opens `location` and
+            // ignores `table_uri`, so both readers must agree on it.
+            if (StringUtils.isBlank(table.getLocation())) {
+                throw new RuntimeException("Lance namespace returned no location for managed table " + tableId);
+            }
+            if (StringUtils.isNotBlank(table.getTableUri()) && !table.getTableUri().equals(table.getLocation())) {
+                throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
+                        + "managed table " + tableId);
+            }
+            access = LanceTableAccess.managedByNamespace(datasetUri, storageOptions, tableId);
+        } else {
+            access = new LanceTableAccess(datasetUri, storageOptions);
+        }
+        return new CachedTableAccess(access, tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+    }
+
+    /**
+     * Opens a namespace-managed dataset through the namespace client. The SDK resolves versions
+     * with its own native namespace client (it takes the native handle of a REST or Directory
+     * namespace rather than calling back into this Java object), so the open is not serialized
+     * with the requests this class issues itself.
+     *
+     * <p>The session is passed to the builder explicitly: when the SDK opens through a namespace
+     * client it rebuilds the read options and drops the session they carry, so the one inside
+     * {@code readOptions} is ignored on this path.
+     */
+    Dataset openManagedDataset(BufferAllocator allocator, LanceTableAccess access, ReadOptions readOptions,
+            Session session) {
+        return Dataset.open().allocator(allocator).namespaceClient(namespace)
+                .tableId(access.getNamespaceTableId()).readOptions(readOptions).session(session).build();
+    }
+
+    /**
+     * Every version the namespace records for a managed chain. No page size is requested: Lance's
+     * Directory namespace applies a limit without returning a page token, which would silently
+     * truncate the history, while a namespace that pages on its own still returns one.
+     */
+    List<TableVersion> listManagedVersions(LanceTableAccess access) {
+        List<TableVersion> result = new ArrayList<>();
+        String pageToken = null;
+        Set<String> consumedTokens = new HashSet<>();
+        do {
+            ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId());
+            access.getBranch().ifPresent(request::branch);
+            if (pageToken != null) {
+                request.pageToken(pageToken);
+            }
+            ListTableVersionsResponse response;
+            synchronized (namespaceLock) {
+                response = namespace.listTableVersions(request);
+            }
+            if (response.getVersions() != null) {
+                result.addAll(response.getVersions());
+            }
+            pageToken = response.getPageToken();
+            if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
+                throw new IllegalStateException("Lance namespace repeated a pagination token");
+            }
+        } while (StringUtils.isNotEmpty(pageToken));
+        return result;
     }
 
     private long tableAccessTtlNanos(String datasetUri, Map<String, String> vendedOptions) {

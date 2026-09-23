@@ -26,8 +26,8 @@ suite("test_lance_rest_catalog", "p0,external") {
      *     -> FE pins the Lance dataset version and fragments
      *     -> BE lance-c reads the real dataset from MinIO
      *
-     * managed_versioning is false because the current BE opens storage-native
-     * Lance versions by URI and does not resolve REST-managed external manifests.
+     * managed_versioning is false here: the table's versions live in its own
+     * _versions/ directory. test_lance_rest_time_travel covers namespace-managed versions.
      */
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

@@ -26,7 +26,9 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.lance.metadata.LanceMvccSnapshot;
+import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceSchemaHelper;
+import org.apache.doris.datasource.lance.metadata.LanceSnapshotResolver;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -39,9 +41,11 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class LanceExternalTable extends ExternalTable implements MvccTable {
@@ -79,11 +83,6 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
                 db.getRemoteName(), remoteName);
     }
 
-    private LanceTableMetadata loadMetadata(Optional<TableSnapshot> tableSnapshot) {
-        return ((LanceExternalCatalog) catalog).loadTableMetadata(
-                db.getRemoteName(), remoteName, tableSnapshot);
-    }
-
     public LanceTableMetadata getMetadata(Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent()) {
             return ((LanceMvccSnapshot) snapshot.get()).getMetadata();
@@ -94,7 +93,68 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        return new LanceMvccSnapshot(loadMetadata(tableSnapshot));
+        // As for Iceberg and Paimon tables, a non-numeric FOR VERSION AS OF names a tag.
+        boolean versionIsTag = tableSnapshot.isPresent()
+                && tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION
+                && !LanceSnapshotResolver.isVersionNumber(tableSnapshot.get().getValue());
+        LanceRefSelector selector = versionIsTag
+                ? LanceRefSelector.tag(tableSnapshot.get().getValue()) : LanceRefSelector.snapshot(tableSnapshot);
+        if (scanParams.isPresent()) {
+            TableScanParams params = scanParams.get();
+            if (params.isBranch()) {
+                String branch = refName(params);
+                // Lance calls the main chain "main"; it lives at the table root, not under tree/.
+                if (LanceCatalogClient.MAIN_BRANCH.equals(branch)) {
+                    // selector stays the main-chain one, including a tag named in FOR VERSION AS OF.
+                } else if (versionIsTag) {
+                    throw new IllegalArgumentException("Lance table " + getName() + ": FOR VERSION AS OF '"
+                            + tableSnapshot.get().getValue() + "' names a tag, which cannot be combined with @branch;"
+                            + " use @tag(...) or a numeric version");
+                } else {
+                    selector = LanceRefSelector.branch(branch, tableSnapshot);
+                }
+            } else if (params.isTag()) {
+                if (tableSnapshot.isPresent()) {
+                    throw new IllegalArgumentException("Lance table " + getName()
+                            + ": @tag cannot be combined with FOR VERSION AS OF or FOR TIME AS OF");
+                }
+                selector = LanceRefSelector.tag(refName(params));
+            } else {
+                // Silently reading the latest version instead would return wrong data.
+                throw new IllegalArgumentException("Lance table " + getName() + " does not support @"
+                        + params.getParamType() + "; use @branch, @tag, FOR VERSION AS OF or FOR TIME AS OF");
+            }
+        }
+        return new LanceMvccSnapshot(((LanceExternalCatalog) catalog).loadTableMetadata(
+                db.getRemoteName(), remoteName, selector));
+    }
+
+    /**
+     * {@code tbl@tag(name)} arrives as a list parameter, {@code tbl@tag('name'='x')} as a map;
+     * anything else, such as extra keys or arguments, is rejected rather than ignored.
+     */
+    private static String refName(TableScanParams params) {
+        String usage = "Lance @" + params.getParamType() + " takes exactly one name, as @"
+                + params.getParamType() + "(x) or @" + params.getParamType() + "('" + TableScanParams.PARAMS_NAME
+                + "'='x')";
+        Map<String, String> map = params.getMapParams();
+        List<String> list = params.getListParams();
+        String name;
+        if (!map.isEmpty()) {
+            if (!list.isEmpty() || map.size() != 1 || !map.containsKey(TableScanParams.PARAMS_NAME)) {
+                throw new IllegalArgumentException(usage);
+            }
+            name = map.get(TableScanParams.PARAMS_NAME);
+        } else {
+            if (list.size() != 1) {
+                throw new IllegalArgumentException(usage);
+            }
+            name = list.get(0);
+        }
+        if (StringUtils.isBlank(name)) {
+            throw new IllegalArgumentException(usage);
+        }
+        return name;
     }
 
     @Override

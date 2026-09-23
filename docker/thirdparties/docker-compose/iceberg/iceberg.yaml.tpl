@@ -118,10 +118,23 @@ services:
       - ./scripts/lance_rest_server.py:/opt/lance-rest/server.py:ro
     environment:
       LANCE_REST_BEARER_TOKEN: doris-lance-rest-test-token
-      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance","all_types_unprefixed":"s3://warehouse/lance/all_types.lance"}'
+      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance","all_types_unprefixed":"s3://warehouse/lance/all_types.lance","time_travel":"s3://warehouse/lance/time_travel.lance"}'
       # all_types_unprefixed serves the same dataset but vends its credentials under the
       # unprefixed object-store spelling, which is what real namespace servers emit.
-      LANCE_REST_UNPREFIXED_TABLES_JSON: '["all_types_unprefixed"]'
+      LANCE_REST_UNPREFIXED_TABLES_JSON: '["all_types_unprefixed","time_travel_managed_unprefixed"]'
+      # All managed tables are the same three-version dataset; they differ in what the namespace
+      # records. A reader that resolves versions through the namespace cannot see a version
+      # missing there even though its manifest is still in storage, and its latest version is
+      # the namespace's latest, not storage's:
+      #   time_travel_managed             every version, with commit times, and branch dev
+      #                                   (versions 2 and 3 under tree/dev/)
+      #   time_travel_managed_partial     versions 1 and 3
+      #   time_travel_managed_lagging     versions 1 and 2, storage already has 3
+      #   time_travel_managed_untimed     versions 1 and 3, no commit times reported
+      #   time_travel_managed_unprefixed  every version, credentials vended unprefixed
+      # Versions and commit times (epoch millis, UTC) match the committed time_travel.lance,
+      # see lance_build_time_travel.py.
+      LANCE_REST_MANAGED_TABLES_JSON: '{"time_travel_managed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621}],"branches":{"dev":{"versions":[2,3]}}},"time_travel_managed_partial":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":3,"timestamp_millis":1789823170621}]},"time_travel_managed_lagging":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113}]},"time_travel_managed_untimed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[1,3]},"time_travel_managed_unprefixed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621}]}}'
       LANCE_S3_ACCESS_KEY: admin
       LANCE_S3_SECRET_KEY: password
       LANCE_S3_REGION: us-east-1
