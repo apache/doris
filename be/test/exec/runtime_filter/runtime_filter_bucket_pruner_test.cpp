@@ -207,7 +207,10 @@ TEST_F(RuntimeFilterBucketPrunerTest, RejectsMergeAfterBucketHashesStart) {
 
 TEST_F(RuntimeFilterBucketPrunerTest, IdentityExactInKeepsIdentityBucket) {
     constexpr int filter_id = 17;
-    constexpr int32_t value = 1;
+    // value 2 separates the algorithms on 4 buckets: crc32(2) % 4 == 3 while 2 % 4 == 2, so
+    // this case fails if the pruning silently fell back to CRC32 (the previous value 1 gave
+    // crc32(1) % 4 == 1 == 1 % 4 and could not tell the two apart).
+    constexpr int32_t value = 2;
     VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
     std::vector<TRuntimeFilterDesc> rf_descs {
             bucket_prune_desc(filter_id, TDistributionHashType::IDENTITY)};
@@ -219,8 +222,42 @@ TEST_F(RuntimeFilterBucketPrunerTest, IdentityExactInKeepsIdentityBucket) {
                         .ok());
     EXPECT_EQ(newly_pruned, 3);
     for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
-        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), bucket_seq != 1);
+        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), bucket_seq != value % 4);
     }
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityExactInSeparatesFromCrc32AcrossCounts) {
+    constexpr int filter_id = 18;
+    constexpr int32_t value = 10;
+    VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
+
+    // For every bucket count, the IDENTITY descriptor must keep exactly value % n while the
+    // CRC32 fallback would keep zlib_crc32(value) % n; the two must disagree for at least
+    // one count so a regression to CRC32 cannot pass unnoticed.
+    int disagreements = 0;
+    for (int32_t bucket_num : {4, 5, 8, 97, 257}) {
+        BucketPruneRanges ranges;
+        for (int32_t bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+            add_range(&ranges, ranges.size(), bucket_seq, bucket_num);
+        }
+        std::vector<TRuntimeFilterDesc> identity_descs {
+                bucket_prune_desc(filter_id, TDistributionHashType::IDENTITY)};
+        RuntimeFilterBucketPruner identity_pruner;
+        int64_t newly_pruned = 0;
+        ASSERT_TRUE(identity_pruner
+                            .prune_by_runtime_filters(ranges, conjuncts, identity_descs,
+                                                      SCAN_NODE_ID, 1024, &newly_pruned)
+                            .ok());
+        EXPECT_EQ(newly_pruned, bucket_num - 1);
+        for (int32_t bucket_seq = 0; bucket_seq < bucket_num; ++bucket_seq) {
+            EXPECT_EQ(identity_pruner.is_bucket_pruned(bucket_seq, bucket_num),
+                      bucket_seq != value % bucket_num);
+        }
+        if (bucket_for_value(value, bucket_num) != value % bucket_num) {
+            ++disagreements;
+        }
+    }
+    EXPECT_GE(disagreements, 1);
 }
 
 // Count values actually visited, so the full-coverage shortcut is checked without timing tests.

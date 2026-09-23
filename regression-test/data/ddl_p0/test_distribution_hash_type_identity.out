@@ -46,6 +46,15 @@ beta	2
 -- !identity_typed --
 7
 
+-- !identity_matrix_row1 --
+1
+
+-- !identity_matrix_row2 --
+2
+
+-- !identity_matrix_count --
+2
+
 -- !crc32_row_count --
 80
 

@@ -414,7 +414,10 @@ public class DistributionSpecHashTest {
 
     // Two NATURAL specs identical except for hashType must be unequal and hash differently, so the
     // memo (which keys PhysicalProperties on DistributionSpecHash) never collapses a crc32 and an
-    // identity distribution into the same group entry and mis-shares their enforcer/cost.
+    // identity distribution into the same group entry and mis-shares their enforcer/cost. The
+    // hashCode inequality is asserted via container behavior (HashSet keeps two entries) rather
+    // than assertNotEquals on the raw hashCodes: unequal objects are only contractually allowed to
+    // collide, so a direct comparison could fail for a correct implementation.
     @Test
     public void testEqualsAndHashCodeConsiderHashType() {
         DistributionSpecHash crc32 = naturalSpec(HashType.CRC32);
@@ -424,7 +427,15 @@ public class DistributionSpecHashTest {
         Assertions.assertEquals(crc32, crc32Same);
         Assertions.assertEquals(crc32.hashCode(), crc32Same.hashCode());
         Assertions.assertNotEquals(crc32, identity);
-        Assertions.assertNotEquals(crc32.hashCode(), identity.hashCode());
+
+        java.util.Set<DistributionSpecHash> distinct = new java.util.HashSet<>();
+        distinct.add(crc32);
+        distinct.add(identity);
+        Assertions.assertEquals(2, distinct.size(), "distinct hash types must stay distinct keys");
+        java.util.Map<DistributionSpecHash, Integer> map = new java.util.HashMap<>();
+        map.put(crc32, 1);
+        map.put(identity, 2);
+        Assertions.assertEquals(2, map.size());
     }
 
     // satisfy()'s equal branch (NATURAL/STORAGE_BUCKETED/EXECUTION_BUCKETED target) must reject a

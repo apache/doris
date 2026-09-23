@@ -123,16 +123,14 @@ public class DistributionHashTypeTest {
         }
     }
 
-    @Test
-    public void testSetHashTypeInheritedByAddPartition() {
-        // ADD PARTITION with an explicit DISTRIBUTED BY builds a CRC32 info, then
-        // InternalCatalog.addPartition overwrites hashType with the table's. Verify the setter path.
-        HashDistributionInfo partition
-                = new HashDistributionInfo(8, false, Lists.newArrayList(intCol("id")), HashType.CRC32);
-        Assertions.assertEquals(HashType.CRC32, partition.getHashType());
-        partition.setHashType(HashType.IDENTITY);
-        Assertions.assertEquals(HashType.IDENTITY, partition.getHashType());
-    }
+    // NOTE: there is deliberately no unit test for the setHashType call site in
+    // InternalCatalog.addPartition(): driving that path needs a full catalog (AddPartitionOp
+    // analysis, schema resolution, agent batches), and a setter-level test like the removed
+    // testSetHashTypeInheritedByAddPartition stays tautological - it would keep passing with
+    // the inheritance statement deleted. The behavior is guarded end-to-end by the regression
+    // suite (test_distribution_hash_type_identity.groovy section 6): a real ALTER TABLE ADD
+    // PARTITION on an identity table, followed by writes into the new partition and an
+    // equality-pruned read-back that would drop rows if the partition fell back to CRC32.
 
     // ------------------------------------------------------------------
     // Property parsing

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -208,5 +209,40 @@ public class IdentitySetOperationTest extends TestWithFeService {
         for (PlanNode child : node.getChildren()) {
             collectExchanges(child, remotes, locals);
         }
+    }
+
+    /**
+     * ADD PARTITION on an identity-distributed table must inherit the table's hash type:
+     * DDL cannot carry distribution_hash_type, so InternalCatalog.addPartition overwrites the
+     * new partition's hash type with the table's. If the inheritance were dropped, BE would
+     * bucket rows in the new partition with one hash function while FE pruned with another,
+     * making the new partition's rows unreadable through equality pruning. This drives the
+     * real addPartition path (not the hash-type setter) and asserts the stored metadata.
+     */
+    @Test
+    public void testAddPartitionInheritsIdentityHashType() throws Exception {
+        useDatabase("identity_set_operation");
+        createTable("CREATE TABLE identity_add_partition (id BIGINT NOT NULL, dt INT NOT NULL) "
+                + "PARTITION BY RANGE(dt) ( PARTITION p1 values less than (10) ) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 5 "
+                + "PROPERTIES('replication_num'='1', 'distribution_hash_type'='identity')");
+
+        String addPartitionSql = "ALTER TABLE identity_add_partition ADD PARTITION p2 values less than (20) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 5";
+        Assertions.assertNotNull(getSqlStmtExecutor(addPartitionSql));
+
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrAnalysisException("identity_set_operation")
+                .getTableOrAnalysisException("identity_add_partition");
+        Partition added = table.getPartition("p2");
+        Assertions.assertNotNull(added, "ADD PARTITION must create p2");
+        Assertions.assertTrue(added.getDistributionInfo() instanceof HashDistributionInfo,
+                "new partition must keep a hash distribution");
+        Assertions.assertEquals(HashType.IDENTITY,
+                ((HashDistributionInfo) added.getDistributionInfo()).getHashType(),
+                "ADD PARTITION must inherit the table's identity hash type");
+        // the initial partition keeps its type too
+        Assertions.assertEquals(HashType.IDENTITY,
+                ((HashDistributionInfo) table.getPartition("p1").getDistributionInfo()).getHashType());
     }
 }

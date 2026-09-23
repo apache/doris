@@ -173,12 +173,24 @@ public class HashDistributionPrunerTest {
         // still maps -1 to the final bucket.
         assertIdentityBucket(tabletIds, columns, "SHARD_NUM", new IntLiteral(-1), 511L);
 
-        // LARGEINT uses all 128 bits of its canonical little-endian representation.
+        // LARGEINT uses all 128 bits of its canonical little-endian representation. Both moduli
+        // are needed: 512 mirrors the common power-of-two bucket count, and the odd modulus 251
+        // (2^100 + 5) % 251 = 24 != 5 % 251, so an implementation that truncates to the low
+        // 32/64 bits or collapses to value % 2^k still fails.
         Column bigId = new Column("big_id", PrimitiveType.LARGEINT, false);
         List<Column> bigCols = Lists.newArrayList(bigId);
         BigInteger huge = BigInteger.ONE.shiftLeft(100).add(BigInteger.valueOf(5));
         long expected = huge.mod(BigInteger.valueOf(512)).longValue();
         assertIdentityBucket(tabletIds, bigCols, "BIG_ID", new LargeIntLiteral(huge), expected);
+        List<Long> oddTablets = Lists.newArrayListWithExpectedSize(251);
+        for (long i = 0; i < 251; i++) {
+            oddTablets.add(i);
+        }
+        long oddExpected = huge.mod(BigInteger.valueOf(251)).longValue();
+        Assertions.assertNotEquals(oddExpected, BigInteger.valueOf(5)
+                .mod(BigInteger.valueOf(251)).longValue(),
+                "odd-modulus vector must not collapse to the low bits");
+        assertIdentityBucket(oddTablets, bigCols, "BIG_ID", new LargeIntLiteral(huge), oddExpected);
 
         // With a non-power-of-two bucket count, -1 is UINT32_MAX rather than signed -1.
         List<Long> tenTablets = Lists.newArrayListWithExpectedSize(10);

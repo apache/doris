@@ -303,6 +303,69 @@ suite("test_distribution_hash_type_identity") {
           AND amount = 123.45
     """
 
+    // Full type-matrix end-to-end coverage: every distribution-column type the FE/BE pair
+    // claims to support, written through the storage router and read back through equality
+    // pruning. A hash mismatch between FE pruning and BE routing drops the row, so each row
+    // below must come back from its equality query. Width-sensitive encodings are keyed to
+    // expose truncation: LARGEINT/DECIMAL256 use non-zero high bytes, CHAR pads, the legacy
+    // DATE/DATETIME pair exercises the string encoding rather than DATEV2/DATETIMEV2 binary,
+    // and TIMESTAMPTZ exercises its 8-byte encoding. TIME columns cannot be OLAP table columns
+    // and VARBINARY columns need an external catalog, so their encodings stay covered by the
+    // BE unit oracle (identity_partitioner_test.cpp). DECIMALV2 is out too: the column type
+    // is disabled by default (Config.disable_decimalv2).
+    sql "set enable_decimal256 = true"
+    sql "DROP TABLE IF EXISTS test_dist_hash_type_matrix"
+    sql """
+        CREATE TABLE `test_dist_hash_type_matrix` (
+            `b` BOOLEAN NOT NULL,
+            `ti` TINYINT NOT NULL,
+            `si` SMALLINT NOT NULL,
+            `li` LARGEINT NOT NULL,
+            `c` CHAR(8) NOT NULL,
+            `ld` DATE NOT NULL,
+            `ldt` DATETIME NOT NULL,
+            `tz` TIMESTAMPTZ(3) NOT NULL,
+            `d32` DECIMAL(9, 5) NOT NULL,
+            `d64` DECIMAL(18, 9) NOT NULL,
+            `d256` DECIMALV3(76, 40) NOT NULL,
+            `v` INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`b`, `ti`, `si`, `li`)
+        DISTRIBUTED BY HASH(`b`, `ti`, `si`, `li`, `c`, `ld`, `ldt`, `tz`, `d32`, `d64`, `d256`) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        );
+    """
+    sql """ INSERT INTO test_dist_hash_type_matrix VALUES
+        (true,  -128, -32768, 170141183460469231731687303715884105727, 'mat',
+         '2026-01-02', '2026-01-02 03:04:05', '2026-01-02 03:04:05.123',
+         1234.56789, 123456789.123456789,
+         12345678901234567890123456789.123456789012345678901234567890123456789, 1),
+        (false, 127, 32767, -170141183460469231731687303715884105728, 'pad',
+         '2026-06-30', '2026-06-30 23:59:59', '2026-06-30 23:59:59.999',
+         -9999.99999, -999999999.999999999,
+         -12345678901234567890123456789.123456789012345678901234567890123456789, 2) """
+
+    qt_identity_matrix_row1 """
+        SELECT v FROM test_dist_hash_type_matrix
+        WHERE b = true AND ti = -128 AND si = -32768
+          AND li = 170141183460469231731687303715884105727 AND c = 'mat'
+          AND ld = '2026-01-02' AND ldt = '2026-01-02 03:04:05' AND tz = '2026-01-02 03:04:05.123'
+          AND d32 = 1234.56789 AND d64 = 123456789.123456789
+          AND d256 = 12345678901234567890123456789.123456789012345678901234567890123456789
+    """
+    qt_identity_matrix_row2 """
+        SELECT v FROM test_dist_hash_type_matrix
+        WHERE b = false AND ti = 127 AND si = 32767
+          AND li = -170141183460469231731687303715884105728 AND c = 'pad'
+          AND ld = '2026-06-30' AND ldt = '2026-06-30 23:59:59' AND tz = '2026-06-30 23:59:59.999'
+          AND d32 = -9999.99999 AND d64 = -999999999.999999999
+          AND d256 = -12345678901234567890123456789.123456789012345678901234567890123456789
+    """
+    qt_identity_matrix_count "SELECT COUNT(*) FROM test_dist_hash_type_matrix"
+    sql "set enable_decimal256 = false"
+
     // ---------------------------------------------------------------------
     // 5. bucket data distribution: identity spreads rows evenly, crc32 does not.
     //    Insert ids 1..8 (10 rows each, 80 rows total) into a crc32 table and an identity
