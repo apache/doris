@@ -400,7 +400,8 @@ public class DeleteFileIndex {
       return this;
     }
 
-    Builder schemasById(Map<Integer, Schema> newSchemasById) {
+    // changed to public method: equality deletes may reference fields dropped from the current schema.
+    public Builder schemasById(Map<Integer, Schema> newSchemasById) {
       this.schemasById = newSchemasById;
       return this;
     }
