@@ -244,10 +244,11 @@ public class ForeignKeyContext {
 
     /**
      * Register a current-state scan's table columns and relation instance for both FK and PK
-     * proofs. Historical snapshots and change reads cannot use the current constraint metadata:
-     * even if their slots are not active PKs, recording their FK lineage could eliminate a join
-     * against a different table version. Activate only this table's complete PKs when the scan
-     * covers the full relation; local declarations avoid revisiting earlier tables' keys.
+     * proofs. Historical snapshots, change reads, and raw-version scans cannot use the current
+     * constraint metadata: even if their slots are not active PKs, recording their FK lineage
+     * could eliminate a join against a different table version. Activate only this table's
+     * complete PKs when the scan covers the full relation; local declarations avoid revisiting
+     * earlier tables' keys.
      *
      * @param relation catalog scan contributing the slots and relation identity
      * @param table catalog table containing the declared columns
@@ -287,18 +288,22 @@ public class ForeignKeyContext {
     /**
      * Check whether a scan reads the current table state assumed by its declared constraints.
      * A subset of current rows can still use an FK proof, but historical snapshots, explicit
-     * branches/tags/options, and native or external change reads may have different relationships
-     * from the current PK table. Stream scans are conservatively excluded for the same reason.
+     * branches/tags/options, native or external change reads, and raw-version scan modes may have
+     * different relationships from the current PK table. Stream scans are conservatively excluded
+     * for the same reason. Raw-version modes are rejected here, rather than only when activating a
+     * PK, because a historical foreign row can also make join elimination unsound.
      *
      * @param relation catalog scan whose version and read mode are inspected
-     * @return true if no known version selector or change-read mode is active
+     * @return true if no known version selector, change-read mode, or raw-version mode is active
      */
     boolean canUseCurrentConstraint(LogicalCatalogRelation relation) {
         if (relation instanceof LogicalOlapTableStreamScan) {
             return false;
         }
         if (relation instanceof LogicalOlapScan) {
-            return !((LogicalOlapScan) relation).getScanParams().isPresent();
+            LogicalOlapScan scan = (LogicalOlapScan) relation;
+            return !scan.getScanParams().isPresent()
+                    && !scan.isDuplicateProducingScanMode();
         }
         if (relation instanceof LogicalFileScan) {
             LogicalFileScan scan = (LogicalFileScan) relation;
@@ -309,7 +314,8 @@ public class ForeignKeyContext {
 
     /**
      * Determine whether a scan reads the full relation described by its declared primary key.
-     * This checks scan selectors and duplicate-producing scan modes, not the data trait's inferred
+     * This checks relation coverage after current-state eligibility has rejected versioned and
+     * duplicate-producing reads. It deliberately does not check the data trait's inferred
      * uniqueness: PK constraints are declarative assumptions, and a trait check is not a
      * validation of stored data.
      *
@@ -326,8 +332,7 @@ public class ForeignKeyContext {
                             new HashSet<>(scan.getTable().getPartitionIds()))
                     && scan.getSelectedTabletIds().isEmpty()
                     && !scan.getTableSample().isPresent()
-                    && !scan.isDirectMvScan()
-                    && !scan.isDuplicateProducingScanMode();
+                    && !scan.isDirectMvScan();
         }
         if (relation instanceof LogicalFileScan) {
             LogicalFileScan scan = (LogicalFileScan) relation;

@@ -330,7 +330,9 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
     /**
      * Foreign-key proof requires current-state rows, even when a versioned foreign scan still
      * exposes the same catalog columns. Cover external snapshots, branches, tags and options,
-     * native incremental reads, and the stream-scan modes separately from PK completeness.
+     * native incremental reads, raw-version reads, and the stream-scan modes separately from PK
+     * completeness. Raw-version rejection is required on the foreign side as well as the primary
+     * side because superseded foreign rows need not reference a current primary row.
      */
     @Test
     void testVersionedScansCannotSupplyForeignKeyProof() {
@@ -357,7 +359,13 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
 
         LogicalOlapScan olapScan = Mockito.mock(LogicalOlapScan.class);
         Mockito.when(olapScan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(false);
         Assertions.assertTrue(context.canUseCurrentConstraint(olapScan));
+
+        Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(true);
+        Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
+        Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(false);
+
         Mockito.when(olapScan.getScanParams()).thenReturn(Optional.of(
                 new TableScanParams(TableScanParams.INCREMENTAL_READ, ImmutableMap.of(), ImmutableList.of())));
         Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
