@@ -164,6 +164,30 @@ public class MTMVTaskTest {
         Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, differentPartitions);
     }
 
+    /**
+     * An epoch a batch captures is clamped to the one the routing decision saw.
+     *
+     * <p>An invalidation that lands between that decision and the batch's read raises the partition's
+     * requirement above what the batch is about to read; recording what it read would describe the data as
+     * current, and the delta this refresh applies cannot remove the rows the invalidation made unusable.
+     * Recording the planned value leaves the partition dirty, so the next refresh rebuilds it.
+     */
+    @Test
+    public void testCapturedEpochIsClampedToTheOneTheRoutingDecisionSaw() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        // The routing decided on p1 at epoch 2, and an invalidation raised it to 5 before the read.
+        Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L)));
+        Deencapsulation.invoke(task, "commitCapturedEpochs", Maps.newHashMap(Map.of(poneName, 5L)));
+
+        Assertions.assertEquals(Map.of(poneName, 2L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
+
+        // A partition no routing decision named keeps what the batch read: there is no ceiling to clamp to.
+        MTMVTask unnamed = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.invoke(unnamed, "commitCapturedEpochs", Maps.newHashMap(Map.of(ptwoName, 7L)));
+
+        Assertions.assertEquals(Map.of(ptwoName, 7L), Deencapsulation.getField(unnamed, "ivmCapturedEpochs"));
+    }
+
     @Test
     public void testBuildAttemptsAutoCompleteMethodSkipsPartitionsAttempt() {
         // setUp stubs refreshMethod=COMPLETE. The PARTITIONS attempt must be skipped:
