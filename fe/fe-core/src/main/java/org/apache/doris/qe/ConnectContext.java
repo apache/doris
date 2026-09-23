@@ -125,8 +125,20 @@ public class ConnectContext {
     private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
-        MYSQL,
-        ARROW_FLIGHT_SQL
+        MYSQL("MySQL"),
+        ARROW_FLIGHT_SQL("ArrowFlightSQL");
+
+        // The name SHOW PROCESSLIST, information_schema.processlist and the audit log report the
+        // protocol under (their Protocol column / field).
+        private final String protocolName;
+
+        ConnectType(String protocolName) {
+            this.protocolName = protocolName;
+        }
+
+        public String protocolName() {
+            return protocolName;
+        }
     }
 
     private final ProtocolAdapter protocolAdapter;
@@ -1032,13 +1044,14 @@ public class ConnectContext {
         }
     }
 
-    // The session is over (see FlightProtocolAdapter.tearDown): its deferred executors are
-    // finalized, and it keeps none and runs no command from now on. Nothing to do for a
-    // connection of any other protocol.
-    public void tearDownFlightSqlSession() {
-        if (protocolAdapter instanceof FlightProtocolAdapter) {
-            ((FlightProtocolAdapter) protocolAdapter).tearDown();
-        }
+    /**
+     * Releases what the protocol still holds for this session, when the connection leaves the pool
+     * (see {@link ConnectPoolMgr#unregisterConnection}): for Arrow Flight SQL the channel-cached
+     * results and the deferred executors, after which the session keeps none and runs no command
+     * (see {@code FlightProtocolAdapter.tearDown}); nothing for a MySQL connection. Idempotent.
+     */
+    public void releaseProtocolSession() {
+        protocolAdapter.releaseSession(this);
     }
 
     // A snapshot; empty for a connection of any other protocol.
@@ -1182,7 +1195,7 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            protocolAdapter.connectPool(connectScheduler).putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
     }
 
@@ -1513,6 +1526,10 @@ public class ConnectContext {
             } else {
                 row.add(currentCloudCluster);
             }
+            // Protocol is the last column, after CloudCluster; a row of another frontend that lacks or
+            // exceeds the local columns is fitted to them by whoever merges it (ShowProcessListCommand,
+            // the BE processlist scanner).
+            row.add(getConnectType().protocolName());
             return row;
         }
     }

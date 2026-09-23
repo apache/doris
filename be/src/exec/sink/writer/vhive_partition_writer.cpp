@@ -23,8 +23,8 @@
 #include "core/column/column_map.h"
 #include "exec/sink/writer/hive_multipart_compatibility.h"
 #include "format/transformer/vcsv_transformer.h"
+#include "format/transformer/vhive_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
 #include "io/file_factory.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
@@ -112,7 +112,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
         // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, true};
-        _file_format_transformer = std::make_unique<VParquetTransformer>(
+        _file_format_transformer = std::make_unique<VHiveParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options);
         return _file_format_transformer->open();

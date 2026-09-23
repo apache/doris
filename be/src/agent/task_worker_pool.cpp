@@ -504,11 +504,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
         // cloud auto stop need sc jobs, a tablet's sc can also be considered a fragment
         if (n > 0) {
             // only count fragment when task is actually starting
-            doris::g_fragment_executing_count << 1;
-            int64_t now = duration_cast<std::chrono::milliseconds>(
-                                std::chrono::system_clock::now().time_since_epoch())
-                                .count();
-            g_fragment_last_active_time.set_value(now);
+            increment_fragment_executing_count();
         }
         return;
     }
@@ -2302,11 +2298,7 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
         alter_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
-    doris::g_fragment_executing_count << -1;
-    int64_t now = duration_cast<std::chrono::milliseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count();
-    g_fragment_last_active_time.set_value(now);
+    decrement_fragment_executing_count();
     remove_task_info(req.task_type, req.signature);
 }
 
@@ -2328,11 +2320,7 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
         alter_cloud_tablet(engine, req, signature, task_type, &finish_task_request);
         finish_task(finish_task_request);
     }
-    doris::g_fragment_executing_count << -1;
-    int64_t now = duration_cast<std::chrono::milliseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count();
-    g_fragment_last_active_time.set_value(now);
+    decrement_fragment_executing_count();
 
     // Clean up alter_version before remove_task_info to avoid race:
     // remove_task_info allows same-signature re-submit, whose pre_submit_callback

@@ -84,7 +84,9 @@ struct AndImpl {
 struct OrImpl {
     using ResultType = UInt8;
 
-    static inline constexpr ResultType apply(UInt8 a, UInt8 b) { return a | b; }
+    // A NULL row may carry an arbitrary nested byte. Canonicalize logical OR to 0 or 1 so that
+    // such a byte cannot become visible when the other operand makes the result non-NULL.
+    static inline constexpr ResultType apply(UInt8 a, UInt8 b) { return (a | b) != 0; }
     static inline constexpr ResultType apply_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> || true) is true, (false || NULL) is NULL
         return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));

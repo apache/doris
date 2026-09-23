@@ -379,7 +379,7 @@ TEST_F(SchemaUtilTest, get_subpaths) {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
     // get subpaths
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
     variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
@@ -408,7 +408,7 @@ TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
     std::unordered_map<int32_t, variant_util::PathToNoneNullValues> path_stats;
     path_stats[1] = {{"path1", 1000}, {"path2", 800}, {"path3", 500}};
 
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
     variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
@@ -426,7 +426,7 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     variant_util::PathToNoneNullValues path_stats = {
             {"", 1000}, {"path1", 900}, {"path2", 800}, {"path3", 700}};
 
-    TabletSchema::PathsSetInfo limited_paths;
+    VariantCompactionPaths limited_paths;
     variant_util::VariantCompactionUtil::get_subpaths(2, path_stats, limited_paths);
     EXPECT_TRUE(limited_paths.sub_path_set.contains(""));
     EXPECT_FALSE(limited_paths.sparse_path_set.contains(""));
@@ -434,7 +434,7 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     EXPECT_TRUE(limited_paths.sparse_path_set.contains("path2"));
     EXPECT_TRUE(limited_paths.sparse_path_set.contains("path3"));
 
-    TabletSchema::PathsSetInfo exact_limit_paths;
+    VariantCompactionPaths exact_limit_paths;
     variant_util::VariantCompactionUtil::get_subpaths(4, path_stats, exact_limit_paths);
     EXPECT_TRUE(exact_limit_paths.sub_path_set.contains(""));
     EXPECT_FALSE(exact_limit_paths.sparse_path_set.contains(""));
@@ -442,7 +442,7 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
     EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path2"));
     EXPECT_TRUE(exact_limit_paths.sub_path_set.contains("path3"));
 
-    TabletSchema::PathsSetInfo unlimited_paths;
+    VariantCompactionPaths unlimited_paths;
     variant_util::VariantCompactionUtil::get_subpaths(0, path_stats, unlimited_paths);
     EXPECT_TRUE(unlimited_paths.sub_path_set.contains(""));
     EXPECT_TRUE(unlimited_paths.sparse_path_set.empty());
@@ -453,7 +453,7 @@ TEST_F(SchemaUtilTest, get_subpaths_selects_empty_key_as_subpath) {
 
     variant_util::PathToNoneNullValues low_rank_empty_key_stats = {
             {"path1", 1000}, {"path2", 900}, {"", 100}};
-    TabletSchema::PathsSetInfo low_rank_empty_key_paths;
+    VariantCompactionPaths low_rank_empty_key_paths;
     variant_util::VariantCompactionUtil::get_subpaths(2, low_rank_empty_key_stats,
                                                       low_rank_empty_key_paths);
     EXPECT_FALSE(low_rank_empty_key_paths.sub_path_set.contains(""));
@@ -488,7 +488,7 @@ TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
     path_stats[4] = {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
     variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
     variant_util::VariantCompactionUtil::get_subpaths(2, path_stats[2], uid_to_paths_set_info[2]);
     variant_util::VariantCompactionUtil::get_subpaths(4, path_stats[3], uid_to_paths_set_info[3]);
@@ -539,7 +539,7 @@ TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
     std::unordered_map<int32_t, variant_util::PathToNoneNullValues> path_stats;
     path_stats[2] = {{"path1", 1000}, {"path2", 800}};
 
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
     variant_util::VariantCompactionUtil::get_subpaths(3, path_stats[2], uid_to_paths_set_info[2]);
 
     EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 0);
@@ -1227,8 +1227,9 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
     auto target_schema = std::make_shared<TabletSchema>();
     target_schema->init_from_pb(schema_pb);
 
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, target_schema);
+            rowsets, target_schema, compaction_paths);
     EXPECT_TRUE(status.ok());
 
     // Check that paths were properly distributed between subcolumns and sparse columns
@@ -1265,8 +1266,9 @@ TEST_F(SchemaUtilTest,
     EXPECT_EQ(source_indexes[0]->index_name(), "v1_owner_idx");
 
     std::vector<RowsetSharedPtr> rowsets;
+    VariantCompactionPathsMap compaction_paths;
     auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, target_schema);
+            rowsets, target_schema, compaction_paths);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     // get_extended_compaction_schema rebuilds from the base columns. Real compaction targets do
@@ -1276,7 +1278,7 @@ TEST_F(SchemaUtilTest,
     const PathInData typed_path("v1.owner", true);
     EXPECT_EQ(target_schema->field_index(typed_path), -1);
 
-    const auto* path_set_info = target_schema->try_path_set_info(1);
+    const auto* path_set_info = compaction_paths.contains(1) ? &compaction_paths.at(1) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     EXPECT_FALSE(path_set_info->typed_path_set.contains("owner"));
 }
@@ -1322,7 +1324,7 @@ TEST_F(SchemaUtilTest, get_compaction_typed_columns) {
     typed_paths.insert("profile.id.name");
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
-    TabletSchema::PathsSetInfo paths_set_info;
+    VariantCompactionPaths paths_set_info;
     EXPECT_TRUE(variant_util::VariantCompactionUtil::get_compaction_typed_columns(
                         schema, typed_paths, parent_column, output_schema, paths_set_info)
                         .ok());
@@ -1351,7 +1353,7 @@ TEST_F(SchemaUtilTest, get_compaction_nested_columns) {
     nested_paths.insert(path2);
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
-    TabletSchema::PathsSetInfo paths_set_info;
+    VariantCompactionPaths paths_set_info;
 
     doris::variant_util::PathToDataTypes path_to_data_types;
     path_to_data_types[path1] = {std::make_shared<DataTypeInt32>(),
@@ -1377,7 +1379,7 @@ TEST_F(SchemaUtilTest, get_compaction_nested_columns) {
     std::unordered_set<PathInData, PathInData::Hash> bad_nested_paths;
     bad_nested_paths.insert(PathInData("not_exist"));
     TabletSchemaSPtr bad_output_schema = std::make_shared<TabletSchema>();
-    TabletSchema::PathsSetInfo bad_paths_set_info;
+    VariantCompactionPaths bad_paths_set_info;
     Status st2 = variant_util::VariantCompactionUtil::get_compaction_nested_columns(
             bad_nested_paths, path_to_data_types, parent_column, bad_output_schema,
             bad_paths_set_info);
@@ -1396,7 +1398,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_subpaths) {
 
     TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
 
-    TabletSchema::PathsSetInfo paths_set_info;
+    VariantCompactionPaths paths_set_info;
     paths_set_info.sub_path_set.insert("");
     paths_set_info.sub_path_set.insert("a");
     paths_set_info.sub_path_set.insert("b");
@@ -1492,7 +1494,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_advanced) {
 
     TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
 
-    TabletSchema::PathsSetInfo paths_set_info;
+    VariantCompactionPaths paths_set_info;
     paths_set_info.sub_path_set.insert("a");
     paths_set_info.sub_path_set.insert("b");
     paths_set_info.sub_path_set.insert("c");
@@ -1588,7 +1590,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     path_to_data_types[PathInData()] = {std::make_shared<DataTypeString>()};
 
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
-    TabletSchema::PathsSetInfo paths_set_info;
+    VariantCompactionPaths paths_set_info;
 
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             paths_set_info, parent_column, target, path_to_data_types, output_schema);
@@ -1657,7 +1659,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     doris::variant_util::PathToDataTypes root_path_to_data_types;
     root_path_to_data_types[PathInData()] = {std::make_shared<DataTypeString>()};
     TabletSchemaSPtr root_output_schema = std::make_shared<TabletSchema>();
-    TabletSchema::PathsSetInfo root_paths_set_info;
+    VariantCompactionPaths root_paths_set_info;
 
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
             root_paths_set_info, parent_column, target, root_path_to_data_types,
@@ -1668,7 +1670,7 @@ TEST_F(SchemaUtilTest, get_compaction_subcolumns_from_data_types) {
     EXPECT_FALSE(root_paths_set_info.sub_path_set.contains(""));
 
     TabletSchemaSPtr empty_key_output_schema = std::make_shared<TabletSchema>();
-    TabletSchema::PathsSetInfo empty_key_paths_set_info;
+    VariantCompactionPaths empty_key_paths_set_info;
     empty_key_paths_set_info.sub_path_set.insert("");
 
     variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(

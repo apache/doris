@@ -17,6 +17,8 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
@@ -25,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -190,12 +193,12 @@ public class DorisFlightSqlProducerTest {
 
         FlightSessionsManager sessionsManager = new FlightSessionsManager() {
             @Override
-            public ConnectContext getConnectContext(String peerIdentity) {
-                return connectContext;
+            public String openSession(FlightAuthResult authResult) {
+                throw new UnsupportedOperationException("not exercised by this test");
             }
 
             @Override
-            public ConnectContext createConnectContext(String peerIdentity) {
+            public ConnectContext getConnectContext(String peerIdentity) {
                 return connectContext;
             }
 
@@ -434,11 +437,12 @@ public class DorisFlightSqlProducerTest {
     // statement runs, all start wait_timeout over.
     @Test
     public void testSessionOptionActionsKeepTheSessionAlive() throws Exception {
-        ConnectContext ctx = ConnectContext.forFlight("token");
+        ConnectContext ctx = ConnectPoolTestSupport.flightSession(ConnectPoolTestSupport.envAllowing(100),
+                UserIdentity.ROOT, "token");
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ctx.setConnectScheduler(scheduler);
         scheduler.submit(ctx);
-        Assertions.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(ctx));
+        Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(ctx));
         ctx.setCommand(MysqlCommand.COM_SLEEP);
         ctx.setStartTime();
         long waitTimeoutMs = ctx.getSessionVariable().getWaitTimeoutS() * 1000L;
