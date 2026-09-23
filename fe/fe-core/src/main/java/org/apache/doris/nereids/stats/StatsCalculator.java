@@ -642,15 +642,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      *
      * <p>Only operative slots' column stats are needed by the query, column stats of other slots are
      * useless and fetching them would pollute the column stats cache and waste time on wide tables.
-     * If operative slots are not derived yet (e.g. stats derivation during RBO) or full stats
-     * fidelity is required (forbidUnknownColStats), fall back to all output slots.
+     *
+     * <p>Two cases still fetch every output slot: full stats fidelity is required
+     * (forbidUnknownColStats, which verifies that no scanned column has unknown statistics, so the
+     * statistics must really be loaded to tell "no statistics" from "not loaded"), and the operative
+     * slots have not been derived yet (e.g. stats derivation during RBO).
+     *
+     * <p>A derived empty list is not one of those cases: it means the query needs no column of the
+     * relation at all, e.g. the scan of {@code select count(*) from wide_table}, so nothing is
+     * fetched.
      */
     private List<Slot> getStatsNeededSlots(OlapScan olapScan) {
-        if (forbidUnknownColStats) {
+        CatalogRelation relation = (CatalogRelation) olapScan;
+        if (forbidUnknownColStats || !relation.isOperativeSlotsDerived()) {
             return ((Plan) olapScan).getOutput();
         }
-        List<Slot> operativeSlots = ((CatalogRelation) olapScan).getOperativeSlots();
-        return operativeSlots.isEmpty() ? ((Plan) olapScan).getOutput() : operativeSlots;
+        return relation.getOperativeSlots();
     }
 
     private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
