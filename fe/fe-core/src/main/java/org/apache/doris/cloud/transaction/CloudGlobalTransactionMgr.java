@@ -1636,6 +1636,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
+        return commitAndPublishTransactionWithRetry(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                null, Collections.emptyList());
+    }
+
+    @Override
+    public boolean commitAndPublishTransactionWithRetry(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int retryTimes = 0;
@@ -1644,7 +1653,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             while (true) {
                 try {
                     res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
-                            null);
+                            txnCommitAttachment, streamUpdateInfos);
                     break;
                 } catch (UserException e) {
                     LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",
