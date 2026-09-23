@@ -1024,11 +1024,14 @@ public class MTMVTask extends AbstractTask {
         long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                 % refreshPartitionNum) > 0 ? 1 : 0);
         boolean refreshAllPartitions = Sets.newHashSet(needRefreshPartitions).equals(mtmv.getPartitionNames());
-        // Every COMPLETE refresh of an IVM MV establishes the baseline its signature describes, whichever
-        // route asked for it: the mismatch fallback is one, the escalation an invalidated MV takes is
-        // another. Publishing only the former leaves the MV on its old signature, so the next refresh runs
-        // a second COMPLETE through the fallback and a strict INCREMENTAL rejects a baseline that has just
-        // been rebuilt. Non-IVM MVs keep the old condition: their refresh produces no IVM plan signature.
+        // Only a COMPLETE that the signature-mismatch fallback asked for publishes its signature. Widening
+        // this to every COMPLETE an IVM MV runs -- the escalation an invalidated MV takes is the other one
+        // -- is not the free saving it looks like: the fresh signature lets the following refresh take the
+        // incremental path instead of that fallback, and the incremental then re-applies rows the COMPLETE
+        // had just rebuilt. Three suites report their delta twice once it is widened (test_ivm_snapshot,
+        // test_ivm_bitmap_agg_2, test_ivm_agg_array_1), so the second COMPLETE is protection rather than
+        // waste. What has to be understood first is how the incremental path baselines itself against a
+        // plan that has changed; until then this condition stays narrow. Non-IVM MVs produce no signature.
         boolean capturePlanSignature = refreshMode == RefreshMode.COMPLETE
                 && IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name().equals(ivmFallbackReason);
         this.partitionSnapshots = newSnapshotAccumulator();
