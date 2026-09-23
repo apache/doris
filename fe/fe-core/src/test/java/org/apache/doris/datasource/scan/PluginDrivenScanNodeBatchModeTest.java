@@ -20,13 +20,19 @@ package org.apache.doris.datasource.scan;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -129,6 +135,52 @@ public class PluginDrivenScanNodeBatchModeTest {
 
         Assertions.assertSame(SelectedPartitions.NOT_PRUNED, degraded);
         Assertions.assertNull(PluginDrivenScanNode.resolveRequiredPartitions(degraded));
+    }
+
+    @Test
+    public void testDisabledMvPhysicalFinalizationConsumesThePrelockedView() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnableMaterializedViewRewrite(false);
+        sessionVariable.setEnableDmlMaterializedViewRewrite(false);
+        Map<String, PartitionItem> items = new LinkedHashMap<>();
+        for (int index = 0; index < THRESHOLD; index++) {
+            items.put("pt=" + index, Mockito.mock(PartitionItem.class));
+        }
+        Optional<Map<String, PartitionItem>> scanView = Optional.of(items);
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(31L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(
+                connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(
+                    hiveExternalTable, Optional.empty(), Optional.empty());
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(true);
+
+            Optional<Map<String, PartitionItem>> consumed =
+                    statementContext.resolveScanPartitionView(hiveExternalTable, Optional.empty(),
+                            Optional.empty(), () -> {
+                                throw new AssertionError("physical finalization must reuse the prelocked view");
+                            });
+            SelectedPartitions materialized = PluginDrivenScanNode.materializeDeferredSelectedPartitions(
+                    SelectedPartitions.DEFERRED_PARTITION_PRUNING, consumed);
+
+            Assertions.assertEquals(scanView.get().keySet(), materialized.selectedPartitions.keySet());
+            Assertions.assertTrue(PluginDrivenScanNode.shouldUseBatchMode(
+                    materialized, true, true, THRESHOLD));
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
     }
 
     @Test

@@ -692,7 +692,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
         if (supportsConnectorPartitionPruning()) {
             PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
-            if (!pin.getNameToPartitionItem().isEmpty()) {
+            if (pin.isPartitionViewMaterialized()) {
                 return pin.getNameToPartitionItem();
             }
             // The latest Hive query pin intentionally carries no partition map so selective scans can send a
@@ -708,7 +708,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public Optional<Map<String, PartitionItem>> getNameToPartitionItemsForScan(Optional<MvccSnapshot> snapshot) {
         if (supportsConnectorPartitionPruning()) {
             PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
-            if (!pin.getNameToPartitionItem().isEmpty()) {
+            if (pin.isPartitionViewMaterialized()) {
                 // This statement's pin already carries a materialized view: reuse it instead of paying another
                 // connector round-trip that could observe a different remote generation.
                 return Optional.of(pin.getNameToPartitionItem());
@@ -742,7 +742,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             return snapshot;
         }
         PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) snapshot;
-        if (!pin.getNameToPartitionItem().isEmpty()) {
+        if (pin.isPartitionViewMaterialized()) {
             return pin;
         }
         Map<String, PartitionItem> partitionItems = super.getNameToPartitionItems(Optional.of(pin));
@@ -750,7 +750,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         for (String partitionName : partitionItems.keySet()) {
             partitionLastModified.put(partitionName, ConnectorPartitionInfo.UNKNOWN);
         }
-        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified);
+        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified,
+                null, true);
     }
 
     @Override

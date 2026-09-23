@@ -502,7 +502,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
 
-            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
 
             org.junit.jupiter.api.Assertions.assertEquals(scanView,
                     statementContext.getExternalTablePreloadInfo(24L).get().getScanPartitionView());
@@ -644,7 +644,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
 
-            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
 
             // MUTATION: dropping this pre-lock step moves the enumeration back inside the MV partition
             // collector, i.e. under the statement's internal table read locks.
@@ -684,7 +684,7 @@ public class StatementContextTest {
             statementContext.registerExternalTableForPreload(
                     hiveExternalTable, Optional.empty(), Optional.empty(), hasInitialFilter);
 
-            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
 
             org.junit.jupiter.api.Assertions.assertFalse(
                     statementContext.getExternalTablePreloadInfo(28L).get().hasScanPartitionView());
@@ -724,12 +724,68 @@ public class StatementContextTest {
                 Optional.empty(), Optional.empty(), true);
     }
 
+    @Test
+    public void testUnrelatedJoinFilterKeepsHiveWarmupBeforeLock() {
+        LogicalPlan plan = new NereidsParser().parseSingle(
+                "select * from internal_catalog.db.internal_table i "
+                        + "join hive_catalog.db.hive_table h on i.id = h.id where i.k = 1");
+        UnboundRelation relation = findUnboundRelationByName(plan, "hive_table");
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(30L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            CollectRelation collectRelation = new CollectRelation(false);
+            boolean hasInitialFilter = Deencapsulation.invoke(
+                    collectRelation, "isUnderInitialFilter", plan, relation);
+            org.junit.jupiter.api.Assertions.assertFalse(hasInitialFilter,
+                    "a predicate on the internal join branch must not mark the Hive scan as filtered");
+
+            statementContext.getTables().put(ImmutableList.of("internal_catalog", "db", "internal_table"),
+                    internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(),
+                    Optional.empty(), hasInitialFilter);
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView,
+                    statementContext.getExternalTablePreloadInfo(30L).get().getScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
     private static UnboundRelation findUnboundRelation(Plan plan) {
         if (plan instanceof UnboundRelation) {
             return (UnboundRelation) plan;
         }
         for (Plan child : plan.children()) {
             UnboundRelation relation = findUnboundRelation(child);
+            if (relation != null) {
+                return relation;
+            }
+        }
+        return null;
+    }
+
+    private static UnboundRelation findUnboundRelationByName(Plan plan, String tableName) {
+        if (plan instanceof UnboundRelation
+                && ((UnboundRelation) plan).getNameParts().contains(tableName)) {
+            return (UnboundRelation) plan;
+        }
+        for (Plan child : plan.children()) {
+            UnboundRelation relation = findUnboundRelationByName(child, tableName);
             if (relation != null) {
                 return relation;
             }
@@ -757,7 +813,7 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
 
-            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
 
             org.junit.jupiter.api.Assertions.assertFalse(
                     statementContext.getExternalTablePreloadInfo(22L).get().hasScanPartitionView());
@@ -789,11 +845,44 @@ public class StatementContextTest {
             statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
             statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
 
-            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(false);
 
             org.junit.jupiter.api.Assertions.assertFalse(
                     statementContext.getExternalTablePreloadInfo(23L).get().hasScanPartitionView());
             Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testPhysicalFinalizationKeepsPrelockWarmupWhenMvRewriteIsDisabled() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnableMaterializedViewRewrite(false);
+        sessionVariable.setEnableDmlMaterializedViewRewrite(false);
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(29L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock(true);
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView,
+                    statementContext.getExternalTablePreloadInfo(29L).get().getScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
         } finally {
             statementContext.close();
         }

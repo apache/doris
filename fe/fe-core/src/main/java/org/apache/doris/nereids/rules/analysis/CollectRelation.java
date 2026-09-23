@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -324,7 +325,7 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private boolean isUnderInitialFilter(Plan plan, UnboundRelation relation) {
-        if (plan instanceof LogicalFilter && containsRelation(plan.child(0), relation)) {
+        if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
             return true;
         }
         for (Plan child : plan.children()) {
@@ -335,15 +336,13 @@ public class CollectRelation implements AnalysisRuleFactory {
         return false;
     }
 
-    private boolean containsRelation(Plan plan, UnboundRelation relation) {
-        if (plan == relation) {
-            return true;
-        }
-        for (Plan child : plan.children()) {
-            if (containsRelation(child, relation)) {
-                return true;
+    private boolean isTransparentFilterChild(Plan plan, UnboundRelation relation) {
+        while (plan != relation) {
+            if (!(plan instanceof LogicalCheckPolicy)) {
+                return false;
             }
+            plan = plan.child(0);
         }
-        return false;
+        return true;
     }
 }

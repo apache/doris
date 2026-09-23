@@ -742,6 +742,26 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testMaterializedEmptyMtmvSnapshotIsNotRehydrated() {
+        Fixture f = Fixture.connectorPartitionPruning(Type.DATEV2, Collections.emptyList());
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                f.table.materializePartitionViewForMtmv(lightweight);
+
+        org.junit.jupiter.api.Assertions.assertTrue(materialized.getNameToPartitionItem().isEmpty(),
+                "a real zero-partition table must keep its authoritative empty view");
+        org.junit.jupiter.api.Assertions.assertTrue(materialized.isPartitionViewMaterialized());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                f.table.getNameToPartitionItems(Optional.of(materialized)).isEmpty(),
+                "the materialized-empty pin must not be mistaken for the lightweight deferred pin");
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.times(1)).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
     public void testConnectorPartitionPruningPinsSnapshotBeforeFilteredMaterialization() {
         Fixture f = Fixture.connectorPartitionPruning();
         PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(

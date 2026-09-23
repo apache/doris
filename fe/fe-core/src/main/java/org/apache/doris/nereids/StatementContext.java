@@ -1390,32 +1390,31 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Materializes every deferred connector partition view the MV partition collector can need, BEFORE the
-     * internal table read locks are taken. This step is unconditional: it exists so the default configuration
-     * gets the lock scope, not only the opt-in {@code enable_preload_external_metadata} pass.
+     * Materializes every deferred connector partition view that can be consumed while the internal table read
+     * locks are held. This step is unconditional for physical finalization: it exists so the default
+     * configuration gets the lock scope, not only the opt-in {@code enable_preload_external_metadata} pass.
      *
      * <p>WHY it is needed at all: {@code QueryPartitionCollector} runs from
      * {@code InitMaterializationContextHook.afterRewrite}, i.e. while {@link #lock()} is held, and an unfiltered
-     * connector-pruning file scan is still {@code DEFERRED} at that point, so the collector would have to
-     * enumerate the table's whole partition view - an unbounded connector round-trip plus an O(all partitions)
-     * build - with the statement's internal tables locked. Materializing the same view here moves that work
-     * outside the lock window; the collector then reuses it.</p>
+     * connector-pruning file scan is still {@code DEFERRED} at that point. Even with both MV rewrite switches
+     * off, {@code PluginDrivenScanNode.doFinalize} still materializes a no-filter deferred scan before the
+     * planner releases the internal read locks. Materializing the same view here moves both consumers outside
+     * the lock window.</p>
      *
-     * <p>WHY it is skipped when no internal read lock is taken or no MV rewrite is enabled at all: with no
-     * locked internal table the enumeration blocks nothing, and the materialized view has exactly one consumer
-     * (the MV partition collector), which no planner hook runs when BOTH MV rewrite switches are off. The gate
-     * is deliberately the OR of the two switches - the query hook is registered from
-     * {@code enable_materialized_view_rewrite} and the DML hook from {@code enable_dml_materialized_view_rewrite}
-     * - because gating on only one of them leaves the collector enumerating under the lock in the other
-     * configuration.</p>
+     * <p>WHY plan-only EXPLAIN is skipped: it does not execute physical finalization, so with both MV rewrite
+     * switches off it has no consumer that must see a materialized partition view. The MV gate is deliberately
+     * the OR of the two switches - the query hook is registered from {@code enable_materialized_view_rewrite}
+     * and the DML hook from {@code enable_dml_materialized_view_rewrite} - because gating on only one of them
+     * leaves the collector enumerating under the lock in the other configuration.</p>
      */
-    public void preloadDeferredScanPartitionViewsBeforeLock() {
+    public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
         ConnectContext connectContext = getConnectContext();
         if (connectContext == null || connectContext.getSessionVariable() == null) {
             return;
         }
-        if (!connectContext.getSessionVariable().isEnableMaterializedViewRewrite()
-                && !connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite()) {
+        boolean mvCollectorWillRun = connectContext.getSessionVariable().isEnableMaterializedViewRewrite()
+                || connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite();
+        if (!willFinalizePhysicalPlan && !mvCollectorWillRun) {
             return;
         }
         if (!hasAnyPlanReadLockTable()) {

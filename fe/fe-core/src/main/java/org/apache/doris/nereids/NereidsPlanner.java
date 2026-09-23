@@ -261,8 +261,9 @@ public class NereidsPlanner extends Planner {
 
             initCascadesContext(plan, requireProperties);
             // collect table and lock them in the order of table id
+            boolean willExecute = explainLevel == ExplainLevel.NONE;
             collectAndLockTable(showAnalyzeProcess(explainLevel, showPlanProcess),
-                    explainLevel == ExplainLevel.NONE);
+                    willExecute, willExecute);
             // after table collector, we should use a new context.
             Plan resultPlan = planWithoutLock(plan, requireProperties, explainLevel, showPlanProcess);
             lockCallback.accept(resultPlan);
@@ -403,10 +404,11 @@ public class NereidsPlanner extends Planner {
     }
 
     protected void collectAndLockTable(boolean showPlanProcess) {
-        collectAndLockTable(showPlanProcess, false);
+        collectAndLockTable(showPlanProcess, false, false);
     }
 
-    protected void collectAndLockTable(boolean showPlanProcess, boolean waitForChangeVisible) {
+    protected void collectAndLockTable(boolean showPlanProcess, boolean waitForChangeVisible,
+            boolean willFinalizePhysicalPlan) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
@@ -438,7 +440,7 @@ public class NereidsPlanner extends Planner {
         // afterRewrite - i.e. after lock(). Warm that view here so it is resolved before the internal read locks
         // are taken. The preload rule above warms it too when its session variable is enabled; this call is the
         // unconditional one, so the default configuration gets the same lock scope.
-        statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+        statementContext.preloadDeferredScanPartitionViewsBeforeLock(willFinalizePhysicalPlan);
         if (waitForChangeVisible) {
             waitForTimeBasedChangeVisibleBeforeLock();
         }
