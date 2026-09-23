@@ -288,13 +288,16 @@ public class ForeignKeyContext {
     /**
      * Check whether a scan reads the current table state assumed by its declared constraints.
      * A subset of current rows can still use an FK proof, but historical snapshots, explicit
-     * branches/tags/options, native or external change reads, and raw-version scan modes may have
-     * different relationships from the current PK table. Stream scans are conservatively excluded
-     * for the same reason. Raw-version modes are rejected here, rather than only when activating a
-     * PK, because a historical foreign row can also make join elimination unsound.
+     * branches/tags/options, native or external change reads, raw-version scan modes, and direct
+     * indexes may have different relationships from the current PK table. In particular, a rollup
+     * can merge base rows and change an FK column's value while retaining its catalog column
+     * identity. Stream scans are conservatively excluded for the same reason. These modes are
+     * rejected here, rather than only when activating a PK, because a changed foreign row can also
+     * make join elimination unsound.
      *
      * @param relation catalog scan whose version and read mode are inspected
-     * @return true if no known version selector, change-read mode, or raw-version mode is active
+     * @return true if no known version selector, change-read mode, raw-version mode, or direct
+     *         index can change the constraint-bearing rows
      */
     boolean canUseCurrentConstraint(LogicalCatalogRelation relation) {
         if (relation instanceof LogicalOlapTableStreamScan) {
@@ -303,7 +306,8 @@ public class ForeignKeyContext {
         if (relation instanceof LogicalOlapScan) {
             LogicalOlapScan scan = (LogicalOlapScan) relation;
             return !scan.getScanParams().isPresent()
-                    && !scan.isDuplicateProducingScanMode();
+                    && !scan.isDuplicateProducingScanMode()
+                    && !scan.isDirectMvScan();
         }
         if (relation instanceof LogicalFileScan) {
             LogicalFileScan scan = (LogicalFileScan) relation;
@@ -331,8 +335,7 @@ public class ForeignKeyContext {
             return new HashSet<>(scan.getSelectedPartitionIds()).equals(
                             new HashSet<>(scan.getTable().getPartitionIds()))
                     && scan.getSelectedTabletIds().isEmpty()
-                    && !scan.getTableSample().isPresent()
-                    && !scan.isDirectMvScan();
+                    && !scan.getTableSample().isPresent();
         }
         if (relation instanceof LogicalFileScan) {
             LogicalFileScan scan = (LogicalFileScan) relation;

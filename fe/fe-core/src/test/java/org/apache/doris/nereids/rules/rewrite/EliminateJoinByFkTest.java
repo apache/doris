@@ -330,12 +330,13 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
     /**
      * Foreign-key proof requires current-state rows, even when a versioned foreign scan still
      * exposes the same catalog columns. Cover external snapshots, branches, tags and options,
-     * native incremental reads, raw-version reads, and the stream-scan modes separately from PK
-     * completeness. Raw-version rejection is required on the foreign side as well as the primary
-     * side because superseded foreign rows need not reference a current primary row.
+     * native incremental reads, raw-version reads, direct indexes, and stream-scan modes separately
+     * from PK completeness. Raw-version and direct-index rejection is required on the foreign side
+     * as well as the primary side because superseded or re-aggregated foreign rows need not
+     * reference a current primary row.
      */
     @Test
-    void testVersionedScansCannotSupplyForeignKeyProof() {
+    void testVersionedOrDirectIndexScansCannotSupplyForeignKeyProof() {
         ForeignKeyContext context = new ForeignKeyContext();
         LogicalFileScan fileScan = Mockito.mock(LogicalFileScan.class);
         Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.empty());
@@ -360,7 +361,12 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
         LogicalOlapScan olapScan = Mockito.mock(LogicalOlapScan.class);
         Mockito.when(olapScan.getScanParams()).thenReturn(Optional.empty());
         Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(false);
+        Mockito.when(olapScan.isDirectMvScan()).thenReturn(false);
         Assertions.assertTrue(context.canUseCurrentConstraint(olapScan));
+
+        Mockito.when(olapScan.isDirectMvScan()).thenReturn(true);
+        Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
+        Mockito.when(olapScan.isDirectMvScan()).thenReturn(false);
 
         Mockito.when(olapScan.isDuplicateProducingScanMode()).thenReturn(true);
         Assertions.assertFalse(context.canUseCurrentConstraint(olapScan));
