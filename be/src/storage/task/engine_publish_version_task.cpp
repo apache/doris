@@ -35,6 +35,7 @@
 
 #include "cloud/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
@@ -185,18 +186,26 @@ Status EnginePublishVersionTask::execute() {
                         tablet_info.tablet_id, transaction_id);
                 auto tablet = _engine.tablet_manager()->get_tablet(tablet_info.tablet_id,
                                                                    tablet_info.tablet_uid);
-                if (tablet != nullptr && tablet->enable_unique_key_merge_on_write() &&
-                    _engine.txn_manager()->get_txn_state(
+                if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
+                    TEST_SYNC_POINT_CALLBACK(
+                            "EnginePublishVersionTask::execute::before_pending_publish");
+                    // The rowset snapshot can become stale after get_txn_related_tablets().
+                    // A local commit in that interval still needs the publish handoff;
+                    // the async worker checks complete MoW readiness before publishing.
+                    const auto state = _engine.txn_manager()->get_txn_state(
                             partition_id, transaction_id, tablet_info.tablet_id,
-                            tablet_info.tablet_uid) == TxnState::PREPARED) {
-                    auto st = _engine.add_async_publish_task(partition_id, tablet_info.tablet_id,
-                                                             version.first, transaction_id, false,
-                                                             par_ver_info.commit_tso);
-                    if (!st.ok()) {
-                        LOG(WARNING)
-                                << "failed to retain publish for unfinished local write, txn_id="
-                                << transaction_id << ", tablet_id=" << tablet_info.tablet_id
-                                << ", status=" << st;
+                            tablet_info.tablet_uid);
+                    if (state == TxnState::PREPARED || state == TxnState::COMMITTED) {
+                        auto st = _engine.add_async_publish_task(
+                                partition_id, tablet_info.tablet_id, version.first, transaction_id,
+                                false, par_ver_info.commit_tso);
+                        if (!st.ok()) {
+                            LOG(WARNING)
+                                    << "failed to retain publish for unfinished local write, "
+                                       "txn_id="
+                                    << transaction_id << ", tablet_id=" << tablet_info.tablet_id
+                                    << ", status=" << st;
+                        }
                     }
                 }
                 continue;

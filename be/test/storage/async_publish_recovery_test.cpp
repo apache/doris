@@ -23,6 +23,7 @@
 #include <memory>
 #include <vector>
 
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
 #include "storage/rowset/rowset.h"
@@ -159,6 +160,21 @@ public:
     void run_attempt() {
         _engine->_process_async_publish();
         _engine->_tablet_publish_txn_thread_pool->wait();
+    }
+
+    Status publish(std::set<TTabletId>& errors, std::map<TTabletId, TVersion>& successes) {
+        TPartitionVersionInfo partition;
+        partition.__set_partition_id(PARTITION_ID);
+        partition.__set_version(11);
+        partition.__set_commit_tso(-1);
+        TPublishVersionRequest request;
+        request.__set_transaction_id(TXN_ID);
+        request.__set_partition_version_infos({partition});
+        std::vector<DiscontinuousVersionTablet> discontinuous;
+        std::map<TTableId, std::map<TTabletId, int64_t>> delta_rows;
+        EnginePublishVersionTask task(*_engine, request, &errors, &successes, &discontinuous,
+                                      &delta_rows);
+        return task.execute();
     }
 
     static constexpr int64_t TABLET_ID = 111;
@@ -318,20 +334,9 @@ TEST_F(AsyncPublishRecoveryTest, PublishBeforeLocalCommitQueuesPreparedMowTablet
     load_id.set_hi(0);
     load_id.set_lo(TXN_ID);
     ASSERT_TRUE(_engine->txn_manager()->prepare_txn(PARTITION_ID, *_tablet, TXN_ID, load_id).ok());
-    TPartitionVersionInfo partition;
-    partition.__set_partition_id(PARTITION_ID);
-    partition.__set_version(11);
-    partition.__set_commit_tso(-1);
-    TPublishVersionRequest request;
-    request.__set_transaction_id(TXN_ID);
-    request.__set_partition_version_infos({partition});
     std::set<TTabletId> errors;
     std::map<TTabletId, TVersion> successes;
-    std::vector<DiscontinuousVersionTablet> discontinuous;
-    std::map<TTableId, std::map<TTabletId, int64_t>> delta_rows;
-    EnginePublishVersionTask task(*_engine, request, &errors, &successes, &discontinuous,
-                                  &delta_rows);
-    EXPECT_FALSE(task.execute().ok());
+    EXPECT_FALSE(publish(errors, successes).ok());
     EXPECT_TRUE(errors.contains(TABLET_ID));
     EXPECT_TRUE(successes.empty());
     EXPECT_EQ(marker_count(), 1);
@@ -340,6 +345,74 @@ TEST_F(AsyncPublishRecoveryTest, PublishBeforeLocalCommitQueuesPreparedMowTablet
     ASSERT_TRUE(attempt()->finished());
     EXPECT_TRUE(attempt()->result().ok()) << attempt()->result();
     EXPECT_TRUE(_tablet->check_version_exist({11, 11}));
+}
+
+TEST_F(AsyncPublishRecoveryTest, CommitAfterRowsetSnapshotRetainsPublish) {
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(TXN_ID);
+    ASSERT_TRUE(_engine->txn_manager()->prepare_txn(PARTITION_ID, *_tablet, TXN_ID, load_id).ok());
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    Defer disable_sync {[&] { sp->disable_processing(); }};
+    bool callback_called = false;
+    sp->set_call_back(
+            "EnginePublishVersionTask::execute::before_pending_publish",
+            [&](auto&&) {
+                callback_called = true;
+                ASSERT_TRUE(commit_empty_rowset(false).ok());
+            },
+            &guard);
+    sp->enable_processing();
+    std::set<TTabletId> errors;
+    std::map<TTabletId, TVersion> successes;
+    EXPECT_FALSE(publish(errors, successes).ok());
+    ASSERT_TRUE(callback_called);
+    EXPECT_TRUE(errors.contains(TABLET_ID));
+    EXPECT_TRUE(successes.empty());
+    ASSERT_EQ(marker_count(), 1);
+    run_attempt();
+    ASSERT_NE(attempt(), nullptr);
+    ASSERT_TRUE(attempt()->finished());
+    EXPECT_FALSE(attempt()->result().ok());
+    EXPECT_FALSE(_tablet->check_version_exist({11, 11}));
+    // Even a committed rowset must wait for its MoW context before retrying.
+    install_mow();
+    allow_retry();
+    run_attempt();
+    EXPECT_TRUE(attempt()->result().ok()) << attempt()->result();
+    EXPECT_TRUE(_tablet->check_version_exist({11, 11}));
+    _engine->_process_async_publish();
+    EXPECT_EQ(marker_count(), 0);
+}
+
+TEST_F(AsyncPublishRecoveryTest, AbortAfterRowsetSnapshotDoesNotQueuePublish) {
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(TXN_ID);
+    ASSERT_TRUE(_engine->txn_manager()->prepare_txn(PARTITION_ID, *_tablet, TXN_ID, load_id).ok());
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    Defer disable_sync {[&] { sp->disable_processing(); }};
+    bool callback_called = false;
+    sp->set_call_back(
+            "EnginePublishVersionTask::execute::before_pending_publish",
+            [&](auto&&) {
+                callback_called = true;
+                _engine->txn_manager()->abort_txn(PARTITION_ID, TXN_ID, TABLET_ID,
+                                                  _tablet->tablet_uid());
+            },
+            &guard);
+    sp->enable_processing();
+    std::set<TTabletId> errors;
+    std::map<TTabletId, TVersion> successes;
+    EXPECT_FALSE(publish(errors, successes).ok());
+    ASSERT_TRUE(callback_called);
+    EXPECT_TRUE(errors.contains(TABLET_ID));
+    EXPECT_TRUE(successes.empty());
+    EXPECT_EQ(marker_count(), 0);
+    EXPECT_TRUE(_engine->_async_publish_tasks.empty());
+    EXPECT_FALSE(_tablet->check_version_exist({11, 11}));
 }
 
 TEST_F(AsyncPublishRecoveryTest, AbortedPreparedTransactionCannotPublish) {
