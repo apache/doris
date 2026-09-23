@@ -62,12 +62,10 @@ public interface RowLevelDmlTransform {
     /** The connector-owned label prefix; the shell appends {@code _<hi>_<lo>}. */
     String labelPrefix(TableIf table, RowLevelDmlOp op);
 
-    /**
-     * Legacy optimistic-conflict-detection wiring (kept live until P6.7): build the connector-specific
-     * conflict filter from the analyzed plan and stash it on the executor for its {@code beforeExec}.
-     */
-    void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table,
-            RowLevelDmlOp op);
+    /** Whether planning must disable external-table batch mode so every source split is available. */
+    default boolean requiresExternalTableBatchModeDisabled() {
+        return false;
+    }
 
     /** Finalize the sink (op-specific; e.g. attaching rewritable delete-file metadata for the BE). */
     void finalizeSink(BaseExternalTableInsertExecutor executor, RowLevelDmlOp op, PlanFragment fragment,

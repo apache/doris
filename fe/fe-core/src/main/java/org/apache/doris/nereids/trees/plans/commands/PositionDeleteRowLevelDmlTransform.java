@@ -86,17 +86,17 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
         // Per-handle write-op probe lets a heterogeneous gateway select only qualifying tables.
         Set<WriteOperation> ops = table.connectorSupportedWriteOperations();
-        return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
+        return RowLevelDmlRegistry.supportsAnyRowLevelDml(ops);
     }
 
     @Override
     public void checkMode(TableIf table, RowLevelDmlOp op) {
         PluginDrivenExternalTable connectorTable = (PluginDrivenExternalTable) table;
-        WriteOperation operation = toWriteOperation(op);
+        WriteOperation operation = op.toWriteOperation();
         if (!connectorTable.connectorSupportedWriteOperations().contains(operation)) {
             throw new AnalysisException("Connector does not support " + operation + " operations");
         }
-        checkPluginMode(connectorTable, op);
+        checkPluginMode(connectorTable, operation);
     }
 
     /**
@@ -106,7 +106,7 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
      * {@link AnalysisException} the legacy native path threw, preserving the user-facing message and the
      * exception type.
      */
-    private static void checkPluginMode(PluginDrivenExternalTable table, RowLevelDmlOp op) {
+    private static void checkPluginMode(PluginDrivenExternalTable table, WriteOperation operation) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
@@ -116,20 +116,9 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
                         + table.getRemoteDbName() + "." + table.getRemoteName()
                         + " in catalog " + catalog.getName()));
         try {
-            metadata.validateRowLevelDmlMode(session, handle, toWriteOperation(op));
+            metadata.validateRowLevelDmlMode(session, handle, operation);
         } catch (DorisConnectorException e) {
             throw new AnalysisException(e.getMessage(), e);
-        }
-    }
-
-    private static WriteOperation toWriteOperation(RowLevelDmlOp op) {
-        switch (op) {
-            case DELETE:
-                return WriteOperation.DELETE;
-            case UPDATE:
-                return WriteOperation.UPDATE;
-            default:
-                return WriteOperation.MERGE;
         }
     }
 
@@ -201,16 +190,12 @@ public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform 
     @Override
     public String labelPrefix(TableIf table, RowLevelDmlOp op) {
         return ((PluginDrivenExternalTable) table)
-                .getConnectorRowLevelDmlLabelPrefix(toWriteOperation(op));
+                .getConnectorRowLevelDmlLabelPrefix(op.toWriteOperation());
     }
 
     @Override
-    public void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table,
-            RowLevelDmlOp op) {
-        // No-op: the conflict filter is supplied through the neutral SPI path
-        // (RowLevelDmlCommand.applyWriteConstraintIfPresent -> extractWriteConstraint ->
-        // ConnectorTransaction.applyWriteConstraint). Running only the SPI path avoids applying the same
-        // optimistic-conflict predicate twice.
+    public boolean requiresExternalTableBatchModeDisabled() {
+        return true;
     }
 
     @Override

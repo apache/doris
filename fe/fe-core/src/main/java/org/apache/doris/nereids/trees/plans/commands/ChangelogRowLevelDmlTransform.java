@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -68,15 +73,13 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
         if (connectorTable.getConnectorRowChangeStyle() != ConnectorRowChangeStyle.CHANGELOG) {
             return false;
         }
-        Set<WriteOperation> operations = connectorTable.connectorSupportedWriteOperations();
-        return operations.contains(WriteOperation.DELETE)
-                || operations.contains(WriteOperation.UPDATE)
-                || operations.contains(WriteOperation.MERGE);
+        return RowLevelDmlRegistry.supportsAnyRowLevelDml(
+                connectorTable.connectorSupportedWriteOperations());
     }
 
     @Override
     public void checkMode(TableIf table, RowLevelDmlOp op) {
-        WriteOperation operation = toWriteOperation(op);
+        WriteOperation operation = op.toWriteOperation();
         if (!((PluginDrivenExternalTable) table).connectorSupportedWriteOperations().contains(operation)) {
             throw new AnalysisException("Connector does not support " + operation + " operations");
         }
@@ -90,7 +93,7 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
             throw new AnalysisException(
                     "Connector changelog DELETE does not support partition name lists; use a WHERE predicate");
         }
-        validate(table, args, op);
+        validate(ctx, table, args, op);
         switch (op) {
             case DELETE:
                 return deletePlan(ctx, args);
@@ -149,7 +152,9 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
         return args.getCte().isPresent() ? (LogicalPlan) args.getCte().get().withChildren(sink) : sink;
     }
 
-    private void validate(PluginDrivenExternalTable table, RowLevelDmlArgs args, RowLevelDmlOp op) {
+    private void validate(ConnectContext ctx, PluginDrivenExternalTable table,
+            RowLevelDmlArgs args, RowLevelDmlOp op) {
+        requireNoDataMask(ctx, table, op);
         Set<String> updatedColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         boolean containsUpdate = op == RowLevelDmlOp.UPDATE;
         boolean containsDelete = op == RowLevelDmlOp.DELETE;
@@ -164,9 +169,28 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
         }
         try {
             table.validateConnectorRowLevelDml(new ConnectorRowLevelDmlRequest(
-                    toWriteOperation(op), updatedColumns, containsUpdate, containsDelete));
+                    op.toWriteOperation(), updatedColumns, containsUpdate, containsDelete));
         } catch (DorisConnectorException e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    static void requireNoDataMask(ConnectContext ctx, PluginDrivenExternalTable table, RowLevelDmlOp op) {
+        UserIdentity user = ctx.getCurrentUserIdentity();
+        if (user.isRootUser() || user.isAdminUser()) {
+            return;
+        }
+        DatabaseIf<?> database = table.getDatabase();
+        CatalogIf<?> catalog = database.getCatalog();
+        Set<String> columns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (Column column : table.getFullSchema()) {
+            columns.add(column.getName());
+        }
+        AccessControllerManager accessManager = ctx.getEnv().getAccessManager();
+        if (!accessManager.evalDataMaskPolicies(
+                user, catalog.getName(), database.getFullName(), table.getName(), columns).isEmpty()) {
+            throw new AnalysisException("Connector " + op
+                    + " is not supported when data masking policies apply to the target table");
         }
     }
 
@@ -174,17 +198,6 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
         for (EqualTo assignment : assignments) {
             List<String> parts = ((UnboundSlot) assignment.left()).getNameParts();
             columns.add(parts.get(parts.size() - 1));
-        }
-    }
-
-    private WriteOperation toWriteOperation(RowLevelDmlOp op) {
-        switch (op) {
-            case DELETE:
-                return WriteOperation.DELETE;
-            case UPDATE:
-                return WriteOperation.UPDATE;
-            default:
-                return WriteOperation.MERGE;
         }
     }
 
@@ -204,13 +217,7 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public String labelPrefix(TableIf table, RowLevelDmlOp op) {
-        return ((PluginDrivenExternalTable) table).getConnectorRowLevelDmlLabelPrefix(toWriteOperation(op));
-    }
-
-    @Override
-    public void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan,
-            TableIf table, RowLevelDmlOp op) {
-        // Changelog connectors reconcile conflicts through their connector transaction.
+        return ((PluginDrivenExternalTable) table).getConnectorRowLevelDmlLabelPrefix(op.toWriteOperation());
     }
 
     @Override

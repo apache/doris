@@ -61,7 +61,7 @@ public class CreateStruct extends ScalarFunction
         }
         children.forEach(argument -> {
             if (argument.getDataType().isJsonType()) {
-                throw new AnalysisException("struct does not support jsonb/variant type");
+                throw new AnalysisException("struct does not support jsonb type");
             }
         });
     }

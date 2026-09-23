@@ -127,12 +127,17 @@ public class PositionDeleteRowLevelDmlTransformTest {
         Assertions.assertTrue(transform.handles(pluginTable(true, false)));
         Assertions.assertTrue(transform.handles(pluginTable(false, true)));
         Assertions.assertTrue(transform.handles(pluginTable(true, true)));
+        PluginDrivenExternalTable updateOnly = pluginTable(false, false);
+        Mockito.when(updateOnly.connectorSupportedWriteOperations())
+                .thenReturn(EnumSet.of(WriteOperation.UPDATE));
+        Assertions.assertTrue(transform.handles(updateOnly));
         // A plugin connector with neither capability (e.g. jdbc/es) must NOT be admitted,
         // else its row-level DML would route through the iceberg synthesis path.
         Assertions.assertFalse(transform.handles(pluginTable(false, false)));
         // Non-plugin table types and null are never admitted.
         Assertions.assertFalse(transform.handles(Mockito.mock(TableIf.class)));
         Assertions.assertFalse(transform.handles(null));
+        Assertions.assertTrue(transform.requiresExternalTableBatchModeDisabled());
     }
 
     @Test
@@ -257,20 +262,6 @@ public class PositionDeleteRowLevelDmlTransformTest {
         Assertions.assertEquals("uuid-u0/schema-1",
                 ((LogicalExternalRowLevelDeleteSink<?>) plan).getBoundWriteMetadataIdentity());
         Mockito.verify(table, Mockito.times(1)).getWriteSchemaSnapshot();
-    }
-
-    @Test
-    public void setupConflictDetectionPluginArmIsNoOp() {
-        // The conflict filter runs ONLY through the SPI path (applyWriteConstraintIfPresent), so
-        // setupConflictDetection is a no-op that must NOT touch the executor (the retired native arm cast
-        // it to Iceberg{Delete,Merge}Executor and called setConflictDetectionFilter).
-        BaseExternalTableInsertExecutor executor = Mockito.mock(PluginDrivenInsertExecutor.class);
-        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        Plan analyzedPlan = Mockito.mock(Plan.class);
-
-        Assertions.assertDoesNotThrow(() ->
-                transform.setupConflictDetection(executor, analyzedPlan, table, RowLevelDmlOp.DELETE));
-        Mockito.verifyNoInteractions(executor);
     }
 
     @Test

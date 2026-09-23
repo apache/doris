@@ -79,6 +79,14 @@ public class RowLevelDmlRowIdUtilsTest {
     }
 
     @Test
+    public void isRowIdInjectionTargetAcceptsUpdateOnlyPluginDrivenTable() {
+        PluginDrivenExternalTable table = pluginTableWithCapability(false, false);
+        Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(EnumSet.of(WriteOperation.UPDATE));
+
+        Assertions.assertTrue(RowLevelDmlRowIdUtils.isRowIdInjectionTarget(table));
+    }
+
+    @Test
     public void isRowIdInjectionTargetRejectsPluginDrivenTableWithoutCapability() {
         // A non-iceberg plugin-driven table (jdbc/es/trino/max_compute/paimon) declares neither capability,
         // so it is not a row-id-injection target — the guard must not inject into its scans.

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.connector.spi.handle.WriteOperation;
+
 /**
  * The kind of row-level DML driven by the generic {@link RowLevelDmlCommand} shell.
  *
@@ -26,5 +28,19 @@ package org.apache.doris.nereids.trees.plans.commands;
 public enum RowLevelDmlOp {
     DELETE,
     UPDATE,
-    MERGE
+    MERGE;
+
+    /** Returns the connector SPI operation corresponding to this command. */
+    public WriteOperation toWriteOperation() {
+        switch (this) {
+            case DELETE:
+                return WriteOperation.DELETE;
+            case UPDATE:
+                return WriteOperation.UPDATE;
+            case MERGE:
+                return WriteOperation.MERGE;
+            default:
+                throw new IllegalStateException("Unsupported row-level DML operation: " + this);
+        }
+    }
 }

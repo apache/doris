@@ -676,7 +676,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public Set<WriteOperation> supportedOperations() {
         return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
-                WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE);
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE);
     }
 
     @Override

@@ -74,8 +74,8 @@ public final class ConnectorWriteDistribution {
     }
 
     /**
-     * Uses an external writer partition function. The engine treats {@code partitionFunction} and its
-     * options as opaque values and forwards them to BE together with the resolved route expressions.
+     * Uses an external writer partition function registered in BE. FE treats {@code partitionFunction} and its
+     * options as opaque values and forwards them together with the resolved route expressions.
      */
     public static ConnectorWriteDistribution externalHash(List<String> routeColumns,
             String partitionFunction, Map<String, String> partitionFunctionOptions,
