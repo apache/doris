@@ -33,6 +33,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "util/debug_points.h"
+#include "util/load_task_queue.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 
@@ -62,6 +63,23 @@ public:
 private:
     std::function<void()> _func;
 };
+
+struct ThreadPool::ScheduledLoadTask {
+    ThreadPoolToken* token;
+    Task task;
+};
+
+class ThreadPool::LoadQueue : public LoadTaskQueue<ScheduledLoadTask> {};
+
+static thread_local ThreadPoolToken* executing_load_token = nullptr;
+
+bool ThreadPool::is_load_worker() {
+    return executing_load_token != nullptr;
+}
+
+bool ThreadPool::queues_empty() const {
+    return _queue.empty() && _load_queue->empty();
+}
 
 ThreadPoolBuilder::ThreadPoolBuilder(string name, string workload_group)
         : _name(std::move(name)),
@@ -114,7 +132,7 @@ ThreadPoolToken::~ThreadPoolToken() {
 }
 
 Status ThreadPoolToken::submit(std::shared_ptr<Runnable> r) {
-    return _pool->do_submit(std::move(r), this);
+    return _pool->do_submit(std::move(r), this, _load_priority);
 }
 
 Status ThreadPoolToken::submit_func(std::function<void()> f) {
@@ -122,8 +140,23 @@ Status ThreadPoolToken::submit_func(std::function<void()> f) {
 }
 
 void ThreadPoolToken::shutdown() {
+    // Declare before the lock: callback destruction must run after unlocking.
+    std::vector<ThreadPool::ScheduledLoadTask> removed_load_tasks;
     std::unique_lock<std::mutex> l(_pool->_lock);
-    _pool->check_not_pool_thread_unlocked();
+    // Flush cleanup can release the last rowset-writer reference on a worker.
+    // Its write-time bitmap jobs are leaves: after removing queued jobs below, only
+    // already-running independent leaves remain to join. Never join our own token.
+    const bool join_bitmap_leaves = _is_load_token && _load_priority == LoadTaskPriority::MID &&
+                                    executing_load_token != nullptr && executing_load_token != this;
+    if (!_is_load_token || (_active_threads != 0 && !join_bitmap_leaves)) {
+        _pool->check_not_pool_thread_unlocked();
+    }
+    if (_is_load_token) {
+        removed_load_tasks = _pool->_load_queue->remove_if(
+                [this](const auto& entry) { return entry.token == this; });
+        _pool->_total_queued_tasks -= removed_load_tasks.size();
+        _queued_load_tasks = 0;
+    }
 
     // Clear the queue under the lock, but defer the releasing of the tasks
     // outside the lock, in case there are concurrent threads wanting to access
@@ -169,6 +202,10 @@ void ThreadPoolToken::shutdown() {
     default:
         break;
     }
+    if (_pool->_total_queued_tasks == 0 && _pool->_active_threads == 0) {
+        _pool->_idle_cond.notify_all();
+    }
+    l.unlock();
 }
 
 void ThreadPoolToken::wait() {
@@ -185,16 +222,16 @@ void ThreadPoolToken::transition(State new_state) {
     case State::IDLE:
         CHECK(new_state == State::RUNNING || new_state == State::QUIESCED);
         if (new_state == State::RUNNING) {
-            CHECK(!_entries.empty());
+            CHECK(!tasks_empty());
         } else {
-            CHECK(_entries.empty());
+            CHECK(tasks_empty());
             CHECK_EQ(_active_threads, 0);
         }
         break;
     case State::RUNNING:
         CHECK(new_state == State::IDLE || new_state == State::QUIESCING ||
               new_state == State::QUIESCED);
-        CHECK(_entries.empty());
+        CHECK(tasks_empty());
         if (new_state == State::QUIESCING) {
             CHECK_GT(_active_threads, 0);
         }
@@ -249,7 +286,8 @@ bool ThreadPoolToken::need_dispatch() {
 }
 
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
-        : _name(builder._name),
+        : _load_queue(std::make_unique<LoadQueue>()),
+          _name(builder._name),
           _workload_group(builder._workload_group),
           _min_threads(builder._min_threads),
           _max_threads(builder._max_threads),
@@ -262,11 +300,12 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
           _total_queued_tasks(0),
           _cgroup_cpu_ctl(builder._cgroup_cpu_ctl),
           _tokenless(new_token(ExecutionMode::CONCURRENT)),
+          _load_tokenless(new_load_token(LoadTaskPriority::LOW)),
           _id(UniqueId::gen_uid()) {}
 
 ThreadPool::~ThreadPool() {
-    // There should only be one live token: the one used in tokenless submission.
-    CHECK_EQ(1, _tokens.size()) << absl::Substitute(
+    // Only the two internal tokens used by tokenless submission may remain.
+    CHECK_EQ(2, _tokens.size()) << absl::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens", _name, _tokens.size());
     shutdown();
     VLOG_DEBUG << fmt::format("Thread pool {} destroyed", _name);
@@ -360,9 +399,12 @@ void ThreadPool::shutdown() {
     // wanting to access the ThreadPool. The task's destructors may acquire
     // locks, etc, so this also prevents lock inversions.
     _queue.clear();
+    auto load_tasks_to_release = std::move(_load_queue);
+    _load_queue = std::make_unique<LoadQueue>();
 
     std::deque<std::deque<Task>> to_release;
     for (auto* t : _tokens) {
+        t->_queued_load_tasks = 0;
         if (!t->_entries.empty()) {
             to_release.emplace_back(std::move(t->_entries));
         }
@@ -400,6 +442,7 @@ void ThreadPool::shutdown() {
         DCHECK(t->state() == ThreadPoolToken::State::IDLE ||
                t->state() == ThreadPoolToken::State::QUIESCED);
     }
+    l.unlock();
 }
 
 std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int max_concurrency) {
@@ -409,6 +452,17 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int m
         throw Exception(Status::InternalError("duplicate token"));
     }
     return t;
+}
+
+std::unique_ptr<ThreadPoolToken> ThreadPool::new_load_token(LoadTaskPriority priority) {
+    auto token = new_token(ExecutionMode::CONCURRENT);
+    token->_is_load_token = true;
+    token->_load_priority = priority;
+    return token;
+}
+
+Status ThreadPool::submit_load(std::shared_ptr<Runnable> r, LoadTaskPriority priority) {
+    return do_submit(std::move(r), _load_tokenless.get(), priority);
 }
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
@@ -426,7 +480,8 @@ Status ThreadPool::submit_func(std::function<void()> f) {
     return submit(std::make_shared<FunctionRunnable>(std::move(f)));
 }
 
-Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token) {
+Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token,
+                             LoadTaskPriority priority) {
     DCHECK(token);
 
     std::unique_lock<std::mutex> l(_lock);
@@ -468,8 +523,8 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     int threads_from_this_submit =
             token->is_active() && token->mode() == ExecutionMode::SERIAL ? 0 : 1;
     int inactive_threads = _num_threads + _num_threads_pending_start - _active_threads;
-    int additional_threads =
-            static_cast<int>(_queue.size()) + threads_from_this_submit - inactive_threads;
+    int additional_threads = static_cast<int>(_queue.size() + _load_queue->size()) +
+                             threads_from_this_submit - inactive_threads;
     bool need_a_thread = false;
     if (additional_threads > 0 && _num_threads + _num_threads_pending_start < _max_threads) {
         need_a_thread = true;
@@ -483,23 +538,31 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     // Add the task to the token's queue.
     ThreadPoolToken::State state = token->state();
     DCHECK(state == ThreadPoolToken::State::IDLE || state == ThreadPoolToken::State::RUNNING);
-    token->_entries.emplace_back(std::move(task));
-    // When we need to execute the task in the token, we submit the token object to the queue.
-    // There are currently two places where tokens will be submitted to the queue:
-    // 1. When submitting a new task, if the token is still in the IDLE state,
-    //    or the concurrency of the token has not reached the online level, it will be added to the queue.
-    // 2. When the dispatch thread finishes executing a task:
-    //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
-    //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
-    //       then submitted to the queue.
-    if (token->need_dispatch()) {
-        _queue.emplace_back(token);
-        ++token->_num_submitted_tasks;
+    if (token->_is_load_token) {
+        _load_queue->push(static_cast<size_t>(priority), {token, std::move(task)});
+        ++token->_queued_load_tasks;
         if (state == ThreadPoolToken::State::IDLE) {
             token->transition(ThreadPoolToken::State::RUNNING);
         }
     } else {
-        ++token->_num_unsubmitted_tasks;
+        token->_entries.emplace_back(std::move(task));
+        // When we need to execute the task in the token, we submit the token object to the queue.
+        // There are currently two places where tokens will be submitted to the queue:
+        // 1. When submitting a new task, if the token is still in the IDLE state,
+        //    or the concurrency of the token has not reached the online level, it will be added to the queue.
+        // 2. When the dispatch thread finishes executing a task:
+        //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
+        //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
+        //       then submitted to the queue.
+        if (token->need_dispatch()) {
+            _queue.emplace_back(token);
+            ++token->_num_submitted_tasks;
+            if (state == ThreadPoolToken::State::IDLE) {
+                token->transition(ThreadPoolToken::State::RUNNING);
+            }
+        } else {
+            ++token->_num_unsubmitted_tasks;
+        }
     }
     _total_queued_tasks++;
 
@@ -567,7 +630,7 @@ void ThreadPool::dispatch_thread() {
             break;
         }
 
-        if (_queue.empty()) {
+        if (queues_empty()) {
             // There's no work to do, let's go idle.
             //
             // Note: if FIFO behavior is desired, it's as simple as changing this to push_back().
@@ -587,7 +650,7 @@ void ThreadPool::dispatch_thread() {
                 // brief period during which another thread may actually grab the internal mutex
                 // protecting the state, signal, and release again before we get the mutex. So,
                 // we'll recheck the empty queue case regardless.
-                if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
+                if (queues_empty() && _num_threads + _num_threads_pending_start > _min_threads) {
                     VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
                                 << std::chrono::duration_cast<std::chrono::milliseconds>(
                                            _idle_timeout)
@@ -602,15 +665,23 @@ void ThreadPool::dispatch_thread() {
         MonotonicStopWatch task_execution_time_watch;
         task_execution_time_watch.start();
         // Get the next token and task to execute.
-        ThreadPoolToken* token = _queue.front();
-        _queue.pop_front();
+        ThreadPoolToken* token;
+        Task task;
+        if (_queue.empty()) {
+            auto entry = _load_queue->pop();
+            token = entry.token;
+            task = std::move(entry.task);
+            --token->_queued_load_tasks;
+        } else {
+            token = _queue.front();
+            _queue.pop_front();
+            task = std::move(token->_entries.front());
+            token->_entries.pop_front();
+        }
         DCHECK_EQ(ThreadPoolToken::State::RUNNING, token->state());
-        DCHECK(!token->_entries.empty());
-        Task task = std::move(token->_entries.front());
         thread_pool_task_wait_worker_time_ns_total->increment(
                 task.submit_time_wather.elapsed_time());
         thread_pool_task_wait_worker_count_total->increment(1);
-        token->_entries.pop_front();
         token->_active_threads++;
         --_total_queued_tasks;
         ++_active_threads;
@@ -618,7 +689,9 @@ void ThreadPool::dispatch_thread() {
         l.unlock();
 
         // Execute the task
+        executing_load_token = token->_is_load_token ? token : nullptr;
         task.runnable->run();
+        executing_load_token = nullptr;
         // Destruct the task while we do not hold the lock.
         //
         // The task's destructor may be expensive if it has a lot of bound
@@ -638,14 +711,16 @@ void ThreadPool::dispatch_thread() {
         DCHECK(state == ThreadPoolToken::State::RUNNING ||
                state == ThreadPoolToken::State::QUIESCING);
         --token->_active_threads;
-        --token->_num_submitted_tasks;
+        if (!token->_is_load_token) {
+            --token->_num_submitted_tasks;
+        }
 
         // handle shutdown && idle
         if (token->_active_threads == 0) {
             if (state == ThreadPoolToken::State::QUIESCING) {
-                DCHECK(token->_entries.empty());
+                DCHECK(token->tasks_empty());
                 token->transition(ThreadPoolToken::State::QUIESCED);
-            } else if (token->_entries.empty()) {
+            } else if (token->tasks_empty()) {
                 token->transition(ThreadPoolToken::State::IDLE);
             }
         }
@@ -681,7 +756,7 @@ void ThreadPool::dispatch_thread() {
 
         // Sanity check: if we're the last thread exiting, the queue ought to be
         // empty. Otherwise it will never get processed.
-        CHECK(_queue.empty());
+        CHECK(queues_empty());
         DCHECK_EQ(0, _total_queued_tasks);
     }
 }
