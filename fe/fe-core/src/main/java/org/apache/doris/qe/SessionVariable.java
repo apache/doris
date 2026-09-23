@@ -410,6 +410,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PROJECTION = "enable_projection";
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
+    public static final String ENABLE_BATCH_POINT_QUERY = "enable_batch_point_query";
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
                     = "enable_short_circuit_query_access_column_store";
@@ -2000,6 +2001,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
     private boolean enableShortCircuitQuery = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_BATCH_POINT_QUERY, needForward = true, affectQueryResultInPlan = true,
+            description = "Enable bounded literal IN point queries on single VARCHAR-key row-store tables")
+    private boolean enableBatchPointQuery = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
@@ -5006,6 +5011,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableProjection() {
         return enableProjection;
+    }
+
+    public boolean isEnableBatchPointQuery() {
+        return enableBatchPointQuery;
     }
 
     public boolean isEnableShortCircuitQuery() {

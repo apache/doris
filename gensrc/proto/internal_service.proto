@@ -358,6 +358,9 @@ message PTabletKeyLookupRequest {
     optional bytes query_options = 8;
     // timezone string, e.g. "America/Mexico_City"
     optional string time_zone = 9;
+    // Read exactly this published version, including the versioned delete bitmap.
+    // Used by batch point queries across tablets; unlike version, also supported outside cloud mode.
+    optional int64 snapshot_version = 10;
 }
 
 message PTabletKeyLookupResponse {
@@ -366,6 +369,8 @@ message PTabletKeyLookupResponse {
     optional bool empty_batch = 3;
     // BE asks FE to resend once with full query context when lookup cache misses.
     optional bool need_resend_query_context = 4;
+    // Acknowledges snapshot semantics so a new FE never accepts an old BE's latest-version result.
+    optional int64 snapshot_version = 5;
 }
 
 //Add message definition to fetch and update cache
