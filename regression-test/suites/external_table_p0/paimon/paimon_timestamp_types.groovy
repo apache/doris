@@ -136,6 +136,45 @@ suite("paimon_timestamp_types", "p0,external") {
                 "timestamp_precision_evolution_parquet")
         order_qt_precision_evolution_jni_orc_predicate precisionEvolutionPredicateQuery(
                 "timestamp_precision_evolution_orc")
+        // Each fixture has one historical p6 value at .000001 and a current p4 schema.
+        // Equality at the p4 value ensures Paimon does not prune the split from p6 stats.
+        order_qt_leading_zero_p4_jni_parquet """
+            select id, cast(ts as string), microsecond(ts)
+            from doris_29023_timestamp_leading_zero_parquet
+            where ts = '2025-01-01 00:00:01.0000'
+            order by id
+        """
+        order_qt_leading_zero_p4_jni_orc """
+            select id, cast(ts as string), microsecond(ts)
+            from doris_29023_timestamp_leading_zero_orc
+            where ts = '2025-01-01 00:00:01.0000'
+            order by id
+        """
+        // The p4 trigger column activates repair; projecting only the p6 timestamp-key map
+        // verifies that JNI can build the reader without widening the map key type.
+        order_qt_timestamp_map_key_jni_reader """
+            select id, cmap
+            from doris_29023_timestamp_map_key_parquet
+            order by id
+        """
+        order_qt_timestamp_map_key_jni_lookup """
+            select cmap['2025-01-01 00:00:01.000001']
+            from doris_29023_timestamp_map_key_parquet
+            order by id
+        """
+        // Both nested fields evolved from p6 to p4. Only those fields are projected, and the
+        // negative-epoch fractional values exercise recursive JNI repair and its residual filter.
+        order_qt_timestamp_nested_jni_projection """
+            select nested_array, nested_row
+            from doris_29023_timestamp_nested_parquet
+            order by nested_array[1]
+        """
+        order_qt_timestamp_nested_jni_predicate """
+            select nested_array[1], element_at(nested_row, 'nested_ts')
+            from doris_29023_timestamp_nested_parquet
+            where nested_array[1] = '1969-12-31 23:59:59.0000'
+            order by nested_array[1]
+        """
 
         sql """set force_jni_scanner=true"""
         test_scale()

@@ -1,0 +1,30 @@
+{
+  "version" : 3,
+  "id" : 1,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "trigger_ts",
+    "type" : "TIMESTAMP(4)"
+  }, {
+    "id" : 2,
+    "name" : "cmap",
+    "type" : {
+      "type" : "MAP",
+      "key" : "TIMESTAMP(6)",
+      "value" : "TIMESTAMP(6)"
+    }
+  } ],
+  "highestFieldId" : 2,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "write-only" : "true",
+    "file.format" : "parquet"
+  },
+  "comment" : "",
+  "timeMillis" : 1790147494142
+}
