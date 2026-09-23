@@ -126,6 +126,12 @@ suite("paimon_timestamp_types", "p0,external") {
                 "timestamp_precision_evolution_parquet")
         order_qt_precision_evolution_v2_orc precisionEvolutionQuery(
                 "timestamp_precision_evolution_orc")
+        // These fixtures evolve from TIMESTAMP(6) to TIMESTAMP(0). Keep a native-reader
+        // predicate case to verify both filtering and projection use the SDK-truncated value.
+        order_qt_precision_evolution_v2_parquet_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v2_orc_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_orc")
 
         sql """set force_jni_scanner=true"""
         order_qt_precision_evolution_jni_parquet precisionEvolutionQuery(

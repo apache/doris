@@ -9,6 +9,12 @@
 2	2025-01-01 00:00:02	0
 3	2025-01-01 00:00:03	0
 
+-- !precision_evolution_v2_parquet_predicate --
+1	2025-01-01 00:00:01	0
+
+-- !precision_evolution_v2_orc_predicate --
+1	2025-01-01 00:00:01	0
+
 -- !precision_evolution_jni_parquet --
 1	2025-01-01 00:00:01	0
 2	2025-01-01 00:00:02	0
