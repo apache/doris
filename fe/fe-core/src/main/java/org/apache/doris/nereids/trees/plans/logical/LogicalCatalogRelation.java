@@ -76,6 +76,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
      */
     protected final String tableAlias;
 
+    private boolean operativeSlotsDerived;
+
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
         this(relationId, type, table, qualifier, Optional.empty(), Optional.empty(), "");
     }
@@ -186,6 +188,21 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public List<Slot> getOperativeSlots() {
         return operativeSlots;
+    }
+
+    @Override
+    public boolean isOperativeSlotsDerived() {
+        return operativeSlotsDerived;
+    }
+
+    /**
+     * Records that {@link #getOperativeSlots()} has been derived, called by the
+     * {@code withOperativeSlots} of the concrete relation. Not part of the plan identity, like the
+     * statistics of a plan node: it only tells the statistics derivation whether the (possibly
+     * empty) operative slot list is a derivation result or the initial value.
+     */
+    protected void markOperativeSlotsDerived() {
+        this.operativeSlotsDerived = true;
     }
 
     public List<NamedExpression> getVirtualColumns() {

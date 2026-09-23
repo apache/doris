@@ -540,11 +540,13 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
-        return AbstractPlan.copyWithSameId(this, () ->
+        LogicalFileScan scan = AbstractPlan.copyWithSameId(this, () ->
                 new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
                 cachedOutputs, preloadRelationId));
+        scan.markOperativeSlotsDerived();
+        return scan;
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
