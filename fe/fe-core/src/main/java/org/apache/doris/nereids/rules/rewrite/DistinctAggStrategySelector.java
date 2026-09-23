@@ -103,11 +103,12 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
         // not process：
         // count(distinct a,b);
         // count(distinct a), sum(distinct a);
+        // count(distinct a,b), count(distinct b,a);
         // count(distinct a)
         // process:
         // count(distinct a,b), count(distinct a,c)
         // count(distinct a), sum(distinct b)
-        if (agg.distinctFuncNum() < 2 || agg.getDistinctArguments().size() < 2) {
+        if (AggregateUtils.distinctArgumentGroupCountUpToTwo(agg) <= 1) {
             return agg;
         }
         if (shouldUseMultiDistinct(agg)) {
