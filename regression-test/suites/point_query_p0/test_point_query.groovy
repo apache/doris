@@ -378,7 +378,7 @@ suite("test_point_query") {
 
         sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "true")"""
         try {
-            connect(user, password, prepare_url) {
+            connectToDoris(user, password, prepare_url) {
                 def lightweightStmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${realDb}.tbl_point_query0 where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(lightweightStmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 lightweightStmt.setInt(1, 1231)

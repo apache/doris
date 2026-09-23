@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.apache.doris.regression.Config
-import org.apache.doris.regression.util.DebugPoint
-import org.apache.doris.regression.util.NodeType
-
 suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     if (isCloudMode()) {
         return
@@ -26,13 +22,7 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
 
     def debugPoint = "PublishVersionDaemon.stop_publish"
     def debugPointTimeoutSeconds = "10"
-    // PublishVersionDaemon runs on the master FE. The pipeline config provides runner-facing
-    // master FE endpoints; do not replace their mapped ports with raw SHOW FRONTENDS values.
-    def feHttpAddress = context.config.feHttpAddress
-    def feHost = feHttpAddress.split(":")[0]
-    def feHttpPort = Integer.parseInt(feHttpAddress.split(":")[1])
-    def masterJdbcUrl = Config.buildUrlWithDb(context.getJdbcUrl(), context.dbName)
-    context.connectTo(masterJdbcUrl, context.config.jdbcUser, context.config.jdbcPassword)
+    def debugPointManager = GetDebugPoint()
 
     // Prepare a single-replica table so publish blocking deterministically drives the visible timeout path.
     sql """ DROP TABLE IF EXISTS test_insert_visible_timeout_return_mode_tbl FORCE """
@@ -49,8 +39,9 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
 
     def debugPointEnabled = false
     try {
-        // Bound the debug point lifetime so a cleanup failure cannot leave the master publish daemon blocked.
-        DebugPoint.enableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint,
+        // PublishVersionDaemon only runs on the master FE. Enable the debug point on all FEs so
+        // this return-mode test does not depend on which FE the pipeline uses as its entry point.
+        debugPointManager.enableDebugPointForAllFEs(debugPoint,
                 [timeout: debugPointTimeoutSeconds])
         debugPointEnabled = true
 
@@ -60,6 +51,10 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         sql """ SET insert_visible_timeout_return_mode = 'committed' """
         sql """ INSERT INTO test_insert_visible_timeout_return_mode_tbl VALUES (1, 10) """
 
+        // The insert returned successfully in committed mode, but publish is still blocked.
+        def rowCountBeforePublish = sql """ SELECT COUNT(*) FROM test_insert_visible_timeout_return_mode_tbl """
+        assertEquals(0L, rowCountBeforePublish[0][0] as long)
+
         // Verify the error mode returns the publish-timeout error to the client while keeping the txn committed.
         sql """ SET insert_visible_timeout_return_mode = 'error' """
         test {
@@ -68,7 +63,7 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
         }
     } finally {
         if (debugPointEnabled) {
-            DebugPoint.disableDebugPoint(feHost, feHttpPort, NodeType.FE, debugPoint)
+            debugPointManager.disableDebugPointForAllFEs(debugPoint)
         }
     }
 
