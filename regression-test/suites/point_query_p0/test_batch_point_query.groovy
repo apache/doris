@@ -16,6 +16,13 @@
 // under the License.
 
 suite("test_batch_point_query", "p0") {
+    order_qt_default_concurrency "SELECT @@session.batch_point_query_concurrency"
+    [0, -1, 101].each { invalid ->
+        test {
+            sql "SET batch_point_query_concurrency=${invalid}"
+            exception "batch_point_query_concurrency should be between 1 and 100"
+        }
+    }
     sql "DROP TABLE IF EXISTS batch_address_graph"
     sql """
         CREATE TABLE batch_address_graph (
@@ -62,6 +69,14 @@ suite("test_batch_point_query", "p0") {
     explain { sql query; contains "SHORT-CIRCUIT" }
     order_qt_batch_nine query
     order_qt_batch_nine_repeat query
+    sql "SET batch_point_query_concurrency=1"
+    order_qt_serial_concurrency "SELECT @@session.batch_point_query_concurrency"
+    order_qt_batch_nine_serial query
+    sql "SET batch_point_query_concurrency=8"
+    order_qt_eight_concurrency "SELECT @@session.batch_point_query_concurrency"
+    order_qt_batch_nine_eight query
+    sql "SET batch_point_query_concurrency=100"
+    order_qt_restored_concurrency "SELECT @@session.batch_point_query_concurrency"
     order_qt_duplicate_and_absent """SELECT ${projection} FROM batch_address_graph
         WHERE address IN ('${addresses[0]}','${addresses[0]}','${addresses[1]}','missing')"""
 

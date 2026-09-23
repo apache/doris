@@ -67,7 +67,6 @@ import java.util.concurrent.TimeoutException;
 /** Bounded, single-partition literal IN lookups. Equality/prepared lookups retain their existing executor. */
 public class BatchPointQueryExecutor implements CoordInterface {
     public static final int MAX_KEYS = 100;
-    static final int MAX_CONCURRENT_REQUESTS = 8;
 
     private final ShortCircuitQueryContext query;
     private final ConnectContext context;
@@ -206,13 +205,14 @@ public class BatchPointQueryExecutor implements CoordInterface {
     }
 
     RowBatch executeRequests(List<TabletRequest> requests, long deadline) throws Exception {
+        int concurrency = context.getSessionVariable().getBatchPointQueryConcurrency();
         ArrayDeque<TabletRequest> active = new ArrayDeque<>();
         List<ByteBuffer> rows = new ArrayList<>();
         long responseBytes = 0;
         int next = 0;
         try {
             while (next < requests.size() || !active.isEmpty()) {
-                while (next < requests.size() && active.size() < MAX_CONCURRENT_REQUESTS) {
+                while (next < requests.size() && active.size() < concurrency) {
                     TabletRequest task = requests.get(next++);
                     send(task, deadline);
                     active.addLast(task);

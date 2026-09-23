@@ -18,11 +18,14 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.HashDistributionPruner;
@@ -104,24 +107,74 @@ class BatchPointQueryExecutorTest {
 
     @Test
     void testBoundedFanoutAndResultCollection() throws Exception {
+        ConnectContext context = new ConnectContext();
+        Assertions.assertEquals(100, context.getSessionVariable().getBatchPointQueryConcurrency());
+        assertFanout(context, 100, 100);
+        assertFanout(context, 9, 9);
+    }
+
+    @Test
+    void testSessionConcurrencyControlsFanout() throws Exception {
+        ConnectContext context = new ConnectContext();
+        for (int concurrency : new int[] {8, 1, 16}) {
+            setConcurrency(context.getSessionVariable(), Integer.toString(concurrency));
+            assertFanout(context, 100, concurrency);
+        }
+    }
+
+    @Test
+    void testSessionConcurrencyDefaultAndForwarding() throws Exception {
+        SessionVariable source = new SessionVariable();
+        Assertions.assertEquals(100, source.getBatchPointQueryConcurrency());
+        Assertions.assertFalse(source.isEnableBatchPointQuery());
+        for (int concurrency : new int[] {8, 1, 100}) {
+            setConcurrency(source, Integer.toString(concurrency));
+            Assertions.assertEquals(concurrency, source.getBatchPointQueryConcurrency());
+            Map<String, String> forwarded = source.getForwardVariables();
+            Assertions.assertEquals(Integer.toString(concurrency),
+                    forwarded.get(SessionVariable.BATCH_POINT_QUERY_CONCURRENCY));
+            SessionVariable target = new SessionVariable();
+            target.setForwardedSessionVariables(forwarded);
+            Assertions.assertEquals(concurrency, target.getBatchPointQueryConcurrency());
+        }
+    }
+
+    @Test
+    void testSessionConcurrencyRejectsInvalidValues() throws Exception {
+        SessionVariable session = new SessionVariable();
+        setConcurrency(session, "8");
+        for (String value : new String[] {"0", "-1", "101", "2147483648", "abc", "1.5"}) {
+            Assertions.assertThrows(DdlException.class, () -> setConcurrency(session, value));
+            Assertions.assertEquals(8, session.getBatchPointQueryConcurrency());
+        }
+    }
+
+    private void setConcurrency(SessionVariable session, String value) throws DdlException {
+        VariableMgr.setVar(session, new SetVar(SetType.SESSION, SessionVariable.BATCH_POINT_QUERY_CONCURRENCY,
+                new StringLiteral(value)));
+    }
+
+    private void assertFanout(ConnectContext context, int taskCount, int expectedPeak) throws Exception {
         AtomicInteger outstanding = new AtomicInteger();
         AtomicInteger peak = new AtomicInteger();
         PTabletKeyLookupResponse response = response(7);
-        BatchPointQueryExecutor executor = executor(1024 * 1024, (backend, request) -> {
-            peak.accumulateAndGet(outstanding.incrementAndGet(), Math::max);
-            return new CompletableFuture<PTabletKeyLookupResponse>() {
-                @Override
-                public PTabletKeyLookupResponse get(long timeout, TimeUnit unit) {
-                    outstanding.decrementAndGet();
-                    return response;
-                }
-            };
-        });
-        List<BatchPointQueryExecutor.TabletRequest> tasks = LongStream.range(0, 70)
+        BatchPointQueryExecutor executor = new BatchPointQueryExecutor(null, 1024 * 1024, context,
+                (backend, request) -> {
+                    peak.accumulateAndGet(outstanding.incrementAndGet(), Math::max);
+                    return new CompletableFuture<PTabletKeyLookupResponse>() {
+                        @Override
+                        public PTabletKeyLookupResponse get(long timeout, TimeUnit unit) {
+                            outstanding.decrementAndGet();
+                            return response;
+                        }
+                    };
+                });
+        List<BatchPointQueryExecutor.TabletRequest> tasks = LongStream.range(0, taskCount)
                 .mapToObj(this::task).collect(Collectors.toList());
         RowBatch result = executor.executeRequests(tasks, deadline());
-        Assertions.assertEquals(70, result.getBatch().getRowsSize());
-        Assertions.assertEquals(BatchPointQueryExecutor.MAX_CONCURRENT_REQUESTS, peak.get());
+        Assertions.assertEquals(taskCount, result.getBatch().getRowsSize());
+        Assertions.assertEquals(expectedPeak, peak.get());
+        Assertions.assertEquals(0, outstanding.get());
         Assertions.assertTrue(result.isEos());
     }
 
