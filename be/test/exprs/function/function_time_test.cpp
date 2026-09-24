@@ -37,6 +37,57 @@
 namespace doris {
 using namespace ut_type;
 
+template <typename Transform>
+void check_quarter_interval_overflow(const typename Transform::InputValueType& date) {
+    SCOPED_TRACE(Transform::name);
+    SCOPED_TRACE(Transform::ArgPType);
+    // Cover small wrapped month offsets and Int32 multiplication/negation boundaries.
+    for (Int32 quarters :
+         {1431655765, 1431655766, -1431655765, -1431655766, 715827882, 715827883, -715827882,
+          -715827883, std::numeric_limits<Int32>::min(), std::numeric_limits<Int32>::max()}) {
+        SCOPED_TRACE(quarters);
+        EXPECT_THROW(Transform::execute(date, quarters), Exception);
+    }
+}
+
+template <typename Transform>
+void check_quarter_sub_int_min(const typename Transform::InputValueType& date) {
+    SCOPED_TRACE(Transform::ArgPType);
+    try {
+        Transform::execute(date, std::numeric_limits<Int32>::min());
+        FAIL() << "Subtracting INT_MIN quarters must report a date-range error";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::OUT_OF_BOUND);
+        // Include the delimiter: a negative delta contains the same digits.
+        EXPECT_NE(e.to_string().find(", 6442450944 out of range"), std::string::npos)
+                << e.to_string();
+    }
+}
+
+TEST(VTimestampFunctionsTest, quarter_interval_overflow) {
+    DateV2Value<DateV2ValueType> date;
+    date.unchecked_set_time(2023, 1, 1, 0, 0, 0, 0);
+    DateV2Value<DateTimeV2ValueType> datetime;
+    datetime.unchecked_set_time(2023, 1, 1, 12, 34, 56, 123456);
+    TimestampTzValue timestamptz(datetime);
+    TimeStampNsValue timestamp_ns;
+    ASSERT_TRUE(timestamp_ns.from_datetime(datetime, 789));
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+
+    // Both signs exceed the date range, so EXPECT_THROW alone cannot detect narrowing.
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+}
+
 TEST(VTimestampFunctionsTest, current_timestamp_ns_precision_test) {
     TimezoneUtils::load_timezones_to_cache();
     InputTypeSet input_types = {ConstedNotnull {PrimitiveType::TYPE_INT}};
