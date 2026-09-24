@@ -465,12 +465,18 @@ TEST(FunctionLikeTest, regexp_extract_or_null) {
 
 TEST(FunctionLikeTest, regexp_extract_all) {
     std::string func_name = "regexp_extract_all";
+    const std::string word_boundary_input(10000, 'a');
+    const std::string invalid_utf8_input {static_cast<char>(0xC3), 'A'};
 
     DataSet data_set = {
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd"), std::string("x=([0-9]+)([a-z]+)")},
              std::string("['18','17']")},
             {{std::string("x=a3&x=18abc&x=2&y=3&x=4"), std::string("^x=([a-z]+)([0-9]+)")},
              std::string("['a']")},
+            {{std::string("aaa"), std::string("(^a)")}, std::string("['a']")},
+            {{word_boundary_input, std::string("(\\b)")}, std::string("")},
+            {{std::string("é"), std::string("(?:^)|(\\C)")}, std::string("")},
+            {{invalid_utf8_input, std::string("(?:^)|(\\C)")}, std::string("['A']")},
             {{std::string("http://a.m.baidu.com/i41915173660.htm"), std::string("i([0-9]+)")},
              std::string("['41915173660']")},
             {{std::string("http://a.m.baidu.com/i41915i73660.htm"), std::string("i([0-9]+)")},
@@ -495,7 +501,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
     }
 }
 
-TEST(FunctionLikeTest, regexp_extract_all_array) {
+// Keep the cases together so they share the same function lifecycle setup.
+TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-function-size)
     std::string func_name = "regexp_extract_all_array";
     auto str_type = std::make_shared<DataTypeString>();
     auto return_type = make_nullable(
@@ -543,10 +550,14 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     };
 
-    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", "[\"18\", \"17\"]");
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", R"(["18", "17"])");
     run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", "[\"a\"]");
+    run_case("aaa", "(^a)", "[\"a\"]");
+    run_case(std::string(10000, 'a'), "(\\b)", "[]");
+    run_case("é", "(?:^)|(\\C)", "[]");
+    run_case(std::string {static_cast<char>(0xC3), 'A'}, "(?:^)|(\\C)", "[\"A\"]");
     run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", "[\"41915173660\"]");
-    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", "[\"41915\", \"73660\"]");
+    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", R"(["41915", "73660"])");
     run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");
     run_case("no_match_here", "x=([0-9]+)", "[]");
     run_case("abc", "([a-z]+)", "[\"abc\"]");
@@ -643,6 +654,37 @@ TEST(FunctionLikeTest, regexp_extract_all_array) {
         static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
         static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
+}
+
+TEST(FunctionLikeTest, split_by_regexp_preserves_original_anchor) {
+    const std::string input = "aaa";
+    const std::string pattern = "^a";
+    auto string_type = std::make_shared<DataTypeString>();
+    auto return_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>()));
+
+    auto input_column = ColumnString::create();
+    input_column->insert_data(input.data(), input.size());
+    auto pattern_column = ColumnString::create();
+    pattern_column->insert_data(pattern.data(), pattern.size());
+
+    Block block;
+    block.insert({std::move(input_column), string_type, "str"});
+    block.insert({ColumnConst::create(std::move(pattern_column), 1), string_type, "pattern"});
+    block.insert({nullptr, return_type, "result"});
+
+    ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+    auto function = SimpleFunctionFactory::instance().get_function("split_by_regexp", arg_cols,
+                                                                   return_type);
+    ASSERT_TRUE(function != nullptr);
+
+    FunctionUtils fn_utils({}, {string_type, string_type}, false);
+    auto* context = fn_utils.get_fn_ctx();
+    ASSERT_EQ(Status::OK(), function->execute(context, block, {0, 1}, 2, 1));
+
+    const auto& result_column = block.get_by_position(2).column;
+    ASSERT_TRUE(result_column.get() != nullptr);
+    EXPECT_EQ(R"(["", "aa"])", return_type->to_string(*result_column, 0));
 }
 
 TEST(FunctionLikeTest, regexp_replace) {
