@@ -17,13 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -46,6 +46,13 @@ public class CheckScoreUsage implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
+            logicalProject(any())
+                .when(this::hasScoreOnUnsupportedTable)
+                .then(project -> {
+                    throw new AnalysisException(
+                            "score() function is not supported on AGG_KEYS table or merge-on-read UNIQUE_KEYS table");
+                }).toRule(RuleType.CHECK_SCORE_USAGE),
+
             logicalProject(any())
                 .when(project -> {
                     boolean hasScore = hasScoreFunction(project);
@@ -90,6 +97,16 @@ public class CheckScoreUsage implements RewriteRuleFactory {
         return hasScoreInOutput || hasScoreInGroupBy;
     }
 
+    private boolean hasScoreOnUnsupportedTable(LogicalProject<?> project) {
+        if (!hasScoreFunction(project) && !isScoreAlreadyOptimized(project)) {
+            return false;
+        }
+        return project.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance).stream()
+                .anyMatch(scan -> scan.getTable().getKeysType() == KeysType.AGG_KEYS
+                        || (scan.getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                        && !scan.getTable().getEnableUniqueKeyMergeOnWrite()));
+    }
+
     private boolean containsScoreFunction(Expression expr) {
         if (expr instanceof Score) {
             return true;
@@ -98,18 +115,9 @@ public class CheckScoreUsage implements RewriteRuleFactory {
     }
 
     private boolean isScoreAlreadyOptimized(LogicalProject<?> project) {
-        Plan child = project.child();
-        if (child instanceof LogicalOlapScan) {
-            LogicalOlapScan scan = (LogicalOlapScan) child;
-            return scan.getVirtualColumns().stream()
-                    .anyMatch(virtualCol -> {
-                        if (virtualCol instanceof Alias) {
-                            Expression childExpr = ((Alias) virtualCol).child();
-                            return containsScoreFunction(childExpr);
-                        }
-                        return false;
-                    });
-        }
-        return false;
+        return project.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance).stream()
+                .anyMatch(scan -> scan.getVirtualColumns().stream()
+                        .anyMatch(virtualCol -> virtualCol instanceof Alias
+                                && containsScoreFunction(((Alias) virtualCol).child())));
     }
 }
