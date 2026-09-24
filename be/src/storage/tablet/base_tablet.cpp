@@ -2390,6 +2390,11 @@ void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& o
         int64_t cur_max_version {-1};
         {
             std::shared_lock rlock(get_header_lock());
+            // Schema change may still be rebuilding the delete bitmap of a NOTREADY tablet.
+            // Prefilling now can cache incomplete bitmaps that remain stale after it becomes RUNNING.
+            if (tablet_state() != TABLET_RUNNING) {
+                return;
+            }
             cur_max_version = max_version_unlocked();
         }
         if (config::enable_prefill_all_dbm_agg_cache_after_compaction) {
