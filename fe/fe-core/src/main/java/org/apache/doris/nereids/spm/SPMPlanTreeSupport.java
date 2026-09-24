@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
@@ -45,12 +47,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -80,6 +88,22 @@ public final class SPMPlanTreeSupport {
     /** Expression transform used by transform. */
     public interface ExprTransform {
         Expression apply(Expression expr);
+    }
+
+    /**
+     * An ExprTransform that also changes what its children see while the tree is rebuilt.
+     * Only namespace qualification is scope-sensitive: the set of CTE aliases visible in
+     * the query text grows when the rebuild enters a CTE body or a CTE's main query, so
+     * those two entry points receive a different transform than the surrounding tree.
+     * Plain transforms (parameterize / substitute) are not scope-aware and are passed
+     * through unchanged.
+     */
+    private interface ScopedTransform extends ExprTransform {
+        /** The transform to use for the main query of a CTE (sees every alias of it). */
+        ExprTransform enterCteMain(LogicalCTE<? extends Plan> cte);
+
+        /** The transform to use for the body of alias #aliasIndex (sees the earlier ones). */
+        ExprTransform enterCteAlias(LogicalCTE<? extends Plan> cte, int aliasIndex);
     }
 
     private SPMPlanTreeSupport() {
@@ -131,14 +155,21 @@ public final class SPMPlanTreeSupport {
         @Override
         public Plan visitLogicalCTE(LogicalCTE<? extends Plan> cte, ExprTransform transform) {
             // the main query subtree, then the CTE bodies (kept in aliasQueries, not in
-            // children()) - a WHERE inside a CTE definition is transformed too
-            Plan newChild = cte.child(0) == null ? null : cte.child(0).accept(this, transform);
+            // children()) - a WHERE inside a CTE definition is transformed too.
+            // A ScopedTransform needs per-scope contexts here: the main query sees every
+            // alias of this WITH, alias body i only the aliases defined before it.
+            ExprTransform mainContext = transform instanceof ScopedTransform
+                    ? ((ScopedTransform) transform).enterCteMain(cte) : transform;
+            Plan newChild = cte.child(0) == null ? null : cte.child(0).accept(this, mainContext);
             boolean childChanged = newChild != cte.child(0);
             List<LogicalSubQueryAlias<Plan>> newAliasQueries =
                     new ArrayList<>(cte.getAliasQueries().size());
             boolean aliasChanged = false;
-            for (LogicalSubQueryAlias<Plan> aliasQuery : cte.getAliasQueries()) {
-                Plan newAliasQuery = aliasQuery.accept(this, transform);
+            for (int i = 0; i < cte.getAliasQueries().size(); i++) {
+                LogicalSubQueryAlias<Plan> aliasQuery = cte.getAliasQueries().get(i);
+                ExprTransform aliasContext = transform instanceof ScopedTransform
+                        ? ((ScopedTransform) transform).enterCteAlias(cte, i) : transform;
+                Plan newAliasQuery = aliasQuery.accept(this, aliasContext);
                 newAliasQueries.add((LogicalSubQueryAlias<Plan>) newAliasQuery);
                 if (newAliasQuery != aliasQuery) {
                     aliasChanged = true;
@@ -152,6 +183,14 @@ public final class SPMPlanTreeSupport {
             } catch (RuntimeException e) {
                 return cte;
             }
+        }
+
+        @Override
+        public Plan visitUnboundRelation(UnboundRelation relation, ExprTransform transform) {
+            // of the whole-tree transforms, only namespace qualification rewrites relation
+            // references; parameterization / substitution leave them untouched
+            return transform instanceof QualifyTransform
+                    ? ((QualifyTransform) transform).qualify(relation) : relation;
         }
 
         @Override
@@ -363,9 +402,14 @@ public final class SPMPlanTreeSupport {
             if (!changed) {
                 return repeat;
             }
+            // NOTE: the overload that takes the grouping-id VALUES rebuilds through a
+            // constructor that forces withInProjection=true, which flips toDigest() from
+            // "SELECT <outputs> FROM <child>" to "<child>". A rebuild must keep the
+            // parse-time rendering state: only the qualification below changes a digest,
+            // not the fact that a node was rebuilt on the way. The 4-arg overload reuses
+            // the existing grouping-id values and keeps withInProjection as-is.
             return repeat.withGroupingIdValues(repeat.getGroupingSets(), newOutput,
-                    repeat.getGroupingId().orElse(null),
-                    repeat.getGroupingIdValues().orElse(null), child);
+                    repeat.getGroupingId().orElse(null), child);
         }
     }
 
@@ -464,6 +508,160 @@ public final class SPMPlanTreeSupport {
             }
         }
         return changed ? newConjuncts : conjuncts;
+    }
+
+    // ==================== namespace qualification (creation catalog / database) ====================
+
+    /**
+     * Returns a copy of the tree where every UNQUALIFIED relation reference (nameParts.size()
+     * == 1) that binds to a BASE TABLE is prefixed with the given catalog / database, so the
+     * SPM digest / hash key of "FROM t" depends on the query's effective namespace. The copy
+     * is only used to compute the matching key / compare against a baseline - it is never
+     * analyzed, optimized or executed.
+     *
+     * Without this, "SELECT ... FROM t" has the same key under db1 and db2: a baseline
+     * captured under db1 would silently match the same text executed under db2 and - because
+     * the frozen planSql is fully qualified - keep executing against db1.t.
+     *
+     * A reference to a CTE alias is NOT prefixed: its binding comes from the WITH clause of
+     * the query itself and therefore means the same thing in every database (prefixing it
+     * made "WITH c AS (...) SELECT * FROM c" match only in the database it was created in).
+     * Whether a single-part name is a CTE reference is decided with the analyzer's scoping
+     * rules (AnalyzeCTE): an alias body sees the aliases defined before it, plus itself when
+     * it is a real recursive CTE (WITH RECURSIVE plus a self-reference in its body); a CTE's
+     * main query sees every alias of that WITH; nested WITH nodes extend the enclosing
+     * scope; expression subqueries inherit the scope of the point they appear in
+     * (SubExprAnalyzer). A name that is NOT a visible alias - including a forward reference
+     * to a later alias and a self reference under a plain (non-RECURSIVE) WITH, both of which
+     * bind as base tables - is always prefixed, so this can only narrow the match key, never
+     * make a base-table reference namespace-independent.
+     *
+     * @param plan    the parsed (unbound) tree
+     * @param catalog the effective catalog, may be null / empty (then only the db is prefixed)
+     * @param db      the effective database; when null / empty the tree is returned as-is
+     * @return the qualified tree (a rebuilt copy; the argument is not modified)
+     */
+    public static LogicalPlan namespaceQualified(LogicalPlan plan, String catalog, String db) {
+        if (plan == null || db == null || db.isEmpty()) {
+            return plan;
+        }
+        Plan result = plan.accept(new TreeTransformer(), new QualifyTransform(catalog, db));
+        return result instanceof LogicalPlan ? (LogicalPlan) result : plan;
+    }
+
+    /**
+     * Namespace-qualification scope: prefixes single-part base-table references with the
+     * effective [catalog, db] and keeps references to the CTE aliases visible at the current
+     * point verbatim. Immutable: entering a CTE scope returns a new instance whose visible
+     * set is the enclosing one plus the aliases visible in that scope.
+     */
+    private static final class QualifyTransform implements ScopedTransform {
+        private final String catalog;
+        private final String db;
+        /** normalized names of the CTE aliases visible at the current point */
+        private final Set<String> visibleCtes;
+
+        QualifyTransform(String catalog, String db) {
+            this(catalog, db, Collections.emptySet());
+        }
+
+        private QualifyTransform(String catalog, String db, Set<String> visibleCtes) {
+            this.catalog = catalog;
+            this.db = db;
+            this.visibleCtes = visibleCtes;
+        }
+
+        @Override
+        public Expression apply(Expression expr) {
+            return qualifyExpression(expr, this);
+        }
+
+        @Override
+        public ExprTransform enterCteMain(LogicalCTE<? extends Plan> cte) {
+            Set<String> extended = new LinkedHashSet<>(visibleCtes);
+            for (LogicalSubQueryAlias<Plan> alias : cte.getAliasQueries()) {
+                extended.add(normalizeCteName(alias.getAlias()));
+            }
+            return new QualifyTransform(catalog, db, Collections.unmodifiableSet(extended));
+        }
+
+        @Override
+        public ExprTransform enterCteAlias(LogicalCTE<? extends Plan> cte, int aliasIndex) {
+            List<LogicalSubQueryAlias<Plan>> aliases = cte.getAliasQueries();
+            Set<String> extended = new LinkedHashSet<>(visibleCtes);
+            for (int i = 0; i < aliasIndex; i++) {
+                extended.add(normalizeCteName(aliases.get(i).getAlias()));
+            }
+            // a self reference binds to the WITH clause only in a real recursive CTE;
+            // under a plain WITH it is an ordinary base-table reference
+            LogicalSubQueryAlias<Plan> alias = aliases.get(aliasIndex);
+            if (cte.isRecursive() && alias.isRecursiveCte()) {
+                extended.add(normalizeCteName(alias.getAlias()));
+            }
+            return new QualifyTransform(catalog, db, Collections.unmodifiableSet(extended));
+        }
+
+        /** Prefixes a single-part relation unless it is a reference to a visible CTE alias. */
+        Plan qualify(UnboundRelation relation) {
+            List<String> parts = relation.getNameParts();
+            if (parts.size() != 1 || isVisibleCte(parts.get(0))) {
+                return relation; // already (partially) qualified, or bound by a WITH clause
+            }
+            List<String> qualified = new ArrayList<>(3);
+            if (catalog != null && !catalog.isEmpty()) {
+                qualified.add(catalog);
+            }
+            qualified.add(db);
+            qualified.addAll(parts);
+            try {
+                return new UnboundRelation(relation.getRelationId(), qualified);
+            } catch (RuntimeException e) {
+                return relation;
+            }
+        }
+
+        private boolean isVisibleCte(String name) {
+            return !visibleCtes.isEmpty() && visibleCtes.contains(normalizeCteName(name));
+        }
+    }
+
+    /** Mirrors the analyzer's CTE name comparison (CTEContext.findCTEContext). */
+    private static String normalizeCteName(String name) {
+        int lowerCaseTableNames = GlobalVariable.lowerCaseTableNames;
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getCurrentCatalog() != null) {
+            lowerCaseTableNames = ctx.getCurrentCatalog().getLowerCaseTableNames();
+        }
+        return lowerCaseTableNames != 0 ? name.toLowerCase(Locale.ROOT) : name;
+    }
+
+    /**
+     * Qualifies the relations of every subquery plan owned by an expression, recursively
+     * (IN / scalar / EXISTS subqueries anywhere in the tree). The subquery inherits the
+     * qualification scope of the point it appears in, i.e. the CTE aliases visible there.
+     */
+    private static Expression qualifyExpression(Expression expr, QualifyTransform transform) {
+        if (expr instanceof SubqueryExpr) {
+            LogicalPlan subPlan = ((SubqueryExpr) expr).getQueryPlan();
+            Plan qualified = subPlan.accept(new TreeTransformer(), transform);
+            if (qualified instanceof LogicalPlan && qualified != subPlan) {
+                return ((SubqueryExpr) expr).withSubquery((LogicalPlan) qualified);
+            }
+            return expr;
+        }
+        if (expr.children().isEmpty()) {
+            return expr;
+        }
+        boolean changed = false;
+        List<Expression> newChildren = new ArrayList<>(expr.children().size());
+        for (Expression child : expr.children()) {
+            Expression newChild = qualifyExpression(child, transform);
+            newChildren.add(newChild);
+            if (newChild != child) {
+                changed = true;
+            }
+        }
+        return changed ? expr.withChildren(newChildren) : expr;
     }
 
     // ==================== whole-tree placeholder detection ====================
@@ -609,13 +807,38 @@ public final class SPMPlanTreeSupport {
      */
     public static boolean check(LogicalPlan bindPlan, LogicalPlan userPlan,
             Map<Long, Expression> placeholderValues) {
-        return checkPlan(bindPlan, userPlan, placeholderValues);
+        return checkPlan(bindPlan, userPlan, placeholderValues, false);
+    }
+
+    /**
+     * Level 3 check for one subquery-EXPRESSION plan pair. Inside a subquery's plan the
+     * LIMIT / OFFSET fields are compared EXACTLY (see checkPlan): they are plain long
+     * fields that mergeLimits cannot merge (the subquery plan does not sit on a
+     * plan-child path of the main tree), so a "subquery LIMIT 2" query must not match a
+     * baseline captured with a different subquery limit and replay the captured value.
+     */
+    public static boolean checkSubqueryPlan(LogicalPlan bindPlan, LogicalPlan userPlan,
+            Map<Long, Expression> placeholderValues) {
+        return checkPlan(bindPlan, userPlan, placeholderValues, true);
     }
 
     /** Node-by-node recursive structural check. */
-    private static boolean checkPlan(Plan bind, Plan user, Map<Long, Expression> placeholderValues) {
+    private static boolean checkPlan(Plan bind, Plan user, Map<Long, Expression> placeholderValues,
+            boolean insideSubquery) {
         if (bind.getClass() != user.getClass()) {
             return false;
+        }
+        // LIMIT / OFFSET are plain long fields, not expressions, so the generic node check
+        // cannot see them. A top-level LIMIT is adopted from the user query later
+        // (mergeLimits); a LIMIT inside a subquery expression's plan is NOT reachable by
+        // that merge, so it must take part in the match exactly - otherwise a query with
+        // "subquery LIMIT 2" would replay a baseline captured with "subquery LIMIT 1"
+        // and return a truncated result.
+        if (insideSubquery && bind instanceof LogicalLimit && user instanceof LogicalLimit) {
+            if (((LogicalLimit<?>) bind).getLimit() != ((LogicalLimit<?>) user).getLimit()
+                    || ((LogicalLimit<?>) bind).getOffset() != ((LogicalLimit<?>) user).getOffset()) {
+                return false;
+            }
         }
         // compare this node's expressions first (bind side is parameterized)
         if (!checkNodeExpressions(bind, user, placeholderValues)) {
@@ -627,7 +850,7 @@ public final class SPMPlanTreeSupport {
             return false;
         }
         for (int i = 0; i < bindChildren.size(); i++) {
-            if (!checkPlan(bindChildren.get(i), userChildren.get(i), placeholderValues)) {
+            if (!checkPlan(bindChildren.get(i), userChildren.get(i), placeholderValues, insideSubquery)) {
                 return false;
             }
         }
@@ -635,13 +858,20 @@ public final class SPMPlanTreeSupport {
         if (bind instanceof LogicalCTE && user instanceof LogicalCTE) {
             LogicalCTE<?> bindCte = (LogicalCTE<?>) bind;
             LogicalCTE<?> userCte = (LogicalCTE<?>) user;
+            // WITH RECURSIVE changes how a self-reference binds (work table vs base
+            // table): the same syntax against a same-named real table means different
+            // queries, so the recursion flag is part of the identity
+            if (bindCte.isRecursive() != userCte.isRecursive()) {
+                return false;
+            }
             List<LogicalSubQueryAlias<Plan>> bindAliases = bindCte.getAliasQueries();
             List<LogicalSubQueryAlias<Plan>> userAliases = userCte.getAliasQueries();
             if (bindAliases.size() != userAliases.size()) {
                 return false;
             }
             for (int i = 0; i < bindAliases.size(); i++) {
-                if (!checkPlan(bindAliases.get(i), userAliases.get(i), placeholderValues)) {
+                if (!checkPlan(bindAliases.get(i), userAliases.get(i), placeholderValues,
+                        insideSubquery)) {
                     return false;
                 }
             }
@@ -656,6 +886,54 @@ public final class SPMPlanTreeSupport {
      */
     private static boolean checkNodeExpressions(Plan bind, Plan user,
             Map<Long, Expression> placeholderValues) {
+        // Table-valued function: UnboundTVFRelation.toDigest() reduces every call to
+        // "fn(?)" and the node has no expressions/children, so the generic comparison
+        // cannot distinguish the properties. numbers('number'='100') must never match a
+        // baseline captured with numbers('number'='10'): the frozen replay would run the
+        // captured properties. Compare the function name and the property map exactly.
+        if (bind instanceof UnboundTVFRelation && user instanceof UnboundTVFRelation) {
+            UnboundTVFRelation bindTvf = (UnboundTVFRelation) bind;
+            UnboundTVFRelation userTvf = (UnboundTVFRelation) user;
+            return bindTvf.getFunctionName().equals(userTvf.getFunctionName())
+                    && Objects.equals(bindTvf.getProperties(), userTvf.getProperties());
+        }
+        // Positional subquery / CTE column aliases: LogicalSubQueryAlias does not expose
+        // them through getExpressions() (toDigest merely computes the joined alias list
+        // without appending it), so s(x, y) and s(y, x) over the same derived table would
+        // otherwise match - replaying the captured column mapping and returning the wrong
+        // column. Compare the alias lists explicitly.
+        if (bind instanceof LogicalSubQueryAlias && user instanceof LogicalSubQueryAlias) {
+            Optional<List<String>> bindAliases =
+                    ((LogicalSubQueryAlias<?>) bind).getColumnAliases();
+            Optional<List<String>> userAliases =
+                    ((LogicalSubQueryAlias<?>) user).getColumnAliases();
+            if (!Objects.equals(bindAliases, userAliases)) {
+                return false;
+            }
+        }
+        // MARK join: LogicalJoin uses one class for both plain and MARK joins; neither
+        // the mark flag nor the mark conjuncts are reachable through the generic
+        // expression comparison (toDigest omits markJoinSlotReference). CROSS MARK JOIN
+        // must never match a plain CROSS JOIN: the frozen replay would keep one row per
+        // left row instead of the cartesian multiplicity. Compare the mark state and the
+        // mark conjuncts explicitly.
+        if (bind instanceof LogicalJoin && user instanceof LogicalJoin) {
+            LogicalJoin<?, ?> bindJoin = (LogicalJoin<?, ?>) bind;
+            LogicalJoin<?, ?> userJoin = (LogicalJoin<?, ?>) user;
+            if (bindJoin.isMarkJoin() != userJoin.isMarkJoin()) {
+                return false;
+            }
+            List<Expression> bindMark = bindJoin.getMarkJoinConjuncts();
+            List<Expression> userMark = userJoin.getMarkJoinConjuncts();
+            if (bindMark.size() != userMark.size()) {
+                return false;
+            }
+            for (int i = 0; i < bindMark.size(); i++) {
+                if (!checkExpression(bindMark.get(i), userMark.get(i), placeholderValues)) {
+                    return false;
+                }
+            }
+        }
         if (bind instanceof LogicalFilter || bind instanceof LogicalHaving) {
             Set<Expression> bindConjuncts;
             Set<Expression> userConjuncts;

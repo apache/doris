@@ -59,11 +59,24 @@ public class CapturedQuery {
      *  "NaN" when the audit row carries no query id). */
     private final String queryId;
 
+    /** audit_log is_internal flag (internal maintenance queries are never captured). */
+    private final boolean isInternal;
+
     /**
      * CapturedQuery
      */
     public CapturedQuery(String stmt, long queryTimeMs, long scanRows, long returnRows,
             String sqlDigest, String sqlHash, String db, String catalog, String queryId) {
+        this(stmt, queryTimeMs, scanRows, returnRows, sqlDigest, sqlHash, db, catalog, queryId,
+                false);
+    }
+
+    /**
+     * Full constructor (audit_log row).
+     */
+    public CapturedQuery(String stmt, long queryTimeMs, long scanRows, long returnRows,
+            String sqlDigest, String sqlHash, String db, String catalog, String queryId,
+            boolean isInternal) {
         this.stmt = stmt;
         this.queryTimeMs = queryTimeMs;
         this.scanRows = scanRows;
@@ -73,6 +86,7 @@ public class CapturedQuery {
         this.db = db;
         this.catalog = catalog;
         this.queryId = queryId;
+        this.isInternal = isInternal;
     }
 
     public String getStmt() {
@@ -117,6 +131,15 @@ public class CapturedQuery {
     }
 
     /**
+     * Returns the audit_log is_internal flag.
+     *
+     * @return true when the audited statement was an internal (maintenance) query
+     */
+    public boolean isInternal() {
+        return isInternal;
+    }
+
+    /**
      * Converts this record to an AuditEvent for the capture filter chain (only the
      * fields PlanCaptureFilter reads are filled).
      *
@@ -126,7 +149,7 @@ public class CapturedQuery {
         AuditEvent event = new AuditEvent();
         event.isQuery = true;
         event.isNereids = true;
-        event.isInternal = false;
+        event.isInternal = isInternal;
         event.queryTime = queryTimeMs;
         event.scanRows = scanRows;
         event.returnRows = returnRows;

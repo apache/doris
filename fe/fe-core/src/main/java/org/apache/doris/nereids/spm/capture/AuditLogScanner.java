@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.spm.capture;
 
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -48,7 +49,7 @@ public class AuditLogScanner {
     /** audit_log SELECT columns (order must match rowToCapturedQuery). */
     private static final String SELECT_COLUMNS =
             "`stmt`, `query_time`, `scan_rows`, `return_rows`, `sql_digest`, `sql_hash`, `db`, `catalog`,"
-                    + " `query_id`";
+                    + " `query_id`, `is_internal`";
 
     /**
      * Scans the audit_log table within the given time window.
@@ -62,15 +63,10 @@ public class AuditLogScanner {
         String start = formatTimestamp(startTimeMs);
         String end = formatTimestamp(endTimeMs);
 
-        long minQueryTimeMs = VariableMgr.getDefaultSessionVariable()
-                .getPlanCaptureMinQueryTimeMs();
-        String sql = "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
-                + "WHERE `time` >= '" + start + "' AND `time` < '" + end + "' "
-                + "AND `is_query` = true "
-                + "AND `is_nereids` = true "
-                + "AND `query_time` >= " + minQueryTimeMs + " "
-                + "ORDER BY `query_time` DESC "
-                + "LIMIT " + maxBatchSize;
+        SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        long minQueryTimeMs = global.getPlanCaptureMinQueryTimeMs();
+        long minScanRows = global.getPlanCaptureMinScanRows();
+        String sql = buildScanSql(start, end, maxBatchSize, minQueryTimeMs, minScanRows);
 
         List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql);
         if (rows == null || rows.isEmpty()) {
@@ -92,6 +88,32 @@ public class AuditLogScanner {
             deduped.merge(digest, candidate, (a, b) -> b.getQueryTimeMs() >= a.getQueryTimeMs() ? b : a);
         }
         return new ArrayList<>(deduped.values());
+    }
+
+    /**
+     * Builds the audit_log scan SQL. Public for tests: the pushed-down predicate shape is
+     * part of the capture contract - eligibility is query time OR scanned rows (the same
+     * rule as PlanCaptureFilter), and internal maintenance queries are filtered in SQL
+     * instead of relying on a hardcoded event flag.
+     *
+     * @param start          window start timestamp (formatted)
+     * @param end            window end timestamp (formatted)
+     * @param maxBatchSize   LIMIT for the scan
+     * @param minQueryTimeMs query-time threshold
+     * @param minScanRows    scan-rows threshold
+     * @return the scan SQL
+     */
+    public static String buildScanSql(String start, String end, int maxBatchSize,
+            long minQueryTimeMs, long minScanRows) {
+        return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
+                + "WHERE `time` >= '" + start + "' AND `time` < '" + end + "' "
+                + "AND `is_query` = true "
+                + "AND `is_nereids` = true "
+                + "AND (`query_time` >= " + minQueryTimeMs
+                + " OR `scan_rows` >= " + minScanRows + ") "
+                + "AND `is_internal` = false "
+                + "ORDER BY `query_time` DESC "
+                + "LIMIT " + maxBatchSize;
     }
 
     private static String formatTimestamp(long epochMillis) {
@@ -120,8 +142,9 @@ public class AuditLogScanner {
             String db = row.getWithDefault(6, "");
             String catalog = row.getWithDefault(7, "");
             String queryId = row.getWithDefault(8, "");
+            boolean isInternal = Boolean.parseBoolean(row.getWithDefault(9, "false"));
             return new CapturedQuery(stmt, queryTime, scanRows, returnRows, sqlDigest, sqlHash, db, catalog,
-                    queryId);
+                    queryId, isInternal);
         } catch (RuntimeException e) {
             return null;
         }

@@ -215,7 +215,8 @@ FROM (
 GROUP BY
   cntrycode
 ORDER BY
-      cntrycode"""
+      cntrycode
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   cntrycode,
@@ -284,7 +285,8 @@ FROM (
 GROUP BY
   cntrycode
 ORDER BY
-      cntrycode"""
+      cntrycode
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q22 query")
     
@@ -357,7 +359,8 @@ FROM (
 GROUP BY
   cntrycode
 ORDER BY
-      cntrycode"""
+      cntrycode
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   cntrycode,
@@ -426,7 +429,8 @@ FROM (
 GROUP BY
   cntrycode
 ORDER BY
-      cntrycode"""
+      cntrycode
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q22 query")
     
