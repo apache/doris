@@ -8393,6 +8393,45 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_NE(plan.regular_subcolumns[2].data_type->get_name().find("Array"), std::string::npos);
 }
 
+TEST_F(VariantColumnWriterReaderTest, test_streaming_write_plan_skips_rowsets_without_target_uid) {
+    // Use ordinary scalar paths so this metadata-only test also runs without the NestedGroup
+    // provider. The old rowset must contain a segment to exercise the former column_by_uid call.
+    init_variant_tablet(41004);
+    auto old_rowset = create_variant_rowset({{R"({"old_only": 1})"}}, 1);
+    ASSERT_GT(old_rowset->num_segments(), 0);
+    ASSERT_FALSE(old_rowset->tablet_schema()->has_column_unique_id(2));
+
+    // A replacement V1 has a new UID. Its definition must not be looked up in the old schema,
+    // and the same-named old column must not contribute its paths to the new column's plan.
+    TabletSchemaPB schema_pb;
+    _tablet_schema->to_schema_pb(&schema_pb);
+    schema_pb.mutable_column(0)->set_unique_id(2);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    auto new_rowset = create_variant_rowset({{R"({"new_only": 2, "score": 30})"}}, 2);
+    ASSERT_GT(new_rowset->num_segments(), 0);
+    ASSERT_TRUE(new_rowset->tablet_schema()->has_column_unique_id(2));
+    ASSERT_FALSE(old_rowset->tablet_schema()->has_column_unique_id(2));
+
+    segment_v2::NestedGroupStreamingWritePlan plan;
+    auto st = segment_v2::build_nested_group_streaming_write_plan(
+            create_rowset_readers({old_rowset}), _tablet_schema->column(0), &plan);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(plan.regular_subcolumns.empty());
+    EXPECT_TRUE(plan.nested_groups.empty());
+
+    // Check both orders: skipping an old rowset must preserve paths collected from a new one.
+    for (const auto& rowsets : {std::vector<RowsetSharedPtr> {old_rowset, new_rowset},
+                                std::vector<RowsetSharedPtr> {new_rowset, old_rowset}}) {
+        st = segment_v2::build_nested_group_streaming_write_plan(create_rowset_readers(rowsets),
+                                                                 _tablet_schema->column(0), &plan);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(collect_regular_paths(plan), std::set<std::string>({"new_only", "score"}));
+        EXPECT_TRUE(plan.nested_groups.empty());
+        EXPECT_FALSE(plan.has_conflict_paths);
+    }
+}
+
 TEST_F(VariantColumnWriterReaderTest, test_nested_search_uses_current_parent_uid) {
     init_variant_tablet(41003);
     auto rowset = create_variant_rowset({{R"({"items":[{"msg":"old"}]})"}}, 1);

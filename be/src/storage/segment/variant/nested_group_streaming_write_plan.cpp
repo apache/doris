@@ -145,6 +145,14 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
         return Status::InvalidArgument("rowset reader returned null rowset");
     }
 
+    const auto& tablet_schema = rowset->tablet_schema();
+    // A rowset written before ADD VARIANT v(uid=7) has no definition or physical paths for uid=7.
+    // Skip its metadata before column_by_uid(), which requires the UID to exist.
+    if (!tablet_schema->has_column_unique_id(variant_uid)) {
+        return Status::OK();
+    }
+    const auto& variant_column = tablet_schema->column_by_uid(variant_uid);
+
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rowset), &segment_cache));
@@ -153,7 +161,6 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
         std::shared_ptr<VariantColumnReader> variant_reader;
         OlapReaderStatistics stats;
         StorageReadOptions read_options(stats);
-        const auto& variant_column = rowset->tablet_schema()->column_by_uid(variant_uid);
         Status st = segment->get_variant_root_reader(variant_column, read_options, &variant_reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
             // A nullable/defaulted VARIANT added after this segment has no physical NestedGroup
