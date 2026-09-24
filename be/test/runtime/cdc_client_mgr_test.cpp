@@ -20,10 +20,13 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 #include <signal.h>
+#include <spawn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -34,6 +37,7 @@
 #include "common/status.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -123,7 +127,7 @@ TEST_F(CdcClientMgrTest, StopWithoutChild) {
     mgr.stop();
 }
 
-// Test stop when child process is already dead (covers lines 98-111: kill(pid, 0) == 0 is false)
+// Test stop when the published process is already absent.
 TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     CdcClientMgr mgr;
 
@@ -133,8 +137,7 @@ TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     EXPECT_TRUE(status.ok());
     EXPECT_GT(mgr.get_child_pid(), 0);
 
-    // Stop - since PID 99999 doesn't exist, kill(99999, 0) will fail
-    // This should trigger the branch where kill(pid, 0) != 0 (process already dead)
+    // The generation-qualified cleanup observes ECHILD and revokes ownership without signalling.
     mgr.stop();
 
     // PID should be reset to 0
@@ -331,6 +334,310 @@ TEST_F(CdcClientMgrTest, StartCdcClientWithResult) {
     // Should succeed
     EXPECT_TRUE(status.ok());
     EXPECT_GT(mgr.get_child_pid(), 0); // PID should be set
+}
+
+// Scenario: starting the cdc client installs a process-wide SIGCHLD handler, and a process-wide
+// handler sees every child of the BE, not just the cdc client. BE also runs an embedded JVM, which
+// forks children of its own for Runtime.exec() and reads their exit status from its process-reaper
+// thread. Reaping one of those here makes that thread find the child already gone, and
+// java.lang.ProcessHandleImpl turns the resulting ECHILD into exit code 0 whatever the child
+// really returned - Java code inside BE that branches on an exit status then takes the wrong
+// branch silently. The handler must wait on the cdc client's pid alone.
+TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
+    CdcClientMgr mgr;
+    PRequestCdcClientResult result;
+    ASSERT_TRUE(mgr.start_cdc_client(&result).ok());
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 0.2; exit 7"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    // Be somewhere other than waitpid() when the child exits, so its SIGCHLD reaches the handler
+    // rather than a waiter that is already blocked on this pid.
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
+    int child_status = 0;
+    const pid_t reaped = waitpid(pid, &child_status, 0);
+    ASSERT_EQ(reaped, pid) << "the cdc SIGCHLD handler consumed a child that is not the cdc client";
+    ASSERT_TRUE(WIFEXITED(child_status));
+    EXPECT_EQ(WEXITSTATUS(child_status), 7);
+
+    mgr.stop();
+}
+
+TEST_F(CdcClientMgrTest, SigchldHandlerReapsOwnedChildAndPreservesErrno) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    // Earlier cases install the production SIGCHLD handler process-wide. Temporarily restore the
+    // default disposition so only the deterministic direct invocation below can collect this child;
+    // blocking SIGCHLD on this thread alone cannot stop another test/runtime thread receiving it.
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("exit 7"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    mgr.set_child_pid_for_test(pid);
+
+    siginfo_t child_info {};
+    for (int i = 0; i < 100; ++i) {
+        ASSERT_EQ(waitid(P_PID, pid, &child_info, WEXITED | WNOHANG | WNOWAIT), 0);
+        if (child_info.si_pid == pid) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_EQ(child_info.si_pid, pid);
+
+    errno = EBUSY;
+    CdcClientMgr::invoke_sigchld_handler_for_test();
+    EXPECT_EQ(errno, EBUSY);
+    EXPECT_EQ(mgr.get_child_pid(), 0)
+            << "reaping the owned child must also revoke the manager's ownership";
+
+    int status = 0;
+    errno = 0;
+    EXPECT_EQ(waitpid(pid, &status, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD) << "the handler must collect the cdc child itself";
+
+    // Once ownership is revoked, stop() must not act on another live child of the same BE. This
+    // covers the dangerous same-parent case: waitpid() would accept that child, unlike a reused PID
+    // owned by another process.
+    pid_t unrelated_pid = 0;
+    char* const unrelated_argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                                    const_cast<char*>("sleep 10"), nullptr};
+    ASSERT_EQ(posix_spawn(&unrelated_pid, "/bin/sh", nullptr, nullptr, unrelated_argv, envp), 0);
+    ASSERT_GT(unrelated_pid, 0);
+    Defer cleanup_unrelated {[&]() {
+        kill(unrelated_pid, SIGKILL);
+        waitpid(unrelated_pid, nullptr, 0);
+    }};
+
+    mgr.stop();
+    EXPECT_EQ(kill(unrelated_pid, 0), 0)
+            << "stop() signalled a child after the CDC ownership had been revoked";
+}
+
+TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    mgr.set_child_pid_for_test(pid);
+    CdcClientMgr::pause_sigchld_handler_for_test(true);
+    std::thread handler([]() { CdcClientMgr::invoke_sigchld_handler_for_test(); });
+
+    for (int i = 0; i < 100 && !CdcClientMgr::sigchld_handler_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!CdcClientMgr::sigchld_handler_paused_for_test()) {
+        CdcClientMgr::pause_sigchld_handler_for_test(false);
+        handler.join();
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        FAIL() << "the deterministic handler did not reach its pause point";
+    }
+
+    std::atomic<bool> stop_finished {false};
+    std::thread stopper([&]() {
+        mgr.stop();
+        stop_finished.store(true);
+    });
+    // The handler keeps the identity published while it owns the process-operation claim. That
+    // prevents a replacement generation from publishing the same numeric pid until the handler's
+    // final syscall has completed.
+    EXPECT_EQ(mgr.get_child_pid(), pid);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_FALSE(stop_finished.load())
+            << "stop returned while a signal handler could still operate the old numeric pid";
+
+    CdcClientMgr::pause_sigchld_handler_for_test(false);
+    handler.join();
+    stopper.join();
+    EXPECT_TRUE(stop_finished.load());
+    EXPECT_EQ(mgr.get_child_pid(), 0);
+
+    errno = 0;
+    EXPECT_EQ(waitpid(pid, nullptr, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD);
+}
+
+TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+    bool child_needs_cleanup = true;
+    Defer cleanup {[&]() {
+        if (child_needs_cleanup) {
+            kill(pid, SIGKILL);
+            waitpid(pid, nullptr, 0);
+        }
+    }};
+
+    CdcClientMgr mgr;
+    const uint64_t old_identity = mgr.set_child_pid_for_test(pid);
+    // Republish the same numeric pid under a new generation. This deterministically models the
+    // kernel reusing a reaped CDC pid for another same-parent child without depending on PID churn.
+    const uint64_t replacement_identity = mgr.set_child_pid_for_test(pid);
+    ASSERT_NE(old_identity, replacement_identity);
+    ASSERT_EQ(mgr.get_child_identity_for_test(), replacement_identity);
+
+    EXPECT_FALSE(mgr.terminate_child_identity_for_test(old_identity));
+    EXPECT_EQ(kill(pid, 0), 0)
+            << "cleanup retained a stale raw pid and signalled its replacement generation";
+
+    mgr.stop();
+    child_needs_cleanup = false;
+    EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+}
+
+TEST_F(CdcClientMgrTest, ConcurrentHandlersHaveOneExclusiveProcessOperator) {
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    mgr.set_child_pid_for_test(pid);
+    CdcClientMgr::pause_sigchld_handler_for_test(true);
+    Defer resume_handler {[]() { CdcClientMgr::pause_sigchld_handler_for_test(false); }};
+    std::thread first([]() { CdcClientMgr::invoke_sigchld_handler_for_test(); });
+
+    for (int i = 0; i < 100 && !CdcClientMgr::sigchld_handler_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!CdcClientMgr::sigchld_handler_paused_for_test()) {
+        CdcClientMgr::pause_sigchld_handler_for_test(false);
+        first.join();
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        FAIL() << "the first handler did not acquire and pause its process operation";
+    }
+
+    std::atomic<bool> second_finished {false};
+    std::thread second([&]() {
+        CdcClientMgr::invoke_sigchld_handler_for_test();
+        second_finished.store(true);
+    });
+    second.join();
+    EXPECT_TRUE(second_finished.load());
+    EXPECT_EQ(kill(pid, 0), 0);
+
+    CdcClientMgr::pause_sigchld_handler_for_test(false);
+    first.join();
+    mgr.stop();
+}
+
+TEST_F(CdcClientMgrTest, SigchldDuringRunningInspectionIsHandedBackForReap) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    // Keep delivery deterministic: the test invokes the production handler only after waitid proves
+    // the child is waitable, while the inspecting thread still holds the operation claim.
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    const uint64_t identity = mgr.set_child_pid_for_test(pid);
+    CdcClientMgr::pause_child_inspection_after_running_for_test(true);
+    std::atomic<bool> inspector_saw_running {true};
+    std::thread inspector(
+            [&]() { inspector_saw_running.store(mgr.inspect_child_identity_for_test(identity)); });
+    Defer resume_and_join_inspector {[&]() {
+        CdcClientMgr::pause_child_inspection_after_running_for_test(false);
+        if (inspector.joinable()) {
+            inspector.join();
+        }
+    }};
+
+    for (int i = 0; i < 100 && !CdcClientMgr::child_inspection_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!CdcClientMgr::child_inspection_paused_for_test()) {
+        FAIL() << "the inspector did not pause after observing WNOHANG=0";
+    }
+
+    ASSERT_EQ(kill(pid, SIGKILL), 0);
+    siginfo_t child_info {};
+    for (int i = 0; i < 100; ++i) {
+        ASSERT_EQ(waitid(P_PID, pid, &child_info, WEXITED | WNOHANG | WNOWAIT), 0);
+        if (child_info.si_pid == pid) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(child_info.si_pid, pid);
+
+    // The handler cannot claim while inspect owns it. It must attach a pending request rather than
+    // consume the only notification and return. No later signal and no explicit stop() drive cleanup.
+    CdcClientMgr::invoke_sigchld_handler_for_test();
+    EXPECT_EQ(mgr.get_child_identity_for_test(), identity);
+    CdcClientMgr::pause_child_inspection_after_running_for_test(false);
+    inspector.join();
+
+    EXPECT_FALSE(inspector_saw_running.load());
+    EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+    errno = 0;
+    EXPECT_EQ(waitpid(pid, nullptr, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD) << "the pending-reap handoff did not collect the exited child";
 }
 
 // Test start_cdc_client when environment is missing
