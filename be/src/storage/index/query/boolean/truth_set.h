@@ -17,10 +17,8 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <roaring/roaring.hh>
-#include <span>
 #include <utility>
 
 namespace doris::index_query {
@@ -44,14 +42,6 @@ struct TruthSet {
         null_rows -= true_rows;
     }
 
-    void exclude(const TruthSet& other) {
-        auto unknown = null_rows - other.true_rows;
-        unknown |= true_rows & other.null_rows;
-        true_rows -= other.true_rows;
-        true_rows -= other.null_rows;
-        null_rows = std::move(unknown);
-    }
-
     void negate(uint32_t row_count) {
         roaring::Roaring complement;
         complement.addRange(0, row_count);
@@ -60,8 +50,5 @@ struct TruthSet {
         true_rows = std::move(complement);
     }
 };
-
-TruthSet truth_at_least(std::span<const TruthSet> inputs, size_t minimum_matches,
-                        uint32_t row_count);
 
 } // namespace doris::index_query

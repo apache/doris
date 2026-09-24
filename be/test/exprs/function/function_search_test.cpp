@@ -2648,8 +2648,8 @@ TEST_F(FunctionSearchTest, TestTermThresholdIsCountedAboveTheFieldCompiler) {
     expect_bitmap_eq(collect_docs(scorer), {1, 2});
 }
 
-// SNII answers "at least N of M terms" through one MATCH_ANY query per term; a row the field
-// leaves NULL stays UNKNOWN.
+// SNII answers "at least N of M terms" through one MATCH_ANY query per term. The count is
+// two-valued, so a row the field leaves NULL does not match.
 TEST_F(FunctionSearchTest, TestSniiNativeTermMinimumShouldMatchCountsMatchingTerms) {
     SniiScoringFixture fixture(46, 5);
     fixture.reader->set_query_result("alpha", make_bitmap({0, 1, 2}));
@@ -2671,10 +2671,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermMinimumShouldMatchCountsMatchingTer
     auto scorer = weight->scorer(fixture.exec_context(), binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {1, 2});
-    ASSERT_TRUE(scorer->has_null_bitmap());
-    const auto* null_bitmap = scorer->get_null_bitmap();
-    ASSERT_NE(nullptr, null_bitmap);
-    expect_bitmap_eq(*null_bitmap, {4});
+    EXPECT_FALSE(scorer->has_null_bitmap());
 }
 
 // A row's score is the sum of the BM25 values the reader published for the terms it matched.
@@ -2872,8 +2869,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeOptionalTermsThatDecideTheMatchJoin) {
     expect_bitmap_eq(collect_docs(scorer), {0, 1, 3});
 }
 
-// An unscored query never reads optional terms beside a required one: they change neither the
-// rows nor their UNKNOWN state.
+// An unscored query never reads optional terms beside a required one: they cannot change which
+// rows match.
 TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
     SniiScoringFixture fixture(60, 4);
     fixture.reader->set_query_result("alpha", make_bitmap({1, 2}));
@@ -2900,10 +2897,81 @@ TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
     auto scorer = weight->scorer(fixture.exec_context(), binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {1, 2});
-    ASSERT_TRUE(scorer->has_null_bitmap());
-    const auto* null_bitmap = scorer->get_null_bitmap();
-    ASSERT_NE(nullptr, null_bitmap);
-    expect_bitmap_eq(*null_bitmap, {3});
+}
+
+// A lucene-style Boolean follows Elasticsearch: a clause on a NULL field does not match, so NOT
+// keeps the row and the SEARCH result has no NULL rows. Rows 0-3 have a title and a NULL content,
+// row 4 has a content and a NULL title, and row 5 has neither.
+TEST_F(FunctionSearchTest, TestOccurBooleanTreatsNullFieldsAsNotMatching) {
+    const std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}};
+    auto title_meta = make_test_inverted_index(62, properties);
+    auto content_meta = make_test_inverted_index(63, properties);
+    auto title = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &title_meta, std::make_shared<RejectingCluceneIndexFileReader>(
+                                 InvertedIndexStorageFormatPB::SNII, "/tmp/search_title_idx"));
+    auto content = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &content_meta, std::make_shared<RejectingCluceneIndexFileReader>(
+                                   InvertedIndexStorageFormatPB::SNII, "/tmp/search_content_idx"));
+    title->set_query_result("philosophy", make_bitmap({0, 1, 2, 3}));
+    title->set_null_bitmap(make_bitmap({4, 5}));
+    content->set_query_result("news", make_bitmap({4}));
+    content->set_null_bitmap(make_bitmap({0, 1, 2, 3, 5}));
+    segment_v2::InvertedIndexIterator title_iterator;
+    title_iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, title);
+    segment_v2::InvertedIndexIterator content_iterator;
+    content_iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, content);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_types;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    TSearchParam search_param;
+    for (const auto& [field, iterator] :
+         {std::pair<std::string, IndexIterator*> {"title", &title_iterator},
+          std::pair<std::string, IndexIterator*> {"content", &content_iterator}}) {
+        data_types.emplace(field,
+                           IndexFieldNameAndTypePair {field, std::make_shared<DataTypeString>()});
+        iterators[field] = iterator;
+        TSearchFieldBinding binding;
+        binding.field_name = field;
+        binding.index_properties = properties;
+        binding.__isset.index_properties = true;
+        search_param.field_bindings.push_back(binding);
+    }
+    const auto term = [](const std::string& field, const std::string& value,
+                         TSearchOccur::type occur) {
+        auto clause = make_leaf_clause("TERM", value);
+        clause.field_name = field;
+        return with_occur(clause, occur);
+    };
+    const auto evaluate = [&](const TSearchClause& root,
+                              std::initializer_list<uint32_t> expected_docs) {
+        search_param.root = root;
+        InvertedIndexResultBitmap result;
+        auto status = function_search->evaluate_inverted_index_with_search_param(
+                search_param, data_types, iterators, 6, result);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        expect_bitmap_eq(*result.get_data_bitmap(), expected_docs);
+        EXPECT_TRUE(result.get_null_bitmap() == nullptr || result.get_null_bitmap()->isEmpty());
+    };
+
+    // title:philosophy OR NOT (content:history AND NOT content:news)
+    const auto content_subtree = make_compound_clause(
+            "OCCUR_BOOLEAN", {term("content", "history", TSearchOccur::MUST),
+                              term("content", "news", TSearchOccur::MUST_NOT)});
+    evaluate(make_compound_clause("OCCUR_BOOLEAN",
+                                  {term("title", "philosophy", TSearchOccur::SHOULD),
+                                   with_occur(content_subtree, TSearchOccur::MUST_NOT)}),
+             {0, 1, 2, 3});
+
+    // NOT (title:philosophy OR content:news)
+    TSearchClause match_all;
+    match_all.clause_type = "MATCH_ALL_DOCS";
+    const auto either = make_compound_clause("OCCUR_BOOLEAN",
+                                             {term("title", "philosophy", TSearchOccur::SHOULD),
+                                              term("content", "news", TSearchOccur::SHOULD)});
+    evaluate(make_compound_clause("OCCUR_BOOLEAN", {with_occur(match_all, TSearchOccur::SHOULD),
+                                                    with_occur(either, TSearchOccur::MUST_NOT)}),
+             {5});
 }
 
 // A phrase beside a required rare term runs only on the rows the term leaves. Those rows are

@@ -140,19 +140,11 @@ private:
     std::shared_ptr<ScorerWork> _work;
 };
 
-QueryPtr shared_null_query(const std::array<QueryPtr, 3>& leaves, int mode) {
-    if (mode < 2) {
-        OperatorBooleanQueryBuilder builder(mode == 0 ? OperatorType::OP_AND : OperatorType::OP_OR);
-        for (const auto& leaf : leaves) {
-            builder.add(leaf);
-        }
-        return builder.build();
-    }
-    OccurBooleanQueryBuilder builder;
+QueryPtr shared_null_query(const std::array<QueryPtr, 3>& leaves, OperatorType op) {
+    OperatorBooleanQueryBuilder builder(op);
     for (const auto& leaf : leaves) {
-        builder.add(leaf, mode == 2 ? Occur::MUST : Occur::SHOULD);
+        builder.add(leaf);
     }
-    builder.set_minimum_number_should_match(mode == 2 ? 0 : mode - 2);
     return builder.build();
 }
 
@@ -168,7 +160,7 @@ TruthRows shared_null_rows(size_t leaf, uint32_t row_count) {
     return rows;
 }
 
-void verify_shared_null_streaming(int mode) {
+void verify_shared_null_streaming(OperatorType op) {
     constexpr uint32_t row_count = 16384;
     std::array<TruthRows, 3> rows;
     std::array<QueryPtr, 3> leaves;
@@ -180,7 +172,7 @@ void verify_shared_null_streaming(int mode) {
     }
     QueryExecutionContext context;
     context.segment_num_rows = row_count;
-    auto scorer = shared_null_query(leaves, mode)->weight(true)->scorer(context);
+    auto scorer = shared_null_query(leaves, op)->weight(true)->scorer(context);
     const auto* nulls = scorer->get_null_bitmap();
     ASSERT_NE(nulls, nullptr);
     EXPECT_EQ(*nulls, *rows.front().null_rows);
@@ -190,13 +182,13 @@ void verify_shared_null_streaming(int mode) {
     }
     roaring::Roaring expected;
     roaring::Roaring actual;
-    constexpr std::array<uint32_t, 5> minimum {3, 1, 3, 1, 2};
+    const uint32_t minimum = op == OperatorType::OP_AND ? 3 : 1;
     for (uint32_t doc = 0; doc < row_count; ++doc) {
         uint32_t count = 0;
         for (const auto& leaf : rows) {
             count += leaf.true_rows->contains(doc);
         }
-        if (count >= minimum[mode]) {
+        if (count >= minimum) {
             expected.add(doc);
         }
     }
@@ -215,13 +207,15 @@ void verify_shared_null_streaming(int mode) {
 }
 
 TEST(BooleanTruthContractTest, SharedUnknownRowsDoNotRequireEagerScoring) {
-    for (int mode = 0; mode < 5; ++mode) {
-        SCOPED_TRACE(mode);
-        verify_shared_null_streaming(mode);
+    for (OperatorType op : {OperatorType::OP_AND, OperatorType::OP_OR}) {
+        SCOPED_TRACE(static_cast<int>(op));
+        verify_shared_null_streaming(op);
     }
 }
 
-TEST(BooleanTruthContractTest, RequiredCandidatesLimitLaterNullableScoring) {
+// An occur Boolean is two-valued: a required clause's UNKNOWN rows do not match, and the broad
+// clause is scored only on the rows the selective one matches.
+TEST(BooleanTruthContractTest, RequiredOccurClausesScoreOnlyMatchingRows) {
     constexpr uint32_t row_count = 4096;
     for (bool empty : {false, true}) {
         SCOPED_TRACE(empty);
@@ -242,8 +236,7 @@ TEST(BooleanTruthContractTest, RequiredCandidatesLimitLaterNullableScoring) {
         QueryExecutionContext context;
         context.segment_num_rows = row_count;
         auto scorer = builder.build()->weight(true)->scorer(context);
-        const auto* nulls = scorer->get_null_bitmap();
-        EXPECT_EQ(nulls == nullptr ? roaring::Roaring() : *nulls, *selective.null_rows);
+        EXPECT_FALSE(scorer->has_null_bitmap());
         roaring::Roaring actual;
         for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
             actual.add(doc);
@@ -283,108 +276,6 @@ TEST(BooleanTruthContractTest, OperatorAndReadsABroadChildWithinSelectiveRows) {
     ASSERT_NE(nulls, nullptr);
     EXPECT_EQ(*nulls, roaring::Roaring::bitmapOf(2, 30, 40));
     EXPECT_LE(work->advances + work->seeks, 8U);
-}
-
-void verify_final_true_scoring(const std::array<TruthRows, 3>& rows, bool scoring) {
-    SCOPED_TRACE(scoring);
-    std::array<std::shared_ptr<ScorerWork>, 3> work;
-    OccurBooleanQueryBuilder builder;
-    for (size_t leaf = 0; leaf < rows.size(); ++leaf) {
-        work[leaf] = std::make_shared<ScorerWork>();
-        builder.add(std::make_shared<ForwardOnlyQuery>(rows[leaf], 1.0F, work[leaf]), Occur::MUST);
-    }
-    QueryExecutionContext context;
-    context.segment_num_rows = 4096;
-    auto scorer = builder.build()->weight(scoring)->scorer(context);
-    ASSERT_NE(scorer->get_null_bitmap(), nullptr);
-    const auto expected_nulls = roaring::Roaring::bitmapOf(1, 40);
-    EXPECT_EQ(*scorer->get_null_bitmap(), expected_nulls);
-    EXPECT_EQ(scorer->doc(), 10);
-    if (scoring) {
-        EXPECT_FLOAT_EQ(scorer->score(), 18.0F);
-        EXPECT_FLOAT_EQ(scorer->score(), 18.0F);
-    }
-    EXPECT_EQ(scorer->advance(), TERMINATED);
-    EXPECT_EQ(*scorer->get_null_bitmap(), expected_nulls);
-    for (const auto& child : work) {
-        EXPECT_EQ(child->scores, scoring ? 1 : 0);
-    }
-}
-
-TEST(BooleanTruthContractTest, RequiredClausesScoreOnlyFinalTrueRows) {
-    std::array<TruthRows, 3> rows;
-    rows[0].true_rows->addRange(0, 4096);
-    rows[0].true_rows->remove(100);
-    rows[0].null_rows->add(100);
-    rows[1].true_rows->add(10);
-    rows[1].null_rows->add(20);
-    rows[1].null_rows->add(40);
-    rows[2].true_rows->add(10);
-    rows[2].true_rows->add(40);
-    rows[2].null_rows->add(30);
-    for (bool scoring : {false, true}) {
-        verify_final_true_scoring(rows, scoring);
-    }
-}
-
-TEST(BooleanTruthContractTest, RequiredNullGroupsPreserveClauseScoreOrder) {
-    std::array<TruthRows, 2> rows;
-    rows[0].true_rows->add(0);
-    rows[0].true_rows->add(6);
-    rows[0].null_rows->add(5);
-    rows[0].null_rows->add(40);
-    rows[1].true_rows->add(0);
-    rows[1].true_rows->add(5);
-    rows[1].null_rows->add(6);
-    rows[1].null_rows->add(40);
-    constexpr std::array<float, 4> base_scores {16777216.0F, 1.0F, 1.0F, 1.0F};
-    OccurBooleanQueryBuilder builder;
-    for (size_t leaf = 0; leaf < base_scores.size(); ++leaf) {
-        builder.add(std::make_shared<ForwardOnlyQuery>(rows[leaf % 2], base_scores[leaf]),
-                    Occur::MUST);
-    }
-    QueryExecutionContext context;
-    context.segment_num_rows = 64;
-    auto scorer = builder.build()->weight(true)->scorer(context);
-    ASSERT_NE(scorer->get_null_bitmap(), nullptr);
-    const auto expected_nulls = roaring::Roaring::bitmapOf(3, 5, 6, 40);
-    EXPECT_EQ(*scorer->get_null_bitmap(), expected_nulls);
-    EXPECT_EQ(scorer->doc(), 0);
-    // Regrouping the additions would round this sum to a different float.
-    EXPECT_EQ(scorer->score(), 16777216.0F);
-    EXPECT_EQ(scorer->advance(), TERMINATED);
-    EXPECT_EQ(*scorer->get_null_bitmap(), expected_nulls);
-}
-
-TEST(BooleanTruthContractTest, RequiredUnknownRowsDoNotProbeKnownNullPostings) {
-    TruthRows selective;
-    selective.true_rows->add(10);
-    selective.null_rows->add(30);
-    selective.null_rows->add(40);
-    TruthRows broad;
-    broad.true_rows->addRange(0, 4096);
-    for (uint32_t doc : {30U, 40U, 50U}) {
-        broad.true_rows->remove(doc);
-        broad.null_rows->add(doc);
-    }
-    for (bool scoring : {false, true}) {
-        SCOPED_TRACE(scoring);
-        auto work = std::make_shared<ScorerWork>();
-        OccurBooleanQueryBuilder builder;
-        builder.add(std::make_shared<ForwardOnlyQuery>(selective, 1.0F), Occur::MUST);
-        builder.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, work), Occur::MUST);
-        QueryExecutionContext context;
-        context.segment_num_rows = 4096;
-        auto scorer = builder.build()->weight(scoring)->scorer(context);
-        ASSERT_NE(scorer->get_null_bitmap(), nullptr);
-        EXPECT_EQ(*scorer->get_null_bitmap(), *selective.null_rows);
-        EXPECT_EQ(scorer->doc(), 10);
-        if (scoring) {
-            EXPECT_FLOAT_EQ(scorer->score(), 12.0F);
-        }
-        EXPECT_EQ(scorer->advance(), TERMINATED);
-        EXPECT_LE(work->seeks, 1);
-    }
 }
 
 class FieldNullIterator final : public segment_v2::IndexIterator {
@@ -632,7 +523,8 @@ TEST(BooleanTruthContractTest, NegationPreservesUnknownBeforeAndAfterTraversal) 
     }
 }
 
-TEST(BooleanTruthContractTest, OptionalShouldPreservesRequiredUnknownRows) {
+// The required clause alone decides the rows, and its UNKNOWN rows are FALSE for the Boolean.
+TEST(BooleanTruthContractTest, OptionalShouldBesideARequiredClauseIsTwoValued) {
     const BinaryTruthFixture fixture(OperatorType::OP_AND);
     for (bool scoring : {false, true}) {
         for (uint32_t target : {0U, 3U, 8U}) {
@@ -646,7 +538,6 @@ TEST(BooleanTruthContractTest, OptionalShouldPreservesRequiredUnknownRows) {
             QueryExecutionContext context;
             context.segment_num_rows = 9;
             auto scorer = builder.build()->weight(scoring)->scorer(context);
-            expect_nulls(scorer, *fixture.leaves[0].null_rows);
             roaring::Roaring actual;
             uint32_t doc = scorer->seek(target);
             while (doc != TERMINATED) {
@@ -661,7 +552,7 @@ TEST(BooleanTruthContractTest, OptionalShouldPreservesRequiredUnknownRows) {
             auto expected = *fixture.leaves[0].true_rows;
             expected.removeRange(0, target);
             EXPECT_EQ(actual, expected);
-            expect_nulls(scorer, *fixture.leaves[0].null_rows);
+            EXPECT_FALSE(scorer->has_null_bitmap());
         }
     }
 }

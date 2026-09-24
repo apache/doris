@@ -263,31 +263,31 @@ struct OccurrenceCase {
     size_t minimum_should_match;
 };
 
+// An occur Boolean is two-valued, as in Elasticsearch: a clause that is not TRUE does not match,
+// and the Boolean is never UNKNOWN.
 OracleRow interpret_occurrence_inputs(const OccurrenceCase& query,
                                       std::span<const OracleRow> inputs) {
-    Truth required = Truth::True;
-    Truth excluded = Truth::False;
+    bool required = true;
+    bool excluded = false;
     size_t required_count = 0;
     size_t optional_count = 0;
     size_t optional_true = 0;
-    size_t optional_null = 0;
     float score = 0.0F;
     for (size_t index = 0; index < query.roles.size(); ++index) {
-        const Truth value = inputs[index].value;
+        const bool matches = inputs[index].value == Truth::True;
         switch (query.roles[index]) {
         case Occur::MUST:
-            required = conjunction(required, value);
+            required = required && matches;
             ++required_count;
-            score += value == Truth::True ? inputs[index].score : 0.0F;
+            score += matches ? inputs[index].score : 0.0F;
             break;
         case Occur::SHOULD:
             ++optional_count;
-            optional_true += value == Truth::True;
-            optional_null += value == Truth::Unknown;
-            score += value == Truth::True ? inputs[index].score : 0.0F;
+            optional_true += matches;
+            score += matches ? inputs[index].score : 0.0F;
             break;
         case Occur::MUST_NOT:
-            excluded = disjunction(excluded, value);
+            excluded = excluded || matches;
             break;
         }
     }
@@ -298,14 +298,8 @@ OracleRow interpret_occurrence_inputs(const OccurrenceCase& query,
     if (required_count == 0 && minimum == 0) {
         minimum = 1;
     }
-    Truth threshold = Truth::False;
-    if (optional_true >= minimum) {
-        threshold = Truth::True;
-    } else if (optional_true + optional_null >= minimum) {
-        threshold = Truth::Unknown;
-    }
-    return {.value = conjunction(conjunction(required, threshold), negation(excluded)),
-            .score = score};
+    const bool matches = required && optional_true >= minimum && !excluded;
+    return {.value = matches ? Truth::True : Truth::False, .score = score};
 }
 
 OracleRow interpret_occurrences(const OccurrenceCase& query, const TruthColumns& columns,
@@ -361,7 +355,7 @@ void verify_occurrence_case(const OccurrenceCase& query, const TruthColumns& col
     EXPECT_EQ(observed_nulls(scorer), expected_null);
 }
 
-TEST(BooleanTreeContractTest, OccurrencesAndMinimumMatchesFollowThreeValuedLogic) {
+TEST(BooleanTreeContractTest, OccurrencesAndMinimumMatchesAreTwoValued) {
     const std::vector<OccurrenceCase> cases {
             {.roles = {}, .minimum_should_match = 0},
             {.roles = {Occur::MUST_NOT, Occur::MUST_NOT}, .minimum_should_match = 0},

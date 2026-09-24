@@ -17,11 +17,7 @@
 
 #include "storage/index/inverted/query_v2/boolean_query/occur_boolean_weight.h"
 
-#include <algorithm>
-
-#include "core/custom_allocator.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
-#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/disjunction_scorer.h"
 #include "storage/index/inverted/query_v2/exclude_scorer.h"
 #include "storage/index/inverted/query_v2/intersection.h"
@@ -30,6 +26,37 @@
 #include "storage/index/inverted/query_v2/union/buffered_union.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
+namespace {
+
+// The rows `source` matches, and no UNKNOWN rows.
+class MatchedRowsScorer final : public Scorer {
+public:
+    explicit MatchedRowsScorer(ScorerPtr source) : _source(std::move(source)) {}
+
+    uint32_t doc() const override { return _source->doc(); }
+    uint32_t size_hint() const override { return _source->size_hint(); }
+    uint64_t cost() const override { return _source->cost(); }
+    uint32_t freq() const override { return _source->freq(); }
+    uint32_t norm() const override { return _source->norm(); }
+    uint32_t advance() override { return _source->advance(); }
+    uint32_t seek(uint32_t target) override { return _source->seek(target); }
+    float score() override { return _source->score(); }
+    const roaring::Roaring* get_true_bitmap() const override { return _source->get_true_bitmap(); }
+
+private:
+    ScorerPtr _source;
+};
+
+// An occur Boolean is two-valued, as in Elasticsearch: a row it does not match is FALSE even
+// when a clause's field is NULL there, so its scorer reports no UNKNOWN rows.
+ScorerPtr two_valued(ScorerPtr scorer, const QueryExecutionContext& context) {
+    if (!scorer->has_null_bitmap(context.null_resolver)) {
+        return scorer;
+    }
+    return std::make_shared<MatchedRowsScorer>(std::move(scorer));
+}
+
+} // namespace
 
 template <typename ScoreCombinerPtrT>
 OccurBooleanWeight<ScoreCombinerPtrT>::OccurBooleanWeight(
@@ -64,20 +91,16 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionCont
         if (occur == Occur::MUST_NOT || _minimum_number_should_match > should_count) {
             return std::make_shared<EmptyScorer>();
         }
-        return weight->scorer(context, binding_key);
+        return two_valued(weight->scorer(context, binding_key), context);
     }
     _max_doc = context.segment_num_rows;
-    roaring::Roaring null_rows;
     if (_enable_scoring) {
-        auto specialized = complex_scorer(context, _score_combiner, binding_key, &null_rows);
-        return make_complete_null_scorer(into_box_scorer(std::move(specialized), _score_combiner),
-                                         std::move(null_rows));
-    } else {
-        auto combiner = std::make_shared<DoNothingCombiner>();
-        auto specialized = complex_scorer(context, combiner, binding_key, &null_rows);
-        return make_complete_null_scorer(into_box_scorer(std::move(specialized), combiner),
-                                         std::move(null_rows));
+        auto specialized = complex_scorer(context, _score_combiner, binding_key);
+        return two_valued(into_box_scorer(std::move(specialized), _score_combiner), context);
     }
+    auto combiner = std::make_shared<DoNothingCombiner>();
+    auto specialized = complex_scorer(context, combiner, binding_key);
+    return two_valued(into_box_scorer(std::move(specialized), combiner), context);
 }
 
 template <typename ScoreCombinerPtrT>
@@ -230,95 +253,13 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::build_positive_opt(
 }
 
 template <typename ScoreCombinerPtrT>
-ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_nullable_scorer(
-        std::vector<ScorerPtr>& required, std::vector<ScorerPtr>& optional,
-        std::vector<ScorerPtr>& excluded, const NullBitmapResolver* resolver) {
-    if ((required.empty() && optional.empty()) || _minimum_number_should_match > optional.size()) {
-        return std::make_shared<EmptyScorer>();
-    }
-    if (required.size() == 1 && _minimum_number_should_match == 0 && excluded.empty()) {
-        if (!_enable_scoring || optional.empty()) {
-            return std::move(required.front());
-        }
-        auto optional_scorer = scorer_union(std::move(optional), _score_combiner);
-        return make_required_optional_scorer(
-                std::move(required.front()),
-                into_box_scorer(std::move(optional_scorer), _score_combiner), _score_combiner);
-    }
-    const auto has_nulls = [resolver](const std::vector<ScorerPtr>& scorers) {
-        return std::ranges::any_of(scorers, [resolver](const ScorerPtr& scorer) {
-            return scorer->has_null_bitmap(resolver);
-        });
-    };
-    if (!has_nulls(required) && !has_nulls(optional) && !has_nulls(excluded)) {
-        return nullptr;
-    }
-
-    if (!required.empty() && optional.empty() && excluded.empty()) {
-        return make_nullable_conjunction(required, _enable_scoring, _max_doc, resolver);
-    }
-
-    std::vector<ScorerPtr> score_sources;
-    if (_enable_scoring) {
-        score_sources.reserve(required.size() + optional.size());
-    }
-    const auto collect_positive = [&](ScorerPtr& scorer,
-                                      const roaring::Roaring* candidates = nullptr) {
-        if (_enable_scoring) {
-            scorer = materialize_scorer(std::move(scorer), true, resolver, candidates);
-            score_sources.push_back(scorer);
-        }
-        return collect_truth_set(scorer, resolver, candidates);
-    };
-    index_query::TruthSet result = intersect_truth_sets(required, _max_doc, collect_positive);
-    if (!required.empty() && result.true_rows.isEmpty() && result.null_rows.isEmpty()) {
-        return std::make_shared<EmptyScorer>();
-    }
-    DorisVector<index_query::TruthSet> should_results;
-    should_results.reserve(optional.size());
-    for (auto& scorer : optional) {
-        should_results.push_back(collect_positive(scorer));
-    }
-    size_t minimum = _minimum_number_should_match;
-    if (required.empty() && minimum == 0) {
-        minimum = 1;
-    }
-    result.intersect_with(index_query::truth_at_least(should_results, minimum, _max_doc));
-    index_query::TruthSet negative;
-    for (const auto& scorer : excluded) {
-        negative.union_with(collect_truth_set(scorer, resolver));
-    }
-    result.exclude(negative);
-    if (_enable_scoring && required.empty() && minimum == 1 && excluded.empty()) {
-        auto scorer = make_buffered_union(score_sources, _score_combiner);
-        return make_complete_truth_scorer(std::move(scorer), std::move(result));
-    }
-    return make_truth_set_scorer(std::move(result), std::move(score_sources), _enable_scoring);
-}
-
-template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
 SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
-        const QueryExecutionContext& context, CombinerT combiner, const std::string& binding_key,
-        roaring::Roaring* complete_nulls) {
+        const QueryExecutionContext& context, CombinerT combiner, const std::string& binding_key) {
     auto scorers_by_occur = per_occur_scorers(context, binding_key);
     auto must_scorers = std::move(scorers_by_occur[Occur::MUST]);
     auto should_scorers = std::move(scorers_by_occur[Occur::SHOULD]);
     auto must_not_scorers = std::move(scorers_by_occur[Occur::MUST_NOT]);
-
-    const auto shared = shared_null_bitmap({must_scorers, should_scorers, must_not_scorers},
-                                           context.null_resolver);
-    const bool valid_positive = (!must_scorers.empty() || !should_scorers.empty()) &&
-                                _minimum_number_should_match <= should_scorers.size();
-    if (shared.has_value() && valid_positive) {
-        if (complete_nulls != nullptr) {
-            *complete_nulls = *shared;
-        }
-    } else if (auto scorer = build_nullable_scorer(must_scorers, should_scorers, must_not_scorers,
-                                                   context.null_resolver);
-               scorer != nullptr) {
-        return scorer;
-    }
 
     auto must_special_counts =
             remove_and_count_all_and_empty_scorers(must_scorers, _enable_scoring);
@@ -340,24 +281,14 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
         return std::make_shared<EmptyScorer>();
     }
 
-    // Collect null bitmaps from MUST_NOT scorers (read from index, no iteration needed)
-    // and union the scorers into one for lazy exclusion.
-    roaring::Roaring exclude_null;
-    ScorerPtr exclude_opt =
-            build_exclude_opt(std::move(must_not_scorers), context.null_resolver, exclude_null);
-
+    ScorerPtr exclude_opt = build_exclude_opt(std::move(must_not_scorers));
     SpecializedScorer positive_opt =
             build_positive_opt(*should_opt, std::move(must_scorers), combiner, must_special_counts,
                                should_special_counts);
-    // Use null-bitmap-aware ExcludeScorer for MUST_NOT clauses.
-    // ExcludeScorer keeps lazy TRUE exclusion via seek-based iteration and adds
-    // O(1) null bitmap checks so that NOT(NULL) = NULL (SQL three-valued logic).
-    // Documents where the excluded field is NULL are placed in the null bitmap
-    // rather than being incorrectly included in the true result set.
+    // MUST_NOT removes only the rows its clauses match.
     if (exclude_opt) {
         ScorerPtr positive_boxed = into_box_scorer(std::move(positive_opt), combiner);
-        return make_exclude(std::move(positive_boxed), std::move(exclude_opt),
-                            std::move(exclude_null), context.null_resolver);
+        return make_exclude(std::move(positive_boxed), std::move(exclude_opt));
     }
     return positive_opt;
 }
@@ -432,20 +363,9 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::into_box_scorer(SpecializedScor
 
 template <typename ScoreCombinerPtrT>
 ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_exclude_opt(
-        std::vector<ScorerPtr> must_not_scorers, const NullBitmapResolver* resolver,
-        roaring::Roaring& exclude_null_out) {
+        std::vector<ScorerPtr> must_not_scorers) {
     if (must_not_scorers.empty()) {
         return nullptr;
-    }
-
-    // Collect null bitmaps before union (read from index, no iteration needed).
-    for (auto& s : must_not_scorers) {
-        if (resolver != nullptr && s && s->has_null_bitmap(resolver)) {
-            const auto* nb = s->get_null_bitmap(resolver);
-            if (nb != nullptr) {
-                exclude_null_out |= *nb;
-            }
-        }
     }
 
     // Union all MUST_NOT scorers into one for lazy seek-based exclusion.

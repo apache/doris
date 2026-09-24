@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <roaring/roaring.hh>
-
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/score_combiner.h"
 #include "storage/index/inverted/query_v2/scorer.h"
@@ -68,8 +66,7 @@ private:
 
     template <typename CombinerT>
     SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner,
-                                     const std::string& binding_key = {},
-                                     roaring::Roaring* complete_nulls = nullptr);
+                                     const std::string& binding_key = {});
 
     template <typename CombinerT>
     std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
@@ -99,14 +96,7 @@ private:
     template <typename CombinerT>
     ScorerPtr into_box_scorer(SpecializedScorer&& specialized, CombinerT combiner);
 
-    ScorerPtr build_nullable_scorer(std::vector<ScorerPtr>& required,
-                                    std::vector<ScorerPtr>& optional,
-                                    std::vector<ScorerPtr>& excluded,
-                                    const NullBitmapResolver* resolver);
-
-    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers,
-                                const NullBitmapResolver* resolver,
-                                roaring::Roaring& exclude_null_out);
+    ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers);
 
     std::vector<std::pair<Occur, WeightPtr>> _sub_weights;
     std::vector<std::string> _binding_keys;

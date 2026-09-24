@@ -122,6 +122,9 @@ suite("test_search_format_parity") {
     // is not it.
     same("regexp on a keyword field", "search('tag:/alpha/')", [1, 6])
 
+    // As in Elasticsearch, a lucene-mode NOT keeps a row whose field is NULL (row 5).
+    same("NOT keeps a NULL row", "search('NOT tag:alpha')", [2, 3, 4, 5, 7])
+
     // A multi-token TERM value follows default_operator on every format.
     same("multi-token term, or",
          "search('quick dog', '{\"default_field\":\"body\",\"default_operator\":\"or\"}')",

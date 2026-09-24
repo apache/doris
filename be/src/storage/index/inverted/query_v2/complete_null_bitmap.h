@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <initializer_list>
 #include <optional>
 #include <roaring/roaring.hh>
 #include <span>
@@ -54,21 +53,6 @@ index_query::TruthSet intersect_truth_sets(std::span<ScorerPtr> scorers, uint32_
 ScorerPtr materialize_scorer(ScorerPtr source, bool enable_scoring,
                              const NullBitmapResolver* resolver,
                              const roaring::Roaring* candidates = nullptr);
-
-ScorerPtr make_nullable_conjunction(const std::vector<ScorerPtr>& sources, bool enable_scoring,
-                                    uint32_t row_count, const NullBitmapResolver* resolver);
-
-ScorerPtr make_complete_truth_scorer(ScorerPtr scorer, index_query::TruthSet truth);
-
-ScorerPtr make_complete_null_scorer(ScorerPtr scorer, roaring::Roaring null_rows);
-
-// Equal UNKNOWN sets stay UNKNOWN under AND, OR and a valid minimum-match threshold.
-std::optional<roaring::Roaring> shared_null_bitmap(
-        std::initializer_list<std::span<const ScorerPtr>> groups,
-        const NullBitmapResolver* resolver);
-
-ScorerPtr make_truth_set_scorer(index_query::TruthSet truth, std::vector<ScorerPtr> score_sources,
-                                bool enable_scoring);
 
 // Materializes forward-only children only when complete null evaluation needs their TRUE sets.
 // Replaced children preserve their scores and restart at the first matching document.

@@ -272,9 +272,10 @@ PhysicalTruthRows expected_physical_truth(const PostingSpec& spec, uint32_t prof
                 result.scores[doc] += term_score;
             }
         }
+        // Only the operator Booleans are three-valued; an occur Boolean is two-valued.
         if (required_true && optional_true >= spec.minimum) {
             result.truths.add(doc);
-        } else if (required_possible && optional_possible >= spec.minimum) {
+        } else if (spec.logical && required_possible && optional_possible >= spec.minimum) {
             result.nulls.add(doc);
         }
     }

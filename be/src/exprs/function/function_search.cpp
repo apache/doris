@@ -790,8 +790,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     // Extract NULL bitmap from three-valued logic scorer
     // The scorer correctly computes which documents evaluate to NULL based on query logic
     // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
+    // A lucene-style Boolean root is two-valued: every row it does not match is FALSE.
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (exec_ctx.null_resolver) {
+    if (exec_ctx.null_resolver && search_param.root.clause_type != "OCCUR_BOOLEAN") {
         auto scorer = weight->scorer(exec_ctx, root_binding_key);
         if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
             const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);
