@@ -35,8 +35,11 @@ import java.util.TreeMap;
  * endpoint while the BE reads from another.
  *
  * <p>So these keys are taken out of the sibling's configuration and handed to the engine's storage layer
- * instead, under the names it knows ({@code Connector.deriveStorageProperties}). A setting NOT named here
- * is not storage as far as this connector is concerned and travels to the sibling unchanged.
+ * instead, under the names it knows ({@code Connector.deriveStorageProperties}). The sole exception is
+ * {@code hadoop.security.authentication}: Paimon also consumes that raw key as the gate that activates its
+ * plugin-classloader Kerberos UGI, while the effective identity/configuration still comes from the shared
+ * storage context. A setting NOT named here is not storage as far as this connector is concerned and
+ * travels to the sibling unchanged.
  *
  * <p><b>A table, not a rule.</b> The spellings differ per cloud and follow no pattern — paimon writes
  * {@code s3.access-key} but {@code fs.oss.accessKeyId} and {@code fs.obs.access.key} — so a rule like
@@ -46,6 +49,10 @@ import java.util.TreeMap;
  * {@code *FileSystemProperties} field, written out because a connector plugin cannot import fe-filesystem.
  */
 final class LakeStorageOptions {
+
+    /** Paimon's raw-property gate for constructing its plugin-classloader Kerberos UGI. */
+    private static final String HADOOP_SECURITY_AUTHENTICATION =
+            "hadoop.security.authentication";
 
     /** Paimon's spelling of a storage setting, mapped to the name Doris's storage layer binds it under. */
     private static final Map<String, String> DORIS_NAMES = dorisNames();
@@ -101,6 +108,16 @@ final class LakeStorageOptions {
                 || lakeOption.startsWith("fs.")
                 || lakeOption.startsWith("dfs.")
                 || lakeOption.startsWith("hadoop.");
+    }
+
+    /**
+     * The one storage key Paimon must also see in its raw connector properties. Its plugin authenticator
+     * uses this key as the gate before it reads the effective Hadoop configuration supplied by the shared
+     * storage context. Removing it disables the plugin-side UGI even though principal, keytab and HA
+     * settings still reached that context.
+     */
+    static boolean isSiblingAuthenticationGate(String lakeOption) {
+        return HADOOP_SECURITY_AUTHENTICATION.equals(lakeOption);
     }
 
     /**

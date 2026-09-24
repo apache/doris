@@ -63,7 +63,11 @@ static_assert(std::atomic<uint64_t>::is_always_lock_free);
 static_assert(std::atomic<uint32_t>::is_always_lock_free);
 std::atomic<uint64_t> g_cdc_child_identity {0};
 std::atomic<uint32_t> g_cdc_child_generation {0};
-std::atomic<uint32_t> g_cdc_sigchld_handlers {0};
+// The identity whose OS process operations are currently owned by exactly one actor. A handler or
+// normal thread must claim the published identity here BEFORE waitpid/kill and keep the claim until
+// its last syscall. While claimed, the original child is either running or remains a zombie, so its
+// numeric pid cannot be reused for another same-parent child.
+std::atomic<uint64_t> g_cdc_child_operation {0};
 
 #ifdef BE_TEST
 static_assert(std::atomic<bool>::is_always_lock_free);
@@ -80,6 +84,39 @@ uint64_t new_child_identity(pid_t pid) {
     return (generation << 32) | static_cast<uint32_t>(pid);
 }
 
+// Signal-safe, non-blocking acquisition. Revalidate after publishing the claim: a normal thread may
+// have revoked the identity between the first load and this CAS.
+bool try_claim_child_identity(uint64_t identity) {
+    if (identity == 0) {
+        return false;
+    }
+    uint64_t unclaimed = 0;
+    if (!g_cdc_child_operation.compare_exchange_strong(unclaimed, identity)) {
+        return false;
+    }
+    if (g_cdc_child_identity.load() == identity) {
+        return true;
+    }
+    g_cdc_child_operation.store(0);
+    return false;
+}
+
+// Normal threads may wait for a handler's short WNOHANG operation. Returning false means the exact
+// generation was revoked; the caller must not operate on its numeric pid.
+bool claim_child_identity(uint64_t identity) {
+    while (g_cdc_child_identity.load() == identity) {
+        if (try_claim_child_identity(identity)) {
+            return true;
+        }
+        std::this_thread::yield();
+    }
+    return false;
+}
+
+void release_child_identity() {
+    g_cdc_child_operation.store(0);
+}
+
 // Reap the cdc client so it does not linger as a zombie.
 //
 // waitpid(-1) here would reap ANY child of this process, including the ones the embedded JVM forks
@@ -89,15 +126,12 @@ uint64_t new_child_identity(pid_t pid) {
 // wrong branch - which is how frocksdbjni's `ldd /usr/bin/env | grep -q musl` probe answered "yes"
 // on a glibc host and loaded the musl build of librocksdbjni.so. Wait for our own pid only.
 void handle_sigchld(int sig_no) {
-    // Publish that this handler may have taken a copy of the current identity. A normal thread
-    // clearing ownership waits for all such copies to quiesce before it may publish a replacement;
-    // otherwise a delayed waitpid(old_pid) could collect a same-parent child that reused old_pid.
     const int saved_errno = errno;
-    g_cdc_sigchld_handlers.fetch_add(1);
     const uint64_t cdc_identity = g_cdc_child_identity.load();
     const pid_t cdc_pid = child_pid(cdc_identity);
-    if (cdc_pid <= 0) {
-        g_cdc_sigchld_handlers.fetch_sub(1);
+    // Never retain a raw pid without the operation claim. If another actor owns the identity, that
+    // actor also owns reaping it; returning is safe even when this signal was for the CDC child.
+    if (cdc_pid <= 0 || !try_claim_child_identity(cdc_identity)) {
         errno = saved_errno;
         return;
     }
@@ -114,21 +148,14 @@ void handle_sigchld(int sig_no) {
     do {
         wait_result = waitpid(cdc_pid, &status, WNOHANG);
     } while (wait_result < 0 && errno == EINTR);
-    if (wait_result == cdc_pid) {
+    if (wait_result == cdc_pid || (wait_result < 0 && errno == ECHILD)) {
         uint64_t expected = cdc_identity;
         g_cdc_child_identity.compare_exchange_strong(expected, 0);
     }
-    g_cdc_sigchld_handlers.fetch_sub(1);
+    // No syscall may use cdc_pid after this release. If waitpid collected it, only now can the
+    // kernel reuse the number, and every stale generation will fail claim_child_identity().
+    release_child_identity();
     errno = saved_errno;
-}
-
-// After removing a published identity, wait until no signal handler can still be holding it. The
-// seq-cst counter and identity operations establish this ordering: a handler that loaded the old
-// identity incremented before the exchange and must therefore be observed here until it finishes.
-void wait_for_sigchld_handlers() {
-    while (g_cdc_sigchld_handlers.load() != 0) {
-        std::this_thread::yield();
-    }
 }
 
 // Terminate and collect one child owned by this process. The SIGCHLD handler may have won the
@@ -171,6 +198,79 @@ void terminate_and_reap_child(pid_t pid) {
         wait_result = waitpid(pid, &status, 0);
     } while (wait_result < 0 && errno == EINTR);
 }
+
+// Every normal-thread wait/signal is fenced by the exact published generation. Clearing publication
+// while the operation claim is held transfers exclusive responsibility from the signal handler to
+// this thread; the claim is released only after the child is reaped.
+bool terminate_owned_child(uint64_t identity) {
+    if (!claim_child_identity(identity)) {
+        return false;
+    }
+    uint64_t expected = identity;
+    if (!g_cdc_child_identity.compare_exchange_strong(expected, 0)) {
+        release_child_identity();
+        return false;
+    }
+    terminate_and_reap_child(child_pid(identity));
+    release_child_identity();
+    return true;
+}
+
+enum class OwnedChildState {
+    RUNNING,
+    EXITED,
+    NOT_OWNED,
+    WAIT_ERROR,
+};
+
+// Observes an owned child without leaving a raw pid usable after the ownership claim. An exited child
+// is reaped and unpublished before the claim is released; a running child remains published.
+[[maybe_unused]] OwnedChildState inspect_owned_child(uint64_t identity, int* status,
+                                                     int* wait_error) {
+    if (!claim_child_identity(identity)) {
+        return OwnedChildState::NOT_OWNED;
+    }
+
+    int local_status = 0;
+    pid_t wait_result;
+    do {
+        wait_result = waitpid(child_pid(identity), &local_status, WNOHANG);
+    } while (wait_result < 0 && errno == EINTR);
+    const int local_wait_error = wait_result < 0 ? errno : 0;
+
+    OwnedChildState state = OwnedChildState::RUNNING;
+    if (wait_result == child_pid(identity) || (wait_result < 0 && local_wait_error == ECHILD)) {
+        uint64_t expected = identity;
+        g_cdc_child_identity.compare_exchange_strong(expected, 0);
+        state = OwnedChildState::EXITED;
+    } else if (wait_result < 0) {
+        state = OwnedChildState::WAIT_ERROR;
+    }
+    release_child_identity();
+
+    if (status != nullptr) {
+        *status = local_status;
+    }
+    if (wait_error != nullptr) {
+        *wait_error = local_wait_error;
+    }
+    return state;
+}
+
+#ifdef BE_TEST
+// Simulates "old child reaped, numeric pid reused" without asking the kernel to cycle its PID
+// allocator. This revokes one generation without touching the process, after which a test can publish
+// the same number under a new generation and challenge cleanup with the stale identity.
+bool revoke_owned_child_for_test(uint64_t identity) {
+    if (!claim_child_identity(identity)) {
+        return false;
+    }
+    uint64_t expected = identity;
+    const bool revoked = g_cdc_child_identity.compare_exchange_strong(expected, 0);
+    release_child_identity();
+    return revoked;
+}
+#endif
 
 #ifndef BE_TEST
 std::string child_exit_description(int status) {
@@ -220,26 +320,43 @@ CdcClientMgr::~CdcClientMgr() {
     stop();
 }
 
-void CdcClientMgr::_set_child_pid(pid_t pid) {
-    if (pid > 0) {
-        g_cdc_child_identity.store(new_child_identity(pid));
-        return;
+uint64_t CdcClientMgr::_publish_child_pid(pid_t pid) {
+    if (pid <= 0) {
+        return 0;
     }
-    g_cdc_child_identity.store(0);
-    wait_for_sigchld_handlers();
+    const uint64_t identity = new_child_identity(pid);
+    uint64_t empty = 0;
+    if (!g_cdc_child_identity.compare_exchange_strong(empty, identity)) {
+        return 0;
+    }
+    return identity;
+}
+
+uint64_t CdcClientMgr::_get_child_identity() const {
+    return g_cdc_child_identity.load();
 }
 
 pid_t CdcClientMgr::_get_child_pid() const {
-    return child_pid(g_cdc_child_identity.load());
+    return child_pid(_get_child_identity());
 }
 
-pid_t CdcClientMgr::_take_child_pid() {
-    const pid_t pid = child_pid(g_cdc_child_identity.exchange(0));
-    wait_for_sigchld_handlers();
-    return pid;
+bool CdcClientMgr::_terminate_child_identity(uint64_t identity) {
+    return terminate_owned_child(identity);
 }
 
 #ifdef BE_TEST
+uint64_t CdcClientMgr::set_child_pid_for_test(pid_t pid) {
+    uint64_t current = _get_child_identity();
+    while (current != 0 && !revoke_owned_child_for_test(current)) {
+        current = _get_child_identity();
+    }
+    return _publish_child_pid(pid);
+}
+
+bool CdcClientMgr::terminate_child_identity_for_test(uint64_t identity) {
+    return _terminate_child_identity(identity);
+}
+
 void CdcClientMgr::invoke_sigchld_handler_for_test() {
     handle_sigchld(SIGCHLD);
 }
@@ -255,10 +372,14 @@ bool CdcClientMgr::sigchld_handler_paused_for_test() {
 
 void CdcClientMgr::stop() {
     std::lock_guard<std::mutex> lock(_start_mutex);
-    // Stop publishing before signalling: from here this thread owns the waitpid, and the handler must
-    // not race it or keep a stale pid after teardown.
-    const pid_t pid = _take_child_pid();
-    terminate_and_reap_child(pid);
+    // Claim the exact generation before touching the OS process. If the handler is operating it, wait;
+    // if the handler already reaped it, reload rather than retaining its now-reusable numeric pid.
+    while (true) {
+        const uint64_t identity = _get_child_identity();
+        if (identity == 0 || _terminate_child_identity(identity)) {
+            break;
+        }
+    }
 
     LOG(INFO) << "CdcClientMgr is stopped";
 }
@@ -267,15 +388,18 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     std::lock_guard<std::mutex> lock(_start_mutex);
 
     Status st = Status::OK();
-    pid_t exist_pid = _get_child_pid();
+    const uint64_t existing_identity = _get_child_identity();
+    const pid_t exist_pid = child_pid(existing_identity);
     if (exist_pid > 0) {
 #ifdef BE_TEST
         // In test mode, directly return OK if PID exists
         LOG(INFO) << "cdc client already started (BE_TEST mode), pid=" << exist_pid;
         return Status::OK();
 #else
-        // Check if process is still alive
-        if (kill(exist_pid, 0) == 0) {
+        int existing_wait_error = 0;
+        const OwnedChildState existing_state =
+                inspect_owned_child(existing_identity, nullptr, &existing_wait_error);
+        if (existing_state == OwnedChildState::RUNNING) {
             // Process exists, verify it's actually our CDC client by health check
             std::string check_response;
             auto check_st = check_cdc_client_health(3, 1, check_response);
@@ -289,10 +413,13 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
                 st.to_protobuf(result->mutable_status());
                 return st;
             }
+        } else if (existing_state == OwnedChildState::WAIT_ERROR) {
+            st = Status::InternalError(fmt::format("Could not inspect CDC client {}: {}", exist_pid,
+                                                   strerror(existing_wait_error)));
+            st.to_protobuf(result->mutable_status());
+            return st;
         } else {
             LOG(INFO) << "CDC client is dead, pid=" << exist_pid;
-            // Process is dead, reset PID and continue to start
-            _set_child_pid(0);
         }
 #endif
     } else if (!_adopted_external.load()) {
@@ -387,7 +514,14 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     sigaction(SIGCHLD, &act, nullptr);
     LOG(INFO) << "Start to fork cdc client process with " << path;
 #ifdef BE_TEST
-    _set_child_pid(99999);
+    // Unit tests can construct several managers even though ExecEnv owns only one in production.
+    // A concurrent test manager may win publication after our initial empty check; in that case all
+    // managers observe the same process-wide test child and start is still successful.
+    if (_publish_child_pid(99999) == 0 && _get_child_identity() == 0) {
+        st = Status::InternalError("Failed to publish test CDC child identity");
+        st.to_protobuf(result->mutable_status());
+        return st;
+    }
     st = Status::OK();
     return st;
 #else
@@ -413,28 +547,38 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         perror("Cdc client child process error");
         _exit(1);
     } else {
-        // Parent process: save PID and wait for startup
-        _set_child_pid(pid);
-        // A child that died between fork() returning and the store above raised a SIGCHLD the
-        // handler saw with no pid to reap. Collect it here; a child still running just returns 0.
-        int forked_status = 0;
-        pid_t forked_wait_result;
-        do {
-            forked_wait_result = waitpid(pid, &forked_status, WNOHANG);
-        } while (forked_wait_result < 0 && errno == EINTR);
-        if (forked_wait_result == pid) {
-            _set_child_pid(0);
-            st = Status::InternalError(fmt::format("CDC client exited before startup with {}",
-                                                   child_exit_description(forked_status)));
+        // Parent process: publish a generation-qualified identity. The child is not visible to the
+        // SIGCHLD handler before this succeeds, so a publication conflict still leaves this thread as
+        // the only possible reaper of the just-forked pid.
+        const uint64_t forked_identity = _publish_child_pid(pid);
+        if (forked_identity == 0) {
+            terminate_and_reap_child(pid);
+            st = Status::InternalError("Another CDC child identity was published during startup");
             st.to_protobuf(result->mutable_status());
             return st;
         }
-        if (forked_wait_result < 0) {
-            const int wait_errno = errno;
-            _set_child_pid(0);
+        // A child that died between fork() returning and the store above raised a SIGCHLD the
+        // handler saw with no identity to reap. Inspect the exact generation here; a child still
+        // running remains published, while an exited one is reaped before its pid can be reused.
+        int forked_status = 0;
+        int forked_wait_error = 0;
+        const OwnedChildState initial_state =
+                inspect_owned_child(forked_identity, &forked_status, &forked_wait_error);
+        if (initial_state == OwnedChildState::EXITED ||
+            initial_state == OwnedChildState::NOT_OWNED) {
+            st = forked_wait_error == 0 && initial_state == OwnedChildState::EXITED
+                         ? Status::InternalError(
+                                   fmt::format("CDC client exited before startup with {}",
+                                               child_exit_description(forked_status)))
+                         : Status::InternalError("CDC client exited before startup");
+            st.to_protobuf(result->mutable_status());
+            return st;
+        }
+        if (initial_state == OwnedChildState::WAIT_ERROR) {
+            _terminate_child_identity(forked_identity);
             st = Status::InternalError(
                     fmt::format("CDC client exited before startup or could not be waited for: {}",
-                                strerror(wait_errno)));
+                                strerror(forked_wait_error)));
             st.to_protobuf(result->mutable_status());
             return st;
         }
@@ -443,24 +587,36 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
         std::string health_response;
         Status status = check_cdc_client_health(3, 10, health_response);
         if (!status.ok()) {
-            // A failed startup still owns a real child. Stop and reap it before forgetting the pid.
-            _set_child_pid(0);
-            terminate_and_reap_child(pid);
+            // Cleanup is conditional on the exact generation still being ours. If the handler already
+            // reaped it, a same-parent child may now reuse the number and must not be touched.
+            _terminate_child_identity(forked_identity);
             st = Status::InternalError("Start cdc client failed.");
             st.to_protobuf(result->mutable_status());
-        } else if (kill(pid, 0) != 0) {
+        } else {
+            int final_wait_error = 0;
+            const OwnedChildState final_state =
+                    inspect_owned_child(forked_identity, nullptr, &final_wait_error);
+            if (final_state == OwnedChildState::WAIT_ERROR) {
+                _terminate_child_identity(forked_identity);
+                st = Status::InternalError(
+                        fmt::format("Could not inspect started CDC client {}: {}", pid,
+                                    strerror(final_wait_error)));
+                st.to_protobuf(result->mutable_status());
+                return st;
+            }
+            if (final_state == OwnedChildState::RUNNING) {
+                _adopted_external.store(false);
+                LOG(INFO) << "Start cdc client success, pid=" << pid
+                          << ", status=" << status.to_string() << ", response=" << health_response;
+                return st;
+            }
             // Port healthy but our child has exited: an external process is
             // answering. Treat as adoption instead of masking dead PID as success.
-            _set_child_pid(0);
             if (!_adopted_external.exchange(true)) {
                 LOG(INFO) << "Forked cdc client " << pid << " exited but port "
                           << doris::config::cdc_client_port
                           << " is healthy, adopting external instance";
             }
-        } else {
-            _adopted_external.store(false);
-            LOG(INFO) << "Start cdc client success, pid=" << pid
-                      << ", status=" << status.to_string() << ", response=" << health_response;
         }
     }
 #endif //BE_TEST

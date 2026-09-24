@@ -35,7 +35,6 @@ import org.apache.fluss.client.admin.OffsetSpec;
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.client.table.scanner.log.LogScanner;
-import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
@@ -840,21 +839,21 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 degradedReason = reason;
             }
         }
-        LakeSnapshot snapshot;
-        try {
-            snapshot = FlussStatementScope.sharedLakeSnapshot(session, handle.toTablePath(),
-                    () -> adminOps.getReadableLakeSnapshot(handle.toTablePath()));
-        } catch (LakeTableSnapshotNotExistException e) {
+        Optional<LakeSnapshot> readableSnapshot = FlussStatementScope.sharedLakeSnapshot(
+                session, handle.toTablePath(),
+                () -> adminOps.getReadableLakeSnapshot(handle.toTablePath()));
+        if (!readableSnapshot.isPresent()) {
             if (mode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                         + handle.getTableName() + "' has no readable lake snapshot yet, and "
                         + unionReadModeSetting() + " = required forbids falling back to "
                         + "a fluss-only read. Wait for the tiering service to commit, or set it "
-                        + "to auto or disabled.", e);
+                        + "to auto or disabled.");
             }
             // There is no readable lake boundary to combine with the log, so auto uses current Fluss state.
             return null;
         }
+        LakeSnapshot snapshot = readableSnapshot.get();
         String lakeFormat = handle.getDataLakeFormat();
         if (lakeFormat == null || !PAIMON_LAKE_FORMAT.equalsIgnoreCase(lakeFormat)) {
             throw new DorisConnectorException("Cannot read table '" + handle.getDatabaseName() + "."
@@ -955,17 +954,17 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                     + handle.getTableName() + "' is no longer tiered into a lake (table.datalake.enabled),"
                     + " so it has no '$log' part. Query '" + handle.getTableName() + "' itself.");
         }
-        LakeSnapshot snapshot;
-        try {
-            snapshot = FlussStatementScope.sharedLakeSnapshot(session, handle.toTablePath(),
-                    () -> adminOps.getReadableLakeSnapshot(handle.toTablePath()));
-        } catch (LakeTableSnapshotNotExistException e) {
+        Optional<LakeSnapshot> readableSnapshot = FlussStatementScope.sharedLakeSnapshot(
+                session, handle.toTablePath(),
+                () -> adminOps.getReadableLakeSnapshot(handle.toTablePath()));
+        if (!readableSnapshot.isPresent()) {
             throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
                     + handle.getTableName() + "' has no readable lake snapshot yet, so '$log' has no point"
                     + " to start from: nothing has been tiered, and the whole table is still in the log."
                     + " Query '" + handle.getTableName() + "' itself, or wait for the tiering service to"
-                    + " commit.", e);
+                    + " commit.");
         }
+        LakeSnapshot snapshot = readableSnapshot.get();
         return UnionRead.boundaryOnly(snapshot.getSnapshotId(), snapshot.getTableBucketsOffset());
     }
 
@@ -1322,6 +1321,19 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     public boolean supportsFileCache() {
         // Union reads contain native paimon parquet/orc ranges even though their log ranges use JNI.
         // Opt in so those native ranges remain subject to the engine's file-cache admission policy.
+        return true;
+    }
+
+    /**
+     * Fluss metadata lists only live partitions, while a readable lake snapshot may retain partitions
+     * that have expired from that list. Consequently, an FE prune-to-zero over the live universe does not
+     * prove the union table has no matching rows. Let planning run with the pushed predicate: the Paimon
+     * sibling re-plans its historical splits from that predicate, and any live Fluss ranges still carry
+     * partition constants on which the engine evaluates the same predicate. Non-empty FE selections keep
+     * flowing through {@code requiredPartitions} normally.
+     */
+    @Override
+    public boolean ignorePartitionPruneShortCircuit() {
         return true;
     }
 

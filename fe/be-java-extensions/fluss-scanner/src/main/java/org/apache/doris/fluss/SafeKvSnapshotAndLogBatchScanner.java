@@ -228,27 +228,37 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
             long logStartingOffset,
             long logStoppingOffset,
             int[] projectedFields) {
-        BatchScanner snapshot = null;
-        LogScanner log = null;
+        // Allocate the holder first, then finish every fallible log operation before starting the
+        // asynchronous snapshot reader. Fluss 1.0's KvSnapshotBatchScanner.close() neither joins its
+        // initializer nor prevents that initializer from publishing a SnapshotFilesReader afterwards;
+        // consequently it cannot safely be rolled back when a later log subscription fails. Making the
+        // snapshot acquisition the final operation removes that rollback state entirely.
+        ScannerResources resources = new ScannerResources();
         try {
-            if (snapshotId >= 0) {
-                snapshot = factory.createSnapshotScanner(tableBucket, snapshotId, projectedFields);
-            }
-
             boolean emptyLogRange = logStartingOffset >= logStoppingOffset || logStoppingOffset <= 0;
             if (!emptyLogRange) {
-                log = factory.createLogScanner(projectedFields);
+                resources.logScanner = factory.createLogScanner(projectedFields);
                 Long partitionId = tableBucket.getPartitionId();
                 if (partitionId == null) {
-                    log.subscribe(tableBucket.getBucket(), logStartingOffset);
+                    resources.logScanner.subscribe(tableBucket.getBucket(), logStartingOffset);
                 } else {
-                    log.subscribe(partitionId, tableBucket.getBucket(), logStartingOffset);
+                    resources.logScanner.subscribe(
+                            partitionId, tableBucket.getBucket(), logStartingOffset);
                 }
             }
-            return new ScannerResources(snapshot, log);
+
+            if (snapshotId >= 0) {
+                // Keep this last. Once createSnapshotScanner returns, only a field assignment and return
+                // remain, neither of which can strand the asynchronously initializing reader.
+                resources.snapshotScanner =
+                        factory.createSnapshotScanner(tableBucket, snapshotId, projectedFields);
+            }
+            return resources;
         } catch (RuntimeException | Error failure) {
-            closeAfterFailure(log, failure);
-            closeAfterFailure(snapshot, failure);
+            // The snapshot call is last and assigns only after it returns, so a failure reaching here can
+            // own at most the synchronous log scanner. Do not pretend the SDK's snapshot close is a safe
+            // cancellation primitive; it is not in Fluss 1.0.
+            closeAfterFailure(resources.logScanner, failure);
             throw failure;
         }
     }
@@ -272,13 +282,10 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
     }
 
     static final class ScannerResources {
-        @Nullable final BatchScanner snapshotScanner;
-        @Nullable final LogScanner logScanner;
+        @Nullable private BatchScanner snapshotScanner;
+        @Nullable private LogScanner logScanner;
 
-        private ScannerResources(
-                @Nullable BatchScanner snapshotScanner, @Nullable LogScanner logScanner) {
-            this.snapshotScanner = snapshotScanner;
-            this.logScanner = logScanner;
+        private ScannerResources() {
         }
     }
 

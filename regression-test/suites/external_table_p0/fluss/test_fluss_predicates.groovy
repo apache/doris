@@ -206,14 +206,26 @@ suite("test_fluss_predicates", "p0,external") {
     order_qt_union_log_only """select id, name from lake_log where id >= 5"""
     order_qt_union_neither """select count(*) from lake_log where id > 100"""
 
-    // The same over a partitioned lake table, where pruning and the seam interact: one
-    // partition has a tail and the other does not.
+    // The same over a partitioned lake table, where pruning and the seam interact. The
+    // fixture has removed 20260102 from Fluss after tiering it, so union read must retain
+    // that historical partition while disabled mode sees only the still-live partitions.
     order_qt_union_part_or """
         select id, name, dt from lake_part where dt = '20260101' or dt = '20260102'
     """
-    compareModes("""
-        select id, name, dt from lake_part where dt = '20260101' or dt = '20260102' order by id
+    def retainedAndLive = rowsOf("""
+        select id, name, dt from lake_part
+        where dt = '20260101' or dt = '20260102' order by id
     """)
+    def liveOnly = rowsOf("""
+        select id, name, dt from ${flussOnlyCatalog}.fluss_test.lake_part
+        where dt = '20260101' or dt = '20260102' order by id
+    """)
+    assertTrue(retainedAndLive.contains(["3", "lp2a", "20260102"]),
+            "union read should retain the lake-only historical partition: ${retainedAndLive}")
+    assertFalse(liveOnly.any { it[2] == "20260102" },
+            "disabled mode should expose only the current Fluss partition universe: ${liveOnly}")
+    assertEquals(liveOnly, retainedAndLive.findAll { it[2] != "20260102" },
+            "the live rows should agree after excluding the retained history")
     order_qt_union_part_and """select id from lake_part where dt = '20260101' and id > 2"""
     compareModes("""select id from lake_part where dt = '20260101' and id > 2 order by id""")
 

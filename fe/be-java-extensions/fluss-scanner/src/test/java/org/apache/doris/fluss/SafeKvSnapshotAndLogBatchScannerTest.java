@@ -21,29 +21,26 @@ import org.apache.fluss.client.table.scanner.batch.BatchScanner;
 import org.apache.fluss.client.table.scanner.log.LogScanner;
 import org.apache.fluss.client.table.scanner.log.ScanRecords;
 import org.apache.fluss.metadata.TableBucket;
-import org.apache.fluss.row.InternalRow;
-import org.apache.fluss.utils.CloseableIterator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.time.Duration;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class SafeKvSnapshotAndLogBatchScannerTest {
 
     @Test
-    public void subscribeFailureClosesBothReadersAndStopsSnapshotWorker() throws Exception {
-        WorkerBatchScanner snapshot = new WorkerBatchScanner();
+    public void subscribeFailureNeverStartsTheAsynchronousSnapshotReader() {
+        AtomicBoolean snapshotCreated = new AtomicBoolean();
         FailingLogScanner log = new FailingLogScanner();
         SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
                 new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
                     @Override
                     public BatchScanner createSnapshotScanner(
                             TableBucket tableBucket, long snapshotId, int[] projectedFields) {
-                        return snapshot;
+                        snapshotCreated.set(true);
+                        throw new AssertionError(
+                                "snapshot acquisition must follow successful log subscription");
                     }
 
                     @Override
@@ -52,74 +49,43 @@ public class SafeKvSnapshotAndLogBatchScannerTest {
                     }
                 };
 
-        try {
-            Assertions.assertTrue(snapshot.awaitStarted());
-            Assertions.assertThrows(IllegalStateException.class, () ->
-                    SafeKvSnapshotAndLogBatchScanner.acquireScanners(
-                            factory, new TableBucket(1L, 0), 7L, 10L, 20L, new int[] {0}));
+        Assertions.assertThrows(IllegalStateException.class, () ->
+                SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                        factory, new TableBucket(1L, 0), 7L, 10L, 20L, new int[] {0}));
 
-            Assertions.assertTrue(snapshot.closed.get(), "snapshot reader was leaked");
-            Assertions.assertTrue(snapshot.awaitStopped(), "snapshot worker was leaked");
-            Assertions.assertFalse(
-                    snapshot.worker.isAlive(), "snapshot worker is still alive after failure");
-            Assertions.assertTrue(log.closed.get(), "partially initialized log reader was leaked");
-        } finally {
-            snapshot.close();
-            log.close();
-        }
+        Assertions.assertFalse(snapshotCreated.get(),
+                "a later subscription failure must have no asynchronous snapshot reader to cancel");
+        Assertions.assertTrue(log.closed.get(), "partially initialized log reader was leaked");
     }
 
-    private static final class WorkerBatchScanner implements BatchScanner {
-        private final AtomicBoolean closed = new AtomicBoolean();
-        private final CountDownLatch started = new CountDownLatch(1);
-        private final CountDownLatch stopped = new CountDownLatch(1);
-        private final Thread worker;
-
-        private WorkerBatchScanner() {
-            worker = new Thread(() -> {
-                started.countDown();
-                try {
-                    while (!closed.get()) {
-                        Thread.sleep(1_000L);
+    @Test
+    public void snapshotCreationFailureClosesTheAlreadySubscribedLogReader() {
+        RecordingLogScanner log = new RecordingLogScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
+                new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
+                    @Override
+                    public BatchScanner createSnapshotScanner(
+                            TableBucket tableBucket, long snapshotId, int[] projectedFields) {
+                        throw new IllegalStateException("injected snapshot creation failure");
                     }
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    stopped.countDown();
-                }
-            }, "fake-fluss-snapshot-worker");
-            worker.start();
-        }
 
-        private boolean awaitStarted() throws InterruptedException {
-            return started.await(5, TimeUnit.SECONDS);
-        }
+                    @Override
+                    public LogScanner createLogScanner(int[] projectedFields) {
+                        return log;
+                    }
+                };
 
-        private boolean awaitStopped() throws InterruptedException {
-            return stopped.await(5, TimeUnit.SECONDS);
-        }
+        Assertions.assertThrows(IllegalStateException.class, () ->
+                SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                        factory, new TableBucket(1L, 0), 7L, 10L, 20L, new int[] {0}));
 
-        @Override
-        public CloseableIterator<InternalRow> pollBatch(Duration timeout) {
-            return null;
-        }
-
-        @Override
-        public void close() throws IOException {
-            if (closed.compareAndSet(false, true)) {
-                worker.interrupt();
-            }
-            try {
-                worker.join(TimeUnit.SECONDS.toMillis(5));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("interrupted while stopping test worker", e);
-            }
-        }
+        Assertions.assertTrue(log.subscribed.get(), "log subscription must precede snapshot creation");
+        Assertions.assertTrue(log.closed.get(), "subscribed log reader was leaked");
     }
 
-    private static final class FailingLogScanner implements LogScanner {
-        private final AtomicBoolean closed = new AtomicBoolean();
+    private static class RecordingLogScanner implements LogScanner {
+        final AtomicBoolean closed = new AtomicBoolean();
+        final AtomicBoolean subscribed = new AtomicBoolean();
 
         @Override
         public ScanRecords poll(Duration timeout) {
@@ -128,12 +94,12 @@ public class SafeKvSnapshotAndLogBatchScannerTest {
 
         @Override
         public void subscribe(int bucket, long offset) {
-            throw new IllegalStateException("injected subscribe failure");
+            subscribed.set(true);
         }
 
         @Override
         public void subscribe(long partitionId, int bucket, long offset) {
-            throw new IllegalStateException("injected subscribe failure");
+            subscribed.set(true);
         }
 
         @Override
@@ -151,6 +117,20 @@ public class SafeKvSnapshotAndLogBatchScannerTest {
         @Override
         public void close() {
             closed.set(true);
+        }
+    }
+
+    private static final class FailingLogScanner extends RecordingLogScanner {
+        @Override
+        public void subscribe(int bucket, long offset) {
+            super.subscribe(bucket, offset);
+            throw new IllegalStateException("injected subscribe failure");
+        }
+
+        @Override
+        public void subscribe(long partitionId, int bucket, long offset) {
+            super.subscribe(partitionId, bucket, offset);
+            throw new IllegalStateException("injected subscribe failure");
         }
     }
 }

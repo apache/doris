@@ -127,7 +127,7 @@ TEST_F(CdcClientMgrTest, StopWithoutChild) {
     mgr.stop();
 }
 
-// Test stop when child process is already dead (covers lines 98-111: kill(pid, 0) == 0 is false)
+// Test stop when the published process is already absent.
 TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     CdcClientMgr mgr;
 
@@ -137,8 +137,7 @@ TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     EXPECT_TRUE(status.ok());
     EXPECT_GT(mgr.get_child_pid(), 0);
 
-    // Stop - since PID 99999 doesn't exist, kill(99999, 0) will fail
-    // This should trigger the branch where kill(pid, 0) != 0 (process already dead)
+    // The generation-qualified cleanup observes ECHILD and revokes ownership without signalling.
     mgr.stop();
 
     // PID should be reset to 0
@@ -481,10 +480,10 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
         mgr.stop();
         stop_finished.store(true);
     });
-    for (int i = 0; i < 100 && mgr.get_child_pid() != 0; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    EXPECT_EQ(mgr.get_child_pid(), 0);
+    // The handler keeps the identity published while it owns the process-operation claim. That
+    // prevents a replacement generation from publishing the same numeric pid until the handler's
+    // final syscall has completed.
+    EXPECT_EQ(mgr.get_child_pid(), pid);
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     EXPECT_FALSE(stop_finished.load())
             << "stop returned while a signal handler could still operate the old numeric pid";
@@ -493,10 +492,82 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
     handler.join();
     stopper.join();
     EXPECT_TRUE(stop_finished.load());
+    EXPECT_EQ(mgr.get_child_pid(), 0);
 
     errno = 0;
     EXPECT_EQ(waitpid(pid, nullptr, WNOHANG), -1);
     EXPECT_EQ(errno, ECHILD);
+}
+
+TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+    bool child_needs_cleanup = true;
+    Defer cleanup {[&]() {
+        if (child_needs_cleanup) {
+            kill(pid, SIGKILL);
+            waitpid(pid, nullptr, 0);
+        }
+    }};
+
+    CdcClientMgr mgr;
+    const uint64_t old_identity = mgr.set_child_pid_for_test(pid);
+    // Republish the same numeric pid under a new generation. This deterministically models the
+    // kernel reusing a reaped CDC pid for another same-parent child without depending on PID churn.
+    const uint64_t replacement_identity = mgr.set_child_pid_for_test(pid);
+    ASSERT_NE(old_identity, replacement_identity);
+    ASSERT_EQ(mgr.get_child_identity_for_test(), replacement_identity);
+
+    EXPECT_FALSE(mgr.terminate_child_identity_for_test(old_identity));
+    EXPECT_EQ(kill(pid, 0), 0)
+            << "cleanup retained a stale raw pid and signalled its replacement generation";
+
+    mgr.stop();
+    child_needs_cleanup = false;
+    EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+}
+
+TEST_F(CdcClientMgrTest, ConcurrentHandlersHaveOneExclusiveProcessOperator) {
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    mgr.set_child_pid_for_test(pid);
+    CdcClientMgr::pause_sigchld_handler_for_test(true);
+    Defer resume_handler {[]() { CdcClientMgr::pause_sigchld_handler_for_test(false); }};
+    std::thread first([]() { CdcClientMgr::invoke_sigchld_handler_for_test(); });
+
+    for (int i = 0; i < 100 && !CdcClientMgr::sigchld_handler_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!CdcClientMgr::sigchld_handler_paused_for_test()) {
+        CdcClientMgr::pause_sigchld_handler_for_test(false);
+        first.join();
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
+        FAIL() << "the first handler did not acquire and pause its process operation";
+    }
+
+    std::atomic<bool> second_finished {false};
+    std::thread second([&]() {
+        CdcClientMgr::invoke_sigchld_handler_for_test();
+        second_finished.store(true);
+    });
+    second.join();
+    EXPECT_TRUE(second_finished.load());
+    EXPECT_EQ(kill(pid, 0), 0);
+
+    CdcClientMgr::pause_sigchld_handler_for_test(false);
+    first.join();
+    mgr.stop();
 }
 
 // Test start_cdc_client when environment is missing

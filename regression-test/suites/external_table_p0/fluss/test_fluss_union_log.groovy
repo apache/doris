@@ -163,15 +163,35 @@ suite("test_fluss_union_log", "p0,external") {
     // The fluss half is given the partitions the engine pruned to; the paimon half
     // ignores that list and prunes on the pushed-down predicate instead. Both have
     // to land on the same partition: one partition here has a log tail, the other is
-    // served entirely from the lake.
+    // served entirely from the lake. The fixture drops the latter from live
+    // Fluss metadata after tiering, modelling auto-partition retention: the FE
+    // live-partition universe therefore prunes this predicate to zero before the
+    // connector sees it unless Fluss explicitly opts out of that short-circuit.
     order_qt_part_rows """select id, name, dt from lake_part"""
-    compareModes("select id, name, dt from lake_part order by id")
 
     def tieredPartPlan = planOf("""select * from lake_part where dt = '20260102'""")
     assertTrue(tieredPartPlan.contains("unionRead=yes"), "not a union read: ${tieredPartPlan}")
-    assertEquals(0, countIn(tieredPartPlan, "logRanges"),
-            "a fully tiered partition still has log ranges: ${tieredPartPlan}")
+    assertTrue(tieredPartPlan.contains("partition=0/1"),
+            "fixture no longer reaches the engine prune-to-zero boundary: ${tieredPartPlan}")
+    assertTrue(countIn(tieredPartPlan, "lakeSplits") >= 1,
+            "the retained partition produced no lake split: ${tieredPartPlan}")
     order_qt_part_tiered_only """select id from lake_part where dt = '20260102'"""
+
+    def retainedRequired = rowsOf("""select id from lake_part where dt = '20260102' order by id""")
+    assertTrue(!retainedRequired.isEmpty(), "required mode lost the retained lake-only partition")
+    assertTrue(rowsOf("""select id from ${flussOnlyCatalog}.fluss_test.lake_part
+                         where dt = '20260102' order by id""").isEmpty(),
+            "disabled mode unexpectedly found a partition absent from current Fluss metadata")
+
+    // The same engine boundary must run the provider in auto mode too. Use the
+    // session override so required/auto share the exact catalog and storage setup.
+    sql """set fluss_union_read_mode = 'auto'"""
+    def retainedAutoPlan = planOf("""select * from lake_part where dt = '20260102'""")
+    assertTrue(retainedAutoPlan.contains("unionRead=yes"),
+            "auto mode fell back before planning retained lake history: ${retainedAutoPlan}")
+    assertEquals(retainedRequired,
+            rowsOf("""select id from lake_part where dt = '20260102' order by id"""))
+    sql """set fluss_union_read_mode = ''"""
 
     def tailPartPlan = planOf("""select * from lake_part where dt = '20260101'""")
     assertEquals(1, countIn(tailPartPlan, "logRanges"),
