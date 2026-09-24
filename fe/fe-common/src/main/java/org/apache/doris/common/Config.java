@@ -2012,9 +2012,11 @@ public class Config extends ConfigBase {
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
     // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
     public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
+    // Older backends serialize map_agg_v2 keys with the legacy padded frame format.
+    public static final int MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION = 16;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = MAP_AGG_V2_EXACT_FRAME_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
