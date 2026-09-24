@@ -219,6 +219,14 @@ public:
 
     String get_name() const override { return "percent_rank"; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PEER_GROUP;
+    }
+
+    WindowSpillPeerFunction window_spill_peer_function() const override {
+        return WindowSpillPeerFunction::PERCENT_RANK;
+    }
+
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena&) const override {}
@@ -289,6 +297,14 @@ public:
 
     String get_name() const override { return "cume_dist"; }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PEER_GROUP;
+    }
+
+    WindowSpillPeerFunction window_spill_peer_function() const override {
+        return WindowSpillPeerFunction::CUME_DIST;
+    }
+
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr place, const IColumn**, ssize_t, Arena&) const override {}
@@ -346,6 +362,10 @@ public:
             : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "ntile"; }
+
+    WindowSpillStrategy window_spill_strategy() const override {
+        return WindowSpillStrategy::PARTITION_CARDINALITY;
+    }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 

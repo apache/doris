@@ -153,6 +153,16 @@ public:
         return Data::UsesFixedLengthStateSerialization && Data::IS_ANY;
     }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        // Variable-length single-value states allocate every replacement from Arena. Keeping
+        // those states while a partition is collected would make their memory grow with the
+        // partition even after the input Blocks have been spilled.
+        if constexpr (Data::IS_ANY || !Data::UsesFixedLengthStateSerialization) {
+            return WindowSpillStrategy::UNSUPPORTED;
+        }
+        return WindowSpillStrategy::PARTITION_REDUCE;
+    }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);

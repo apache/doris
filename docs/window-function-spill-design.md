@@ -56,15 +56,15 @@ Doris 已具备可复用的 spill 基础设施：
 1. `enable_spill = true`；
 2. 窗口执行需要等待完整 partition；
 3. Node 中每个窗口函数都声明了明确的 spill capability；
-4. spill 算法能够在有限内存内通过一次预扫描和一次重放完成，并保持现有结果语义。
+4. spill 算法能够在有限内存内通过一次顺序收集和一次重放完成，并保持现有结果语义。
 
 首期支持矩阵：
 
 | 类别 | 首期函数/Frame | 执行方法 |
 | --- | --- | --- |
-| 整个 partition 的归约 | `sum`/`sum0`、`count`、`min`、`max`、`avg`，Frame 为 `UNBOUNDED PRECEDING ... UNBOUNDED FOLLOWING` | 顺序预扫描得到最终状态，重放时向每行填充同一结果 |
+| 整个 partition 的归约 | `sum`/`sum0`、`count`、定长状态的 `min`/`max`、`avg`，Frame 为 `UNBOUNDED PRECEDING ... UNBOUNDED FOLLOWING` | Sink 收集时按原始顺序得到最终状态，重放时向每行填充同一结果 |
 | 依赖 partition 行数 | `ntile` | partition seal 时已知总行数，重放时按全局行号计算 bucket |
-| 依赖 partition 行数和 peer group | `percent_rank`、`cume_dist` | 预扫描生成可流式读取的 peer group 元数据，重放时计算结果 |
+| 依赖 partition 行数和 peer group | `percent_rank`、`cume_dist` | Sink 收集时生成可流式读取的 peer group 元数据，重放时计算结果 |
 
 同一个 Analytic Node 中存在任一不支持的函数时，首期整个 Node 回退到现有内存路径，不进行
 部分函数 spill，避免一份 partition 同时由两套生命周期管理。
@@ -78,6 +78,7 @@ Doris 已具备可复用的 spill 基础设施：
 - `lead`、`lag`、`first_value`、`last_value`、`nth_value` 的通用 spill；
 - Java/Python UDAF 和没有声明 spill capability 的聚合函数；
 - 通过序列化并 merge 多个部分聚合状态来实现通用窗口 spill；
+- 需要从 Arena 持续分配替换值的变长 `min`/`max` 状态；
 - 对一个 partition 做并行归约或改变输入行的累计顺序；
 - 将整个已 spill partition 一次性重新加载到内存。
 
@@ -119,12 +120,11 @@ Doris 已具备可复用的 spill 基础设施：
 
 ### 4.1 执行路径选择
 
-Analytic Operator 在初始化完成后构造一个不可变的 `AnalyticSpillPlan`。该计划包含：
+Analytic Operator 在初始化完成后构造一组不可变的 spill capability 信息。该信息包含：
 
 - 窗口是否需要完整 partition；
 - 每个函数的 spill strategy；
-- 原始输出列数量；
-- 窗口参数、partition key、order key 在增强 Block 中的位置；
+- 窗口参数的标量值；
 - 结果类型和 nullable 转换信息。
 
 执行路径选择如下：
@@ -159,15 +159,14 @@ capability 只说明函数访问模式。最终是否可 spill 还必须结合 f
 ```mermaid
 flowchart LR
     U[上游已按 partition/order 排序的 Block] --> S[Analytic Sink]
-    S --> M[表达式物化和 partition 边界检测]
-    M --> P[WindowPartitionStore]
+    S --> M[表达式物化、边界检测和有界状态更新]
+    M --> P[AnalyticPartitionStore]
     P -->|内存未超限| I[In-memory Pages]
     P -->|revoke 或主动阈值| W[SpillFileWriter]
     I --> Q[Sealed Partition Queue]
     W --> Q
     Q --> R[Analytic Source]
-    R --> A[Pre-scan: 聚合状态/peer group 元数据]
-    A --> B[Replay: 逐 Block 生成结果]
+    R --> B[Replay: 逐 Block 生成结果]
     B --> D[下游 Operator]
 ```
 
@@ -175,20 +174,22 @@ flowchart LR
 
 - 只计算一次窗口参数、partition key 和 order key；
 - 检测 partition 边界；
-- 将原始输出列和必要的隐藏列写入 `WindowPartitionStore`；
+- 按原始行顺序更新有界归约状态，并生成 peer group end 元数据；
+- 将原始输出列写入 `AnalyticPartitionStore`；
 - 响应内存 revoke，将当前 partition 的内存页写入 spill 文件并真实释放容量；
 - partition 结束后关闭 writer，发布不可变的 partition descriptor。
 
 **Source 负责：**
 
 - 按队列顺序获取 sealed partition；
-- 对 partition 做有界的预扫描；
-- 重置/重建 reader 后按原始顺序重放；
+- 从 descriptor 读取最终归约值、partition 行数和 peer group 元数据；
+- 按原始顺序重放输入；
 - 每次 `get_block()` 最多向下游返回一个输出 Block；
 - 在 partition 消费完成后释放内存页、reader 和 `SpillFileSPtr`。
 
-Source 负责计算和重放，可以直接利用下游拉取形成反压，不需要 Sink 一次性产生整个 partition
-的结果 Block，也避免现有按 Block 数量缓存输出时无法精确控制字节数的问题。
+Sink 在每次 `sink()` 调用中只顺序处理当前输入 Block，不会因超大 partition 长时间占用一次
+调度；Source 负责按需重放，可以直接利用下游拉取形成反压，不需要 Sink 一次性产生整个
+partition 的结果 Block，也避免现有按 Block 数量缓存输出时无法精确控制字节数的问题。
 
 ### 4.3 Shared State
 
@@ -196,34 +197,33 @@ Source 负责计算和重放，可以直接利用下游拉取形成反压，不�
 
 - 一个按输入顺序排列的 sealed partition descriptor 队列；
 - 队列锁和 Sink/Source dependency；
-- Sink EOS 和执行错误状态；
-- 队列中内存 partition 的字节数。
+- Sink EOS 状态；
+- Sink/Source 共用的 spill execution mode 标记。
 
-首期将 descriptor 队列深度限制为 1。Source 取走当前 descriptor 后 Sink 才能发布下一个
-partition。这样允许 Source 计算 partition N 时 Sink 收集 partition N+1，同时把并发驻留的
-partition 数量限制为两个。已经 spill 的 descriptor 仅持有文件句柄，不保留完整输入数据。
+执行错误继续通过 Operator 的 `Status` 和 pipeline cancellation 传播，不在 Shared State 中维护
+第二套错误状态。队列只允许一个 Sink 调用产生的批次滞留，因此首版也不额外维护队列字节数。
+
+首期通常只允许一个 `sink()` 调用产生的 descriptor 批次处于队列中。一个输入 Block 内可能
+包含多个 partition，因此该批次可以包含多个 descriptor，但其内存总量受单个输入 Block 和
+主动阈值约束。Source 清空队列后才唤醒 Sink。已经 spill 的 descriptor 仅持有文件句柄，不
+保留完整输入数据。
 
 descriptor 发布后不可修改。Sink 必须先关闭 `SpillFileWriter`，再将 descriptor 放入队列；
 Source 不得读取仍有 active writer 的 `SpillFile`。
 
-## 5. WindowPartitionStore
+## 5. AnalyticPartitionStore
 
-### 5.1 增强 Block 布局
+### 5.1 原始 Block 与旁路状态
 
-每个存储 Block 使用稳定布局：
+存储 Block 只保留上游原始输出列：
 
 ```text
 [原始输出列]
-[去重后的窗口函数参数列]
-[必要的 order key 列]
-[必要时的辅助列]
 ```
 
-partition key 只用于 Sink 检测边界，partition seal 后不再参与结果计算，默认不写入 spill 文件。
-`percent_rank` 和 `cume_dist` 需要 order key；整个 partition 的普通归约不需要 order key。
-
-需要维护显式 column index mapping，不能依赖“追加顺序刚好一致”。相同表达式应尽量只物化
-一次，避免当前累计 Column 模式中对相同参数和 key 的重复拷贝。
+窗口参数、partition key 和 order key 在当前输入 Block 上临时物化。partition key 只用于
+Sink 检测边界；order key 只用于增量检测 peer group；`ntile` 的常量参数在 partition 开始时
+保存为标量。临时列不会进入 spill Block，也不会泄漏给下游。
 
 ### 5.2 partition 边界
 
@@ -263,8 +263,9 @@ stateDiagram-v2
 revoke 后保持打开；后续输入按 `spill_buffer_size_bytes` 聚合成小批次继续写入，在 partition
 结束时统一 close。
 
-首期不把多个小 partition 合并到同一个逻辑 spill 文件：只有超过内存阈值或被内存仲裁器
-revoke 的 partition 才会落盘，因此预期不会形成大量小文件。后续根据 `SpilledPartitions` 和
+首期不把多个小 partition 合并到同一个逻辑 spill 文件：超过主动阈值、被内存仲裁器 revoke，
+或 seal 时仍大于 `spill_min_revocable_mem` 的 partition 会落盘，避免发布后失去 revoke 入口。
+后续根据 `SpilledPartitions` 和
 文件数指标决定是否增加多 partition run。
 
 ## 6. Spill 触发和内存回收
@@ -315,16 +316,14 @@ Block、PBlock 和压缩 buffer。
 
 ### 7.1 整个 partition 的归约
 
-适用：`sum`/`sum0`、`count`、`min`、`max`、`avg`，且 frame 为整个 partition。
+适用：`sum`/`sum0`、`count`、定长状态的 `min`/`max`、`avg`，且 frame 为整个 partition。
 
 执行过程：
 
-1. Source 顺序扫描所有增强 Block；
-2. 每个函数使用一个跨 Block 保持的聚合状态；
-3. 每批按原始行顺序更新状态；
-4. 预扫描结束后得到 partition 最终值；
-5. reader 回到第一个 Block；
-6. 重放原始列，并将最终值填充到该 Block 的每一行。
+1. Sink 为每个函数维护一个跨 Block 的聚合状态；
+2. 每批按原始行顺序更新状态，同时将原始输出列写入 partition store；
+3. partition seal 时取得最终值并写入不可变 descriptor；
+4. Source 重放原始列，并将最终值填充到该 Block 的每一行。
 
 不能把 partition 划分为多个部分状态后再 merge。特别是浮点 `sum`/`avg`，merge 会改变加法
 顺序和舍入结果。首期必须保持与现有 `add_range_single_place()` 相同的逐行累计顺序，并为
@@ -340,6 +339,9 @@ Block、PBlock 和压缩 buffer。
 `collect_list`、精确 distinct、可能随输入增长的 percentile 状态等不能因为支持
 serialize/merge 就自动加入该能力。
 
+变长 `min`/`max` 的现有单值状态在每次出现更优值时从 Arena 分配新空间，旧空间在 partition
+结束前不能回收，因此首版不声明该能力；后续只有在实现状态 compact/rebase 后才能开放。
+
 ### 7.2 `ntile`
 
 partition seal 时 descriptor 已记录总行数 `N`。Source 重放时维护从 0 开始的全局行号，按
@@ -353,17 +355,15 @@ partition seal 时 descriptor 已记录总行数 `N`。Source 重放时维护从
 两个函数同时依赖 partition 总行数和完整 peer group。为避免一个超大 peer group 本身造成
 内存增长，不能在 Source 中缓存整个 group。
 
-预扫描阶段顺序比较 order key，并生成紧凑的 peer group 元数据：
+Sink 收集阶段顺序比较 order key，并生成紧凑的 peer group 元数据：
 
 ```text
-PeerGroupMeta {
-    start_row;
-    end_row;
-}
+PeerGroupEnd = end_row
 ```
 
 元数据先在一个有界 buffer 中累计，达到 `spill_buffer_size_bytes` 后写入辅助 `SpillFile`。
-Replay 阶段同时顺序读取输入 Block 和 `PeerGroupMeta`：
+Replay 阶段同时顺序读取输入 Block 和 `PeerGroupEnd`，当前 group 的 start 由上一 group 的 end
+推导：
 
 - `percent_rank = (rank - 1) / (partition_rows - 1)`，单行 partition 返回 0；
 - `cume_dist = peer_group_end / partition_rows`；
@@ -382,21 +382,21 @@ Replay 阶段同时顺序读取输入 Block 和 `PeerGroupMeta`：
 
 ## 8. Source 协作式执行与反压
 
-超大 partition 的预扫描可能持续很久。Source 不能在一次 `get_block()` 中同步扫描完整文件，
-否则会长期占用 Pipeline Worker。建议把 Source 划分为以下可恢复阶段：
+归约和 peer group 检测随 Sink 输入 Block 增量完成，因此 Source 不需要在一次 `get_block()`
+中同步预扫描完整文件。Source 使用以下状态：
 
 ```text
-WAIT_PARTITION -> PRE_SCAN -> FINALIZE_METADATA -> REPLAY -> FINISH_PARTITION
+WAIT_PARTITION -> OPEN_READER -> REPLAY -> FINISH_PARTITION
 ```
 
-- 每次调度只处理有限数量的 Block、有限字节或一个时间片；
-- PRE_SCAN 尚未结束时允许返回空 Block 且 `eos = false`，保存 reader 和函数状态供下次继续；
+- Sink 每次调用只处理当前输入 Block；
 - REPLAY 每次最多返回一个输出 Block；
 - Source 取走 descriptor 后通知 Sink 可以继续写入队列；
 - descriptor 队列已满时 Sink dependency 进入 blocked；
 - Sink EOS 且队列和当前 Source partition 都为空时，Source 才返回最终 EOS。
 
-该模型同时解决 CPU 调度公平性、输出反压和结果 Block 大量堆积的问题。
+该模型同时解决 CPU 调度公平性、输出反压和结果 Block 大量堆积的问题，也避免了同一
+partition 的二次预扫描 I/O。
 
 ## 9. 正确性、错误和生命周期
 
@@ -405,7 +405,7 @@ WAIT_PARTITION -> PRE_SCAN -> FINALIZE_METADATA -> REPLAY -> FINISH_PARTITION
 - 每个输入行只属于一个 partition descriptor；
 - descriptor 的 row count 等于其所有 Block 的行数之和；
 - SpillFile 中 Block 顺序与上游输入顺序一致；
-- 任何结果输出前，当前 partition 所需的预扫描已经完成；
+- 任何结果输出前，当前 partition 的有界状态和 peer group 元数据已经封存；
 - 输出只保留原始列并追加窗口结果，隐藏列不得泄漏到下游；
 - 所有函数结果列行数必须与输出 Block 行数一致；
 - nullable 包装和 `_change_to_nullable_flags` 与现有路径一致；
@@ -418,7 +418,7 @@ WAIT_PARTITION -> PRE_SCAN -> FINALIZE_METADATA -> REPLAY -> FINISH_PARTITION
 - 已经开始 spill 后不能静默回退到内存路径；
 - 内部状态不变量使用 `DORIS_CHECK`/`DCHECK`，I/O 和用户数据错误使用 `Status`；
 - Source 或 Sink 任一侧失败后必须唤醒另一侧，避免 dependency 永久阻塞；
-- cancellation 在写盘循环、预扫描循环和重放循环中都要检查。
+- cancellation 在写盘循环、Sink 增量计算循环和重放循环中都要检查。
 
 ### 9.3 文件生命周期
 
@@ -454,7 +454,6 @@ Analytic 额外增加：
 | `InMemoryPartitions` | 未落盘、直接交给 Source 的 partition 数 |
 | `MaxPartitionRows` | 最大 partition 行数 |
 | `PeakPartitionBufferedBytes` | Sink 当前 partition 的内存峰值 |
-| `PartitionPreScanTime` | Source 预扫描耗时 |
 | `PartitionReplayTime` | Source 重放和结果生成耗时 |
 | `PeerGroupMetadataBytes` | peer group 辅助元数据字节数 |
 
@@ -469,10 +468,10 @@ Analytic 额外增加：
 
 - `be/src/exec/operator/analytic_sink_operator.h/.cpp`
   - 选择 spill execution mode；
-  - 物化增强 Block 和检测 partition 边界；
+  - 物化临时表达式列并检测 partition 边界；
   - 实现 revocable memory、主动 spill 和 descriptor 发布。
 - `be/src/exec/operator/analytic_source_operator.h/.cpp`
-  - 增加 PRE_SCAN/REPLAY 状态机；
+  - 增加 partition reader/REPLAY 状态；
   - 按需读取内存页或 SpillFile；
   - 逐 Block 构造结果。
 - `be/src/exec/pipeline/dependency.h`
@@ -480,11 +479,8 @@ Analytic 额外增加：
 
 建议新增独立组件，避免继续扩大 Sink Local State：
 
-- `be/src/exec/operator/analytic_partition_store.h/.cpp`
-  - partition page、descriptor、writer 和 memory accounting；
-- `be/src/exec/operator/analytic_spill_evaluator.h/.cpp`
-  - capability plan、预扫描和重放算法；
-- 相应 `CMakeLists.txt` 源文件登记。
+- `be/src/exec/operator/analytic_spill.h/.cpp`
+  - partition page、descriptor、writer 和 memory accounting。
 
 现有流式和不支持 spill 的分支仍调用当前 `_add_input_block()` / `_execute_impl()`，避免首期
 重写稳定路径。
@@ -518,10 +514,10 @@ spill/operator header。
 
 ### 阶段 A：基础抽象和不落盘等价性
 
-1. 增加 `AnalyticSpillPlan` 和函数 capability；
-2. 实现增强 Block 的 column mapping；
-3. 实现 `WindowPartitionStore` 的纯内存模式和跨 Block partition 切分；
-4. 实现 Source PRE_SCAN/REPLAY，但暂不启用磁盘写入；
+1. 增加函数 capability 和 Operator 侧 strategy 信息；
+2. 实现窗口表达式的临时物化和旁路状态；
+3. 实现 `AnalyticPartitionStore` 的纯内存模式和跨 Block partition 切分；
+4. 实现 Sink 有界状态收集和 Source REPLAY，但暂不启用磁盘写入；
 5. 用现有内存路径做 differential test，确认结果和行顺序一致。
 
 完成标准：支持矩阵内所有 case 在新路径和旧路径逐行一致，且流式/不支持函数没有进入新
@@ -541,11 +537,11 @@ spill/operator header。
 ### 阶段 C：partition-size 和 peer-group 函数
 
 1. 实现 `ntile` 的直接 Replay；
-2. 实现 peer group 预扫描和有界元数据 spill；
+2. 实现 peer group 增量检测和有界元数据 spill；
 3. 实现 `percent_rank`、`cume_dist`；
 4. 覆盖 peer group 跨 Block、单个超大 peer group 和 NULL order key。
 
-完成标准：peer group 元数据本身也不会造成 OOM，多个相关函数共享一次预扫描结果。
+完成标准：peer group 元数据本身也不会造成 OOM，多个相关函数共享一次增量检测结果。
 
 ### 阶段 D：扩展与优化
 
@@ -554,7 +550,7 @@ spill/operator header。
 - `first_value`、`last_value`、`nth_value`；
 - 多 partition spill run，减少逻辑文件数量；
 - 表达式结果去重和更精确的 byte-based batch sizing；
-- Source 预扫描的时间片自适应；
+- peer group 元数据编码压缩；
 - 对流式大 look-ahead/大 peer group 使用独立的有界 buffer 方案。
 
 ## 13. 测试方案
@@ -576,7 +572,7 @@ spill/operator header。
 - `ntile` 的 bucket 数大于、等于、小于 partition 行数；
 - `percent_rank/cume_dist` 的单行 partition、全部同 key、每行不同 key、peer group 跨 Block；
 - revoke 后 `revocable_mem_size()` 和 MemTracker 实际下降；
-- Source 每次调用最多返回一个 Block，预扫描可以多次 yield；
+- Source 每次调用最多返回一个 Block，Sink 跨输入 Block 保持有界状态；
 - 写入、close、读取、反序列化和 GC fault injection；
 - cancellation、early close 和 descriptor 尚未消费时的文件清理。
 
@@ -628,9 +624,9 @@ git diff --check
 | 通用聚合状态可能随 partition 增长 | capability 默认关闭，只允许证明状态有界的函数加入 |
 | 浮点 partial merge 改变结果 | 不做 partial merge，保持原始行顺序单状态累计 |
 | peer group 元数据数量达到 O(N) | 元数据也使用有界 buffer 和 SpillFile |
-| Source 预扫描长时间占用线程 | 分阶段、按预算 yield，不在一次 `get_block()` 扫完整 partition |
+| 超大 partition 计算长时间占用线程 | 计算随上游 Block 增量完成，每次 `sink()` 不跨越当前 Block |
 | 单个输入 Block 过大导致序列化峰值 | 写入前按目标字节切分 row range，并计入 reserve memory |
-| 输出和 Sink 并发导致多份 partition 驻留 | descriptor 队列深度 1，采用 byte-based accounting |
+| 输出和 Sink 并发导致多份 partition 驻留 | descriptor 按输入 Block 批次反压，采用 byte-based accounting |
 | spill 文件过多 | 首期只 spill 大 partition；用指标决定是否实现 multi-partition run |
 | 新路径与旧路径 NULL/类型语义不同 | 复用现有函数实现和比较逻辑，强制 differential test |
 | unsupported fallback 仍可能 OOM | Profile 明确原因，不把 fallback 误报为已支持 spill |
@@ -645,5 +641,5 @@ git diff --check
 4. 实测峰值内存受配置阈值和 spill buffer 控制，不随 partition 行数线性增长；
 5. `SpillWriteRows/Bytes`、`SpilledPartitions` 和内存计数互相一致；
 6. 中途 revoke、多次 revoke、取消和 I/O 失败均不会死锁或遗留 spill 文件；
-7. 浮点结果 bit-exact，NULL、Decimal、String 和跨 Block peer group 测试通过；
+7. 浮点结果 bit-exact，NULL、Decimal、定长 `min/max` 和跨 Block peer group 测试通过；
 8. BE build、focused UT、spill regression、format、build hygiene 和 clang-tidy 全部通过。
