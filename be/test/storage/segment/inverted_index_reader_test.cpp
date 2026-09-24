@@ -2570,9 +2570,9 @@ public:
     }
 
     // The consumed flag must be re-armed per search: a range query on the
-    // untokenized reader never passes through match_index_search, so a stale
-    // flag left by an earlier candidate-consuming phrase search must not
-    // block its (full-segment) result from entering the cache.
+    // untokenized reader runs no MATCH, so a stale flag left by an earlier
+    // candidate-consuming phrase search must not block its (full-segment)
+    // result from entering the cache.
     void test_candidate_consumed_flag_reset_between_readers() {
         std::vector<Slice> fulltext_values = {Slice("the quick brown fox")};
         TabletIndex fulltext_meta;
@@ -2635,9 +2635,8 @@ public:
                                 .ok());
         }
 
-        // 2) A range query on the untokenized reader takes the switch branch
-        // that bypasses match_index_search; its full-segment result must
-        // still be cached (second run hits).
+        // 2) A range query on the untokenized reader runs no MATCH; its
+        // full-segment result must still be cached (second run hits).
         {
             auto reader = std::make_shared<IndexFileReader>(
                     io::global_local_filesystem(), plain_prefix, InvertedIndexStorageFormatPB::V2);

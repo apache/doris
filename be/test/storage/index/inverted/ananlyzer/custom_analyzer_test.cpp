@@ -29,8 +29,6 @@
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/query/phrase_prefix_query.h"
-#include "storage/index/inverted/query/phrase_query.h"
 #include "storage/index/inverted/setting.h"
 
 CL_NS_USE(util)

@@ -378,7 +378,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     DORIS_CHECK(query_type != InvertedIndexQueryType::UNKNOWN_QUERY);
     const auto* index_meta = DORIS_TRY(select_index_meta(
             candidates.index_metas, candidates.field_type, query_type, analyzer_ctx->analyzer_key));
-    if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
+    if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();
     }
@@ -393,7 +393,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 
     std::string field_name =
             build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
-    std::wstring ws_field_name = StringHelper::to_wstring(field_name);
+    std::wstring ws_field_name = inverted_index::StringHelper::to_wstring(field_name);
 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {
@@ -515,7 +515,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
 
     std::vector<TermInfo> term_infos;
     std::optional<InvertedIndexAnalyzerCtx> analyzer_ctx;
-    if (InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
+    if (inverted_index::InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
         analyzer_ctx.emplace(analyzer_context_from_properties(analysis_properties));
     }
 
@@ -537,7 +537,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
 
     std::string lucene_field_name =
             build_field_name(index_meta->col_unique_ids()[0], candidates.index_suffix_path);
-    std::wstring ws_field_name = StringHelper::to_wstring(lucene_field_name);
+    std::wstring ws_field_name = inverted_index::StringHelper::to_wstring(lucene_field_name);
 
     auto iter = collect_infos->find(ws_field_name);
     if (iter == collect_infos->end()) {

@@ -64,6 +64,8 @@
 
 namespace doris {
 
+namespace query_v2 = segment_v2::inverted_index::query_v2;
+
 // Build canonical DSL signature for cache key.
 // Serializes the entire TSearchParam via Thrift binary protocol so that
 // every field (DSL, AST root, field bindings, default_operator,

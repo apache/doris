@@ -291,11 +291,6 @@ public:
     const TabletIndex& get_index_meta() const { return _index_meta; }
 
 protected:
-    Status match_index_search(const IndexQueryContextPtr& context,
-                              InvertedIndexQueryType query_type,
-                              const InvertedIndexQueryInfo& query_info,
-                              const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
     // Lowers a MATCH value to the logical IR and runs it on query_v2 over the CLucene index, keying
     // the result cache by the raw value.
     Status _match(const IndexQueryContextPtr& context, const std::string& column_name,
@@ -347,6 +342,13 @@ public:
     }
 
     InvertedIndexReaderType type() override;
+
+private:
+    // Runs MATCH_PHRASE_EDGE with its legacy CLucene executor.
+    Status phrase_edge_search(const IndexQueryContextPtr& context,
+                              const InvertedIndexQueryInfo& query_info,
+                              const FulltextIndexSearcherPtr& index_searcher,
+                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {

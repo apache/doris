@@ -54,9 +54,7 @@
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
-#include "storage/index/inverted/query/phrase_query.h"
-#include "storage/index/inverted/query/query_factory.h"
-#include "storage/index/inverted/query/query_helper.h"
+#include "storage/index/inverted/query/phrase_edge_query.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
@@ -353,26 +351,20 @@ Status InvertedIndexReader::create_index_searcher(IndexSearcherBuilder* index_se
     return Status::OK();
 };
 
-Status InvertedIndexReader::match_index_search(
-        const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
-        const InvertedIndexQueryInfo& query_info, const FulltextIndexSearcherPtr& index_searcher,
+Status FullTextIndexReader::phrase_edge_search(
+        const IndexQueryContextPtr& context, const InvertedIndexQueryInfo& query_info,
+        const FulltextIndexSearcherPtr& index_searcher,
         const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
     auto* reader = index_searcher->getReader();
     if (context->runtime_state &&
         context->runtime_state->query_options().inverted_index_compatible_read) {
         reader->setCompatibleRead(true);
     }
-    // Fresh per-search reply: only the query about to run decides whether it
-    // consumes the candidate set (and thus produces an uncacheable partial
-    // result); a consumed flag left by an earlier search must not leak in.
+    // The phrase reads no candidate rows, so a flag left by an earlier search is cleared.
     context->candidate_rows_consumed = false;
     try {
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
-        auto query = QueryFactory::create(query_type, index_searcher, context);
-        if (!query) {
-            return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
-                    "query type " + query_type_to_string(query_type) + ", query is nullptr");
-        }
+        auto query = std::make_unique<PhraseEdgeQuery>(index_searcher, context);
         {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
             query->add(query_info);
@@ -398,7 +390,8 @@ namespace query_v2 = inverted_index::query_v2;
 
 query_v2::QueryPtr term_query(const IndexQueryContextPtr& context, const std::wstring& field,
                               const std::string& term) {
-    return std::make_shared<query_v2::TermQuery>(context, field, StringHelper::to_wstring(term));
+    return std::make_shared<query_v2::TermQuery>(context, field,
+                                                 inverted_index::StringHelper::to_wstring(term));
 }
 
 // One term is queried as itself; several form the boolean the set asks for. SEARCH counts a
@@ -420,7 +413,8 @@ query_v2::QueryPtr term_set_query(const IndexQueryContextPtr& context, const std
 Status phrase_query(const IndexQueryContextPtr& context, const std::wstring& field,
                     const logical::Phrase& phrase, const roaring::Roaring* candidates,
                     query_v2::QueryPtr* out) {
-    const bool single_terms = QueryHelper::is_simple_phrase(phrase.slots);
+    const bool single_terms = std::ranges::all_of(
+            phrase.slots, [](const TermInfo& slot) { return slot.is_single_term(); });
     if (phrase.prefix) {
         if (!single_terms) {
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -537,79 +531,31 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         return _match(context, column_name, search_str, query_type, bit_map, analyzer_ctx);
     }
 
-    const auto& queryOptions = context->runtime_state->query_options();
     try {
         InvertedIndexQueryInfo query_info;
-        InvertedIndexQueryCache::CacheKey cache_key;
-        auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
-
-        // terms
-        if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            query_info.term_infos.emplace_back(search_str, 0);
-        } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(context->stats, search_str, _index_meta.properties(),
-                                     query_info);
-        } else {
+        {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
-                // Keyword index: all strings (including empty) are valid tokens for exact match.
-                // Empty string is a valid value in keyword index and should be matchable.
-                query_info.term_infos.emplace_back(search_str);
-            } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
-                // Use analyzer from query context for consistent behavior across all segments.
-                // This ensures that the query uses the same analyzer settings (e.g., lowercase)
-                // regardless of how each segment's index was originally built.
-                auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
-                        analyzer_ctx->char_filter_map);
-                reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
-                query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        reader, analyzer_ctx->analyzer.get());
-            } else {
-                // No analyzer context available, use index's own analyzer as fallback
-                query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        search_str, _index_meta.properties());
-            }
+            RETURN_IF_ERROR(inverted_index::InvertedIndexAnalyzer::analyze(
+                    search_str, analyzer_ctx, _index_meta.properties(), &query_info.term_infos));
         }
-
         if (query_info.term_infos.empty()) {
-            auto msg = fmt::format(
-                    "token parser result is empty for query, "
-                    "please check your query: '{}' and index parser: '{}'",
+            LOG(WARNING) << fmt::format(
+                    "token parser result is empty for query, please check your query: '{}' and "
+                    "index parser: '{}'",
                     search_str, get_parser_string_from_properties(_index_meta.properties()));
-            if (is_match_query(query_type)) {
-                LOG(WARNING) << msg;
-                return Status::OK();
-            } else {
-                return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
-            }
+            return Status::OK();
         }
-
-        // field_name
         query_info.field_name = StringUtil::string_to_wstring(column_name);
 
-        // cache_key
-        std::string str_tokens = query_info.generate_tokens_key();
-        if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            str_tokens += " " + std::to_string(query_info.slop);
-            str_tokens += " " + std::to_string(query_info.ordered);
-        } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY ||
-                   query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            str_tokens += " " + std::to_string(queryOptions.inverted_index_max_expansions);
-        }
-        cache_key = {index_file_key, column_name, query_type, std::move(str_tokens)};
-
-        if (IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta)) {
-            query_info.is_similarity_score = true;
-        }
-
+        const InvertedIndexQueryCache::CacheKey cache_key {
+                .index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
+                .column_name = column_name,
+                .query_type = query_type,
+                .value = query_info.generate_tokens_key()};
         auto* cache = InvertedIndexQueryCache::instance();
         InvertedIndexQueryCacheHandle cache_handler;
-        std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
-        // Queries that require scoring will not hit the cache
-        if (!(context->collection_similarity && query_info.is_similarity_score)) {
-            if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
-                return Status::OK();
-            }
+        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
+            return Status::OK();
         }
 
         InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -617,17 +563,11 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
         auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
         if (searcher_ptr != nullptr) {
-            term_match_bitmap = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(match_index_search(context, query_type, query_info, *searcher_ptr,
-                                               term_match_bitmap));
+            auto term_match_bitmap = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(
+                    phrase_edge_search(context, query_info, *searcher_ptr, term_match_bitmap));
             term_match_bitmap->runOptimize();
-            // Only a bitmap whose query actually joined the candidate set is
-            // partial and must stay out of the cache; a non-consuming query
-            // (MATCH_ANY/ALL, term, regexp, single-term phrase) computed the
-            // full-segment result even while candidate_rows was published.
-            if (!context->candidate_rows_consumed) {
-                cache->insert(cache_key, term_match_bitmap, &cache_handler);
-            }
+            cache->insert(cache_key, term_match_bitmap, &cache_handler);
             bit_map = term_match_bitmap;
         }
         return Status::OK();

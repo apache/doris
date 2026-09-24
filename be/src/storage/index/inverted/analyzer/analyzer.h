@@ -25,7 +25,7 @@
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
-#include "storage/index/inverted/query/query.h"
+#include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 

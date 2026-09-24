@@ -223,7 +223,8 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     FieldReaderBinding resolved;
     resolved.logical_field_name = field_name;
     resolved.stored_field_name = stored_field_name;
-    resolved.stored_field_wstr = StringHelper::to_wstring(resolved.stored_field_name);
+    resolved.stored_field_wstr =
+            segment_v2::inverted_index::StringHelper::to_wstring(resolved.stored_field_name);
     resolved.column_type = column_type;
     resolved.query_type = effective_query_type;
     resolved.inverted_reader = inverted_reader;

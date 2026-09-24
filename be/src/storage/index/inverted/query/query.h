@@ -44,8 +44,6 @@
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
-#include "storage/index/inverted/util/docid_set_iterator.h"
-#include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(index)
 CL_NS_USE(search)
