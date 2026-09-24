@@ -193,7 +193,7 @@ public class LanceMetadataOpsTest {
         Mockito.when(database.getRemoteName()).thenReturn("analytics");
         ExternalTable staleTable = table("local_db", "events", "analytics", "stale_events");
         Mockito.when(database.getTableNullable("events"))
-                .thenReturn(staleTable);
+                .thenReturn(staleTable, null);
 
         try {
             Assertions.assertFalse(new LanceMetadataOps(catalog).createTable(createTableInfo(true)));
@@ -207,6 +207,35 @@ public class LanceMetadataOpsTest {
                 request.getValue().getId());
         Mockito.verify(database, Mockito.atLeastOnce()).resetMetaCacheNames();
         Mockito.verify(catalog).invalidateTableAccessCache();
+    }
+
+    @Test
+    public void testCreateTableRejectsLocalNameConflictAfterRefresh() throws UserException {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.doThrow(new TableNotFoundException("missing"))
+                .when(namespace).tableExists(Mockito.any());
+        LanceCatalogClient client = newClient(namespace, new RootAllocator(1024 * 1024));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(catalog).getDbNullable("local_db");
+        Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
+        Mockito.when(database.getRemoteName()).thenReturn("analytics");
+        ExternalTable conflictingTable = table("local_db", "events", "analytics", "Events");
+        Mockito.when(database.getTableNullable("events"))
+                .thenReturn(conflictingTable, conflictingTable, conflictingTable, conflictingTable);
+        LanceMetadataOps ops = new LanceMetadataOps(catalog);
+
+        try {
+            Assertions.assertTrue(ops.createTable(createTableInfo(true)));
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> ops.createTable(createTableInfo(false)));
+            Assertions.assertTrue(exception.getMessage().contains("already exists"));
+        } finally {
+            client.close();
+        }
+
+        Mockito.verify(namespace, Mockito.never()).createTable(Mockito.any(), Mockito.any(byte[].class));
+        Mockito.verify(database, Mockito.times(2)).resetMetaCacheNames();
     }
 
     @Test
