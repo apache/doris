@@ -494,8 +494,7 @@ Status collect_merged_tail_matches(const LogicalIndexReader& idx,
     return Status::OK();
 }
 
-// Use the tail union only when its postings are much smaller than the leading
-// phrase's scan domain.
+// Use the tail union when it bounds the leading scan or avoids more candidate probes.
 Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
                                       const internal::ResolvedPhrasePlan& exact_plan,
                                       const std::vector<ResolvedQueryTerm>& tail_terms,
@@ -518,8 +517,12 @@ Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
             candidates == nullptr ? 0 : std::min<uint64_t>(min_lead_df, candidates->cardinality());
     const bool union_pays_off_restricted = lead_bound >= kMinPrefixLeadingPrefilterMinDf &&
                                            tail_df_sum <= lead_bound / kPrefixLeadingToTailDfRatio;
+    const bool union_avoids_candidate_probes =
+            union_pays_off_unrestricted && candidates != nullptr &&
+            tail_df_sum <= lead_bound * exact_plan.phrase_plan_index.size();
     const bool union_pays_off =
-            candidates == nullptr ? union_pays_off_unrestricted : union_pays_off_restricted;
+            candidates == nullptr ? union_pays_off_unrestricted
+                                  : union_pays_off_restricted || union_avoids_candidate_probes;
     if (!union_pays_off) {
         *restriction = restrict_to_candidates(candidates, min_lead_df, storage);
         return Status::OK();

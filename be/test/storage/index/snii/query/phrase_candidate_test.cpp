@@ -291,6 +291,28 @@ TEST_F(SniiPhraseCandidateTest, DenseCandidatesKeepPrefixTailPrefilter) {
               full_profile.phrase_query_stats.prefix_leading_candidate_docs);
 }
 
+TEST_F(SniiPhraseCandidateTest, SparseCandidatesKeepAffordableTailPrefilter) {
+    const std::vector<std::string> terms = {"alpha", "ec"};
+    const uint32_t tail_df = df("echo") + df("ecru");
+    const roaring::Roaring candidates = sample_candidates(0.1, 99);
+    ASSERT_LT(tail_df * 8, df("alpha"));
+    ASSERT_LT(candidates.cardinality(), tail_df * 8);
+    ASSERT_LT(tail_df, candidates.cardinality());
+
+    QueryProfile full_profile;
+    std::vector<uint32_t> unrestricted;
+    assert_ok(phrase_prefix_query(_index, terms, &unrestricted, &full_profile, kMaxExpansions));
+
+    QueryProfile restricted_profile;
+    std::vector<uint32_t> restricted;
+    assert_ok(phrase_prefix_query(_index, terms, &restricted, &restricted_profile,
+                                  {.max_expansions = kMaxExpansions, .candidates = &candidates}));
+
+    EXPECT_EQ(restricted, intersect(unrestricted, candidates));
+    EXPECT_LE(restricted_profile.phrase_query_stats.prefix_leading_candidate_docs,
+              full_profile.phrase_query_stats.prefix_leading_candidate_docs);
+}
+
 TEST_F(SniiPhraseCandidateTest, SelectiveCandidatesSkipPrefixTailUnion) {
     const std::vector<std::string> terms = {"alpha", "ec"};
     ASSERT_LT((df("echo") + df("ecru")) * 8, df("alpha"));
