@@ -32,6 +32,7 @@ import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
@@ -87,6 +88,8 @@ public class IcebergPredicateConverterFloatSemanticsTest {
     // Same bounds as NAN_MIXED and UNKNOWN_NAN, but the writer states there is no NaN -- the only difference
     // that may bring pruning back.
     private static final DataFile NO_NAN_ONE_VALUE = file("one_value", 2, 0L, 1.0d, 1.0d);
+    // Every value is NULL: no bounds, no NaN. Doris matches no row of it for any comparison.
+    private static final DataFile NULL_ONLY = file("null_only", 2, 2L, 0L, null, null);
 
     /**
      * The reported query: {@code WHERE d > 0} / {@code d >= 0} returned nothing over a single NaN row.
@@ -194,10 +197,9 @@ public class IcebergPredicateConverterFloatSemanticsTest {
                 single(cmp("d", ConnectorComparison.Operator.EQ, Double.NaN)).op());
         Assertions.assertEquals(Expression.Operation.IS_NAN,
                 single(cmp("d", ConnectorComparison.Operator.GE, Double.NaN)).op());
-        Assertions.assertEquals(Expression.Operation.NOT_NAN,
-                single(cmp("d", ConnectorComparison.Operator.NE, Double.NaN)).op());
-        Assertions.assertEquals(Expression.Operation.NOT_NAN,
-                single(cmp("d", ConnectorComparison.Operator.LT, Double.NaN)).op());
+        // notNaN, guarded against null (iceberg reads notNaN(null) as true; Doris does not match it).
+        assertNotNaNAndNotNull(single(cmp("d", ConnectorComparison.Operator.NE, Double.NaN)));
+        assertNotNaNAndNotNull(single(cmp("d", ConnectorComparison.Operator.LT, Double.NaN)));
         Assertions.assertEquals(Expression.Operation.FALSE,
                 single(cmp("d", ConnectorComparison.Operator.GT, Double.NaN)).op());
         Assertions.assertEquals(Expression.Operation.NOT_NULL,
@@ -207,11 +209,35 @@ public class IcebergPredicateConverterFloatSemanticsTest {
         Assertions.assertFalse(mayMatch(single(cmp("d", ConnectorComparison.Operator.EQ, Double.NaN)), PLAIN));
     }
 
+    /**
+     * A NaN literal is the one case where the emitted arm is a bare {@code notNaN}, and iceberg evaluates
+     * {@code notNaN(null)} as TRUE while Doris leaves {@code NULL != NaN} / {@code NULL < NaN} UNKNOWN, so a
+     * null row matches nothing. REWRITE turns this expression into the file filter with no downstream
+     * re-filter, so without the NULL guard a rewrite would pull in a null-only file holding no matching row.
+     *
+     * <p>Asserted at the file level rather than the row level on purpose: iceberg's row {@link Evaluator}
+     * compares with a bare {@code Comparator.naturalOrder()} and throws on a null value, so a null row is not
+     * even expressible there — the file evaluator is what REWRITE actually consults.</p>
+     */
+    @Test
+    public void nanLiteralNegativeFormsExcludeNullOnlyFiles() {
+        Assertions.assertFalse(mayMatch(single(cmp("d", ConnectorComparison.Operator.NE, Double.NaN)), NULL_ONLY));
+        Assertions.assertFalse(mayMatch(single(cmp("d", ConnectorComparison.Operator.LT, Double.NaN)), NULL_ONLY));
+        Assertions.assertFalse(mayMatch(single(notIn("d", Double.NaN)), NULL_ONLY));
+        Assertions.assertFalse(mayMatch(single(notIn("d", 1.0d, Double.NaN)), NULL_ONLY));
+        // The positive forms were already null-safe: isNaN and notNull are both false for a null value.
+        Assertions.assertFalse(mayMatch(single(cmp("d", ConnectorComparison.Operator.EQ, Double.NaN)), NULL_ONLY));
+        Assertions.assertFalse(mayMatch(single(cmp("d", ConnectorComparison.Operator.LE, Double.NaN)), NULL_ONLY));
+        // And the guard must not cost anything on a file that does hold non-null values.
+        Assertions.assertTrue(mayMatch(single(cmp("d", ConnectorComparison.Operator.NE, Double.NaN)), PLAIN));
+        Assertions.assertTrue(mayMatch(single(cmp("d", ConnectorComparison.Operator.LT, Double.NaN)), PLAIN));
+    }
+
     /** IN / NOT IN carry both problems: a listed NaN cannot be an iceberg literal, a listed zero is two points. */
     @Test
     public void inListHandlesNaNAndSignedZero() {
         Assertions.assertEquals(Expression.Operation.IS_NAN, single(in("d", Double.NaN)).op());
-        Assertions.assertEquals(Expression.Operation.NOT_NAN, single(notIn("d", Double.NaN)).op());
+        assertNotNaNAndNotNull(single(notIn("d", Double.NaN)));
         Expression mixed = single(in("d", 1.0d, Double.NaN));
         Assertions.assertTrue(mayMatch(mixed, NAN_MIXED));
         Assertions.assertFalse(mayMatch(mixed, PLAIN));
@@ -332,6 +358,15 @@ public class IcebergPredicateConverterFloatSemanticsTest {
         return new ConnectorNot(operand);
     }
 
+    // `d != NaN` / `d < NaN` / `d NOT IN (NaN)` all lower to notNaN AND notNull -- the guard exists because
+    // iceberg reads notNaN(null) as TRUE while Doris leaves the comparison UNKNOWN.
+    private static void assertNotNaNAndNotNull(Expression expr) {
+        Assertions.assertEquals(Expression.Operation.AND, expr.op(), expr.toString());
+        And and = (And) expr;
+        Assertions.assertEquals(Expression.Operation.NOT_NAN, and.left().op(), expr.toString());
+        Assertions.assertEquals(Expression.Operation.NOT_NULL, and.right().op(), expr.toString());
+    }
+
     private static ConnectorComparison intCmp(ConnectorComparison.Operator op) {
         return new ConnectorComparison(op, col("i"), new ConnectorLiteral(ConnectorType.of("INT"), 0L));
     }
@@ -361,10 +396,15 @@ public class IcebergPredicateConverterFloatSemanticsTest {
     }
 
     private static DataFile file(String name, long records, Long nanCount, Double lower, Double upper) {
+        return file(name, records, 0L, nanCount, lower, upper);
+    }
+
+    private static DataFile file(String name, long records, long nullCount, Long nanCount,
+            Double lower, Double upper) {
         Map<Integer, Long> valueCounts = new HashMap<>();
         valueCounts.put(D_ID, records);
         Map<Integer, Long> nullCounts = new HashMap<>();
-        nullCounts.put(D_ID, 0L);
+        nullCounts.put(D_ID, nullCount);
         Map<Integer, Long> nanCounts = null;
         if (nanCount != null) {
             nanCounts = new HashMap<>();
