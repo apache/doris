@@ -116,7 +116,13 @@ constexpr BenchQuery kDocIdQueries[] = {
          .text = "retry 1234"},
         {.label = "and_empty",
          .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
-         .text = "retry order"}};
+         .text = "retry order"},
+        // MATCH_REGEXP matches inside a term, so an unanchored pattern reads the whole
+        // dictionary; an anchored one reads only the terms under its literal prefix.
+        {.label = "regexp", .type = InvertedIndexQueryType::MATCH_REGEXP_QUERY, .text = "etr"},
+        {.label = "regexp_anchored",
+         .type = InvertedIndexQueryType::MATCH_REGEXP_QUERY,
+         .text = "^ret.*"}};
 
 uint32_t env_or(const char* name, uint32_t fallback) {
     const char* value = std::getenv(name);
