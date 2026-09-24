@@ -28,15 +28,13 @@ suite("test_uuid_topn_filter", "p0") {
                                WHEN 1 THEN '8000000000000000' ELSE 'ffffffffffffffff' END,
                           LPAD(HEX(number),16,'0')) AS UUID))
            FROM numbers('number'='131072')"""
-    sql "SET enable_profile = true"
     sql "SET enable_sql_cache = false"
-    sql "SET profile_level = 2"
     sql "SET enable_condition_cache = false"
     sql "SET enable_query_cache = false"
     sql "SET enable_two_phase_read_opt = false"
-    // Prevent ordered scan/limit pushdown from finishing before the runtime predicate acts.
+    // Exercise the runtime filter independently of ordered scan/limit pushdown.
     sql "SET topn_opt_limit_threshold = 0"
-    // Two NULLs leave a non-NULL bound even for NULLS FIRST, exercising AcceptNullPredicate.
+    // Two NULLs leave a non-NULL TopN bound even for NULLS FIRST.
     for (String direction : ['ASC', 'DESC']) {
         for (String nullOrder : ['FIRST', 'LAST']) {
             String query = "SELECT id,u FROM uuid_topn_filter ORDER BY u ${direction} NULLS ${nullOrder},id LIMIT 10"
@@ -50,11 +48,10 @@ suite("test_uuid_topn_filter", "p0") {
                         notContains "TOPN OPT:"
                     }
                 }
-                String token = "uuid_topn_filter_${UUID.randomUUID()}"
-                qt_result "/* ${token} */ ${query}"
-                // TopNFilterRows belongs to the sorter itself, so it cannot prove scanner pushdown.
-                checkProfileCounters(token, enabled ? ['RowsVectorPredFiltered'] : [],
-                                 enabled ? [] : ['RowsVectorPredFiltered'])
+                // Scanning may finish before the sorter publishes a bound, so a positive
+                // RowsVectorPredFiltered is not guaranteed. RuntimePredicateTest covers UUID
+                // scanner filtering before and after publishing a bound deterministically.
+                qt_result query
             }
         }
     }
