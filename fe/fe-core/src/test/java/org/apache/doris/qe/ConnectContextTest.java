@@ -39,6 +39,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -351,7 +352,7 @@ public class ConnectContextTest {
             ctx.setCloudCluster("test1");
 
             List<String> row = ctx.toThreadInfo(false).toRow(-1, 0, Optional.empty());
-            Assertions.assertEquals("test1", row.get(14));
+            Assert.assertEquals("test1", row.get(14));
         }
     }
 
