@@ -58,6 +58,14 @@ regexTarget = "line"
 paths = ['''^tools/release-tools/release\.env$''']
 regexes = ['''SIGNING_KEY="[A-F0-9]{40}"''']
 
+[[rules.allowlists]]
+description = "Ignore fixed Iceberg partition field paths in the case-insensitive predicate test"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^fe/fe-connector/fe-connector-iceberg/src/test/java/org/apache/doris/connector/iceberg/IcebergPartitionNameConflictTest\.java$''']
+# Match only this exact loop so other strings in the test remain subject to secret detection.
+regexes = ['''^\s*for \(String name : Arrays\.asList\("partition\.record_key", "PARTITION\.RECORD_KEY_1000"\)\) \{\s*$''']
+
 [[rules]]
 id = "jwt"
 
