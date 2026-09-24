@@ -118,7 +118,8 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         if (part == FILE && (start_pos < 0 || (question_pos >= 0 && question_pos < start_pos))) {
             start_pos = question_pos;
         }
-        if (start_pos < 0 || (hash_pos >= 0 && hash_pos < start_pos)) {
+        if (start_pos < 0 || (part == PATH && question_pos >= 0 && question_pos < start_pos) ||
+            (hash_pos >= 0 && hash_pos < start_pos)) {
             // Return empty string. This is what Hive does.
             return true;
         }
