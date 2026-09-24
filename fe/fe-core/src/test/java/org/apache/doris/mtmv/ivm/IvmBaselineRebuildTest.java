@@ -148,6 +148,59 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     /**
+     * The sync window is a property any MV can carry, but only an IVM MV maintains a baseline through it.
+     * Widening it on a plain MV brings base partitions back into a set it never stopped maintaining, so a
+     * whole-MV rebuild would recompute partitions it already has -- which is why the widening checks are
+     * judged together, under the guard that the MV maintains an IVM baseline at all.
+     */
+    @Test
+    public void testWideningTheSyncWindowDoesNotInvalidateANonIvmMv() throws Exception {
+        String db = "ivm_sync_window_non_ivm";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        // A window starts applying, is narrowed, then widened. The widen is what owes a rebuild for an IVM
+        // MV; for this one it is a change to a window nothing maintains.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1')");
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        // The window is still applied: it is the rebuild it owes that is IVM's, not the property.
+        Assertions.assertEquals("10", mtmv.getMvProperties().get("partition_sync_limit"));
+    }
+
+    /**
+     * A plain MV can name its columns itself, and the check has to keep matching those by position. The MV
+     * persists the names it was given while re-analysing its query yields the names it selects -- and only
+     * an IVM MV has the stored query rewritten with its aliases -- so a name lookup finds nothing and
+     * reports a column that exists as missing. The check runs on every refresh of an MV in SCHEMA_CHANGE,
+     * so that MV would stop refreshing for good after an otherwise compatible base-table change.
+     */
+    @Test
+    public void testAnMvWithItsOwnColumnNamesIsStillUsable() throws Exception {
+        String db = "ivm_mv_column_aliases";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv (c_dt, c_k1, c_v1)\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+        Assertions.assertEquals("c_v1", mtmv.getBaseSchema(true).get(2).getName());
+
+        Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK)));
+    }
+
+    /**
      * The query check belongs to the MV, not to IVM. A plain MV's query is taken away by the same base
      * table change as an IVM MV's is, and it is left in the same state -- the state its refresh re-analyzes
      * the query under, which is how it finds out. The detail is what the two have to agree on, and it has

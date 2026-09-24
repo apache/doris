@@ -897,15 +897,14 @@ public class MTMVTest {
 
     @Test
     public void testAFreshMvHasAnEmptyStateMapAndAlignmentFillsIt() {
-        MTMV mtmv = buildSerializableMTMV();
-        mtmv.getIvmInfo().setEnableIvm(true);
+        MTMV mtmv = ivmMvWithPartitions(Sets.newHashSet("p202601"));
 
         // The map is created with the MV, so a reader has no null case to answer; alignment is what puts
         // the MV's partitions into it.
         Assertions.assertNotNull(Deencapsulation.getField(mtmv, "partitionStates"));
         Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
 
-        runAlignPartitionStates(mtmv, Sets.newHashSet("p202601"));
+        runAlignPartitionStates(mtmv);
 
         Assertions.assertEquals(Sets.newHashSet("p202601"), mtmv.getPartitionStates().keySet());
         Assertions.assertEquals(1, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
@@ -968,13 +967,12 @@ public class MTMVTest {
 
     @Test
     public void testAlignPartitionStatesCreatesAndDropsEntries() {
-        MTMV mtmv = buildSerializableMTMV();
-        mtmv.getIvmInfo().setEnableIvm(true);
+        MTMV mtmv = ivmMvWithPartitions(Sets.newHashSet("p202601", "p202602"));
         mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
 
         // A partition that is already there keeps its requirement: alignment creates and destroys
         // entries, it never rewrites one.
-        List<AlterMTMV> journaled = runAlignPartitionStates(mtmv, Sets.newHashSet("p202601", "p202602"));
+        List<AlterMTMV> journaled = runAlignPartitionStates(mtmv);
         Assertions.assertEquals(1, journaled.size());
         Assertions.assertEquals(MTMVAlterOpType.ALTER_PARTITION_STATES, journaled.get(0).getOpType());
         Assertions.assertEquals(3, journaled.get(0).getPartitionStates().get("p202601").getRefreshEpoch());
@@ -984,11 +982,12 @@ public class MTMVTest {
         Assertions.assertEquals(2, mtmv.getPartitionStates().size());
 
         // Aligning onto the same set changes nothing, so it journals nothing either.
-        Assertions.assertTrue(runAlignPartitionStates(mtmv, Sets.newHashSet("p202601", "p202602")).isEmpty());
+        Assertions.assertTrue(runAlignPartitionStates(mtmv).isEmpty());
 
         // A partition that is gone loses its entry, which is what keeps a mark from landing on state
         // that no partition can hold rows for.
-        runAlignPartitionStates(mtmv, Sets.newHashSet("p202602"));
+        Mockito.doReturn(Sets.newHashSet("p202602")).when(mtmv).getPartitionNames();
+        runAlignPartitionStates(mtmv);
         Assertions.assertEquals(Sets.newHashSet("p202602"), mtmv.getPartitionStates().keySet());
     }
 
@@ -997,7 +996,7 @@ public class MTMVTest {
         MTMV mtmv = buildSerializableMTMV();
         Assertions.assertFalse(mtmv.getIvmInfo().isEnableIvm());
 
-        Assertions.assertTrue(runAlignPartitionStates(mtmv, Sets.newHashSet("p202601")).isEmpty());
+        Assertions.assertTrue(runAlignPartitionStates(mtmv).isEmpty());
 
         Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
     }
@@ -1144,7 +1143,11 @@ public class MTMVTest {
         withMockedEditLog(journaled, () -> {
             MTMVTask task = new MTMVTask(mtmv, mtmv.getRelation(), null);
             task.setStatus(TaskStatus.FAILED);
-            task.getIvmCapturedEpochs().putAll(capturedEpochs);
+            // Set on the task rather than through its getter: the getter hands out a detached copy, which
+            // is the point of it -- a cancelled task's worker may still be merging into the field.
+            Map<String, Long> taskCapturedEpochs = Maps.newConcurrentMap();
+            taskCapturedEpochs.putAll(capturedEpochs);
+            Deencapsulation.setField(task, "ivmCapturedEpochs", taskCapturedEpochs);
             AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
             alterMTMV.setTask(task);
             alterMTMV.setRelation(mtmv.getRelation());
@@ -1155,13 +1158,24 @@ public class MTMVTest {
         return journaled;
     }
 
-    private List<AlterMTMV> runAlignPartitionStates(MTMV mtmv, Set<String> livePartitionNames) {
+    /**
+     * An IVM MV whose partition names are the given ones: alignment reads them from the MV now, so a case
+     * that wants entries created or dropped has to say which partitions the MV has.
+     */
+    private MTMV ivmMvWithPartitions(Set<String> partitionNames) {
+        MTMV mtmv = Mockito.spy(buildSerializableMTMV());
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Mockito.doReturn(partitionNames).when(mtmv).getPartitionNames();
+        return mtmv;
+    }
+
+    private List<AlterMTMV> runAlignPartitionStates(MTMV mtmv) {
         // A journaling path names the MV, and the fixture is built through the deserialization
         // constructor, which leaves the name unset (setName() cannot be used: it rekeys the index map
         // by the current name, which is still null at that point).
         Deencapsulation.setField(mtmv, "name", "mv1");
         List<AlterMTMV> journaled = Lists.newArrayList();
-        withMockedEditLog(journaled, () -> mtmv.alignPartitionStates(livePartitionNames));
+        withMockedEditLog(journaled, () -> mtmv.alignPartitionStates());
         return journaled;
     }
 

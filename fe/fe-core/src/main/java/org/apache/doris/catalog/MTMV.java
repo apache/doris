@@ -307,6 +307,10 @@ public class MTMV extends OlapTable {
         EditLogItem editLogItem;
         writeMvLock();
         try {
+            // Read once, here: the task's worker thread may still be merging into this map, and the two
+            // places that use it -- applying the epochs and journaling them -- have to describe the same
+            // set of partitions. The getter hands out a detached copy for the same reason.
+            Map<String, Long> capturedEpochs = task.getIvmCapturedEpochs();
             if (!isReplay && task.getMtmvSchemaChangeVersion() != this.schemaChangeVersion) {
                 LOG.warn(
                         "addTaskResult failed, schemaChangeVersion has changed. "
@@ -338,7 +342,7 @@ public class MTMV extends OlapTable {
                     // the requirement is met for exactly those partitions. Recorded for a failed task
                     // too: its snapshots and epochs only ever cover the batches that succeeded, and
                     // leaving their rebuilt work unrecorded would only make the next refresh redo it.
-                    applyRefreshedEpochs(task.getIvmCapturedEpochs());
+                    applyRefreshedEpochs(capturedEpochs);
                 }
             }
             if (task.getStatus() == TaskStatus.SUCCESS) {
@@ -392,7 +396,7 @@ public class MTMV extends OlapTable {
                 // journal all of them on every run to say what almost all of them already said. What the
                 // record has to carry is the change; the replay merges it. A result that published nothing
                 // carries nothing, which is what a payload without the member already means.
-                alterMTMV.setPartitionStates(publishedPartitionStates(task.getIvmCapturedEpochs()));
+                alterMTMV.setPartitionStates(publishedPartitionStates(capturedEpochs));
                 // Journal the map that was applied, not the one the task proposed: a partition this result
                 // left dirty was dropped from it above, and a replay that restored the raw map would put
                 // back the snapshot of a partition an invalidation has just cleared. The replay skips the
@@ -471,6 +475,11 @@ public class MTMV extends OlapTable {
      */
     private boolean rebuildsWholeMv(Set<TableNameInfo> oldExcludedTriggerTables,
             Map<TableNameInfo, Integer> oldWindowLimits, Map<String, String> oldSyncWindow) {
+        // Judged once here rather than in each of the three: they answer "did this property move in the
+        // direction that owes a rebuild", which is only a question an MV maintaining an IVM baseline has.
+        if (!maintainsIvmBaseline()) {
+            return false;
+        }
         return unexcludesABaseTable(oldExcludedTriggerTables)
                 || widensPartitionWindowLimit(oldWindowLimits)
                 || widensSyncWindow(oldSyncWindow);
@@ -494,9 +503,6 @@ public class MTMV extends OlapTable {
      * while it was excluded the MV did not maintain them.
      */
     private boolean unexcludesABaseTable(Set<TableNameInfo> oldExcludedTriggerTables) {
-        if (!maintainsIvmBaseline()) {
-            return false;
-        }
         Set<TableNameInfo> newExcludedTriggerTables = parseExcludedTriggerTables();
         for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
             TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
@@ -514,9 +520,6 @@ public class MTMV extends OlapTable {
      * partitions the windowed refreshes skipped back into range with their backlog unapplied.
      */
     private boolean widensPartitionWindowLimit(Map<TableNameInfo, Integer> oldWindowLimits) {
-        if (!maintainsIvmBaseline()) {
-            return false;
-        }
         Map<TableNameInfo, Integer> newWindowLimits =
                 MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
         for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
@@ -837,16 +840,19 @@ public class MTMV extends OlapTable {
      * <p>Only an IVM MV is aligned. For a non-IVM MV the map stays as it is, and every reader treats
      * "empty" and "no state" the same.
      */
-    public void alignPartitionStates(Set<String> livePartitionNames) {
+    public void alignPartitionStates() {
         if (!isIvm()) {
             return;
         }
-        // Copied up front: callers pass what OlapTable holds, and that is mutated under the table's own
-        // write lock, not this one. Iterating the live collection could see it change.
-        Set<String> livePartitions = Sets.newHashSet(livePartitionNames);
         EditLogItem editLogItem = null;
         writeMvLock();
         try {
+            // Read here rather than handed in by the caller: a caller has to read the names before it takes
+            // this lock, and a partition created in between -- by a concurrent refresh's partition sync --
+            // would then be dropped by the retainAll below, taking with it the state a following
+            // invalidation has to land on. The read is cheap and takes no lock of its own, so doing it here
+            // does not add an edge to the lock order.
+            Set<String> livePartitions = Sets.newHashSet(getPartitionNames());
             boolean changed = partitionStates.keySet().retainAll(livePartitions);
             for (String partitionName : livePartitions) {
                 if (!partitionStates.containsKey(partitionName)) {
@@ -949,9 +955,12 @@ public class MTMV extends OlapTable {
      * serving rows from it.
      *
      * <p>Applies the change and submits its journal record, and hands back the write for the caller to
-     * await. The apply happens here, under whatever lock the caller holds, and before the record is
-     * enqueued, never after: the state is what a concurrent refresh reads, and it must not become visible
-     * behind the record that stands for it.
+     * await. Both happen under one acquisition of the MV write lock, which is what keeps a refresh from
+     * publishing its result in between: the record has to be enqueued in the same critical section as the
+     * state it stands for, or a task result that slips into the gap is enqueued first and a replay applies
+     * it first -- leaving the follower in SCHEMA_CHANGE where the leader ended NORMAL. The callers that
+     * hold no outer MV lock are the ones this matters for; {@link #alterStatus} takes the same lock
+     * reentrantly, so holding it here is free.
      *
      * <p>The caller awaits outside the MV lock. It does not have to hold the lock across the flush to keep
      * the order -- the record is enqueued in call order, so submitting this one before the next one is what
@@ -959,11 +968,16 @@ public class MTMV extends OlapTable {
      */
     public EditLogItem invalidateWholeMv(String detail) {
         MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE, detail);
-        alterStatus(status);
-        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo(getQualifiedDbName(), getName()),
-                MTMVAlterOpType.ALTER_STATUS);
-        alterMTMV.setStatus(status);
-        return submitAlterLog(alterMTMV);
+        writeMvLock();
+        try {
+            alterStatus(status);
+            AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo(getQualifiedDbName(), getName()),
+                    MTMVAlterOpType.ALTER_STATUS);
+            alterMTMV.setStatus(status);
+            return submitAlterLog(alterMTMV);
+        } finally {
+            writeMvUnlock();
+        }
     }
 
     /**

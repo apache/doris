@@ -107,6 +107,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -1075,20 +1076,37 @@ public class MTMVPlanUtil {
                             + "original length is: %s, current length is: %s",
                     originalColumns.size(), analyzedColumns.size()));
         }
-        // Matched by name, not by position. The order of the two lists is decided by different passes:
-        // the physical schema is laid out when the MV is created, where MTMVPlanUtil#applyIvmPhysicalKeyLayout
-        // puts the final key columns first, and the analysed list comes from running that same layout again
-        // with the stored key columns as its input. The two agree except for a chained IVM MV whose base
-        // tables carry row-id columns of their own: the create pass derives the visible key prefix from the
-        // identity key slots, the analysed one takes it from the stored keys, and the base tables' row-id
-        // columns end up in a different block. What this check is for is a base-table change that makes a
-        // column disappear or change type, and where a column sits is not part of that.
+        if (!mtmv.isIvm()) {
+            // Positional, as this check has always been for a plain MV: nothing lays its schema out twice,
+            // so the analysed list is the stored one in order. Matching these by name is not a refinement
+            // -- it is a different answer -- because a plain MV keeps the query as it was written, and an
+            // MV created with column names of its own (`CREATE MATERIALIZED VIEW mv (x, y) AS SELECT a, b`)
+            // persists x/y while re-analysing that query yields a/b. The change this check is for is a
+            // column that disappeared or changed type, and position plus type is what detects it.
+            for (int i = 0; i < originalColumns.size(); i++) {
+                if (!isTypeLike(originalColumns.get(i).getType(), analyzedColumns.get(i).getType())) {
+                    throw new JobException(String.format(
+                            "column type not same, please check whether columns of base table have changed, "
+                                    + "column name is: %s, original type is: %s, current type is: %s",
+                            originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
+                            analyzedColumns.get(i).getType().toSql()));
+                }
+            }
+            return;
+        }
+        // An IVM MV is matched by name, not by position. Its schema is laid out by two passes:
+        // MTMVPlanUtil#applyIvmPhysicalKeyLayout puts the final key columns first when the MV is created,
+        // and the analysed list comes from running that same layout again with the stored key columns as
+        // its input. The two agree except for a chained IVM MV whose base tables carry row-id columns of
+        // their own: the create pass derives the visible key prefix from the identity key slots, the
+        // analysed one takes it from the stored keys, and the base tables' row-id columns end up in a
+        // different block. Where a column sits is not part of what this check is for.
         Map<String, Column> originalByName = Maps.newHashMap();
         for (Column column : originalColumns) {
-            originalByName.put(column.getName().toLowerCase(), column);
+            originalByName.put(column.getName().toLowerCase(Locale.ROOT), column);
         }
         for (Column analyzedColumn : analyzedColumns) {
-            Column originalColumn = originalByName.get(analyzedColumn.getName().toLowerCase());
+            Column originalColumn = originalByName.get(analyzedColumn.getName().toLowerCase(Locale.ROOT));
             if (originalColumn == null) {
                 throw new JobException(String.format(
                         "column not found, please check whether columns of base table have changed, "
