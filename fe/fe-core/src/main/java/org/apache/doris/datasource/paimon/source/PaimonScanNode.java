@@ -419,6 +419,89 @@ public class PaimonScanNode extends FileQueryScanNode {
         return false;
     }
 
+    // Mirrors the pinned paimon-rust read-mode option matrix
+    // (PartialUpdateConfig::read_unsupported_option_keys and
+    // AggregationConfig's runtime-unsupported keys). Both validate option-key
+    // PRESENCE, not values, so a table carrying the key with an off value is
+    // still rejected by the rust merge construction while Java reads it — the
+    // gate must mirror presence exactly.
+    //
+    // Partial-update reads support basic mode, sequence groups and field
+    // aggregation; unsupported keys are the remove-record-on-delete family,
+    // per-field ignore-delete / ignore-retract / distinct / nested-key /
+    // count-limit options.
+    private static boolean isRustUnsupportedPartialUpdateReadOption(String key) {
+        return (key.endsWith(".ignore-delete")
+                && !"ignore-delete".equals(key)
+                && !"partial-update.ignore-delete".equals(key))
+                || "partial-update.remove-record-on-delete".equals(key)
+                || "partial-update.remove-record-on-sequence-group".equals(key)
+                || hasFieldOptionSuffix(key, ".ignore-retract")
+                || hasFieldOptionSuffix(key, ".distinct")
+                || hasFieldOptionSuffix(key, ".nested-key")
+                || hasFieldOptionSuffix(key, ".count-limit");
+    }
+
+    // Aggregation reads support the per-field aggregate-function /
+    // list-agg-delimiter / default-aggregate-function matrix; unsupported keys
+    // are the remove-record-on-delete family, every ignore-delete spelling
+    // (including the bare one), and per-field sequence-group / ignore-retract /
+    // distinct / nested-key / count-limit options.
+    private static boolean isRustUnsupportedAggregationRuntimeOption(String key) {
+        return "ignore-delete".equals(key)
+                || key.endsWith(".ignore-delete")
+                || "aggregation.remove-record-on-delete".equals(key)
+                || hasFieldOptionSuffix(key, ".sequence-group")
+                || hasFieldOptionSuffix(key, ".ignore-retract")
+                || hasFieldOptionSuffix(key, ".distinct")
+                || hasFieldOptionSuffix(key, ".nested-key")
+                || hasFieldOptionSuffix(key, ".count-limit");
+    }
+
+    private static boolean hasFieldOptionSuffix(String key, String suffix) {
+        return key.startsWith("fields.") && key.endsWith(suffix);
+    }
+
+    // Whether the schema options carry any option key the pinned paimon-rust
+    // read rejects for this merge engine.
+    @VisibleForTesting
+    static boolean hasRustUnsupportedMergeOption(Map<String, String> options,
+            CoreOptions.MergeEngine mergeEngine) {
+        boolean partialUpdate = mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE;
+        for (String key : options.keySet()) {
+            if (key == null) {
+                continue;
+            }
+            if (partialUpdate ? isRustUnsupportedPartialUpdateReadOption(key)
+                    : isRustUnsupportedAggregationRuntimeOption(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Whether any member file of the split carries a data-file.external-paths
+    // location. Paimon can store an absolute location in each DataFileMeta, and
+    // both Java and the serialized rust split prefer it over the bucket path —
+    // but the pinned rust table builds ONE FileIO from paimon_table, whose
+    // storage enum parses every file with that warehouse-selected backend: an
+    // admitted hdfs table with an s3:// external file (or an s3 table with an
+    // oss:// file) reaches the wrong parser and fails the open, while JNI
+    // reads it. The shipped options describe only the warehouse, so any
+    // external file keeps the split on JNI.
+    @VisibleForTesting
+    static boolean splitHasExternalFiles(DataSplit dataSplit) {
+        if (dataSplit == null) {
+            return false;
+        }
+        for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
+            if (fileMeta.externalPath().isPresent()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Recursively whether this paimon type, or any member of it, is
     // TIMESTAMP_WITH_LOCAL_TIME_ZONE: an LTZ nested under MAP/ARRAY/ROW
     // reaches the same shifted ORC decode through the container's field
@@ -653,6 +736,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             // non-materialized splits are gated per split below.
             boolean puAggDeletionVectors = false;
             boolean dvMergeOnRead = false;
+            boolean deduplicateIgnoreDelete = false;
+            boolean rustUnsupportedMergeOption = false;
             if (paimonFileStoreTable != null) {
                 CoreOptions resolvedCoreOptions = paimonFileStoreTable.coreOptions();
                 // Null-safe: a table handle whose CoreOptions is not resolved
@@ -680,6 +765,41 @@ public class PaimonScanNode extends FileQueryScanNode {
                         String mergeOnRead = dvOptions == null
                                 ? null : dvOptions.get(DELETION_VECTORS_MERGE_ON_READ);
                         dvMergeOnRead = "true".equalsIgnoreCase(mergeOnRead);
+                    }
+                    // deduplicate.ignore-delete=true tables stay on JNI:
+                    // Java's DeduplicateMergeFunction skips retract records
+                    // when the option is set — including old, uncompacted
+                    // files that still contain them — but the pinned rust
+                    // read_pk does not pass table options into its
+                    // deduplicate merge: it picks the latest row and omits
+                    // the key when that row is DELETE/UPDATE_BEFORE. An
+                    // uncompacted insert followed by a delete therefore
+                    // returns the insert through JNI but silently disappears
+                    // through rust. Gate the option until the rust merge
+                    // implements it.
+                    if (mergeEngine == CoreOptions.MergeEngine.DEDUPLICATE
+                            && resolvedCoreOptions.ignoreDelete()) {
+                        deduplicateIgnoreDelete = true;
+                    }
+                    // Non-DV merge options the pinned rust read rejects: Java
+                    // supports partial-update.remove-record-on-delete /
+                    // aggregation.remove-record-on-delete and the wider
+                    // per-field retract matrix, but the rust
+                    // PartialUpdateConfig / AggregationConfig validations
+                    // return Unsupported for them — and the DV-derived gates
+                    // above only cover deletion-vector tables, so an ordinary
+                    // non-DV DataSplit with one of these options would pass the
+                    // compound gate and fail during the rust merge
+                    // construction. Mirror the exact rust key matrix (presence,
+                    // not values) against the same schema options map BE
+                    // deserializes.
+                    if (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
+                            || mergeEngine == CoreOptions.MergeEngine.AGGREGATE) {
+                        TableSchema mergeSchema = paimonFileStoreTable.schema();
+                        Map<String, String> mergeOptions =
+                                mergeSchema == null ? null : mergeSchema.options();
+                        rustUnsupportedMergeOption = mergeOptions != null
+                                && hasRustUnsupportedMergeOption(mergeOptions, mergeEngine);
                     }
                 }
             }
@@ -751,6 +871,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && splitHasOrcFile((DataSplit) split)
                     && paimonFileStoreTable.schema().fields().stream()
                             .anyMatch(field -> containsTimestampLtz(field.type()));
+            // data-file.external-paths splits stay on JNI (see
+            // splitHasExternalFiles): the rust table's single FileIO cannot
+            // serve an external file's backend. nativeSplit only guards the
+            // cast — non-DataSplit splits already route to JNI.
+            boolean externalFileSplit = nativeSplit && splitHasExternalFiles((DataSplit) split);
             // Projected VARIANT columns stay on JNI: the rust leaf feeds its
             // Arrow arrays to the slot serdes, and DataTypeVariantV2SerDe::
             // read_column_from_arrow unconditionally returns
@@ -803,8 +928,10 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
                     && !dvMergeOnRead && !splitDvNotMaterialized
-                    && !orcLtzSchema && !projectedVariant && schemeCapabilityVerified
-                    && hdfsBackendVerified && paimonFileStoreTable != null;
+                    && !orcLtzSchema && !projectedVariant && !externalFileSplit
+                    && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
+                    && schemeCapabilityVerified && hdfsBackendVerified
+                    && paimonFileStoreTable != null;
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));

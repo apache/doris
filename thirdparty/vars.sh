@@ -580,10 +580,10 @@ LANCE_C_SOURCE="lance-c-0.1.9"
 LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
 
 # paimon-rust
-PAIMON_RUST_DOWNLOAD="https://github.com/pzhdfy/paimon-rust/archive/refs/tags/paimon-rust-cabdeb9.tar.gz"
-PAIMON_RUST_NAME="paimon-rust-cabdeb9.tar.gz"
-PAIMON_RUST_SOURCE="paimon-rust-paimon-rust-cabdeb9"
-PAIMON_RUST_MD5SUM="a9b4146517242f0c461fec123ea521db"
+PAIMON_RUST_DOWNLOAD="https://github.com/pzhdfy/paimon-rust/archive/refs/tags/paimon-rust-baac87c.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-baac87c.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-paimon-rust-baac87c"
+PAIMON_RUST_MD5SUM="b343c66b3116739e632877198bf66745"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(

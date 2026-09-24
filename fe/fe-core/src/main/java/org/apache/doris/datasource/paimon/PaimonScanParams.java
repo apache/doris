@@ -448,7 +448,15 @@ public final class PaimonScanParams {
         // stripped selector; without the selector the rust ReadBuilder validation
         // ("from-snapshot requires one of scan.snapshot-id, ... to be set") rejects
         // the open. The reader instead pins data through the serialized DataSplit.
-        if (SELECTOR_DEPENDENT_SCAN_MODES.contains(options.get(CoreOptions.SCAN_MODE.key()))) {
+        // Paimon accepts enum option values case-insensitively but preserves the
+        // original spelling in the options map, so a table can persist
+        // scan.mode=FROM-SNAPSHOT; the mode is normalized before the membership
+        // check because the rust reader recognizes the value case-insensitively and
+        // would reject the now-bare uppercase mode for lacking its selector, while
+        // JNI accepts the original option.
+        String scanMode = options.get(CoreOptions.SCAN_MODE.key());
+        if (scanMode != null && SELECTOR_DEPENDENT_SCAN_MODES.contains(
+                scanMode.trim().toLowerCase(Locale.ROOT))) {
             options.remove(CoreOptions.SCAN_MODE.key());
         }
         return schema.copy(options);
