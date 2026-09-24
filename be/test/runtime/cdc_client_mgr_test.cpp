@@ -178,43 +178,57 @@ TEST_F(CdcClientMgrTest, StopWithRealProcessGraceful) {
     }
 }
 
-// Test stop with real process that requires force kill (covers lines 98-111: force kill path)
+// Test stop with a direct child that requires force kill.
 TEST_F(CdcClientMgrTest, StopWithRealProcessForceKill) {
     CdcClientMgr mgr;
 
-    // Start a bash process that ignores SIGTERM by trapping it
-    // This process will not exit on SIGTERM, requiring SIGKILL
-    const char* script = "bash -c 'trap \"\" TERM; while true; do sleep 1; done' & echo $!";
-    FILE* pipe = popen(script, "r");
-    if (pipe) {
-        char buffer[128];
-        if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-            pid_t real_pid = std::atoi(buffer);
-            pclose(pipe);
-
-            if (real_pid > 0) {
-                // Give the process a moment to start
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-                // Set the PID
-                mgr.set_child_pid_for_test(real_pid);
-
-                // Call stop - should try graceful shutdown first, then force kill
-                // Since process ignores SIGTERM, it will still be alive after 200ms
-                // This should trigger the force kill path (lines 105-110)
-                mgr.stop();
-
-                // Verify PID is reset
-                EXPECT_EQ(mgr.get_child_pid(), 0);
-
-                // Clean up: make sure child is dead
-                kill(real_pid, SIGKILL);
-                waitpid(real_pid, nullptr, WNOHANG);
-            }
-        } else {
-            pclose(pipe);
+    int ready_pipe[2];
+    ASSERT_EQ(pipe(ready_pipe), 0);
+    Defer close_pipe {[&]() {
+        close(ready_pipe[0]);
+        if (ready_pipe[1] >= 0) {
+            close(ready_pipe[1]);
         }
-    }
+    }};
+
+    posix_spawn_file_actions_t actions;
+    ASSERT_EQ(posix_spawn_file_actions_init(&actions), 0);
+    Defer destroy_actions {[&]() { posix_spawn_file_actions_destroy(&actions); }};
+    ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, ready_pipe[1], STDOUT_FILENO), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, ready_pipe[0]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, ready_pipe[1]), 0);
+
+    // The shell reports readiness only after ignoring SIGTERM. exec preserves ignored signals,
+    // leaving sleep as this test process's direct child with the same PID.
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("trap '' TERM; printf R; exec sleep 3600"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", &actions, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+    bool child_reaped = false;
+    Defer cleanup_child {[&]() {
+        if (!child_reaped) {
+            kill(pid, SIGKILL);
+            waitpid(pid, nullptr, 0);
+        }
+    }};
+    close(ready_pipe[1]);
+    ready_pipe[1] = -1;
+    char ready = 0;
+    ASSERT_EQ(read(ready_pipe[0], &ready, 1), 1);
+    ASSERT_EQ(ready, 'R');
+
+    mgr.set_child_pid_for_test(pid);
+    mgr.stop();
+    EXPECT_EQ(mgr.get_child_pid(), 0);
+
+    errno = 0;
+    const pid_t wait_result = waitpid(pid, nullptr, WNOHANG);
+    const int wait_error = errno;
+    child_reaped = wait_result == pid || (wait_result < 0 && wait_error == ECHILD);
+    EXPECT_EQ(wait_result, -1) << "stop() did not collect the forced-kill child";
+    EXPECT_EQ(wait_error, ECHILD);
 }
 
 // Test start_cdc_client with missing jar file
@@ -475,6 +489,7 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
         FAIL() << "the deterministic handler did not reach its pause point";
     }
 
+    CdcClientMgr::reset_child_claim_failed_for_test();
     std::atomic<bool> stop_finished {false};
     std::thread stopper([&]() {
         mgr.stop();
@@ -484,7 +499,11 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
     // prevents a replacement generation from publishing the same numeric pid until the handler's
     // final syscall has completed.
     EXPECT_EQ(mgr.get_child_pid(), pid);
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    for (int i = 0; i < 5000 && !CdcClientMgr::child_claim_failed_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(CdcClientMgr::child_claim_failed_for_test())
+            << "stop did not attempt to claim the child while the handler was paused";
     EXPECT_FALSE(stop_finished.load())
             << "stop returned while a signal handler could still operate the old numeric pid";
 
