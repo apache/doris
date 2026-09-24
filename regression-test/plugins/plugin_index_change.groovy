@@ -104,11 +104,18 @@ Suite.metaClass.check_inverted_index_filter_rows = { sql, expectedRowsInvertedIn
     String regex = "RowsInvertedIndexFiltered:&nbsp;&nbsp;(\\d+)"
     Pattern pattern = Pattern.compile(regex)
     Matcher matcher = pattern.matcher(profileDetail)
+    boolean matched = false
     while (matcher.find()) {
+        matched = true
         int number = Integer.parseInt(matcher.group(1))
         log.info("filter number:{}", number)
-        assertEquals(expectedRowsInvertedIndexFiltered, number)
+        if (expectedRowsInvertedIndexFiltered instanceof Closure) {
+            assertTrue(expectedRowsInvertedIndexFiltered.call(number))
+        } else {
+            assertEquals(expectedRowsInvertedIndexFiltered, number)
+        }
     }
+    assertTrue(matched)
 }
 
 
