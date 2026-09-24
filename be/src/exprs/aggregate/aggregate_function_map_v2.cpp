@@ -79,10 +79,10 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
 void register_aggregate_function_map_agg_v2(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("map_agg_v2", create_aggregate_function_map_agg_v2<true>);
     constexpr auto old_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1;
-    factory.register_alternative_function("map_agg_v2", create_aggregate_function_map_agg_v2<false>,
-                                          false, old_be_exec_version);
-    factory.register_alternative_function("map_agg_v2", create_aggregate_function_map_agg_v2<false>,
-                                          true, old_be_exec_version);
+    factory.register_transient_alternative_function(
+            "map_agg_v2", create_aggregate_function_map_agg_v2<false>, false, old_be_exec_version);
+    factory.register_transient_alternative_function(
+            "map_agg_v2", create_aggregate_function_map_agg_v2<false>, true, old_be_exec_version);
 }
 
 } // namespace doris

@@ -20,7 +20,6 @@
 #include <string>
 #include <string_view>
 
-#include "agent/be_exec_version_manager.h"
 #include "core/call_on_type_index.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
@@ -103,9 +102,9 @@ AggregateFunctionPtr create_nested_function(const std::string& name, const DataT
     DataTypePtr nested_result_type = remove_nullable(result_value_type);
     const bool nested_result_is_nullable = result_value_type->is_nullable();
 
-    auto nested_function = AggregateFunctionSimpleFactory::instance().get(
+    auto nested_function = AggregateFunctionSimpleFactory::instance().get_nested(
             nested_function_name(name), nested_argument_types, nested_result_type,
-            nested_result_is_nullable, BeExecVersionManager::get_newest_version(), attr);
+            nested_result_is_nullable, attr.be_exec_version, attr);
     if (nested_function == nullptr) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "Can not create nested aggregate function for {}", name);
