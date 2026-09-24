@@ -194,6 +194,24 @@ public:
         return FullTextIndexReader::create_shared(idx_meta, file_reader);
     }
 
+    // A reader for an untokenized CLucene (V2) index over `values`.
+    std::shared_ptr<StringTypeInvertedIndexReader> keyword_reader(std::string_view rowset_id,
+                                                                  std::vector<Slice> values,
+                                                                  TabletIndex* idx_meta) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1);
+        idx_meta->init_from_pb(index_meta_pb);
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, 0, values, idx_meta, &index_path_prefix);
+        auto file_reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(file_reader->init().ok());
+        return StringTypeInvertedIndexReader::create_shared(idx_meta, file_reader);
+    }
+
     // Create inverted index with NULL values
     void prepare_null_index(std::string_view rowset_id, int seg_id, TabletIndex* idx_meta,
                             std::string* index_path_prefix) {
@@ -4685,7 +4703,7 @@ struct MatchContext {
     IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
 };
 
-roaring::Roaring match(FullTextIndexReader& reader, const IndexQueryContextPtr& context,
+roaring::Roaring match(InvertedIndexReader& reader, const IndexQueryContextPtr& context,
                        InvertedIndexQueryType query_type, std::string value,
                        const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) {
     std::shared_ptr<roaring::Roaring> bitmap;
@@ -4780,6 +4798,16 @@ TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
     EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "qui"),
               rows({0, 1}));
     EXPECT_TRUE(run.context->collection_similarity->release_scores().empty());
+}
+
+// A keyword MATCH_PHRASE takes a trailing " ~N" as its slop, as SNII does.
+TEST_F(InvertedIndexReaderTest, KeywordMatchPhraseTakesTheSlop) {
+    TabletIndex meta;
+    auto reader = keyword_reader("keyword_phrase_slop",
+                                 {Slice("apple"), Slice("apple ~1"), Slice("banana")}, &meta);
+    MatchContext run;
+    EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "apple ~1"),
+              rows({0}));
 }
 
 } // namespace doris::segment_v2

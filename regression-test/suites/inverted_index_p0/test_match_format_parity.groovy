@@ -16,7 +16,7 @@
 // under the License.
 
 // MATCH on the V2 (CLucene) and SNII formats. Each case records the V2 answer and checks
-// that SNII gives the same one; a case the formats answer differently records both.
+// that SNII gives the same one.
 suite("test_match_format_parity") {
     // The pinyin tokenizer puts a text's first letters at the position of its first syllable.
     def analyzer = "test_match_format_parity_pinyin"
@@ -85,12 +85,6 @@ suite("test_match_format_parity") {
         "order_qt_${tag}"("SELECT id FROM ${tables['V2']} WHERE ${predicate}")
         assertEquals(ids("V2", predicate), ids("SNII", predicate), "SNII differs from V2: ${tag}")
     }
-    // Records each format's answer where they differ.
-    def each_format = { String tag, String predicate ->
-        formats.each { fmt ->
-            "order_qt_${tag}_${fmt.toLowerCase()}"("SELECT id FROM ${tables[fmt]} WHERE ${predicate}")
-        }
-    }
 
     same("any", "body match_any 'fox dog'")
     same("all", "body match_all 'quick fox'")
@@ -115,8 +109,8 @@ suite("test_match_format_parity") {
     same("keyword_empty", "tag = ''")
     same("keyword_prefix", "tag match_phrase_prefix 'alp'")
     same("keyword_regexp", "tag match_regexp 'lph'")
-    // V2 keeps "~1" in a keyword term; SNII strips it as a slop.
-    each_format("keyword_phrase_slop", "tag match_phrase 'alp ~1'")
+    // A keyword MATCH_PHRASE takes a trailing "~1" as its slop, as an analyzed one does.
+    same("keyword_phrase_slop", "tag match_phrase 'alp ~1'")
 
     // Tokens that share a position: both formats place a phrase's tokens by their order.
     same("stacked_any", "stacked match_any '合作'")

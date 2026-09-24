@@ -639,7 +639,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
     }
 }
 
-Status FullTextIndexReader::_match(const IndexQueryContextPtr& context,
+Status InvertedIndexReader::_match(const IndexQueryContextPtr& context,
                                    const std::string& column_name, const std::string& value,
                                    InvertedIndexQueryType query_type,
                                    std::shared_ptr<roaring::Roaring>& bit_map,
@@ -747,6 +747,18 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
 
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
+    switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+    case InvertedIndexQueryType::EQUAL_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
+        // An untokenized index's own properties analyze a value to itself.
+        return _match(context, column_name, search_str, query_type, bit_map, nullptr);
+    default:
+        break;
+    }
     try {
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
         // try to get query bitmap result from cache and return immediately on cache hit
@@ -760,13 +772,7 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
 
         std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
 
-        InvertedIndexQueryInfo query_info;
-        query_info.field_name = column_name_ws;
-        query_info.term_infos.emplace_back(search_str, 0);
-
-        // Fresh per-search reply (the range-query cases below never pass
-        // through match_index_search, so a stale consumed flag from an
-        // earlier fulltext search must be cleared here too).
+        // A range query reads no candidate rows, so a flag left by an earlier search is cleared.
         context->candidate_rows_consumed = false;
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
@@ -776,20 +782,6 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
         if (searcher_ptr != nullptr) {
             switch (query_type) {
-            case InvertedIndexQueryType::MATCH_ANY_QUERY:
-            case InvertedIndexQueryType::MATCH_ALL_QUERY:
-            case InvertedIndexQueryType::EQUAL_QUERY: {
-                RETURN_IF_ERROR(match_index_search(context, InvertedIndexQueryType::MATCH_ANY_QUERY,
-                                                   query_info, *searcher_ptr, result));
-                break;
-            }
-            case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
-            case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
-            case InvertedIndexQueryType::MATCH_REGEXP_QUERY: {
-                RETURN_IF_ERROR(
-                        match_index_search(context, query_type, query_info, *searcher_ptr, result));
-                break;
-            }
             case InvertedIndexQueryType::LESS_THAN_QUERY:
             case InvertedIndexQueryType::LESS_EQUAL_QUERY:
             case InvertedIndexQueryType::GREATER_THAN_QUERY:

@@ -19,7 +19,8 @@
 // formats. One synthetic log corpus is indexed through the production column writer as CLucene (V2)
 // and as SNII. Every phrase then runs through the production reader with and without
 // IndexQueryContext::candidate_rows, and every restricted result is checked against the full result
-// intersected with the candidates.
+// intersected with the candidates. An untokenized index of the same rows serves exact and prefix
+// lookups.
 //
 // The test is DISABLED_ so CI never runs it; it is still compiled into doris_be_test. Use a RELEASE
 // UT build (BUILD_TYPE_UT=RELEASE in custom_env.sh) for representative numbers:
@@ -126,6 +127,19 @@ constexpr BenchQuery kDocIdQueries[] = {
         {.label = "regexp_anchored",
          .type = InvertedIndexQueryType::MATCH_REGEXP_QUERY,
          .text = "^ret.*"}};
+
+// Lookups on an untokenized index of the same rows: a value about nine rows hold, a value none
+// holds, and a prefix that expands to many values.
+constexpr BenchQuery kKeywordQueries[] = {
+        {.label = "kw_equal",
+         .type = InvertedIndexQueryType::EQUAL_QUERY,
+         .text = "Retry attempt 2 job 1234 failed"},
+        {.label = "kw_equal_missing",
+         .type = InvertedIndexQueryType::EQUAL_QUERY,
+         .text = "Retry attempt 9 job 1234 failed"},
+        {.label = "kw_prefix",
+         .type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
+         .text = "Order 12"}};
 
 uint32_t env_or(const char* name, uint32_t fallback) {
     const char* value = std::getenv(name);
@@ -250,6 +264,13 @@ protected:
         pb.mutable_properties()->insert({"lower_case", "true"});
         pb.mutable_properties()->insert({"support_phrase", "true"});
         _meta.init_from_pb(pb);
+
+        TabletIndexPB keyword_pb;
+        keyword_pb.set_index_type(IndexType::INVERTED);
+        keyword_pb.set_index_id(2);
+        keyword_pb.set_index_name("phrase_candidate_bench_keyword");
+        keyword_pb.add_col_unique_id(1);
+        _keyword_meta.init_from_pb(keyword_pb);
     }
 
     static TabletSchemaSPtr create_schema() {
@@ -279,7 +300,7 @@ protected:
         return schema;
     }
 
-    std::string write_index(const std::vector<std::string>& docs,
+    std::string write_index(const std::vector<std::string>& docs, const TabletIndex& meta,
                             InvertedIndexStorageFormatPB format, std::string_view name,
                             std::string_view directory = kBenchDir) {
         const std::string segment_path = fmt::format("{}/{}_0.dat", directory, name);
@@ -295,7 +316,7 @@ protected:
         const auto schema = create_schema();
         std::unique_ptr<IndexColumnWriter> column_writer;
         EXPECT_TRUE(IndexColumnWriter::create(&schema->column(1), &column_writer,
-                                              index_file_writer.get(), &_meta)
+                                              index_file_writer.get(), &meta)
                             .ok());
         std::vector<Slice> values(docs.begin(), docs.end());
         EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
@@ -307,19 +328,25 @@ protected:
 
     std::shared_ptr<InvertedIndexReader> open_reader(const std::string& prefix,
                                                      InvertedIndexStorageFormatPB format,
-                                                     uint32_t doc_count) {
+                                                     uint32_t doc_count, bool keyword) {
         auto file_reader =
                 std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix, format);
         EXPECT_TRUE(file_reader->init().ok());
+        const TabletIndex* meta = keyword ? &_keyword_meta : &_meta;
         if (format == InvertedIndexStorageFormatPB::SNII) {
-            return SniiIndexReader::create_shared(&_meta, file_reader,
-                                                  InvertedIndexReaderType::FULLTEXT, doc_count,
-                                                  /*column_is_array=*/false);
+            return SniiIndexReader::create_shared(meta, file_reader,
+                                                  keyword ? InvertedIndexReaderType::STRING_TYPE
+                                                          : InvertedIndexReaderType::FULLTEXT,
+                                                  doc_count, /*column_is_array=*/false);
         }
-        return FullTextIndexReader::create_shared(&_meta, file_reader);
+        if (keyword) {
+            return StringTypeInvertedIndexReader::create_shared(meta, file_reader);
+        }
+        return FullTextIndexReader::create_shared(meta, file_reader);
     }
 
     TabletIndex _meta;
+    TabletIndex _keyword_meta;
     std::unique_ptr<InvertedIndexSearcherCache> _searcher_cache;
     std::unique_ptr<InvertedIndexQueryCache> _query_cache;
 };
@@ -410,6 +437,19 @@ void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name,
     }
 }
 
+void benchmark_keyword_reader(InvertedIndexReader* reader, std::string_view format_name,
+                              uint32_t iterations) {
+    for (const BenchQuery& query : kKeywordQueries) {
+        if (!selected(query.label)) {
+            continue;
+        }
+        roaring::Roaring full;
+        const std::string label =
+                fmt::format("reader/{}/keyword/{}/full", format_name, query.label);
+        median_query_ms(reader, query, nullptr, iterations, &full, label);
+    }
+}
+
 TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
     const uint32_t doc_count = env_or("PHRASE_CANDIDATE_BENCH_DOCS", 200000);
     const uint32_t iterations = env_or("PHRASE_CANDIDATE_BENCH_ITERATIONS", 10);
@@ -432,21 +472,32 @@ TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
         const bool is_snii = format == InvertedIndexStorageFormatPB::SNII;
         const std::string_view format_name = is_snii ? "SNII" : "V2";
         const std::string name = fmt::format("{}_{}", is_snii ? "snii" : "clucene", doc_count);
+        const std::string keyword_name =
+                fmt::format("{}_keyword_{}", is_snii ? "snii" : "clucene", doc_count);
         if (prepare_shared) {
-            write_index(docs, format, name, shared_root);
+            write_index(docs, _meta, format, name, shared_root);
+            write_index(docs, _keyword_meta, format, keyword_name, shared_root);
             continue;
         }
-        const std::string prefix = shared_root == nullptr
-                                           ? write_index(docs, format, name)
-                                           : fmt::format("{}/{}_0", shared_root, name);
-        bool exists = false;
-        ASSERT_TRUE(
-                io::global_local_filesystem()
-                        ->exists(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &exists)
-                        .ok());
-        ASSERT_TRUE(exists) << "Missing benchmark index: " << prefix;
-        const auto reader = open_reader(prefix, format, doc_count);
+        // Writes the index, or finds the one prepared under the shared root.
+        const auto index_prefix = [&](const TabletIndex& meta, const std::string& index_name) {
+            const std::string prefix = shared_root == nullptr
+                                               ? write_index(docs, meta, format, index_name)
+                                               : fmt::format("{}/{}_0", shared_root, index_name);
+            bool exists = false;
+            EXPECT_TRUE(io::global_local_filesystem()
+                                ->exists(InvertedIndexDescriptor::get_index_file_path_v2(prefix),
+                                         &exists)
+                                .ok());
+            EXPECT_TRUE(exists) << "Missing benchmark index: " << prefix;
+            return prefix;
+        };
+        const auto reader =
+                open_reader(index_prefix(_meta, name), format, doc_count, /*keyword=*/false);
         benchmark_reader(reader.get(), format_name, doc_count, iterations);
+        const auto keyword_reader = open_reader(index_prefix(_keyword_meta, keyword_name), format,
+                                                doc_count, /*keyword=*/true);
+        benchmark_keyword_reader(keyword_reader.get(), format_name, iterations);
     }
 }
 

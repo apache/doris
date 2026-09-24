@@ -296,6 +296,12 @@ protected:
                               const InvertedIndexQueryInfo& query_info,
                               const FulltextIndexSearcherPtr& index_searcher,
                               const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+    // Lowers a MATCH value to the logical IR and runs it on query_v2 over the CLucene index, keying
+    // the result cache by the raw value.
+    Status _match(const IndexQueryContextPtr& context, const std::string& column_name,
+                  const std::string& value, InvertedIndexQueryType query_type,
+                  std::shared_ptr<roaring::Roaring>& bit_map,
+                  const InvertedIndexAnalyzerCtx* analyzer_ctx);
 
     friend class InvertedIndexIterator;
     std::shared_ptr<IndexFileReader> _index_file_reader;
@@ -333,14 +339,6 @@ public:
     }
 
     InvertedIndexReaderType type() override;
-
-private:
-    // Lowers `value` to the logical IR and runs it on query_v2, keying the result cache by the
-    // raw value.
-    Status _match(const IndexQueryContextPtr& context, const std::string& column_name,
-                  const std::string& value, InvertedIndexQueryType query_type,
-                  std::shared_ptr<roaring::Roaring>& bit_map,
-                  const InvertedIndexAnalyzerCtx* analyzer_ctx);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {

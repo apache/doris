@@ -105,9 +105,7 @@
 2
 6
 
--- !keyword_phrase_slop_v2 --
-
--- !keyword_phrase_slop_snii --
+-- !keyword_phrase_slop --
 7
 
 -- !stacked_any --
