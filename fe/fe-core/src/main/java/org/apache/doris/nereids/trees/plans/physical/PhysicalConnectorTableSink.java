@@ -359,9 +359,6 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
 
         Optional<ConnectorWriteDistribution> connectorDistribution
                 = table.getConnectorWriteDistribution();
-        if (connectorDistribution.isPresent()) {
-            return toPhysicalProperties(connectorDistribution.get());
-        }
 
         if (table.requirePartitionLocalSortOnWrite()) {
             Set<String> partitionNames = boundPartitionColumns.stream()
@@ -394,9 +391,15 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                             .map(idx -> child().getOutput().get(
                                     idx + (hasRowOperationColumn() ? 1 : 0)).getExprId())
                             .collect(Collectors.toList());
-                    DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                            = new DistributionSpecHiveTableSinkHashPartitioned();
-                    shuffleInfo.setOutputColExprIds(exprIds);
+                    PhysicalProperties requiredProperties;
+                    if (connectorDistribution.isPresent()) {
+                        requiredProperties = toPhysicalProperties(connectorDistribution.get());
+                    } else {
+                        DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
+                                = new DistributionSpecHiveTableSinkHashPartitioned();
+                        shuffleInfo.setOutputColExprIds(exprIds);
+                        requiredProperties = new PhysicalProperties(shuffleInfo);
+                    }
                     // Local sort by partition columns so rows for the same partition are grouped
                     // together before the streaming partition writer (MaxCompute Storage API closes a
                     // partition writer once a different partition value appears).
@@ -404,12 +407,15 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                             .map(idx -> new OrderKey(child().getOutput().get(
                                     idx + (hasRowOperationColumn() ? 1 : 0)), true, false))
                             .collect(Collectors.toList());
-                    return new PhysicalProperties(shuffleInfo)
-                            .withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
+                    return requiredProperties.withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
                 }
                 // Partition columns exist but none in cols == all partitions statically specified;
                 // fall through to the parallel/gather branch (no sort/shuffle needed).
             }
+        }
+
+        if (connectorDistribution.isPresent()) {
+            return toPhysicalProperties(connectorDistribution.get());
         }
 
         if (table.requirePartitionHashOnWrite()) {
@@ -482,11 +488,14 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     private List<ExprId> routeExprIds(List<String> routeColumns) {
         List<Slot> output = child().getOutput();
         int offset = hasRowOperationColumn() ? 1 : 0;
-        Preconditions.checkState(boundTargetSchema.size() + offset == output.size(),
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) targetTable;
+        List<Column> outputColumns = table.requiresFullSchemaWriteOrder()
+                ? boundTargetSchema : cols;
+        Preconditions.checkState(outputColumns.size() + offset == output.size(),
                 "Connector sink schema must match child output for routed writes");
         Map<String, ExprId> outputByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < boundTargetSchema.size(); i++) {
-            outputByName.put(boundTargetSchema.get(i).getName(), output.get(i + offset).getExprId());
+        for (int i = 0; i < outputColumns.size(); i++) {
+            outputByName.put(outputColumns.get(i).getName(), output.get(i + offset).getExprId());
         }
         List<ExprId> exprIds = new ArrayList<>(routeColumns.size());
         for (String column : routeColumns) {

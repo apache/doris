@@ -37,7 +37,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** Neutral engine helpers for request-scoped connector writer schemas and DEFAULT expressions. */
-final class ConnectorWriteSchemaUtils {
+public final class ConnectorWriteSchemaUtils {
 
     private ConnectorWriteSchemaUtils() {
     }
@@ -104,7 +104,7 @@ final class ConnectorWriteSchemaUtils {
         });
     }
 
-    static Expression resolveDefault(Column column) {
+    public static Expression resolveDefault(Column column) {
         String defaultSql = column.getDefaultValueSql();
         if (defaultSql == null) {
             throw new AnalysisException(
@@ -114,7 +114,7 @@ final class ConnectorWriteSchemaUtils {
         return expression instanceof UnboundAlias ? expression.child(0) : expression;
     }
 
-    static Expression resolveExplicitDefault(Expression expression, Column column) {
+    public static Expression resolveExplicitDefault(Expression expression, Column column) {
         return expression instanceof DefaultValueSlot ? resolveDefault(column) : expression;
     }
 
