@@ -426,7 +426,7 @@ public enum RuleType {
     DISTINCT_AGGREGATE_SPLIT(RuleTypeClass.REWRITE),
     PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT(RuleTypeClass.REWRITE),
     // table stream scan rewrite
-    NORMALIZE_OlAP_TABLE_STREAM_SCAN(RuleTypeClass.REWRITE),
+    NORMALIZE_OLAP_TABLE_STREAM_SCAN(RuleTypeClass.REWRITE),
 
     // exploration rules
     REORDER_INTERSECT(RuleTypeClass.EXPLORATION),
@@ -609,6 +609,18 @@ public enum RuleType {
 
     public RuleTypeClass getRuleTypeClass() {
         return ruleTypeClass;
+    }
+
+    /**
+     * Whether this rule belongs to the materialized view rewrite rule family
+     * (RuleTypeClass.MATERIALIZE_VIEW). SPM excludes the whole family from its rule
+     * whitelist when creating a baseline because MV definitions can change over time
+     * (design doc 5.4).
+     *
+     * @return true when the rule is a materialized view rewrite rule
+     */
+    public boolean isMaterializedViewRule() {
+        return ruleTypeClass == RuleTypeClass.MATERIALIZE_VIEW;
     }
 
     public <INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> Rule build(

@@ -1865,6 +1865,10 @@ public class SessionVariable implements Serializable, Writable {
                 && ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold > 0;
     }
 
+    public void setTopNLazyMaterializationThreshold(int topNLazyMaterializationThreshold) {
+        this.topNLazyMaterializationThreshold = topNLazyMaterializationThreshold;
+    }
+
     public static int getTopNLazyMaterializationThreshold() {
         if (ConnectContext.get() != null) {
             return ConnectContext.get().getSessionVariable().topNLazyMaterializationThreshold;
@@ -2107,6 +2111,173 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
+
+    // ==================== SPM (SQL Plan Management) related config ====================
+    // Phase 1 SPM query rewrite switch and timeout. needForward = false: SPM is pure FE
+    // logic and does not need to be forwarded to the BE for execution.
+    public static final String ENABLE_SPM_REWRITE = "enable_spm_rewrite";
+    public static final String SPM_REWRITE_TIMEOUT_MS = "spm_rewrite_timeout_ms";
+
+    @VarAttrDef.VarAttr(name = ENABLE_SPM_REWRITE, needForward = false, description =
+            "Whether to enable SPM (SQL Plan Management) query rewrite, disabled by default for safety"
+    )
+    private boolean enableSpmRewrite = false;
+
+    @VarAttrDef.VarAttr(name = SPM_REWRITE_TIMEOUT_MS, needForward = false, description =
+            "SPM rewrite timeout in milliseconds, fallback to normal execution on timeout"
+    )
+    private int spmRewriteTimeoutMs = 1000;
+
+    public static final String ENABLE_SPM_FALLBACK = "enable_spm_fallback";
+
+    @VarAttrDef.VarAttr(name = ENABLE_SPM_FALLBACK, needForward = false, description =
+            "Whether SPM falls back to the original query when the rewritten (frozen-plan "
+                    + "replay) plan fails to plan. Disabled by default so a rewrite failure "
+                    + "surfaces as an error (useful during development / regression debugging); "
+                    + "enable it for production availability so SPM never breaks a query."
+    )
+    private boolean enableSpmFallback = false;
+
+    public boolean isEnableSpmRewrite() {
+        return enableSpmRewrite;
+    }
+
+    public void setEnableSpmRewrite(boolean enableSpmRewrite) {
+        this.enableSpmRewrite = enableSpmRewrite;
+    }
+
+    public int getSpmRewriteTimeoutMs() {
+        return spmRewriteTimeoutMs;
+    }
+
+    public void setSpmRewriteTimeoutMs(int spmRewriteTimeoutMs) {
+        this.spmRewriteTimeoutMs = spmRewriteTimeoutMs;
+    }
+
+    public boolean isEnableSpmFallback() {
+        return enableSpmFallback;
+    }
+
+    public void setEnableSpmFallback(boolean enableSpmFallback) {
+        this.enableSpmFallback = enableSpmFallback;
+    }
+
+    // ==================== SPM plan capture (Phase 2, design doc 7.2.6) ====================
+    // All are pure FE logic (needForward = false). They are registered as session
+    // variables so they can be tuned globally with `SET GLOBAL ...` (which updates
+    // VariableMgr.defaultSessionVariable, read by the Leader FE PlanCaptureManager
+    // daemon). The plan_capture_* prefix distinguishes them from the Phase 1 spm_* vars.
+    public static final String ENABLE_PLAN_CAPTURE = "enable_plan_capture";
+    public static final String PLAN_CAPTURE_INTERVAL_SECONDS = "plan_capture_interval_seconds";
+    public static final String PLAN_CAPTURE_MAX_BATCH_SIZE = "plan_capture_max_batch_size";
+    public static final String PLAN_CAPTURE_MIN_QUERY_TIME_MS = "plan_capture_min_query_time_ms";
+    public static final String PLAN_CAPTURE_MIN_SCAN_ROWS = "plan_capture_min_scan_rows";
+    public static final String PLAN_CAPTURE_INCLUDE_PATTERN = "plan_capture_include_pattern";
+    public static final String PLAN_CAPTURE_EXCLUDE_PATTERN = "plan_capture_exclude_pattern";
+
+    @VarAttrDef.VarAttr(name = ENABLE_PLAN_CAPTURE, needForward = false, description =
+            "Whether to enable SPM (SQL Plan Management) auto plan capture. The Leader FE "
+                    + "periodically scans the audit_log internal table and automatically creates "
+                    + "baselines for high-value queries (multi-table, slow or heavy scan).")
+    private boolean enablePlanCapture = false;
+
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_INTERVAL_SECONDS, needForward = false, description =
+            "The interval (in seconds) between two SPM auto-capture cycles. Default is 10800 (3 hours).")
+    private int planCaptureIntervalSeconds = 10800;
+
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_MAX_BATCH_SIZE, needForward = false, description =
+            "The max number of audit records processed in a single SPM capture cycle.")
+    private int planCaptureMaxBatchSize = 500;
+
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_MIN_QUERY_TIME_MS, needForward = false, description =
+            "Queries whose execution time is below this threshold (ms) are not captured.")
+    private long planCaptureMinQueryTimeMs = 1000;
+
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_MIN_SCAN_ROWS, needForward = false, description =
+            "Queries whose scan rows are below this threshold are not captured.")
+    private long planCaptureMinScanRows = 10000;
+
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_INCLUDE_PATTERN, needForward = false, description =
+            "Only queries whose table names match this regex are captured. Empty means all.")
+    private String planCaptureIncludePattern = "";
+
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_EXCLUDE_PATTERN, needForward = false, description =
+            "Queries with any table matching this regex are skipped.")
+    private String planCaptureExcludePattern = "";
+
+    public static final String SPM_BASELINE_REFRESH_INTERVAL_SECONDS =
+            "spm_baseline_refresh_interval_seconds";
+
+    @VarAttrDef.VarAttr(name = SPM_BASELINE_REFRESH_INTERVAL_SECONDS, needForward = false, description =
+            "The interval (in seconds) between two SPM baseline cache refresh cycles. Every FE "
+                    + "periodically merges the shared baseline internal table (read-only) so "
+                    + "baselines created on another FE - user DDL or Leader auto capture - become "
+                    + "visible locally. Default is 60.")
+    private int spmBaselineRefreshIntervalSeconds = 60;
+
+    public boolean isEnablePlanCapture() {
+        return enablePlanCapture;
+    }
+
+    public void setEnablePlanCapture(boolean enablePlanCapture) {
+        this.enablePlanCapture = enablePlanCapture;
+    }
+
+    public int getPlanCaptureIntervalSeconds() {
+        return planCaptureIntervalSeconds;
+    }
+
+    public void setPlanCaptureIntervalSeconds(int planCaptureIntervalSeconds) {
+        this.planCaptureIntervalSeconds = planCaptureIntervalSeconds;
+    }
+
+    public int getPlanCaptureMaxBatchSize() {
+        return planCaptureMaxBatchSize;
+    }
+
+    public void setPlanCaptureMaxBatchSize(int planCaptureMaxBatchSize) {
+        this.planCaptureMaxBatchSize = planCaptureMaxBatchSize;
+    }
+
+    public long getPlanCaptureMinQueryTimeMs() {
+        return planCaptureMinQueryTimeMs;
+    }
+
+    public void setPlanCaptureMinQueryTimeMs(long planCaptureMinQueryTimeMs) {
+        this.planCaptureMinQueryTimeMs = planCaptureMinQueryTimeMs;
+    }
+
+    public long getPlanCaptureMinScanRows() {
+        return planCaptureMinScanRows;
+    }
+
+    public void setPlanCaptureMinScanRows(long planCaptureMinScanRows) {
+        this.planCaptureMinScanRows = planCaptureMinScanRows;
+    }
+
+    public String getPlanCaptureIncludePattern() {
+        return planCaptureIncludePattern;
+    }
+
+    public void setPlanCaptureIncludePattern(String planCaptureIncludePattern) {
+        this.planCaptureIncludePattern = planCaptureIncludePattern;
+    }
+
+    public String getPlanCaptureExcludePattern() {
+        return planCaptureExcludePattern;
+    }
+
+    public void setPlanCaptureExcludePattern(String planCaptureExcludePattern) {
+        this.planCaptureExcludePattern = planCaptureExcludePattern;
+    }
+
+    public int getSpmBaselineRefreshIntervalSeconds() {
+        return spmBaselineRefreshIntervalSeconds;
+    }
+
+    public void setSpmBaselineRefreshIntervalSeconds(int spmBaselineRefreshIntervalSeconds) {
+        this.spmBaselineRefreshIntervalSeconds = spmBaselineRefreshIntervalSeconds;
+    }
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_RULES, needForward = true)
     public String enableNereidsRules = "";
@@ -5164,6 +5335,24 @@ public class SessionVariable implements Serializable, Writable {
                 .map(rule -> rule.toUpperCase(Locale.ROOT))
                 .map(rule -> RuleType.valueOf(rule).type())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * Returns the raw comma-separated enable_nereids_rules string (the parsed type-id
+     * variant is exposed by getEnableNereidsRules()). When non-empty the engine treats
+     * this as a rule WHITELIST: only the listed rules may apply (CHECK_PRIVILEGES /
+     * CHECK_ROW_POLICY always run, see StatementContext#getOrCacheDisableRules). Used by
+     * SPMOptimizer to install the SPM whitelist for the duration of a baseline creation
+     * and to restore the original value afterwards.
+     *
+     * @return the raw comma-separated rule name string (may be empty)
+     */
+    public String getEnableNereidsRulesStr() {
+        return enableNereidsRules;
+    }
+
+    public void setEnableNereidsRules(String enableNereidsRules) {
+        this.enableNereidsRules = enableNereidsRules;
     }
 
     public BitSet getDisableNereidsExpressionRules() {

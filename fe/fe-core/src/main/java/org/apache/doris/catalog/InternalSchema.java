@@ -31,11 +31,15 @@ import java.util.List;
 
 public class InternalSchema {
 
+    /** Name of the SPM baselines internal table (design doc 6.14.1). */
+    public static final String SPM_BASELINES_TBL_NAME = "spm_baselines";
+
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> TABLE_STATS_SCHEMA;
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
+    public static final List<ColumnDef> SPM_BASELINES_SCHEMA;
 
     static {
         // table statistics table
@@ -233,6 +237,35 @@ public class InternalSchema {
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+
+        // ==================== SPM baselines internal table (design doc 6.14.1) ====================
+        SPM_BASELINES_SCHEMA = new ArrayList<>();
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("bind_sql",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("bind_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("bind_sql_hash",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        // audit_log correlation: the query id of the statement that produced the baseline
+        // (CREATE BASELINE PLAN for USER baselines, the captured query for CAPTURE ones)
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("query_id",
+                ScalarType.createVarchar(64), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("cost",
+                ScalarType.createType(PrimitiveType.DOUBLE), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("query_time_ms",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("source",
+                ScalarType.createVarchar(16), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("status",
+                ScalarType.createVarchar(16), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("create_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("update_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -251,6 +284,9 @@ public class InternalSchema {
                 break;
             case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
+                break;
+            case SPM_BASELINES_TBL_NAME:
+                schema = SPM_BASELINES_SCHEMA;
                 break;
             default:
                 throw new UserException("Unknown internal table name: " + tblName);

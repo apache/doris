@@ -78,7 +78,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalOlapTableStreamScan()
                 .thenApply(ctx -> normalize(ctx.root, ctx.cascadesContext))
-                .toRule(RuleType.NORMALIZE_OlAP_TABLE_STREAM_SCAN);
+                .toRule(RuleType.NORMALIZE_OLAP_TABLE_STREAM_SCAN);
     }
 
     private static Expression buildChangeTypeExpr(Slot opSlot) {

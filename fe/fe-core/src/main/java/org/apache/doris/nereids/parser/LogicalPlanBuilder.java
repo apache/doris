@@ -103,6 +103,7 @@ import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
+import org.apache.doris.nereids.DorisParser.AlterBaselinePlanContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogPropertiesContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
@@ -153,6 +154,7 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateAliasFunctionContext;
+import org.apache.doris.nereids.DorisParser.CreateBaselinePlanContext;
 import org.apache.doris.nereids.DorisParser.CreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.CreateDictionaryContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
@@ -187,6 +189,7 @@ import org.apache.doris.nereids.DorisParser.DescribeDictionaryContext;
 import org.apache.doris.nereids.DorisParser.DictionaryColumnDefContext;
 import org.apache.doris.nereids.DorisParser.DistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.DropAllBrokerClauseContext;
+import org.apache.doris.nereids.DorisParser.DropBaselinePlanContext;
 import org.apache.doris.nereids.DorisParser.DropBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
@@ -273,6 +276,7 @@ import org.apache.doris.nereids.DorisParser.LockTablesContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
+import org.apache.doris.nereids.DorisParser.MarkJoinSpecContext;
 import org.apache.doris.nereids.DorisParser.MergeIntoContext;
 import org.apache.doris.nereids.DorisParser.MergeMatchedClauseContext;
 import org.apache.doris.nereids.DorisParser.MergeNotMatchedClauseContext;
@@ -373,6 +377,7 @@ import org.apache.doris.nereids.DorisParser.ShowAnalyzeTaskContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
+import org.apache.doris.nereids.DorisParser.ShowBaselinePlansContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowBuildIndexContext;
 import org.apache.doris.nereids.DorisParser.ShowBuiltinFunctionsContext;
@@ -528,6 +533,8 @@ import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
+import org.apache.doris.nereids.spm.BaselineScope;
+import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -557,6 +564,7 @@ import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
@@ -1058,6 +1066,10 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseComm
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.AlterBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.CreateBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.DropBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.ShowBaselinePlansCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCloudClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -4705,6 +4717,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan last = input;
         for (JoinRelationContext join : ctx.joinRelation()) {
             boolean isAsofJoin = false;
+            boolean isMarkJoin = join.joinType().MARK() != null;
             JoinType joinType;
             if (join.joinType().CROSS() != null) {
                 joinType = JoinType.CROSS_JOIN;
@@ -4717,7 +4730,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     joinType = JoinType.RIGHT_SEMI_JOIN;
                 }
             } else if (join.joinType().ANTI() != null) {
-                if (join.joinType().LEFT() != null) {
+                if (join.joinType().NULL_AWARE() != null) {
+                    // LEFT NULL_AWARE ANTI JOIN: a null-aware (three-valued NOT IN)
+                    // left anti join
+                    if (join.joinType().LEFT() == null) {
+                        throw new ParseException(
+                                "only LEFT NULL_AWARE ANTI join is supported", join);
+                    }
+                    joinType = JoinType.NULL_AWARE_LEFT_ANTI_JOIN;
+                } else if (join.joinType().LEFT() != null) {
                     joinType = JoinType.LEFT_ANTI_JOIN;
                 } else {
                     joinType = JoinType.RIGHT_ANTI_JOIN;
@@ -4754,6 +4775,50 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("ASOF JOIN must specify MATCH_CONDITION", join);
                 }
             }
+
+            // MARK join specifiers: MARK_CONDITION(<equality conjuncts>, optional)
+            // and MARK_SLOT <name>. MARK_SLOT names the referenceable three-valued mark
+            // output column; MARK_CONDITION (when present) must be equality conjuncts.
+            // A MARK join is a LEFT/RIGHT SEMI/ANTI join, or a CROSS join (a mark slot
+            // with no hash/other/mark conjunct at all - the folded uncorrelated
+            // EXISTS / NOT EXISTS boolean output; CROSS MARK JOIN ... MARK_SLOT <name>).
+            if (isMarkJoin && !(joinType == JoinType.LEFT_SEMI_JOIN
+                    || joinType == JoinType.RIGHT_SEMI_JOIN
+                    || joinType == JoinType.LEFT_ANTI_JOIN
+                    || joinType == JoinType.RIGHT_ANTI_JOIN
+                    || joinType == JoinType.CROSS_JOIN)) {
+                throw new ParseException(
+                        "MARK join must be a LEFT/RIGHT SEMI/ANTI or CROSS join", join);
+            }
+            List<Expression> markJoinConjuncts = ExpressionUtils.EMPTY_CONDITION;
+            Optional<MarkJoinSlotReference> markJoinSlotReference = Optional.empty();
+            if (!join.markJoinSpec().isEmpty()) {
+                if (!isMarkJoin) {
+                    throw new ParseException(
+                            "MARK_CONDITION / MARK_SLOT are only allowed on a SEMI/ANTI MARK join", join);
+                }
+                String markSlotName = null;
+                for (MarkJoinSpecContext spec : join.markJoinSpec()) {
+                    if (spec.markJoinCondition() != null) {
+                        Expression markExpr = typedVisit(spec.markJoinCondition().valueExpression());
+                        markJoinConjuncts = ExpressionUtils.extractConjunction(markExpr);
+                        for (Expression conjunct : markJoinConjuncts) {
+                            if (!(conjunct instanceof EqualTo)) {
+                                throw new ParseException(
+                                        "MARK_CONDITION of a MARK join must be equality conjunct(s)", join);
+                            }
+                        }
+                    } else {
+                        markSlotName = spec.markJoinSlot().identifier().getText();
+                    }
+                }
+                if (markSlotName == null) {
+                    throw new ParseException("MARK join must specify MARK_SLOT <name>", join);
+                }
+                markJoinSlotReference = Optional.of(new MarkJoinSlotReference(markSlotName));
+            } else if (isMarkJoin) {
+                throw new ParseException("MARK join must specify MARK_SLOT <name>", join);
+            }
             DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
             if (join.distributeType() != null) {
                 distributeHint = visitDistributeType(join.distributeType());
@@ -4787,6 +4852,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 LogicalPlan right = plan(join.relationPrimary());
                 if (right instanceof LogicalGenerate
                         && ((LogicalGenerate<?>) right).getGenerators().get(0) instanceof Unnest) {
+                    if (isMarkJoin) {
+                        throw new ParseException("MARK join is not supported with UNNEST", join);
+                    }
                     /*
                         SELECT
                             id,
@@ -4834,23 +4902,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         join);
                             }
                         }
+                        // ASOF joins are LEFT-direction only: ASOF RIGHT has no SQL keyword
+                        // (rejected by the grammar) and is never generated by the optimizer,
+                        // so the left input is always the probe
                         last = new LogicalJoin<>(joinType, conjuncts,
-                                ImmutableList.of(matchCondition),
+                                ImmutableList.of(matchCondition), markJoinConjuncts,
                                 distributeHint,
-                                Optional.empty(),
+                                markJoinSlotReference,
                                 last,
                                 plan(join.relationPrimary()), null);
                     } else {
                         last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
                                 condition.map(ExpressionUtils::extractConjunction)
                                         .orElse(ExpressionUtils.EMPTY_CONDITION),
-                                distributeHint,
-                                Optional.empty(),
+                                markJoinConjuncts, distributeHint,
+                                markJoinSlotReference,
                                 last,
                                 plan(join.relationPrimary()), null);
                     }
                 }
             } else {
+                if (isMarkJoin) {
+                    throw new ParseException("MARK join requires an ON clause (USING is not supported)", join);
+                }
                 last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids,
                         matchCondition != null ? Optional.of(matchCondition) : Optional.empty(), distributeHint);
             }
@@ -5635,6 +5709,74 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         return new AlterSqlBlockRuleCommand(stripQuotes(ctx.name.getText()), properties);
+    }
+
+    // ==================== SPM (SQL Plan Management) commands (Phase 1, design doc 6.8) ====================
+
+    @Override
+    public LogicalPlan visitCreateBaselinePlan(CreateBaselinePlanContext ctx) {
+        BaselineScope scope = ctx.GLOBAL() != null ? BaselineScope.GLOBAL
+                : (ctx.SESSION() != null ? BaselineScope.SESSION : BaselineScope.GLOBAL);
+        // Decode the STRING_LITERAL tokens properly (stripQuotes alone would leave the
+        // escaped quotes intact, e.g. '' / \', breaking the later re-parse of bindSql /
+        // planSql by SPMPlanner.buildBaselineFromSql / SPMOptimizer.optimize).
+        String bindSql = SqlLiteralUtils.parseStringLiteral(ctx.bindSql.getText());
+        // The WITH clause is optional (CREATE BASELINE PLAN 'sql'): when omitted the
+        // bindSql itself is frozen as the planSql (plan == bind).
+        String planSql = ctx.planSql != null
+                ? SqlLiteralUtils.parseStringLiteral(ctx.planSql.getText()) : bindSql;
+        return new CreateBaselinePlanCommand(scope, bindSql, planSql);
+    }
+
+    @Override
+    public LogicalPlan visitShowBaselinePlans(ShowBaselinePlansContext ctx) {
+        String pattern = null;
+        String filterColumn = null;
+        String filterValue = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                pattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else if (ctx.wildWhere().WHERE() != null) {
+                // `WHERE <column> = <literal>` becomes an exact match on that SHOW
+                // column (id / bind_sql_digest / bind_sql / plan_sql / source / status /
+                // scope), so a caller can pinpoint one baseline (e.g. the id returned by
+                // CREATE BASELINE PLAN). The legacy `WHERE source = 'CAPTURE'` style clause
+                // is kept as a substring pattern for backwards compatibility.
+                Expression predicate = getExpression(ctx.wildWhere().expression());
+                if (predicate instanceof EqualTo) {
+                    Expression left = ((EqualTo) predicate).left();
+                    Expression right = ((EqualTo) predicate).right();
+                    if (right instanceof Literal) {
+                        String columnName = (left instanceof NamedExpression)
+                                ? ((NamedExpression) left).getName() : null;
+                        if (columnName != null && !columnName.isEmpty()) {
+                            filterColumn = columnName;
+                            filterValue = stripQuotes(right.toSql());
+                        } else {
+                            // Simplified Phase 1 filter: extract the literal from a
+                            // `WHERE source = 'CAPTURE'` / `WHERE status = 'DISABLED'`
+                            // style clause
+                            pattern = stripQuotes(((Literal) right).toSql());
+                        }
+                    }
+                }
+            }
+        }
+        return new ShowBaselinePlansCommand(pattern, filterColumn, filterValue);
+    }
+
+    @Override
+    public LogicalPlan visitAlterBaselinePlan(AlterBaselinePlanContext ctx) {
+        long baselineId = Long.parseLong(ctx.id.getText());
+        BaselineStatus status = ctx.ENABLE() != null ? BaselineStatus.ENABLED : BaselineStatus.DISABLED;
+        return new AlterBaselinePlanCommand(baselineId, status);
+    }
+
+    @Override
+    public LogicalPlan visitDropBaselinePlan(DropBaselinePlanContext ctx) {
+        long baselineId = Long.parseLong(ctx.id.getText());
+        boolean ifExists = ctx.EXISTS() != null;
+        return new DropBaselinePlanCommand(baselineId, ifExists);
     }
 
     @Override

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -59,7 +60,12 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
     private Expression rewrite(InPredicate inPredicate) {
         Set<Expression> nonConstants = Sets.newLinkedHashSetWithExpectedSize(inPredicate.arity());
         for (Expression option : inPredicate.getOptions()) {
-            if (!option.isConstant()) {
+            // An SPM IN-list placeholder (SpmConstList) is a hidden multi-value list
+            // marker: it must stay inside the IN predicate (it is substituted by id at
+            // rewrite time), never be extracted as a non-constant equal option. Type
+            // coercion wraps the placeholder in a CAST, so the check detects the
+            // placeholder THROUGH the wrapper.
+            if (!option.isConstant() && !SPMPlanTreeSupport.containsPlaceholder(option)) {
                 nonConstants.add(option);
             }
         }

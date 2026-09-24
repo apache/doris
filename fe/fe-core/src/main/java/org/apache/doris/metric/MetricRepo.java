@@ -287,6 +287,13 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_STATISTICS_FAILED_ANALYZE_TASK;
     public static LongCounterMetric COUNTER_STATISTICS_INVALID_STATS;
 
+    // SPM (SQL Plan Management) plan capture (Phase 2, design doc 7.2.6)
+    public static GaugeMetric<Long> GAUGE_SPM_CAPTURE_SUCCESS_COUNT;
+    public static GaugeMetric<Long> GAUGE_SPM_CAPTURE_SKIP_DUPLICATE;
+    public static GaugeMetric<Long> GAUGE_SPM_CAPTURE_SKIP_SINGLE_TABLE;
+    public static GaugeMetric<Long> GAUGE_SPM_CAPTURE_SKIP_FILTERED;
+    public static GaugeMetric<Long> GAUGE_SPM_CAPTURE_FAIL_COUNT;
+
     // Table/Partition/Tablet DataSize
     public static GaugeMetricImpl<Long> GAUGE_MAX_TABLE_SIZE_BYTES;
     public static GaugeMetricImpl<Long> GAUGE_MAX_PARTITION_SIZE_BYTES;
@@ -917,6 +924,53 @@ public final class MetricRepo {
         COUNTER_STATISTICS_INVALID_STATS = new LongCounterMetric("statistics_invalid_stats", MetricUnit.NOUNIT,
                 "invalid stats");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_STATISTICS_INVALID_STATS);
+
+        // SPM (SQL Plan Management) plan capture gauges (design doc 7.2.6)
+        GAUGE_SPM_CAPTURE_SUCCESS_COUNT = new GaugeMetric<Long>("spm_capture_success_count",
+                MetricUnit.NOUNIT, "successfully captured SPM baselines") {
+            @Override
+            public Long getValue() {
+                return org.apache.doris.nereids.spm.capture.PlanCaptureManager.getInstance()
+                        .getStats().success;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SPM_CAPTURE_SUCCESS_COUNT);
+        GAUGE_SPM_CAPTURE_SKIP_DUPLICATE = new GaugeMetric<Long>("spm_capture_skip_duplicate",
+                MetricUnit.NOUNIT, "SPM capture skips due to duplicate baseline") {
+            @Override
+            public Long getValue() {
+                return org.apache.doris.nereids.spm.capture.PlanCaptureManager.getInstance()
+                        .getStats().duplicate;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SPM_CAPTURE_SKIP_DUPLICATE);
+        GAUGE_SPM_CAPTURE_SKIP_SINGLE_TABLE = new GaugeMetric<Long>("spm_capture_skip_single_table",
+                MetricUnit.NOUNIT, "SPM capture skips due to single-table query") {
+            @Override
+            public Long getValue() {
+                return org.apache.doris.nereids.spm.capture.PlanCaptureManager.getInstance()
+                        .getStats().singleTable;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SPM_CAPTURE_SKIP_SINGLE_TABLE);
+        GAUGE_SPM_CAPTURE_SKIP_FILTERED = new GaugeMetric<Long>("spm_capture_skip_filtered",
+                MetricUnit.NOUNIT, "SPM capture skips due to other filter rules") {
+            @Override
+            public Long getValue() {
+                return org.apache.doris.nereids.spm.capture.PlanCaptureManager.getInstance()
+                        .getStats().filtered;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SPM_CAPTURE_SKIP_FILTERED);
+        GAUGE_SPM_CAPTURE_FAIL_COUNT = new GaugeMetric<Long>("spm_capture_fail_count",
+                MetricUnit.NOUNIT, "SPM capture failures") {
+            @Override
+            public Long getValue() {
+                return org.apache.doris.nereids.spm.capture.PlanCaptureManager.getInstance()
+                        .getStats().failed;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_SPM_CAPTURE_FAIL_COUNT);
         // unhealthy table rate
         GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE = new GaugeMetric<Double>("statistics_unhealthy_table_rate",
                 MetricUnit.NOUNIT, "unhealthy table rate") {

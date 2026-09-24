@@ -1,0 +1,380 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.spm;
+
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+/**
+ * SPMOptimizer - baseline-dedicated optimizer (M3).
+ *
+ * Corresponds to design doc section 6.7. When a baseline is created, a dedicated
+ * optimizer is used that deliberately disables many "state-sensitive" optimization
+ * rules (MV rewrite, table pruning, UKFK JOIN pruning, equivalence derivation,
+ * structural rewrites, ...), so the baseline plan only depends on SQL semantics and the
+ * general cost model - because a baseline is a cross-time promise that must remain
+ * reproducible and semantically correct even after data, statistics or MVs change.
+ *
+ * Rule exclusion mechanism (WHITELIST mode): the session variable enable_nereids_rules
+ * carries a comma-separated rule WHITELIST; when non-empty, the engine only applies the
+ * listed rules (the statement-level rule mask forbids every rule outside the list, see
+ * StatementContext#getOrCacheDisableRules). SPMOptimizer temporarily replaces that
+ * variable with the SPM whitelist - every RuleType except the excluded set below, see
+ * buildSpmEnabledRules - while a baseline is created, and restores the original value
+ * after optimization completes (the original value is cached before calling and
+ * restored in a finally block). disable_nereids_rules is NOT touched: the user's own
+ * disable list keeps applying on top of the whitelist.
+ *
+ * The excluded set is:
+ * - an explicit list of state-sensitive RuleType names (categories 1, 3, 4, 5, 6), and
+ * - the whole RuleTypeClass.MATERIALIZE_VIEW rule family (category 2) enumerated
+ *   programmatically via RuleType.isMaterializedViewRule(), so new MV rules are covered
+ *   automatically.
+ */
+public class SPMOptimizer {
+
+    /**
+     * RuleType names excluded from the SPM whitelist (aligned with design doc 5.4).
+     * All names must exist in RuleType (the whitelist is parsed with
+     * RuleType.valueOf, which throws on unknown names).
+     */
+    public static final List<String> SPM_EXCLUDED_RULE_NAMES = List.of(
+            // ===== category 1: data-state sensitive =====
+            // simple aggregate to constant (wrong result on an empty table)
+            "REWRITE_SIMPLE_AGG_TO_CONSTANT",
+            // skewed JOIN salt splitting (skew pattern changes over time)
+            "SALT_JOIN",
+            // grouping sets decomposition (topology change, cardinality dependent)
+            "DECOMPOSE_REPEAT",
+
+            // ===== category 2: MV rewrite (all) =====
+            // Excluded via the whole RuleTypeClass.MATERIALIZE_VIEW family (see
+            // getMaterializedViewRuleNames()), not listed here.
+
+            // ===== category 3: table pruning + UKFK =====
+            "ELIMINATE_JOIN_BY_UK",              // UK constraint JOIN elimination
+            "ELIMINATE_JOIN_BY_FK",              // FK constraint JOIN elimination
+            "ELIMINATE_GROUP_BY_KEY",            // UKFK GROUP BY key elimination
+            "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM", // uniform-distribution GROUP BY key elimination
+
+            // ===== category 4: equivalence derivation =====
+            "INFER_PREDICATES",                  // predicate derivation
+            "INFER_FILTER_NOT_NULL",             // Filter NOT NULL derivation
+            "INFER_JOIN_NOT_NULL",               // JOIN NOT NULL derivation
+            "CONSTANT_PROPAGATION",              // constant propagation
+
+            // ===== category 5: structural rewrite =====
+            "EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION", // split OR into single table
+            "OR_EXPANSION",                      // OR expansion into UNION
+            "PUSH_DOWN_FILTER_THROUGH_WINDOW",   // window predicate push down
+            "ELIMINATE_AGG_CASE_WHEN",           // aggregate CASE WHEN elimination
+            "ELIMINATE_OUTER_JOIN",              // outer join elimination
+            "ELIMINATE_LIMIT",                   // LIMIT elimination
+            "ELIMINATE_AGGREGATE",               // aggregate elimination
+
+            // ===== category 6: external sources / empty relations (data dependent) =====
+            "PUSH_FILTER_INTO_SCHEMA_SCAN",      // schema table predicate push down
+            "ELIMINATE_JOIN_ON_EMPTYRELATION",   // empty-relation operator elimination
+            "ELIMINATE_FILTER_ON_EMPTYRELATION",
+            "ELIMINATE_AGG_ON_EMPTYRELATION",
+            "ELIMINATE_PROJECT_ON_EMPTYRELATION",
+            "ELIMINATE_UNION_ON_EMPTYRELATION",
+            "ELIMINATE_TOPN_ON_EMPTYRELATION",
+            "ELIMINATE_SORT_ON_EMPTYRELATION",
+            "ELIMINATE_INTERSECTION_ON_EMPTYRELATION",
+            "ELIMINATE_EXCEPT_ON_EMPTYRELATION",
+            "ELIMINATE_LIMIT_ON_EMPTY_RELATION",
+            "PRUNE_EMPTY_PARTITION"
+    );
+
+    private SPMOptimizer() {
+    }
+
+    /**
+     * All materialized view rewrite rule names (RuleTypeClass.MATERIALIZE_VIEW),
+     * enumerated programmatically so newly added MV rules are excluded from the SPM
+     * whitelist automatically.
+     *
+     * @return the immutable list of MV rewrite RuleType names
+     */
+    public static List<String> getMaterializedViewRuleNames() {
+        return ImmutableList.copyOf(Arrays.stream(RuleType.values())
+                .filter(RuleType::isMaterializedViewRule)
+                .map(Enum::name)
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * The full set of RuleType names excluded from the SPM whitelist: the explicit
+     * state-sensitive list plus the whole MV rewrite family (deduplicated).
+     *
+     * @return the immutable list of all SPM-excluded rule names
+     */
+    public static List<String> getSpmExcludedRuleNames() {
+        return ImmutableList.copyOf(Stream.concat(
+                        SPM_EXCLUDED_RULE_NAMES.stream(),
+                        getMaterializedViewRuleNames().stream())
+                .distinct()
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * Builds the SPM rule whitelist written into enable_nereids_rules while a baseline is
+     * created: every RuleType name except the SPM-excluded set, intersected with the
+     * caller's existing whitelist when one is configured (a session whitelist is
+     * preserved, never widened). The engine turns a non-empty enable_nereids_rules into
+     * the statement-level forbidden-rule mask (StatementContext#getOrCacheDisableRules),
+     * so the excluded rules cannot apply during baseline creation.
+     *
+     * @param originalEnabled the previous raw enable_nereids_rules value (may be null /
+     *                        empty)
+     * @return the comma-separated whitelist (RuleType declaration order)
+     * @throws AnalysisException when the original value names an unknown rule, or when
+     *                           its intersection with the SPM whitelist is empty (the
+     *                           session whitelists only rules that SPM excludes)
+     */
+    public static String buildSpmEnabledRules(String originalEnabled) throws AnalysisException {
+        Set<String> excluded = new LinkedHashSet<>(getSpmExcludedRuleNames());
+        Set<String> original = new LinkedHashSet<>();
+        if (originalEnabled != null && !originalEnabled.isEmpty()) {
+            for (String ruleName : originalEnabled.split(",")) {
+                String normalized = ruleName.trim().toUpperCase(Locale.ROOT);
+                if (normalized.isEmpty()) {
+                    continue;
+                }
+                try {
+                    RuleType.valueOf(normalized);
+                } catch (IllegalArgumentException e) {
+                    throw new AnalysisException(
+                            "Unknown rule in enable_nereids_rules: " + normalized);
+                }
+                original.add(normalized);
+            }
+        }
+        List<String> enabled = new ArrayList<>();
+        for (RuleType ruleType : RuleType.values()) {
+            String name = ruleType.name();
+            if (excluded.contains(name)) {
+                continue;
+            }
+            if (!original.isEmpty() && !original.contains(name)) {
+                continue;
+            }
+            enabled.add(name);
+        }
+        if (enabled.isEmpty()) {
+            throw new AnalysisException("enable_nereids_rules only whitelists rules that SPM excludes: "
+                    + originalEnabled);
+        }
+        return String.join(",", enabled);
+    }
+
+    /**
+     * Optimizes a planSql in SPM mode: parse -> analyze -> rewrite -> CBO optimize with
+     * the SPM rule whitelist installed in enable_nereids_rules, then return the best
+     * physical plan and its estimated cost.
+     *
+     * The original enable_nereids_rules value is cached before the call and restored in
+     * a finally block (disable_nereids_rules is not touched). A fresh StatementContext is
+     * used so the per-statement forbidden-rule cache
+     * (CascadesContext.getAndCacheDisableRules) reflects the whitelist.
+     *
+     * @param ctx    the connect context (provides session variables and catalog)
+     * @param planSql the plan SQL to optimize (a SELECT statement, may contain SET_VAR
+     *               hints)
+     * @return the optimization result (best physical plan + estimated cost)
+     * @throws UserException when the SQL cannot be parsed or planned
+     */
+    public static OptimizeResult optimize(ConnectContext ctx, String planSql) throws UserException {
+        Plan parsed = new NereidsParser().parseSingle(planSql);
+        // A SELECT statement is parsed as a logical plan; DDL/DML parse to a Command.
+        if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
+            throw new AnalysisException("SPM only supports SELECT statements: " + planSql);
+        }
+        return optimize(ctx, (LogicalPlan) parsed, planSql);
+    }
+
+    /**
+     * Optimizes an already-parsed (possibly parameterized) plan tree in SPM mode:
+     * analyze -> rewrite -> CBO optimize with the SPM rule whitelist installed in
+     * enable_nereids_rules, then return the best physical plan and its estimated cost.
+     *
+     * This is the entry used by CREATE BASELINE when the plan tree is first
+     * parameterized (literals replaced by SpmConstVar / SpmConstList placeholders) and
+     * then optimized: the placeholders travel through the optimizer and survive into
+     * the physical plan, so the decompiled frozen planSql keeps the placeholder ids
+     * (matching the SR model where the frozen SQL is re-parsed and user values are
+     * substituted by id at rewrite time).
+     *
+     * @param ctx          the connect context (provides session variables and catalog)
+     * @param logicalPlan  the (possibly parameterized) SELECT plan tree
+     * @param originSql    the original SQL text (used for the statement context /
+     *                     error messages)
+     * @return the optimization result (best physical plan + estimated cost)
+     * @throws UserException when the plan cannot be analyzed / planned
+     */
+    public static OptimizeResult optimize(ConnectContext ctx, LogicalPlan logicalPlan, String originSql)
+            throws UserException {
+        StatementContext statementContext = new StatementContext(ctx,
+                new OriginStatement(originSql, 0));
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+
+        SessionVariable sessionVar = ctx.getSessionVariable();
+        String originalEnabled = sessionVar.getEnableNereidsRulesStr();
+        StatementContext originalCtx = ctx.getStatementContext();
+        int originalTopnLazyThreshold = SessionVariable.getTopNLazyMaterializationThreshold();
+        boolean originalCteMaterialize = sessionVar.enableCTEMaterialize;
+        int originalInlineCteThreshold = sessionVar.inlineCTEReferencedThreshold;
+        int originalCteInlineMode = sessionVar.cteInlineMode;
+        try {
+            // WHITELIST mode: only the rules SPM allows may apply while the baseline plan
+            // is produced. disable_nereids_rules is left untouched, so the user's own
+            // disable list keeps applying on top of this whitelist.
+            sessionVar.setEnableNereidsRules(buildSpmEnabledRules(originalEnabled));
+            // TopN lazy materialization is an execution detail (post-process): it prunes
+            // base-table columns from the physical plan and re-reads them later by rowid
+            // (PhysicalLazyMaterialize). Such pruned columns would be missing from the
+            // decompiled frozen planSql ("Unknown column in table list" on replay), so it
+            // is disabled while the baseline plan is produced - the frozen SQL must carry
+            // the full column set; a re-plan at rewrite time may still apply lazy
+            // materialization itself.
+            sessionVar.setTopNLazyMaterializationThreshold(-1);
+            // The WITH structure of the user query must survive into the frozen planSql:
+            // the decompiler turns PhysicalCTEAnchor / PhysicalCTEProducer /
+            // PhysicalCTEConsumer into a real WITH clause (one shared definition,
+            // referenced by alias), like StarRocks. Three settings are overridden while
+            // the baseline plan is produced:
+            // - enable_cte_materialize / inline_cte_referenced_threshold: by default the
+            //   engine inlines a CTE with a single consumer (a common TPCDS shape), which
+            //   deletes the anchor from the optimized plan before the decompiler can see it;
+            // - cte_inline_mode = -1: mode 0 (the default) builds an alternative fully
+            //   inlined plan and uses it when consumer filters can eliminate union branches
+            //   of the CTE body, which silently drops WITH for such queries (TPCDS q04/
+            //   q11/q74); SPM needs the anchored plan, and a re-plan at rewrite time still
+            //   applies the user's own cte_inline_mode.
+            // CTEInline still inlines the CTEs a recursive CTE requires inlined
+            // (StatementContext mustInlineCTEs), so WITH RECURSIVE planning is unaffected.
+            sessionVar.enableCTEMaterialize = true;
+            sessionVar.inlineCTEReferencedThreshold = 0;
+            sessionVar.cteInlineMode = -1;
+            if (originalCtx == null) {
+                ctx.setStatementContext(statementContext);
+            }
+            // planWithLock runs preprocess (SET_VAR hint) -> analyze -> rewrite ->
+            // optimize -> postProcess; distribution planning is not needed for the
+            // decompiler (the physical plan already carries distribution specs).
+            // The root physical plan is the RETURN value of planWithLock: the planner's
+            // physicalPlan field is only assigned through the lockCallback used by
+            // plan(), so planner.getPhysicalPlan() would be null here.
+            Plan resultPlan = planner.planWithLock(logicalPlan,
+                    PhysicalProperties.ANY, ExplainLevel.NONE);
+            if (!(resultPlan instanceof PhysicalPlan)) {
+                throw new AnalysisException("SPM failed to plan SQL: " + originSql);
+            }
+            return new OptimizeResult((PhysicalPlan) resultPlan,
+                    extractCost((PhysicalPlan) resultPlan));
+        } finally {
+            sessionVar.setEnableNereidsRules(originalEnabled);
+            sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
+            sessionVar.enableCTEMaterialize = originalCteMaterialize;
+            sessionVar.inlineCTEReferencedThreshold = originalInlineCteThreshold;
+            sessionVar.cteInlineMode = originalCteInlineMode;
+            if (originalCtx == null) {
+                ctx.setStatementContext(null);
+            }
+        }
+    }
+
+    /**
+     * Extracts the estimated cost of the root physical plan.
+     *
+     * The cost is estimated over the PARAMETERIZED plan tree, whose literals are still
+     * SpmConstVar / SpmConstList placeholder calls (not concrete values), so predicates
+     * such as c > SpmConstVar(...) cannot be folded and their selectivity falls back to
+     * the optimizer's default (e.g. 1/3). The absolute value is therefore not the cost
+     * of any one concrete query; it is only used as a RELATIVE ranking key among the
+     * baselines that share one bind digest (when several stored plans exist, the
+     * cheapest frozen plan wins - see BaselineManager), exactly like StarRocks, which
+     * also takes the CBO cost of the placeholder-carrying optimized plan
+     * (optimizedPlan.getCost()) with no placeholder-specific adjustment.
+     *
+     * @param physicalPlan the root physical plan
+     * @return the cost value (0 when the group cost is not available)
+     */
+    private static double extractCost(PhysicalPlan physicalPlan) {
+        try {
+            if (physicalPlan.getGroupExpression().isPresent()) {
+                GroupExpression groupExpression = physicalPlan.getGroupExpression().get();
+                Cost cost = groupExpression.getCostValueByProperties(PhysicalProperties.ANY);
+                if (cost != null) {
+                    return cost.getValue();
+                }
+            }
+        } catch (RuntimeException e) {
+            // cost is best-effort; fall through to 0
+        }
+        return 0;
+    }
+
+    /**
+     * Result of an SPM-mode optimization: the best physical plan and its estimated cost.
+     */
+    public static class OptimizeResult {
+        private final PhysicalPlan physicalPlan;
+        private final double cost;
+
+        public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
+            this.physicalPlan = physicalPlan;
+            this.cost = cost;
+        }
+
+        public PhysicalPlan getPhysicalPlan() {
+            return physicalPlan;
+        }
+
+        public double getCost() {
+            return cost;
+        }
+    }
+}

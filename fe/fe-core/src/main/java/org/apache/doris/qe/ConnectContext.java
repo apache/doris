@@ -65,6 +65,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.spm.manager.SessionBaselineStore;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
@@ -286,6 +287,19 @@ public class ConnectContext {
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
+
+    /**
+     * SPM SESSION-scope baselines are private to this connection: they live in this
+     * store instead of the shared BaselineManager, are never persisted, and are
+     * discarded together with the ConnectContext. The rewrite matcher (SPMPlanner)
+     * consults this store BEFORE the global baselines, so a session baseline can
+     * override a global one for this session only.
+     */
+    private final SessionBaselineStore sessionBaselineStore = new SessionBaselineStore();
+
+    public SessionBaselineStore getSessionBaselineStore() {
+        return sessionBaselineStore;
+    }
 
     public SessionContext getSessionContext() {
         return sessionContext;

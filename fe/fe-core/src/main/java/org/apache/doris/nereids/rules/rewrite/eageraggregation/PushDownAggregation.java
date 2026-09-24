@@ -130,7 +130,12 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
             }
         }
 
-        Set<AggregateFunction> aggFunctions = Sets.newHashSet();
+        // LinkedHashSet: the iteration order of this set becomes the function order of the
+        // pushed-down aggregate (via new ArrayList<>(aggFunctions) below). A plain
+        // HashSet iterates in hash-bucket order, which depends on per-JVM identity
+        // hashes (class object hashes) and made the produced plan - and therefore the
+        // decompiled baseline plan_sql - flip across FE restarts.
+        Set<AggregateFunction> aggFunctions = Sets.newLinkedHashSet();
         boolean hasDecomposedAggIf = false;
         boolean containsNullToNonNull = false;
         Map<NamedExpression, List<AggregateFunction>> aggFunctionsForOutputExpressions = Maps.newHashMap();

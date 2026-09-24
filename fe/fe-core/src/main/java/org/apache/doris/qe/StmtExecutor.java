@@ -80,6 +80,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -976,6 +977,48 @@ public class StmtExecutor {
                 }
                 return;
             }
+            // =========== SPM (SQL Plan Management) query rewrite integration point ============
+            // Design doc 6.12: the SPM rewrite happens after parseByNereids() and before the
+            // NereidsPlanner plans the query.
+            //
+            // A rewritten (frozen-plan replay) tree must never break query availability:
+            // when planning it fails (e.g. the decompiled frozen planSql is not valid for
+            // some operator combination), the ORIGINAL parsed statement is re-planned.
+            StatementBase parsedStmtBeforeSpm = parsedStmt;
+            boolean spmRewriteApplied = false;
+            //
+            // Flow (whole-query engine): run the three-level match of the whole parsed plan
+            // (structural hash -> digest -> whole-tree structural comparison with the
+            // baseline's parameterized bind tree, extracting the user's literal values) ->
+            // on a hit substitute the values into the baseline's parameterized plan tree and
+            // re-plan normally. On no match or timeout the original query is kept; any
+            // exception is swallowed so SPM never affects query availability. The timeout is
+            // controlled by spm_rewrite_timeout_ms and the switch by enable_spm_rewrite
+            // (default false).
+            if (context.getSessionVariable().isEnableSpmRewrite()) {
+                try {
+                    long deadline = System.currentTimeMillis()
+                            + context.getSessionVariable().getSpmRewriteTimeoutMs();
+                    SPMPlanner spmPlanner = new SPMPlanner();
+                    LogicalPlan rewrittenPlan = spmPlanner.tryRewritePlan(logicalPlan, deadline);
+                    if (rewrittenPlan != null) {
+                        parsedStmt = new LogicalPlanAdapter(rewrittenPlan, statementContext);
+                        logicalPlan = rewrittenPlan;
+                        spmRewriteApplied = true;
+                        statementContext.setSpmBaselineApplied(true);
+                        statementContext.setSpmUsedBaselineId(spmPlanner.getUsedBaselineId());
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("SPM rewrite applied for query: {}",
+                                    originStmt.originStmt);
+                        }
+                    }
+                } catch (Throwable e) {
+                    LOG.warn("SPM rewrite failed, fallback to normal execution: {}",
+                            originStmt.originStmt, e);
+                }
+            }
+            // ==================== SPM integration point end ====================
+
             // create plan
             // Query following createting table would throw table not exist error.
             // For example.
@@ -990,8 +1033,49 @@ public class StmtExecutor {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", getStmtForLogging(originStmt.originStmt), e);
-                throw new NereidsException(new AnalysisException(e.getMessage(), e));
+                if (spmRewriteApplied
+                        && context.getSessionVariable().isEnableSpmFallback()) {
+                    // The rewritten (frozen-plan replay) tree cannot be planned: fall back
+                    // to the original parsed statement so SPM never breaks query
+                    // availability (the baseline is simply not used for this query).
+                    // Controlled by enable_spm_fallback (default false) so rewrite failures
+                    // surface during development / regression debugging.
+                    LOG.warn("SPM rewritten plan failed, fallback to original query: {}",
+                            getStmtForLogging(originStmt.originStmt), e);
+                    this.parsedStmt = parsedStmtBeforeSpm;
+                    statementContext.setSpmBaselineApplied(false);
+                    // Authorization must never be inherited from the abandoned rewrite: the
+                    // first planning pass already ran (and passed) CheckPrivileges for the
+                    // REWRITTEN tree and set privChecked, which would make the new planning
+                    // pass below skip the privilege check on the ORIGINAL statement - and
+                    // the original statement may reference tables the rewritten tree does
+                    // not (the baseline's frozen planSql is independent of its bindSql).
+                    // Reset the flag so the fallback is authorized exactly like a normal
+                    // execution of the original statement.
+                    statementContext.setPrivChecked(false);
+                    planner = new NereidsPlanner(statementContext);
+                    try {
+                        checkBlockRulesByRegex(originStmt);
+                        planner.plan(this.parsedStmt, context.getSessionVariable().toThrift());
+                        checkBlockRulesByScan(planner);
+                    } catch (Exception fallbackException) {
+                        LOG.warn("Nereids plan query failed (after SPM fallback):\n{}",
+                                getStmtForLogging(originStmt.originStmt), fallbackException);
+                        throw new NereidsException(
+                                new AnalysisException(fallbackException.getMessage(), fallbackException));
+                    }
+                } else if (spmRewriteApplied) {
+                    // fallback disabled (default): surface the SPM rewrite failure so the
+                    // decompiled planSql defects are visible instead of silently hidden
+                    LOG.warn("SPM rewritten plan failed (fallback disabled):\n{}",
+                            getStmtForLogging(originStmt.originStmt), e);
+                    throw new NereidsException(
+                            new AnalysisException("SPM rewritten plan failed: " + e.getMessage(), e));
+                } else {
+                    LOG.warn("Nereids plan query failed:\n{}",
+                            getStmtForLogging(originStmt.originStmt), e);
+                    throw new NereidsException(new AnalysisException(e.getMessage(), e));
+                }
             }
             profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             if (MetricRepo.isInit) {
