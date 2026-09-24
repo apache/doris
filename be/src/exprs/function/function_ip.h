@@ -809,19 +809,41 @@ public:
         const auto& cidr_argument = block.get_by_position(arguments[1]);
         const auto ip = ColumnView<TYPE_IPV4>::create(ip_argument.column);
         const auto cidr = ColumnView<TYPE_SMALLINT>::create(cidr_argument.column);
+        const bool result_nullable = block.get_by_position(result).type->is_nullable();
 
         auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
         auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& lower = col_lower_range_output->get_data();
         auto& upper = col_upper_range_output->get_data();
-        auto& nulls = null_map->get_data();
-        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
+        ColumnUInt8::MutablePtr null_map;
+        if (result_nullable) {
+            null_map = ColumnUInt8::create(input_rows_count, 0);
+            execute_impl<true>(ip, cidr, input_rows_count, lower, upper, &null_map->get_data());
+        } else {
+            execute_impl<false>(ip, cidr, input_rows_count, lower, upper, nullptr);
+        }
 
+        ColumnPtr result_column = ColumnStruct::create(
+                Columns {std::move(col_lower_range_output), std::move(col_upper_range_output)});
+        if (result_nullable) {
+            result_column = ColumnNullable::create(std::move(result_column), std::move(null_map));
+        }
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
+private:
+    template <bool ResultNullable>
+    static void execute_impl(const ColumnView<TYPE_IPV4>& ip, const ColumnView<TYPE_SMALLINT>& cidr,
+                             size_t input_rows_count, ColumnIPv4::Container& lower,
+                             ColumnIPv4::Container& upper, ColumnUInt8::Container* nulls) {
+        static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (ip.is_null_at(i) || cidr.is_null_at(i)) {
-                nulls[i] = 1;
-                continue;
+            if constexpr (ResultNullable) {
+                if (ip.is_null_at(i) || cidr.is_null_at(i)) {
+                    (*nulls)[i] = 1;
+                    continue;
+                }
             }
             const auto prefix = cidr.value_at(i);
             if (prefix < 0 || prefix > max_cidr_mask) {
@@ -832,14 +854,6 @@ public:
             lower[i] = range.first;
             upper[i] = range.second;
         }
-
-        ColumnPtr result_column = ColumnStruct::create(
-                Columns {std::move(col_lower_range_output), std::move(col_upper_range_output)});
-        if (block.get_by_position(result).type->is_nullable()) {
-            result_column = ColumnNullable::create(std::move(result_column), std::move(null_map));
-        }
-        block.replace_by_position(result, std::move(result_column));
-        return Status::OK();
     }
 };
 
@@ -875,22 +889,35 @@ public:
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         const auto cidr = ColumnView<TYPE_SMALLINT>::create(cidr_column_with_type_and_name.column);
         const auto addr_type = addr_column_with_type_and_name.type->get_primitive_type();
+        const bool result_nullable = block.get_by_position(result).type->is_nullable();
 
         auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
         auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
         auto& vec_res_lower_range = col_res_lower_range->get_data();
         auto& vec_res_upper_range = col_res_upper_range->get_data();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& nulls = null_map->get_data();
+        ColumnUInt8::MutablePtr null_map;
+        if (result_nullable) {
+            null_map = ColumnUInt8::create(input_rows_count, 0);
+        }
         if (addr_type == TYPE_IPV6) {
             const auto addr = ColumnView<TYPE_IPV6>::create(addr_column_with_type_and_name.column);
-            execute_impl(addr, cidr, input_rows_count, vec_res_lower_range, vec_res_upper_range,
-                         nulls);
+            if (result_nullable) {
+                execute_impl<true>(addr, cidr, input_rows_count, vec_res_lower_range,
+                                   vec_res_upper_range, &null_map->get_data());
+            } else {
+                execute_impl<false>(addr, cidr, input_rows_count, vec_res_lower_range,
+                                    vec_res_upper_range, nullptr);
+            }
         } else if (is_string_type(addr_type)) {
             const auto addr =
                     ColumnView<TYPE_STRING>::create(addr_column_with_type_and_name.column);
-            execute_impl(addr, cidr, input_rows_count, vec_res_lower_range, vec_res_upper_range,
-                         nulls);
+            if (result_nullable) {
+                execute_impl<true>(addr, cidr, input_rows_count, vec_res_lower_range,
+                                   vec_res_upper_range, &null_map->get_data());
+            } else {
+                execute_impl<false>(addr, cidr, input_rows_count, vec_res_lower_range,
+                                    vec_res_upper_range, nullptr);
+            }
         } else {
             return Status::RuntimeError(
                     "Illegal column {} of argument of function {}, Expected IPv6 or String",
@@ -899,7 +926,7 @@ public:
 
         ColumnPtr result_column = ColumnStruct::create(
                 Columns {std::move(col_res_lower_range), std::move(col_res_upper_range)});
-        if (block.get_by_position(result).type->is_nullable()) {
+        if (result_nullable) {
             result_column = ColumnNullable::create(std::move(result_column), std::move(null_map));
         }
         block.replace_by_position(result, std::move(result_column));
@@ -907,15 +934,18 @@ public:
     }
 
 private:
+    template <bool ResultNullable>
     static void execute_impl(const ColumnView<TYPE_IPV6>& addr,
                              const ColumnView<TYPE_SMALLINT>& cidr, size_t input_rows_count,
                              ColumnIPv6::Container& lower, ColumnIPv6::Container& upper,
-                             ColumnUInt8::Container& nulls) {
+                             ColumnUInt8::Container* nulls) {
         static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (addr.is_null_at(i) || cidr.is_null_at(i)) {
-                nulls[i] = 1;
-                continue;
+            if constexpr (ResultNullable) {
+                if (addr.is_null_at(i) || cidr.is_null_at(i)) {
+                    (*nulls)[i] = 1;
+                    continue;
+                }
             }
             const auto prefix = cidr.value_at(i);
             if (prefix < 0 || prefix > max_cidr_mask) {
@@ -929,15 +959,18 @@ private:
         }
     }
 
+    template <bool ResultNullable>
     static void execute_impl(const ColumnView<TYPE_STRING>& addr,
                              const ColumnView<TYPE_SMALLINT>& cidr, size_t input_rows_count,
                              ColumnIPv6::Container& lower, ColumnIPv6::Container& upper,
-                             ColumnUInt8::Container& nulls) {
+                             ColumnUInt8::Container* nulls) {
         static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (addr.is_null_at(i) || cidr.is_null_at(i)) {
-                nulls[i] = 1;
-                continue;
+            if constexpr (ResultNullable) {
+                if (addr.is_null_at(i) || cidr.is_null_at(i)) {
+                    (*nulls)[i] = 1;
+                    continue;
+                }
             }
             const auto prefix = cidr.value_at(i);
             if (prefix < 0 || prefix > max_cidr_mask) {
@@ -1251,50 +1284,29 @@ public:
         ColumnString::Offsets& offsets_res = col_res->get_offsets();
         chars_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1)); // + 1 for ending '\0'
         offsets_res.resize(input_rows_count);
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& nulls = null_map->get_data();
+        const bool result_nullable = block.get_by_position(result).type->is_nullable();
+        ColumnUInt8::MutablePtr null_map;
+        if (result_nullable) {
+            null_map = ColumnUInt8::create(input_rows_count, 0);
+        }
         auto* begin = reinterpret_cast<char*>(chars_res.data());
         auto* pos = begin;
 
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (ipv6.is_null_at(i) || bytes_to_cut_for_ipv6.is_null_at(i) ||
-                bytes_to_cut_for_ipv4.is_null_at(i)) {
-                nulls[i] = 1;
-                offsets_res[i] = cast_set<uint32_t>(pos - begin);
-                continue;
-            }
-            // the current function logic is processed in big endian manner
-            // But ipv6 in doris is stored in little-endian byte order
-            // need transfer to big-endian byte order first, so we can't deal this process in column
-            auto val_128 = ipv6.value_at(i);
-            auto* address = reinterpret_cast<unsigned char*>(&val_128);
-
-            Int8 bytes_to_cut_for_ipv6_count = bytes_to_cut_for_ipv6.value_at(i);
-            Int8 bytes_to_cut_for_ipv4_count = bytes_to_cut_for_ipv4.value_at(i);
-
-            if (bytes_to_cut_for_ipv6_count > IPV6_BINARY_LENGTH) [[unlikely]] {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Illegal value for argument 2 {} of function {}",
-                                bytes_to_cut_for_ipv6_column_with_type_and_name.type->get_name(),
-                                get_name());
-            }
-
-            if (bytes_to_cut_for_ipv4_count > IPV6_BINARY_LENGTH) [[unlikely]] {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Illegal value for argument 3 {} of function {}",
-                                bytes_to_cut_for_ipv4_column_with_type_and_name.type->get_name(),
-                                get_name());
-            }
-
-            UInt8 bytes_to_cut_count = is_ipv4_mapped(address) ? bytes_to_cut_for_ipv4_count
-                                                               : bytes_to_cut_for_ipv6_count;
-            cut_address(address, pos, bytes_to_cut_count);
-            offsets_res[i] = cast_set<uint32_t>(pos - begin);
+        if (result_nullable) {
+            execute_impl<true>(
+                    ipv6, bytes_to_cut_for_ipv6, bytes_to_cut_for_ipv4, input_rows_count,
+                    offsets_res, begin, pos, bytes_to_cut_for_ipv6_column_with_type_and_name.type,
+                    bytes_to_cut_for_ipv4_column_with_type_and_name.type, &null_map->get_data());
+        } else {
+            execute_impl<false>(ipv6, bytes_to_cut_for_ipv6, bytes_to_cut_for_ipv4,
+                                input_rows_count, offsets_res, begin, pos,
+                                bytes_to_cut_for_ipv6_column_with_type_and_name.type,
+                                bytes_to_cut_for_ipv4_column_with_type_and_name.type, nullptr);
         }
 
         chars_res.resize(offsets_res[offsets_res.size() - 1]);
 
-        if (block.get_by_position(result).type->is_nullable()) {
+        if (result_nullable) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
@@ -1304,6 +1316,47 @@ public:
     }
 
 private:
+    template <bool ResultNullable>
+    void execute_impl(const ColumnView<TYPE_IPV6>& ipv6,
+                      const ColumnView<TYPE_TINYINT>& bytes_to_cut_for_ipv6,
+                      const ColumnView<TYPE_TINYINT>& bytes_to_cut_for_ipv4,
+                      size_t input_rows_count, ColumnString::Offsets& offsets_res, char* begin,
+                      char*& pos, const DataTypePtr& bytes_to_cut_for_ipv6_type,
+                      const DataTypePtr& bytes_to_cut_for_ipv4_type,
+                      ColumnUInt8::Container* nulls) const {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if constexpr (ResultNullable) {
+                if (ipv6.is_null_at(i) || bytes_to_cut_for_ipv6.is_null_at(i) ||
+                    bytes_to_cut_for_ipv4.is_null_at(i)) {
+                    (*nulls)[i] = 1;
+                    offsets_res[i] = cast_set<uint32_t>(pos - begin);
+                    continue;
+                }
+            }
+            // Convert from Doris little-endian storage before formatting in big-endian order.
+            auto val_128 = ipv6.value_at(i);
+            auto* address = reinterpret_cast<unsigned char*>(&val_128);
+            const Int8 bytes_to_cut_for_ipv6_count = bytes_to_cut_for_ipv6.value_at(i);
+            const Int8 bytes_to_cut_for_ipv4_count = bytes_to_cut_for_ipv4.value_at(i);
+
+            if (bytes_to_cut_for_ipv6_count > IPV6_BINARY_LENGTH) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Illegal value for argument 2 {} of function {}",
+                                bytes_to_cut_for_ipv6_type->get_name(), get_name());
+            }
+            if (bytes_to_cut_for_ipv4_count > IPV6_BINARY_LENGTH) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Illegal value for argument 3 {} of function {}",
+                                bytes_to_cut_for_ipv4_type->get_name(), get_name());
+            }
+
+            const UInt8 bytes_to_cut_count = is_ipv4_mapped(address) ? bytes_to_cut_for_ipv4_count
+                                                                     : bytes_to_cut_for_ipv6_count;
+            cut_address(address, pos, bytes_to_cut_count);
+            offsets_res[i] = cast_set<uint32_t>(pos - begin);
+        }
+    }
+
     static bool is_ipv4_mapped(const UInt8* address) {
         return (LittleEndian::Load64(address + 8) == 0) &&
                ((LittleEndian::Load64(address) & 0xFFFFFFFF00000000ULL) == 0x0000FFFF00000000ULL);
