@@ -453,8 +453,8 @@ index_query::TermPatternKind pattern_kind(logical::ExpandKind kind) {
     }
 }
 
-// Adds the rows `leaf` matches over `searcher` to `result`, and with `scoring` their BM25
-// values to the context's similarity.
+} // namespace
+
 Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                         const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
                         const FulltextIndexSearcherPtr& searcher,
@@ -488,8 +488,6 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
     }
     return Status::OK();
 }
-
-} // namespace
 
 Status plan_clucene_query(const logical::Node& leaf, const IndexQueryContextPtr& context,
                           const std::wstring& field, const std::string& binding_key,

@@ -317,6 +317,14 @@ Status plan_clucene_query(const index_query::logical::Node& leaf,
                           const std::string& binding_key, const roaring::Roaring* candidates,
                           std::shared_ptr<inverted_index::query_v2::Query>* out);
 
+// Adds the rows a logical leaf matches on the CLucene field `field` of `searcher` to `result`, and
+// with `scoring` their BM25 values to the context's similarity. With `candidates`, a phrase only
+// matches those rows.
+Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+                        const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
+                        bool scoring, const FulltextIndexSearcherPtr& searcher,
+                        const std::shared_ptr<roaring::Roaring>& result);
+
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
 
