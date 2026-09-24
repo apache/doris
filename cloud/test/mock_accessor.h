@@ -82,8 +82,9 @@ public:
 
     int abort_multipart_upload(const std::string& path, const std::string& upload_id) override;
 
-    // Put an object with the given modification time (seconds); put_file() uses 0.
-    int put_file_with_mtime(const std::string& path, int64_t mtime_s);
+    // Put an object with the given modification time (seconds) and size; put_file() uses
+    // mtime 0 and the size of its content.
+    int put_file_with_mtime(const std::string& path, int64_t mtime_s, int64_t size = 0);
 
 private:
     // expiration_time > 0 keeps the objects modified after it, as S3Accessor does.
@@ -95,14 +96,19 @@ private:
     std::vector<FileMeta> to_file_metas(auto&& paths) const {
         std::vector<FileMeta> metas;
         for (const auto& path : paths) {
-            auto it = mtimes_.find(path);
-            metas.push_back({.path = path, .mtime_s = it == mtimes_.end() ? 0 : it->second});
+            auto size = sizes_.find(path);
+            auto mtime = mtimes_.find(path);
+            metas.push_back({.path = path,
+                             .size = size == sizes_.end() ? 0 : size->second,
+                             .mtime_s = mtime == mtimes_.end() ? 0 : mtime->second});
         }
         return metas;
     }
 
     std::mutex mtx_;
     std::set<std::string> objects_;
+    // Sizes of the objects, as put; missing means 0.
+    std::map<std::string, int64_t> sizes_;
     // Modification times of the objects put by put_file_with_mtime(); others are 0.
     std::map<std::string, int64_t> mtimes_;
 };
@@ -141,6 +147,7 @@ inline int MockAccessor::delete_prefix_impl(const std::string& path_prefix,
         if (mtime != mtimes_.end()) {
             mtimes_.erase(mtime);
         }
+        sizes_.erase(*begin);
         begin = objects_.erase(begin);
     }
     return 0;
@@ -171,6 +178,7 @@ inline int MockAccessor::delete_directory(const std::string& dir_path) {
 inline int MockAccessor::delete_all(int64_t expiration_time) {
     std::lock_guard lock(mtx_);
     objects_.clear();
+    sizes_.clear();
     mtimes_.clear();
     return 0;
 }
@@ -188,6 +196,7 @@ inline int MockAccessor::delete_file(const std::string& path) {
     LOG(INFO) << "delete object path=" << path;
     std::lock_guard lock(mtx_);
     objects_.erase(path);
+    sizes_.erase(path);
     mtimes_.erase(path);
     return 0;
 }
@@ -195,13 +204,16 @@ inline int MockAccessor::delete_file(const std::string& path) {
 inline int MockAccessor::put_file(const std::string& path, const std::string& content) {
     std::lock_guard lock(mtx_);
     objects_.insert(path);
+    sizes_[path] = static_cast<int64_t>(content.size());
     mtimes_.erase(path);
     return 0;
 }
 
-inline int MockAccessor::put_file_with_mtime(const std::string& path, int64_t mtime_s) {
+inline int MockAccessor::put_file_with_mtime(const std::string& path, int64_t mtime_s,
+                                             int64_t size) {
     std::lock_guard lock(mtx_);
     objects_.insert(path);
+    sizes_[path] = size;
     mtimes_[path] = mtime_s;
     return 0;
 }

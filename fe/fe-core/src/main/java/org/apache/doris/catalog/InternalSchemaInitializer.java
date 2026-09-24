@@ -354,6 +354,7 @@ public class InternalSchemaInitializer extends Thread {
          *   `error_code` int NULL COMMENT "",
          *   `error_message` text NULL COMMENT "",
          *   `query_time` bigint NULL COMMENT "",
+         *   `queue_time_ms` bigint NULL COMMENT "",
          *   `cpu_time_ms` bigint NULL COMMENT "",
          *   `peak_memory_bytes` bigint NULL COMMENT "",
          *   `scan_bytes` bigint NULL COMMENT "",
@@ -386,6 +387,7 @@ public class InternalSchemaInitializer extends Thread {
          *   `is_internal` tinyint NULL COMMENT "",
          *   `workload_group` text NULL COMMENT "",
          *   `compute_group` text NULL COMMENT "",
+         *   `protocol` varchar(16) NULL COMMENT "",
          *   `stmt` text NULL COMMENT ""
          * ) ENGINE = olap
          * DUPLICATE KEY(`query_id`, `time`, `client_ip`)

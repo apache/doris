@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <exception>
 #include <future>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <random>
@@ -3934,25 +3935,35 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
             "spill/10.0.0.1_9050/q1/sort-1-0-1/1",
             "spill/10.0.0.1_9050/_heartbeat",
     };
+    // Expired objects directly under "spill/": a stray object and a directory marker "spill/"
+    // (as the S3 console creates it). Each is deleted alone: deleting the marker as a prefix
+    // would sweep the old objects of every BE, the live one included.
     const std::vector<std::string> dead_be_keys = {
             "spill/10.0.0.2_9050/q2/agg-1-0-1/0",
             "spill/10.0.0.2_9050/q3/sort-1-0-1/0",
             "spill/10.0.0.2_9050/_heartbeat",
             "spill/stray_object",
+            "spill/",
     };
     const std::vector<std::string> active_be_keys = {
             "spill/10.0.0.3_9050/q4/sort-1-0-1/0",
             "spill/10.0.0.3_9050/q4/sort-1-0-1/1",
     };
+    // A fresh object directly under "spill/" stays.
+    const std::string fresh_stray_key = "spill/stray_fresh";
+    // Every object is 100 bytes, so the bytes of an expired group are 100 * its objects.
+    constexpr int64_t kObjectBytes = 100;
     for (const auto& key : live_be_keys) {
-        ASSERT_EQ(accessor->put_file_with_mtime(key, key.ends_with("_heartbeat") ? now : expired),
+        ASSERT_EQ(accessor->put_file_with_mtime(key, key.ends_with("_heartbeat") ? now : expired,
+                                                kObjectBytes),
                   0);
     }
     for (const auto& key : dead_be_keys) {
-        ASSERT_EQ(accessor->put_file_with_mtime(key, expired), 0);
+        ASSERT_EQ(accessor->put_file_with_mtime(key, expired, kObjectBytes), 0);
     }
-    ASSERT_EQ(accessor->put_file_with_mtime(active_be_keys[0], expired), 0);
-    ASSERT_EQ(accessor->put_file_with_mtime(active_be_keys[1], now), 0);
+    ASSERT_EQ(accessor->put_file_with_mtime(active_be_keys[0], expired, kObjectBytes), 0);
+    ASSERT_EQ(accessor->put_file_with_mtime(active_be_keys[1], now, kObjectBytes), 0);
+    ASSERT_EQ(accessor->put_file_with_mtime(fresh_stray_key, now, kObjectBytes), 0);
     // Regular data and a key that only shares the first letters of the spill prefix.
     ASSERT_EQ(accessor->put_file_with_mtime("data/10001/rowset_0.dat", expired), 0);
     ASSERT_EQ(accessor->put_file_with_mtime("spillover/not_spill", expired), 0);
@@ -3967,6 +3978,24 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
         EXPECT_EQ(accessor->exists(key), 0) << key;
     }
 
+    // The expired groups: the dead BE directory (three objects), the stray object and the
+    // marker, each with the bytes of its objects; the live and active directories are fresh.
+    {
+        std::vector<InstanceRecycler::ExpiredSpillGroup> groups;
+        ASSERT_EQ(recycler.list_expired_spill_groups(*accessor, now - ttl, &groups), 0);
+        std::map<std::string, std::pair<int64_t, bool>> expected_groups = {
+                {"spill/10.0.0.2_9050/", {3 * kObjectBytes, true}},
+                {"spill/stray_object", {kObjectBytes, false}},
+                {"spill/", {kObjectBytes, false}},
+        };
+        std::map<std::string, std::pair<int64_t, bool>> actual_groups;
+        for (const auto& group : groups) {
+            actual_groups[group.path] = {group.bytes, group.is_directory};
+            EXPECT_EQ(group.latest_mtime_s, expired) << group.path;
+        }
+        EXPECT_EQ(actual_groups, expected_groups);
+    }
+
     ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
     for (const auto& key : live_be_keys) {
         EXPECT_EQ(accessor->exists(key), 0) << key;
@@ -3977,6 +4006,7 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
     for (const auto& key : dead_be_keys) {
         EXPECT_NE(accessor->exists(key), 0) << key;
     }
+    EXPECT_EQ(accessor->exists(fresh_stray_key), 0);
     EXPECT_EQ(accessor->exists("data/10001/rowset_0.dat"), 0);
     EXPECT_EQ(accessor->exists("spillover/not_spill"), 0);
 
@@ -5120,8 +5150,8 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     auto rowset = create_rowset("orphan_tmp_rowset_test", tablet_id, index_id, 2, schema, txn_id);
     ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false));
     // Spill objects left by a BE: not referenced by any rowset. The vault may be shared and the
-    // keys do not name the instance, so they go through the expiration-based sweep; put without
-    // a modification time, they count as expired.
+    // keys do not name the instance, so they go through the expiration-based sweep, which
+    // force_immediate_recycle (set above) makes select every object.
     const std::string spill_key = "spill/10.0.0.1_9050/q1/sort-1-0-1/0";
     ASSERT_EQ(accessor->put_file(spill_key, "spill"), 0);
 
