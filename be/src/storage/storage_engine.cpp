@@ -151,7 +151,8 @@ void BaseStorageEngine::_start_adaptive_thread_controller() {
 
     if (_memtable_flush_executor) {
         auto* flush_pool = _memtable_flush_executor->flush_pool();
-        _adaptive_thread_controller.add("flush", {flush_pool},
+        auto* high_prio_pool = _memtable_flush_executor->high_prio_flush_pool();
+        _adaptive_thread_controller.add("flush", {flush_pool, high_prio_pool},
                                         AdaptiveThreadPoolController::make_flush_adjust_func(
                                                 &_adaptive_thread_controller, flush_pool),
                                         config::max_flush_thread_num_per_cpu,
@@ -326,8 +327,14 @@ Status StorageEngine::_open() {
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
-                                       config::calc_delete_bitmap_max_thread,
-                                       _memtable_flush_executor->flush_pool());
+                                       config::calc_delete_bitmap_max_thread);
+
+    _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+    _calc_delete_bitmap_executor_for_load->init(
+            "LoadCalcDeleteBitmapThreadPool",
+            config::calc_delete_bitmap_for_load_max_thread > 0
+                    ? config::calc_delete_bitmap_for_load_max_thread
+                    : std::max(1, CpuInfo::num_cores() / 2));
 
     _parse_default_rowset_type();
 
@@ -788,6 +795,7 @@ void StorageEngine::stop() {
     _adaptive_thread_controller.stop();
     _memtable_flush_executor.reset(nullptr);
     _calc_delete_bitmap_executor.reset(nullptr);
+    _calc_delete_bitmap_executor_for_load.reset();
 
     _stopped = true;
     LOG(INFO) << "Storage engine is stopped.";

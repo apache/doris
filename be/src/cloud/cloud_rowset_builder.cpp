@@ -121,8 +121,8 @@ Status CloudRowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _rowset_id = context.rowset_id;
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_load_token(
-            LoadTaskPriority::HIGH, _req.delete_bitmap_cancellation);
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.delete_bitmap_cancellation);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",

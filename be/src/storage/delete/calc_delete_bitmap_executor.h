@@ -39,7 +39,6 @@
 namespace doris {
 
 class DataDir;
-class WorkloadGroup;
 class Tablet;
 enum RowsetTypePB : int;
 
@@ -73,8 +72,7 @@ class CalcDeleteBitmapToken {
 public:
     explicit CalcDeleteBitmapToken(
             std::unique_ptr<ThreadPoolToken> thread_token,
-            std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr,
-            std::shared_ptr<WorkloadGroup> workload_group = nullptr);
+            std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr);
     ~CalcDeleteBitmapToken();
 
     // calculate delete bitmap of `cur_segment` to historical `target_rowsets`
@@ -93,16 +91,19 @@ public:
     template <typename Func>
     Status submit_func(Func&& func) {
         RETURN_IF_ERROR(_get_status());
-        return _submit_func([this, func = std::forward<Func>(func)]() {
-            // Cancellation can arrive while the owning channel is blocked in close().
-            auto st = _get_status();
-            if (st.ok()) {
-                st = func();
-            }
-            if (!st.ok()) {
-                _set_status(st);
-            }
-        });
+        auto resource_ctx = thread_context()->resource_ctx();
+        return _submit_func(
+                [this, resource_ctx = std::move(resource_ctx), func = std::forward<Func>(func)]() {
+                    SCOPED_ATTACH_TASK(resource_ctx);
+                    // Cancellation can arrive while the owning channel is blocked in close().
+                    auto st = _get_status();
+                    if (st.ok()) {
+                        st = func();
+                    }
+                    if (!st.ok()) {
+                        _set_status(st);
+                    }
+                });
     }
 
     // wait all tasks in token to be completed.
@@ -115,8 +116,6 @@ private:
     Status _get_status();
     void _set_status(const Status& st);
 
-    // Null for synchronous children; shared ownership allows concurrent load cancellation.
-    // The deleter retains the workload group until the underlying token is destroyed.
     std::shared_ptr<ThreadPoolToken> _thread_token;
 
     std::shared_mutex _lock;
@@ -124,8 +123,6 @@ private:
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;
     const std::shared_ptr<DeleteBitmapCancellation> _delete_bitmap_cancellation;
-    std::atomic<size_t> _submitted_tasks {0};
-    std::atomic<size_t> _finished_tasks {0};
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.
@@ -136,21 +133,13 @@ public:
     ~CalcDeleteBitmapExecutor() { _thread_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
-    void init(const std::string& name, int max_threads, ThreadPool* load_pool);
+    void init(const std::string& name, int max_threads);
 
     std::unique_ptr<CalcDeleteBitmapToken> create_token(
             std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr);
 
-    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(
-            LoadTaskPriority priority,
-            std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation = nullptr);
-    std::unique_ptr<CalcDeleteBitmapToken> create_load_token(
-            LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg,
-            std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation);
-
 private:
     std::unique_ptr<ThreadPool> _thread_pool;
-    ThreadPool* _load_pool = nullptr;
 };
 
 } // namespace doris

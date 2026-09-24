@@ -50,14 +50,6 @@ class Thread;
 class ThreadPool;
 class ThreadPoolToken;
 
-// Priority across load tasks in a resource domain; lower values run first.
-enum class LoadTaskPriority : uint8_t {
-    HIGHEST = 0,
-    HIGH = 1,
-    MID = 2,
-    LOW = 3,
-};
-
 class Runnable {
 public:
     virtual void run() = 0;
@@ -208,12 +200,6 @@ public:
     // Submits a function bound using std::bind(&FuncName, args...).
     Status submit_func(std::function<void()> f);
 
-    // Strict priority across foreground load tasks, FIFO within each priority.
-    // Ordinary tokenless and SERIAL/CONCURRENT submissions retain their policy.
-    Status submit_load(std::shared_ptr<Runnable> r, LoadTaskPriority priority);
-    std::unique_ptr<ThreadPoolToken> new_load_token(LoadTaskPriority priority);
-    static bool is_load_worker();
-
     // Waits until all the tasks are completed.
     void wait();
 
@@ -326,12 +312,7 @@ private:
     void check_not_pool_thread_unlocked();
 
     // Submits a task to be run via token.
-    Status do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token,
-                     LoadTaskPriority priority = LoadTaskPriority::LOW);
-    bool queues_empty() const;
-    struct ScheduledLoadTask;
-    class LoadQueue;
-    std::unique_ptr<LoadQueue> _load_queue;
+    Status do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token);
 
     // Releases token 't' and invalidates it.
     void release_token(ThreadPoolToken* t);
@@ -425,7 +406,6 @@ private:
 
     // ExecutionMode::CONCURRENT token used by the pool for tokenless submission.
     std::unique_ptr<ThreadPoolToken> _tokenless;
-    std::unique_ptr<ThreadPoolToken> _load_tokenless;
     const UniqueId _id;
 
     std::shared_ptr<MetricEntity> _metric_entity;
@@ -483,7 +463,7 @@ public:
 
     size_t num_tasks() {
         std::lock_guard<std::mutex> l(_pool->_lock);
-        return _entries.size() + _queued_load_tasks;
+        return _entries.size();
     }
 
     ThreadPoolToken(const ThreadPoolToken&) = delete;
@@ -556,12 +536,6 @@ private:
 
     // Queued client tasks.
     std::deque<ThreadPool::Task> _entries;
-
-    // Load tokens share global priority queues but retain independent wait/shutdown.
-    bool _is_load_token = false;
-    LoadTaskPriority _load_priority = LoadTaskPriority::LOW;
-    size_t _queued_load_tasks = 0;
-    bool tasks_empty() const { return _entries.empty() && _queued_load_tasks == 0; }
 
     // Condition variable for "token is idle". Waiters wake up when the token
     // transitions to IDLE or QUIESCED.

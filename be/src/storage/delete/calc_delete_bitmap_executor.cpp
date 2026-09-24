@@ -24,9 +24,6 @@
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
-#include "runtime/thread_context.h"
-#include "runtime/workload_group/workload_group.h"
-#include "runtime/workload_management/resource_context.h"
 #include "storage/tablet/base_tablet.h"
 #include "util/time.h"
 
@@ -67,17 +64,11 @@ void DeleteBitmapCancellation::cancel(const Status& reason) {
 
 CalcDeleteBitmapToken::CalcDeleteBitmapToken(
         std::unique_ptr<ThreadPoolToken> thread_token,
-        std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation,
-        std::shared_ptr<WorkloadGroup> workload_group)
-        : _thread_token(
-                  thread_token.release(),
-                  [workload_group = std::move(workload_group)](ThreadPoolToken* token) mutable {
-                      delete token;
-                      workload_group.reset();
-                  }),
+        std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation)
+        : _thread_token(std::move(thread_token)),
           _status(Status::OK()),
           _delete_bitmap_cancellation(std::move(delete_bitmap_cancellation)) {
-    if (_delete_bitmap_cancellation && _thread_token) {
+    if (_delete_bitmap_cancellation) {
         _delete_bitmap_cancellation->_register_token(_thread_token);
     }
 }
@@ -85,9 +76,7 @@ CalcDeleteBitmapToken::CalcDeleteBitmapToken(
 CalcDeleteBitmapToken::~CalcDeleteBitmapToken() {
     // A concurrent cancellation can retain the underlying token. Finish callbacks
     // that capture this before destroying the wrapper's status and lock.
-    if (_thread_token) {
-        _thread_token->shutdown();
-    }
+    _thread_token->shutdown();
 }
 
 Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
@@ -135,28 +124,13 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
 
 Status CalcDeleteBitmapToken::_submit_func(std::function<void()> func) {
     TEST_SYNC_POINT_CALLBACK("CalcDeleteBitmapToken::submit_func:before_submit", this);
-    ++_submitted_tasks;
-    auto task = [this, func = std::move(func)]() {
-        func();
-        ++_finished_tasks;
-    };
-    if (_thread_token) {
-        auto st = _thread_token->submit_func(
-                [task = std::move(task), resource_ctx = thread_context()->resource_ctx()]() {
-                    SCOPED_ATTACH_TASK(resource_ctx);
-                    task();
-                });
-        if (!st.ok()) {
-            // Preserve an earlier calculation failure or published load cancellation,
-            // and retain submission failures for wait() before checking task counts.
-            _set_status(st);
-            return _get_status();
-        }
-        return st;
+    auto st = _thread_token->submit_func(std::move(func));
+    if (!st.ok()) {
+        // Cancellation may shut down the token after the initial status check.
+        // Preserve the published failure instead of reporting a pool shutdown error.
+        RETURN_IF_ERROR(_get_status());
     }
-    // Inline children inherit the parent's attached context and tablet memory tracker.
-    task();
-    return Status::OK();
+    return st;
 }
 
 Status CalcDeleteBitmapToken::_get_status() {
@@ -169,15 +143,8 @@ Status CalcDeleteBitmapToken::_get_status() {
 
 Status CalcDeleteBitmapToken::wait() {
     TEST_SYNC_POINT_CALLBACK("CalcDeleteBitmapToken::wait:before_wait", this);
-    if (_thread_token) {
-        _thread_token->wait();
-    }
-    RETURN_IF_ERROR(_get_status());
-    // Workload-group shutdown may discard queued tasks without executing them.
-    if (_finished_tasks.load() != _submitted_tasks.load()) {
-        return Status::Cancelled("delete bitmap tasks were cancelled before completion");
-    }
-    return Status::OK();
+    _thread_token->wait();
+    return _get_status();
 }
 
 void CalcDeleteBitmapToken::_set_status(const Status& st) {
@@ -200,14 +167,10 @@ void CalcDeleteBitmapToken::_set_status(const Status& st) {
 void CalcDeleteBitmapToken::cancel(const Status& st) {
     _set_status(st);
     // Do not hold _lock while waiting: running tasks may need it to report an error.
-    if (_thread_token) {
-        _thread_token->shutdown();
-    }
+    _thread_token->shutdown();
 }
 
-void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads,
-                                    ThreadPool* load_pool) {
-    _load_pool = load_pool;
+void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
     static_cast<void>(ThreadPoolBuilder(name)
                               .set_min_threads(1)
                               .set_max_threads(max_threads)
@@ -219,33 +182,6 @@ std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token(
     return std::make_unique<CalcDeleteBitmapToken>(
             _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT),
             std::move(delete_bitmap_cancellation));
-}
-
-std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        LoadTaskPriority priority,
-        std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation) {
-    return create_load_token(priority, thread_context()->resource_ctx()->workload_group(),
-                             std::move(delete_bitmap_cancellation));
-}
-
-std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_load_token(
-        LoadTaskPriority priority, std::shared_ptr<WorkloadGroup> wg,
-        std::shared_ptr<DeleteBitmapCancellation> delete_bitmap_cancellation) {
-    // Publish holds tablet locks while waiting for segment calculations. Running
-    // these children inline preserves the lock scope without a same-pool wait.
-    if (ThreadPool::is_load_worker()) {
-        return std::make_unique<CalcDeleteBitmapToken>(nullptr,
-                                                       std::move(delete_bitmap_cancellation));
-    }
-    // A commit retry can outlive a dropped workload group. Its pool is stopped;
-    // use the default domain in that case. A concurrent stop is reported by submit/wait.
-    ThreadPool* pool = wg && !wg->can_be_dropped() ? wg->get_memtable_flush_pool() : nullptr;
-    if (pool == nullptr) {
-        pool = _load_pool;
-    }
-    DCHECK(pool != nullptr);
-    return std::make_unique<CalcDeleteBitmapToken>(
-            pool->new_load_token(priority), std::move(delete_bitmap_cancellation), std::move(wg));
 }
 
 } // namespace doris

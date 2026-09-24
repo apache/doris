@@ -174,6 +174,8 @@ protected:
         if (GetParam()) {
             auto engine = std::make_unique<CloudStorageEngine>(EngineOptions {});
             engine->init_calc_delete_bitmap_executor_for_UT();
+            engine->_memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
+            engine->_memtable_flush_executor->init(1);
             engine->set_latest_fs(std::make_shared<LocalRemoteFileSystem>(_root));
             env->set_storage_engine(std::move(engine));
         } else {
@@ -322,11 +324,11 @@ protected:
         EXPECT_EQ(_rowset_writer->_calc_delete_bitmap_token->_delete_bitmap_cancellation,
                   cancellation);
         EXPECT_EQ(_builder->_calc_delete_bitmap_token->_thread_token->_pool,
-                  _engine->memtable_flush_executor()->flush_pool());
+                  _engine->calc_delete_bitmap_executor()->_thread_pool.get());
         EXPECT_EQ(_rowset_writer->_calc_delete_bitmap_token->_thread_token->_pool,
-                  _engine->memtable_flush_executor()->flush_pool());
+                  _engine->calc_delete_bitmap_executor_for_load()->_thread_pool.get());
         EXPECT_NE(_engine->calc_delete_bitmap_executor()->_thread_pool.get(),
-                  _engine->memtable_flush_executor()->flush_pool());
+                  _engine->calc_delete_bitmap_executor_for_load()->_thread_pool.get());
     }
 
     template <typename Callback>

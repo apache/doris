@@ -29,8 +29,6 @@
 
 namespace doris {
 
-class WorkloadGroup;
-
 // Record transaction related delete bitmaps using a lru cache.
 class CloudTxnDeleteBitmapCache : public LRUCachePolicy {
 public:
@@ -39,9 +37,6 @@ public:
     ~CloudTxnDeleteBitmapCache() override;
 
     Status init();
-
-    std::shared_ptr<WorkloadGroup> get_workload_group(TTransactionId transaction_id,
-                                                      int64_t tablet_id);
 
     Status get_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                RowsetSharedPtr* rowset, DeleteBitmapPtr* delete_bitmap,
@@ -110,8 +105,6 @@ private:
     };
 
     struct TxnVal {
-        // Preserve write-stage resource isolation through commit/retries.
-        std::shared_ptr<WorkloadGroup> workload_group;
         RowsetSharedPtr rowset;
         int64_t txn_expiration;
         std::shared_ptr<PartialUpdateInfo> partial_update_info;

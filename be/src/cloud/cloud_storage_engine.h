@@ -97,6 +97,9 @@ public:
 
     CloudCommittedRSMgr& committed_rs_mgr() const { return *_committed_rs_mgr; }
 
+    ThreadPool& calc_tablet_delete_bitmap_task_thread_pool() const {
+        return *_calc_tablet_delete_bitmap_task_thread_pool;
+    }
     ThreadPool& sync_delete_bitmap_thread_pool() const { return *_sync_delete_bitmap_thread_pool; }
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
@@ -231,6 +234,7 @@ private:
     std::unique_ptr<CloudTabletMgr> _tablet_mgr;
     std::unique_ptr<CloudTxnDeleteBitmapCache> _txn_delete_bitmap_cache;
     std::unique_ptr<CloudCommittedRSMgr> _committed_rs_mgr;
+    std::unique_ptr<ThreadPool> _calc_tablet_delete_bitmap_task_thread_pool;
     std::unique_ptr<ThreadPool> _sync_delete_bitmap_thread_pool;
 
     // Components for cache warmup

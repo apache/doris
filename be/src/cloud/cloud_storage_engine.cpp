@@ -220,8 +220,14 @@ Status CloudStorageEngine::open() {
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
-                                       config::calc_delete_bitmap_max_thread,
-                                       _memtable_flush_executor->flush_pool());
+                                       config::calc_delete_bitmap_max_thread);
+
+    _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+    _calc_delete_bitmap_executor_for_load->init(
+            "LoadCalcDeleteBitmapThreadPool",
+            config::calc_delete_bitmap_for_load_max_thread > 0
+                    ? config::calc_delete_bitmap_for_load_max_thread
+                    : std::max(1, CpuInfo::num_cores() / 2));
 
     // The default cache is set to 100MB, use memory limit to dynamic adjustment
     bool is_percent = false;
@@ -269,15 +275,18 @@ Status CloudStorageEngine::open() {
 
 #ifdef BE_TEST
 void CloudStorageEngine::init_calc_delete_bitmap_executor_for_UT() {
-    if (_memtable_flush_executor == nullptr) {
-        _memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
-        _memtable_flush_executor->init(1);
-    }
     if (_calc_delete_bitmap_executor == nullptr) {
         _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
         _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
-                                           config::calc_delete_bitmap_max_thread,
-                                           _memtable_flush_executor->flush_pool());
+                                           config::calc_delete_bitmap_max_thread);
+    }
+    if (_calc_delete_bitmap_executor_for_load == nullptr) {
+        _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
+        _calc_delete_bitmap_executor_for_load->init(
+                "LoadCalcDeleteBitmapThreadPool",
+                config::calc_delete_bitmap_for_load_max_thread > 0
+                        ? config::calc_delete_bitmap_for_load_max_thread
+                        : std::max(1, CpuInfo::num_cores() / 2));
     }
 }
 #endif
@@ -308,6 +317,9 @@ void CloudStorageEngine::stop() {
     _adaptive_thread_controller.stop();
     LOG(INFO) << "Cloud storage engine is stopped.";
 
+    if (_calc_tablet_delete_bitmap_task_thread_pool) {
+        _calc_tablet_delete_bitmap_task_thread_pool->shutdown();
+    }
     if (_sync_delete_bitmap_thread_pool) {
         _sync_delete_bitmap_thread_pool->shutdown();
     }
@@ -379,6 +391,11 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
             &_id_file_map_gc_thread));
     LOG(INFO) << "id file map gc thread started";
 
+    // add calculate tablet delete bitmap task thread pool
+    RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
+                            .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
+                            .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
+                            .build(&_calc_tablet_delete_bitmap_task_thread_pool));
     RETURN_IF_ERROR(ThreadPoolBuilder("SyncDeleteBitmapThreadPool")
                             .set_min_threads(config::sync_delete_bitmap_task_max_thread)
                             .set_max_threads(config::sync_delete_bitmap_task_max_thread)
