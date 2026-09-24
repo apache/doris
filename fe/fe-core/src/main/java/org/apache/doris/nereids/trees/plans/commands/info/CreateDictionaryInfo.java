@@ -189,6 +189,9 @@ public class CreateDictionaryInfo {
         if (getLayout() == LayoutType.IP_TRIE && columns.stream().filter(c -> c.isKey()).count() != 1) {
             throw new DdlException("IP_TRIE layout requires exactly one key column");
         }
+        if (getLayout() == LayoutType.FLAT && columns.stream().filter(c -> c.isKey()).count() != 1) {
+            throw new DdlException("FLAT layout requires exactly one key column");
+        }
 
         // Validate each dictionary column exists in source table and set its type
         for (DictionaryColumnDefinition columnDef : columns) {
@@ -217,6 +220,11 @@ public class CreateDictionaryInfo {
         if (getLayout() == LayoutType.IP_TRIE) {
             if (!source.getType().isVarcharOrStringType()) {
                 throw new DdlException("Key column " + source.getName() + " must be String type for IP_TRIE layout");
+            }
+        }
+        if (getLayout() == LayoutType.FLAT) {
+            if (!source.getType().isFixedPointType()) {
+                throw new DdlException("Key column " + source.getName() + " must be integer type for FLAT layout");
             }
         }
     }
