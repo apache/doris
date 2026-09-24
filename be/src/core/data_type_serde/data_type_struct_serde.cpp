@@ -386,7 +386,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                      JsonbWriter& writer) const {
+                                                      JsonbWriter& writer,
+                                                      const FormatOptions& options) const {
     const auto& struct_column = assert_cast<const ColumnStruct&>(from_column);
 
     if (!writer.writeStartObject()) {
@@ -404,7 +405,7 @@ Status DataTypeStructSerDe::serialize_column_to_jsonb(const IColumn& from_column
         }
         // write value
         RETURN_IF_ERROR(elem_serdes_ptrs[i]->serialize_column_to_jsonb(struct_column.get_column(i),
-                                                                       row_num, writer));
+                                                                       row_num, writer, options));
     }
 
     if (!writer.writeEndObject()) {

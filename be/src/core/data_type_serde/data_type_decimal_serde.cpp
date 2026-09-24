@@ -1255,8 +1255,8 @@ void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column, ColumnStrin
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                          int64_t row_num,
-                                                          JsonbWriter& writer) const {
+                                                          int64_t row_num, JsonbWriter& writer,
+                                                          const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb");
     } else {
@@ -1270,8 +1270,8 @@ Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb(const IColumn& from_co
 }
 
 template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                 ColumnString& to_column) const {
+Status DataTypeDecimalSerDe<T>::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMALV2) {
         return Status::NotSupported("DECIMALV2 does not support serialize_column_to_jsonb_vector");
     } else {

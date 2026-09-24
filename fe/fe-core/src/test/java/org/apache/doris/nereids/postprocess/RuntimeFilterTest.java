@@ -86,6 +86,10 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
         connectContext.getSessionVariable().setDisableJoinReorder(true);
+        createTable("CREATE TABLE variant_rf_a (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+        createTable("CREATE TABLE variant_rf_b (k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
     }
 
     @Test
@@ -877,6 +881,22 @@ public class RuntimeFilterTest extends SSBTestBase {
                 "Standard RFs should still be present alongside non-blocking decoupled RF");
 
         connectContext.getSessionVariable().enableDecoupledRuntimeFilter = false;
+    }
+
+    @Test
+    public void testVariantJoinKeyDoesNotGenerateRuntimeFilter() {
+        // Control: the INT key of the same tables produces a runtime filter in this setup.
+        Assertions.assertFalse(getRuntimeFilters(
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.k = b.k").get().isEmpty());
+        // Scalar runtime filters cannot express Variant canonical equality.
+        for (String sql : ImmutableList.of(
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v = b.v",
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v <=> b.v",
+                "SELECT * FROM variant_rf_a a JOIN variant_rf_b b ON a.v['id'] = b.v['id']",
+                "SELECT * FROM (SELECT CAST(k AS VARIANT) vv FROM variant_rf_a) x "
+                        + "JOIN variant_rf_b b ON x.vv = b.v")) {
+            Assertions.assertTrue(getRuntimeFilters(sql).get().isEmpty(), sql);
+        }
     }
 
 }

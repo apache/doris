@@ -229,7 +229,8 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
 }
 
 Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                                     JsonbWriter& writer) const {
+                                                     JsonbWriter& writer,
+                                                     const FormatOptions& options) const {
     const auto& data_column = assert_cast<const ColumnArray&>(from_column);
     const auto& offsets = data_column.get_offsets();
 
@@ -242,7 +243,7 @@ Status DataTypeArraySerDe::serialize_column_to_jsonb(const IColumn& from_column,
     }
 
     for (size_t i = start; i < end; ++i) {
-        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer));
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_jsonb(nested_column, i, writer, options));
     }
     if (!writer.writeEndArray()) {
         return Status::InternalError("writeEndArray failed");

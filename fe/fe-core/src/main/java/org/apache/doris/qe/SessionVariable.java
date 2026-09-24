@@ -858,7 +858,6 @@ public class SessionVariable implements Serializable, Writable {
     // Default is false, which means do not flatten nested when create table.
     @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
-    public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
 
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
@@ -3524,15 +3523,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true
     )
     public int defaultVariantMaxSubcolumnsCount = 2048;
-
-    @VarAttrDef.VarAttr(
-            name = ENABLE_VARIANT_SCHEMA_AUTO_CAST,
-            needForward = true,
-            affectQueryResultInExecution = true,
-            description = "Whether to enable schema-template-based auto cast for variant expressions. "
-                    + "The default is true."
-    )
-    public boolean enableVariantSchemaAutoCast = true;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
@@ -6438,10 +6428,6 @@ public class SessionVariable implements Serializable, Writable {
     @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
-    }
-
-    public boolean isEnableVariantSchemaAutoCast() {
-        return enableVariantSchemaAutoCast;
     }
 
     public void setProfileLevel(String profileLevel) {

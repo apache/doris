@@ -15,27 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
 #include <array>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
+#include "core/value/variant/variant_batch_builder.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
@@ -101,6 +109,33 @@ std::string json_at(const DataTypeVariantV2SerDe& serde, const IColumn& column, 
     }
     writer.commit();
     return output->get_data_at(0).to_string();
+}
+
+ColumnVariantV2::MutablePtr encoded_json(std::initializer_list<std::string_view> rows) {
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
+    for (std::string_view row : rows) {
+        encoder.add_json({row.data(), row.size()});
+    }
+    VariantBatchBuilder block = encoder.finish_batch();
+    auto result = ColumnVariantV2::create();
+    result->insert_encoded_batch(block);
+    return result;
+}
+
+std::vector<std::string> jsonb_vector_as_json(
+        const DataTypeSerDe& serde, const IColumn& column,
+        const DataTypeSerDe::FormatOptions& options = DataTypeSerDe::FormatOptions {}) {
+    auto output = ColumnString::create();
+    const Status status = serde.serialize_column_to_jsonb_vector(column, *output, options);
+    EXPECT_TRUE(status.ok()) << status;
+    std::vector<std::string> rows;
+    for (size_t row = 0; row < output->size(); ++row) {
+        const StringRef bytes = output->get_data_at(row);
+        rows.push_back(JsonbToJson::jsonb_to_json_string(bytes.data, bytes.size));
+    }
+    return rows;
 }
 
 std::string object_with_value(const std::function<void(JsonbWriter&)>& write_value) {
@@ -241,6 +276,82 @@ TEST(DataTypeVariantV2SerdeJsonbTest, InvalidRowDoesNotTouchResultWriter) {
                                                std::numeric_limits<int64_t>::max(), options),
                  Exception);
     EXPECT_EQ(writer.getOutput()->getSize(), before);
+}
+
+TEST(DataTypeVariantV2SerdeJsonbTest, SerializeColumnToJsonbWritesTheJsonDocument) {
+    DataTypeVariantV2SerDe serde;
+    auto encoded = encoded_json({R"({"b":[true,null,"x"],"a":{"c":1.5}})", "42", R"("s")", "null"});
+    EXPECT_EQ(jsonb_vector_as_json(serde, *encoded),
+              (std::vector<std::string> {R"({"a":{"c":1.5},"b":[true,null,"x"]})", "42", R"("s")",
+                                         "null"}));
+
+    // Typed and encoded columns write the same bytes, including a Variant null.
+    for (const bool is_null : {false, true}) {
+        auto typed = typed_int(42, is_null);
+        ColumnPtr encoded_int = encoded_copy(*typed);
+        auto typed_output = ColumnString::create();
+        auto encoded_output = ColumnString::create();
+        ASSERT_TRUE(serde.serialize_column_to_jsonb_vector(*typed, *typed_output,
+                                                           DataTypeSerDe::FormatOptions {})
+                            .ok());
+        ASSERT_TRUE(serde.serialize_column_to_jsonb_vector(*encoded_int, *encoded_output,
+                                                           DataTypeSerDe::FormatOptions {})
+                            .ok());
+        ASSERT_EQ(typed_output->size(), 1);
+        EXPECT_EQ(typed_output->get_data_at(0), encoded_output->get_data_at(0));
+        EXPECT_EQ(jsonb_vector_as_json(serde, *typed)[0], is_null ? "null" : "42");
+    }
+
+    ColumnPtr constant = ColumnConst::create(encoded_json({R"({"k":"v"})"})->get_ptr(), 2);
+    EXPECT_EQ(jsonb_vector_as_json(serde, *constant),
+              (std::vector<std::string> {R"({"k":"v"})", R"({"k":"v"})"}));
+}
+
+TEST(DataTypeVariantV2SerdeJsonbTest, SerializeColumnToJsonbNestsVariantInArray) {
+    auto values = encoded_json({R"({"a":[1,2]})", "7", R"("x")"});
+    auto value_nulls = ColumnUInt8::create();
+    for (const uint8_t is_null : {0, 1, 0}) {
+        value_nulls->insert_value(is_null);
+    }
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(2);
+    offsets->insert_value(3);
+    auto array = ColumnArray::create(
+            ColumnNullable::create(std::move(values), std::move(value_nulls)), std::move(offsets));
+    DataTypeArraySerDe array_serde(
+            std::make_shared<DataTypeNullableSerDe>(std::make_shared<DataTypeVariantV2SerDe>()));
+    EXPECT_EQ(jsonb_vector_as_json(array_serde, *array),
+              (std::vector<std::string> {R"([{"a":[1,2]},null])", R"(["x"])"}));
+}
+
+TEST(DataTypeVariantV2SerdeJsonbTest, SerializeColumnToJsonbUsesTheSessionTimeZone) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    row.add_timestamp_micros(0, true);
+    row.finish();
+    VariantBatchBuilder block = builder.finish_batch();
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(block);
+
+    DataTypeVariantV2SerDe serde;
+    const cctz::time_zone shanghai = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+    DataTypeSerDe::FormatOptions options;
+    options.timezone = &shanghai;
+    EXPECT_EQ(jsonb_vector_as_json(serde, *values, options),
+              (std::vector<std::string> {R"("1970-01-01 08:00:00.000000+08:00")"}));
+    EXPECT_EQ(jsonb_vector_as_json(serde, *values),
+              (std::vector<std::string> {R"("1970-01-01 00:00:00.000000+00:00")"}));
+
+    // A nested Variant element receives the same time zone.
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->insert_value(1);
+    auto array = ColumnArray::create(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 0)),
+            std::move(offsets));
+    DataTypeArraySerDe array_serde(
+            std::make_shared<DataTypeNullableSerDe>(std::make_shared<DataTypeVariantV2SerDe>()));
+    EXPECT_EQ(jsonb_vector_as_json(array_serde, *array, options),
+              (std::vector<std::string> {R"(["1970-01-01 08:00:00.000000+08:00"])"}));
 }
 
 } // namespace doris

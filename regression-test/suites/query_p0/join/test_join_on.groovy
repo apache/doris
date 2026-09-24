@@ -45,8 +45,11 @@ suite("test_join_on", "query_p0") {
         exception "errCode = 2"
     }
 
-    test {
-        sql """select * from (select cast('' as variant) as a) t1 join (select cast('' as variant) as a) t2 on t1.a = t2.a"""
-        exception "could not used in ComparisonPredicate (a = a)"
-    }
+    // Variant keys use canonical equality in join conditions.
+    order_qt_variant_join """
+        select t1.id, t2.id
+        from (select 1 as id, cast('x' as variant) as a union all select 2, cast(1 as variant)) t1
+        join (select 3 as id, parse_to_variant('"x"') as a union all select 4, parse_to_variant('1.0')) t2
+          on t1.a = t2.a
+    """
 }

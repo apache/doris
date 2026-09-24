@@ -31,6 +31,7 @@
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
+#include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
@@ -45,6 +46,7 @@
 #include "core/value/variant/variant_batch_builder.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 
@@ -435,6 +437,42 @@ void DataTypeVariantV2SerDe::read_one_cell_from_jsonb(IColumn& column,
     encoder.add_jsonb({binary->getBlob(), binary->getBlobLen()});
     VariantBatchBuilder block = encoder.finish_batch();
     destination(column).insert_encoded_batch(block);
+}
+
+// to_json and CAST(<complex type> AS JSON) write Variant values here, with the same session time zone
+// as CAST(<variant> AS JSON).
+Status DataTypeVariantV2SerDe::serialize_column_to_jsonb(const IColumn& from_column,
+                                                         int64_t row_num, JsonbWriter& writer,
+                                                         const FormatOptions& options) const {
+    RETURN_IF_CATCH_EXCEPTION({
+        const size_t row = checked_row(row_num);
+        JsonbWriter document;
+        visit_variant_v2_values(
+                from_column, row, row + 1, {}, [](size_t) {},
+                [&](size_t, VariantRef value) {
+                    variant_to_jsonb(value, document, {.timezone = options.timezone});
+                });
+        const JsonbDocument* doc = nullptr;
+        THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
+                document.getOutput()->getBuffer(), document.getOutput()->getSize(), &doc));
+        require_jsonb_write(writer.writeValue(doc->getValue()), "Variant value");
+    });
+    return Status::OK();
+}
+
+Status DataTypeVariantV2SerDe::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options) const {
+    RETURN_IF_CATCH_EXCEPTION({
+        JsonbWriter writer;
+        visit_variant_v2_values(
+                from_column, 0, from_column.size(), {}, [](size_t) {},
+                [&](size_t, VariantRef value) {
+                    variant_to_jsonb(value, writer, {.timezone = options.timezone});
+                    to_column.insert_data(writer.getOutput()->getBuffer(),
+                                          writer.getOutput()->getSize());
+                });
+    });
+    return Status::OK();
 }
 
 namespace {
