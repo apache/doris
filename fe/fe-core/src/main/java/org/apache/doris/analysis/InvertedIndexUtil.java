@@ -489,11 +489,25 @@ public class InvertedIndexUtil {
         }
 
         String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
+        return isAnalyzerNameMatched(properties, normalizedAnalyzer)
+                && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
+                    || matchesBuiltinIkDefaults(properties));
+    }
+
+    /**
+     * Whether the index is served by the named analyzer, regardless of how a built-in IK index is
+     * configured. This name check is all that selected an index before built-in IK indexes were
+     * matched by their effective configuration.
+     */
+    public static boolean isAnalyzerNameMatched(Map<String, String> properties, String analyzer) {
+        String normalizedAnalyzer = Strings.isNullOrEmpty(analyzer) ? "" : analyzer.trim();
+        if (normalizedAnalyzer.isEmpty()) {
+            return false;
+        }
+        String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
         String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer))
-                    && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
-                        || matchesBuiltinIkDefaults(properties));
+            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer));
         }
 
         String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
@@ -501,9 +515,7 @@ public class InvertedIndexUtil {
             return resolvedAnalyzer.equals("default")
                     || resolvedAnalyzer.equals(INVERTED_INDEX_PARSER_NONE);
         }
-        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT))
-                && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
-                    || matchesBuiltinIkDefaults(properties));
+        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT));
     }
 
     private static boolean matchesBuiltinIkDefaults(Map<String, String> properties) {

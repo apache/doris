@@ -394,4 +394,28 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
         SELECT id FROM test_identity_noop_alter WHERE content MATCH 'abc'
         ORDER BY id
     """
+
+    // An index created before built-in IK was matched by configuration is the only IK index of
+    // this column, so an explicit request keeps binding it and is tokenized with its smart mode.
+    sql "DROP TABLE IF EXISTS test_identity_legacy_ik_only"
+    sql """
+        CREATE TABLE test_identity_legacy_ik_only (
+            id INT, content STRING,
+            INDEX idx_legacy (content) USING INVERTED PROPERTIES("parser"="ik")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_allocation"="tag.location.default: 1")
+    """
+    sql "INSERT INTO test_identity_legacy_ik_only VALUES (1, 'abc def'), (2, 'zzz'), (3, '清华大学'), (4, 'ABC')"
+    def legacyIkIds = { String value ->
+        sql("""
+            SELECT id FROM test_identity_legacy_ik_only
+            WHERE content MATCH '${value}' USING ANALYZER ik ORDER BY id
+        """).collect { it[0] as int }
+    }
+    assertEquals([1, 4], legacyIkIds("abc"))
+    assertEquals([3], legacyIkIds("清华大学"))
+    // ik_max_word would also index the two-character prefix of the university name; the legacy
+    // index is smart and must stay bound as such.
+    assertEquals([], legacyIkIds("清华"))
 }

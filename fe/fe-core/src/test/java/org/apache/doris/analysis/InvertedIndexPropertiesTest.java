@@ -683,6 +683,47 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
+    public void testExplicitBuiltinIkFallsBackToTheOnlyLegacyIndex() {
+        Column column = new Column("content", PrimitiveType.STRING);
+        Index legacySmart = new Index(20, "idx_legacy_smart", List.of("content"), IndexType.INVERTED,
+                Map.of("parser", "ik"), "");
+        Index legacySmartNoLowercase = new Index(21, "idx_legacy_smart_no_lowercase", List.of("content"),
+                IndexType.INVERTED, Map.of("parser", "ik", "lower_case", "false"), "");
+        Index maxWord = new Index(22, "idx_max_word", List.of("content"), IndexType.INVERTED,
+                Map.of("analyzer", "ik"), "");
+
+        // An index created before built-in IK was matched by configuration keeps answering the
+        // explicit request it answered before, and BE receives that index's own mode.
+        OlapTable legacyOnly = new OlapTable();
+        legacyOnly.setIndexes(List.of(legacySmart));
+        Index selected = legacyOnly.getInvertedIndex(column, List.of(), "ik");
+        Assertions.assertSame(legacySmart, selected);
+        MatchPredicate predicate = new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
+                new StringLiteral("清华大学"), new StringLiteral("清华"), Type.BOOLEAN,
+                NullableMode.DEPEND_ON_ARGUMENT, selected, false, "ik");
+        TExprNode node = new TExprNode();
+        ExprToThriftVisitor.INSTANCE.visitMatchPredicate(predicate, node);
+        Assertions.assertEquals("ik", node.getMatchPredicate().getAnalyzerName());
+        Assertions.assertEquals("ik_smart", node.getMatchPredicate().getParserMode());
+        Assertions.assertTrue(node.getMatchPredicate().isParserLowercase());
+
+        // The index with the matching default configuration still wins when it exists.
+        OlapTable withDefault = new OlapTable();
+        withDefault.setIndexes(List.of(legacySmart, maxWord));
+        Assertions.assertSame(maxWord, withDefault.getInvertedIndex(column, List.of(), "ik"));
+
+        // Two differently configured legacy indexes stay ambiguous.
+        OlapTable ambiguous = new OlapTable();
+        ambiguous.setIndexes(List.of(legacySmart, legacySmartNoLowercase));
+        Assertions.assertNull(ambiguous.getInvertedIndex(column, List.of(), "ik"));
+
+        // Per-index matching is unchanged; the fallback is decided over the whole column.
+        Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "ik"));
+        Assertions.assertTrue(InvertedIndexUtil.isAnalyzerNameMatched(Map.of("parser", "ik"), "ik"));
+        Assertions.assertFalse(InvertedIndexUtil.isAnalyzerNameMatched(Map.of("parser", "ik"), "standard"));
+    }
+
+    @Test
     public void testMatchSelectionPreservesExactAnalyzerSpelling() {
         MatchAny match = new MatchAny(new VarcharLiteral("abc def"), new VarcharLiteral("abc def"), " IK ");
         Assertions.assertAll(
