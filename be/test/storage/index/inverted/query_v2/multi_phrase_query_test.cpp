@@ -19,9 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -788,6 +791,41 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_bm25_similarity) {
     if (found_match) {
         SUCCEED() << "Found matches with BM25 scoring";
     }
+
+    _CLDECDELETE(dir);
+}
+
+// "quick" followed by "fox" or "horse": exact in doc 5, one move apart in docs 0, 6 and 11.
+TEST_F(MultiPhraseQueryV2Test, SlopAndCandidatesApplyToSlotsWithAlternatives) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    const std::wstring field = L"content";
+    TermInfo quick;
+    quick.term = std::string("quick");
+    quick.position = 0;
+    TermInfo animal;
+    animal.term = std::vector<std::string> {"fox", "horse"};
+    animal.position = 1;
+    const std::vector<TermInfo> term_infos {quick, animal};
+
+    const auto docs = [&](const index_query::PhraseQueryOptions& options) {
+        query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), field, term_infos,
+                                         options);
+        query_v2::QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = reader->maxDoc();
+        exec_ctx.field_reader_bindings.emplace(field, reader);
+        auto scorer = query.weight(false)->scorer(exec_ctx);
+        std::set<uint32_t> matched;
+        for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+            matched.insert(doc);
+        }
+        return matched;
+    };
+    EXPECT_EQ(docs({}), (std::set<uint32_t> {5}));
+    EXPECT_EQ(docs({.slop = 1}), (std::set<uint32_t> {0, 5, 6, 11}));
+    roaring::Roaring candidates;
+    candidates.addMany(3, std::array<uint32_t, 3> {6, 8, 11}.data());
+    EXPECT_EQ(docs({.slop = 1, .candidates = &candidates}), (std::set<uint32_t> {6, 11}));
 
     _CLDECDELETE(dir);
 }

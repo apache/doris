@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <optional>
+#include <roaring/roaring.hh>
+
 #include "storage/index/inverted/query_v2/intersection.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
@@ -38,13 +41,14 @@ public:
 
     PhraseScorer(IntersectionDocSetPtr intersection_docset, std::vector<TPostings> terms,
                  size_t num_clauses, index_query::PhraseVerifier verifier,
-                 index_query::ScoringContextPtr<float> similarity);
+                 index_query::ScoringContextPtr<float> similarity,
+                 const roaring::Roaring* candidates);
     ~PhraseScorer() override;
 
     // Clauses that share a postings object read its positions once per document.
     static ScorerPtr create(const std::vector<std::pair<size_t, TPostings>>& term_postings,
-                            const index_query::ScoringContextPtr<float>& similarity, uint32_t slop,
-                            uint32_t num_docs);
+                            const index_query::ScoringContextPtr<float>& similarity,
+                            const index_query::PhraseQueryOptions& options, uint32_t num_docs);
 
     uint32_t advance() override;
     uint32_t seek(uint32_t target) override;
@@ -58,6 +62,10 @@ public:
     bool phrase_match();
 
 private:
+    // The first document at or after `doc` that the intersection and the candidates share, so
+    // positions are only read for candidates.
+    uint32_t skip_to_candidate(uint32_t doc);
+
     IntersectionDocSetPtr _intersection_docset;
     std::vector<TPostings> _terms;
     std::vector<std::vector<uint32_t>> _positions;
@@ -65,6 +73,8 @@ private:
     size_t _num_clauses = 0;
     float _phrase_count = 0.0F;
     index_query::ScoringContextPtr<float> _similarity;
+    const roaring::Roaring* _candidates = nullptr;
+    std::optional<roaring::Roaring::const_iterator> _candidate;
 };
 
 /// Instantiated once in phrase_scorer.cpp; suppresses per-TU implicit instantiation.

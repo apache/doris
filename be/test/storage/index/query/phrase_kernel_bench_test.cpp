@@ -130,7 +130,7 @@ TEST(PhraseKernelBench, DISABLED_ExactScorerWorkloads) {
                 PostingsPtr right = std::make_shared<LoadedPostings>(docs, right_positions);
                 const std::vector<std::pair<size_t, PostingsPtr>> terms {{0, left}, {1, right}};
                 const uint64_t start = thread_cpu_ns();
-                auto scorer = PhraseScorer<PostingsPtr>::create(terms, nullptr, 0, kDocs);
+                auto scorer = PhraseScorer<PostingsPtr>::create(terms, nullptr, {}, kDocs);
                 for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
                     ++checksum;
                 }
@@ -204,7 +204,7 @@ void benchmark_exact_workload(size_t clause_count, std::string_view pattern, boo
                                    std::make_shared<LoadedPostings>(docs, positions[clause]));
             }
             const uint64_t start = thread_cpu_ns();
-            auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, 0, kDocs);
+            auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, {}, kDocs);
             for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
                 checksum += scored ? scorer->score() : 1;
             }

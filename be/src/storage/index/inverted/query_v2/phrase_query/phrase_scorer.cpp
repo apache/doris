@@ -25,13 +25,19 @@ template <typename TPostings>
 PhraseScorer<TPostings>::PhraseScorer(IntersectionDocSetPtr intersection_docset,
                                       std::vector<TPostings> terms, size_t num_clauses,
                                       index_query::PhraseVerifier verifier,
-                                      index_query::ScoringContextPtr<float> similarity)
+                                      index_query::ScoringContextPtr<float> similarity,
+                                      const roaring::Roaring* candidates)
         : _intersection_docset(std::move(intersection_docset)),
           _terms(std::move(terms)),
           _positions(_terms.size()),
           _verifier(std::move(verifier)),
           _num_clauses(num_clauses),
-          _similarity(std::move(similarity)) {}
+          _similarity(std::move(similarity)),
+          _candidates(candidates) {
+    if (_candidates != nullptr) {
+        _candidate.emplace(_candidates->begin());
+    }
+}
 
 template <typename TPostings>
 PhraseScorer<TPostings>::~PhraseScorer() = default;
@@ -39,7 +45,9 @@ PhraseScorer<TPostings>::~PhraseScorer() = default;
 template <typename TPostings>
 ScorerPtr PhraseScorer<TPostings>::create(
         const std::vector<std::pair<size_t, TPostings>>& term_postings,
-        const index_query::ScoringContextPtr<float>& similarity, uint32_t slop, uint32_t num_docs) {
+        const index_query::ScoringContextPtr<float>& similarity,
+        const index_query::PhraseQueryOptions& options, uint32_t num_docs) {
+    const uint32_t slop = options.slop;
     std::vector<TPostings> clause_postings;
     std::vector<uint32_t> offsets;
     std::vector<uint64_t> costs;
@@ -56,20 +64,38 @@ ScorerPtr PhraseScorer<TPostings>::create(
         }
     }
     index_query::PhraseVerifier verifier(std::move(clause_terms), offsets, costs, slop,
-                                         /*ordered=*/false);
+                                         options.ordered);
     auto scorer = std::make_shared<PhraseScorer<TPostings>>(
             make_intersection<TPostings>(clause_postings, num_docs), std::move(terms),
-            clause_postings.size(), std::move(verifier), similarity);
-    if (scorer->doc() != TERMINATED && !scorer->phrase_match()) {
+            clause_postings.size(), std::move(verifier), similarity, options.candidates);
+    if (scorer->skip_to_candidate(scorer->doc()) != TERMINATED && !scorer->phrase_match()) {
         scorer->advance();
     }
     return scorer;
 }
 
 template <typename TPostings>
+uint32_t PhraseScorer<TPostings>::skip_to_candidate(uint32_t doc) {
+    if (_candidates == nullptr) {
+        return doc;
+    }
+    while (doc != TERMINATED) {
+        _candidate->equalorlarger(doc);
+        if (*_candidate == _candidates->end()) {
+            return _intersection_docset->seek(TERMINATED);
+        }
+        if (**_candidate == doc) {
+            return doc;
+        }
+        doc = _intersection_docset->seek(**_candidate);
+    }
+    return doc;
+}
+
+template <typename TPostings>
 uint32_t PhraseScorer<TPostings>::advance() {
     while (true) {
-        uint32_t doc = _intersection_docset->advance();
+        uint32_t doc = skip_to_candidate(_intersection_docset->advance());
         if (doc == TERMINATED || phrase_match()) {
             return doc;
         }
@@ -83,7 +109,7 @@ uint32_t PhraseScorer<TPostings>::seek(uint32_t target) {
     if (target <= doc()) {
         return doc();
     }
-    uint32_t doc = _intersection_docset->seek(target);
+    uint32_t doc = skip_to_candidate(_intersection_docset->seek(target));
     if (doc == TERMINATED || phrase_match()) {
         return doc;
     }

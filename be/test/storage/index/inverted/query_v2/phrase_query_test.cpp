@@ -19,9 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <set>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -669,8 +672,8 @@ TEST_F(PhraseQueryV2Test, SloppyScorerPreservesForwardOnlyPositionsAcrossSeek) {
             {0, query_v2::make_segment_postings(std::move(quick_positions), true, similarity)},
             {1, query_v2::make_segment_postings(std::move(brown_positions), true, similarity)}};
 
-    auto scorer = query_v2::PhraseScorer<query_v2::SegmentPostingsPtr>::create(terms, similarity, 1,
-                                                                               reader->maxDoc());
+    auto scorer = query_v2::PhraseScorer<query_v2::SegmentPostingsPtr>::create(
+            terms, similarity, {.slop = 1}, reader->maxDoc());
     ASSERT_EQ(scorer->doc(), 0);
     const float first_score = scorer->score();
     EXPECT_EQ(scorer->seek(0), 0);
@@ -685,6 +688,60 @@ TEST_F(PhraseQueryV2Test, SloppyScorerPreservesForwardOnlyPositionsAcrossSeek) {
     EXPECT_EQ(scorer->advance(), 11);
     EXPECT_EQ(scorer->advance(), 19);
     EXPECT_EQ(scorer->advance(), query_v2::TERMINATED);
+}
+
+// The documents a phrase over `terms` matches in the test index.
+static std::set<uint32_t> phrase_docs(const std::string& dir, const std::vector<std::string>& terms,
+                                      const index_query::PhraseQueryOptions& options) {
+    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> directory(
+            FSDirectory::getDirectory(dir.c_str()));
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(directory.get(), true));
+    const std::wstring field = L"content";
+    std::vector<TermInfo> term_infos;
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = terms[i];
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(std::move(term_info));
+    }
+    query_v2::PhraseQuery query(std::make_shared<IndexQueryContext>(), field, term_infos, options);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+    auto scorer = query.weight(false)->scorer(exec_ctx);
+    std::set<uint32_t> docs;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        docs.insert(doc);
+    }
+    return docs;
+}
+
+// "quick fox" is exact in doc 5, one move apart in docs 0 and 11, and reversed in doc 8.
+TEST_F(PhraseQueryV2Test, SlopLetsTheTermsMoveApart) {
+    EXPECT_EQ(phrase_docs(kTestDir, {"quick", "fox"}, {}), (std::set<uint32_t> {5}));
+    EXPECT_EQ(phrase_docs(kTestDir, {"quick", "fox"}, {.slop = 1}),
+              (std::set<uint32_t> {0, 5, 11}));
+    EXPECT_EQ(phrase_docs(kTestDir, {"quick", "fox"}, {.slop = 3}),
+              (std::set<uint32_t> {0, 5, 8, 11}));
+}
+
+TEST_F(PhraseQueryV2Test, OrderedSlopKeepsTheTermsInOrder) {
+    EXPECT_EQ(phrase_docs(kTestDir, {"quick", "fox"}, {.slop = 3, .ordered = true}),
+              (std::set<uint32_t> {0, 5, 11}));
+}
+
+// "quick brown" matches docs 0, 1, 6, 11 and 19.
+TEST_F(PhraseQueryV2Test, CandidatesRestrictThePhrase) {
+    roaring::Roaring candidates;
+    candidates.addMany(4, std::array<uint32_t, 4> {1, 2, 11, 18}.data());
+    EXPECT_EQ(phrase_docs(kTestDir, {"quick", "brown"}, {.candidates = &candidates}),
+              (std::set<uint32_t> {1, 11}));
+    roaring::Roaring past_the_matches;
+    past_the_matches.add(20);
+    EXPECT_TRUE(
+            phrase_docs(kTestDir, {"quick", "brown"}, {.candidates = &past_the_matches}).empty());
+    const roaring::Roaring none;
+    EXPECT_TRUE(phrase_docs(kTestDir, {"quick", "brown"}, {.candidates = &none}).empty());
 }
 
 } // namespace doris::segment_v2

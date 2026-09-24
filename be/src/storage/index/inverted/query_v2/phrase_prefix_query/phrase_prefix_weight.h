@@ -34,7 +34,7 @@ public:
                        std::vector<std::pair<size_t, std::string>> phrase_terms,
                        std::pair<size_t, std::string> prefix,
                        index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
-                       int32_t max_expansions, bool nullable)
+                       int32_t max_expansions, const roaring::Roaring* candidates, bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
               _phrase_terms(std::move(phrase_terms)),
@@ -42,6 +42,7 @@ public:
               _similarity(std::move(similarity)),
               _enable_scoring(enable_scoring),
               _max_expansions(max_expansions),
+              _candidates(candidates),
               _nullable(nullable) {}
     ~PhrasePrefixWeight() override = default;
 
@@ -98,7 +99,8 @@ private:
         all_postings.emplace_back(_prefix.first, make_union_postings(std::move(suffix_postings)));
 
         uint32_t num_docs = ctx.segment_num_rows;
-        return PhraseScorer<PostingsPtr>::create(all_postings, _similarity, 0, num_docs);
+        return PhraseScorer<PostingsPtr>::create(all_postings, _similarity,
+                                                 {.candidates = _candidates}, num_docs);
     }
 
     IndexQueryContextPtr _context;
@@ -108,6 +110,7 @@ private:
     index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
     int32_t _max_expansions = 50;
+    const roaring::Roaring* _candidates = nullptr;
     bool _nullable = true;
 };
 

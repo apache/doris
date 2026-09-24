@@ -21,8 +21,10 @@
 #include <gtest/gtest.h>
 #include <sys/resource.h>
 
+#include <array>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <set>
 #include <string>
 
 #include "io/fs/local_file_system.h"
@@ -501,6 +503,25 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_prefix_no_adjacent_match) {
     // But let's just verify it runs without error
     // The exact result depends on the data
     SUCCEED();
+
+    _CLDECDELETE(dir);
+}
+
+// "quick bro*" matches docs 0, 1, 6, 10, 11 and 19.
+TEST_F(PhrasePrefixQueryV2Test, candidates_restrict_the_phrase_prefix) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+
+    roaring::Roaring candidates;
+    candidates.addMany(3, std::array<uint32_t, 3> {6, 10, 12}.data());
+    PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", "bro"}), &candidates);
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+    auto docs = collect_docs(q.weight(false)->scorer(exec_ctx, ""));
+    EXPECT_EQ(std::set<uint32_t>(docs.begin(), docs.end()), (std::set<uint32_t> {6, 10}));
 
     _CLDECDELETE(dir);
 }

@@ -87,7 +87,7 @@ TEST(PhraseScorerContractTest, SlopAcceptsOneGapButNotTwoOrATransposition) {
             docs, std::vector<std::vector<uint32_t>> {{3}, {4}, {2}, {2}});
     const std::vector<std::pair<size_t, PostingsPtr>> terms {{0, left}, {1, right}};
 
-    auto scorer = PhraseScorer<PostingsPtr>::create(terms, nullptr, 1, docs.size());
+    auto scorer = PhraseScorer<PostingsPtr>::create(terms, nullptr, {.slop = 1}, docs.size());
     std::vector<uint32_t> matches;
     while (scorer->doc() != TERMINATED) {
         matches.push_back(scorer->doc());
@@ -103,7 +103,7 @@ TEST(PhraseScorerContractTest, RepeatedSourceNeedsDistinctOccurrences) {
             docs, std::vector<std::vector<uint32_t>> {{4}, {4, 6}});
     const std::vector<std::pair<size_t, PostingsPtr>> terms {{0, repeated}, {1, repeated}};
 
-    auto scorer = PhraseScorer<PostingsPtr>::create(terms, nullptr, 1, docs.size());
+    auto scorer = PhraseScorer<PostingsPtr>::create(terms, nullptr, {.slop = 1}, docs.size());
     std::vector<uint32_t> matches;
     while (scorer->doc() != TERMINATED) {
         matches.push_back(scorer->doc());
@@ -122,7 +122,7 @@ TEST(PhraseScorerContractTest, FractionalPhraseFrequencyReachesBm25) {
     const std::vector<std::pair<size_t, PostingsPtr>> terms {{0, left}, {1, right}};
     auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
 
-    auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, 1, docs.size());
+    auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, {.slop = 1}, docs.size());
     ASSERT_EQ(scorer->doc(), 0);
     EXPECT_FLOAT_EQ(scorer->score(), similarity->score(0.5F, 1));
     ASSERT_EQ(scorer->advance(), 1);
@@ -140,7 +140,7 @@ TEST(PhraseScorerContractTest, GappedOffsetsSurvivePostingCostSorting) {
     const std::vector<std::pair<size_t, PostingsPtr>> terms {{0, first}, {2, second}, {5, third}};
     auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
 
-    auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, 1, 3);
+    auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, {.slop = 1}, 3);
     ASSERT_EQ(scorer->doc(), 1);
     EXPECT_FLOAT_EQ(scorer->score(), similarity->score(0.5F, 1));
     EXPECT_EQ(scorer->advance(), TERMINATED);
@@ -154,7 +154,7 @@ TEST(PhraseScorerContractTest, ExactFrequencyUsesFirstClauseMultiplicityAfterCos
     const std::vector<std::pair<size_t, PostingsPtr>> terms {{0, first}, {1, second}};
     auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
 
-    auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, 0, 2);
+    auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, {}, 2);
     ASSERT_EQ(scorer->doc(), 0);
     EXPECT_FLOAT_EQ(scorer->score(), similarity->score(2.0F, 1));
     EXPECT_EQ(scorer->advance(), TERMINATED);
@@ -179,7 +179,7 @@ TEST(PhraseScorerContractTest, ExactFrequencyKeepsTheFirstClauseAtEveryCostRank)
                 {0, first}, {1, second}, {2, third}};
         auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
 
-        auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, 0, 40);
+        auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, {}, 40);
         ASSERT_EQ(scorer->doc(), 0);
         EXPECT_FLOAT_EQ(scorer->score(), similarity->score(5.0F, 1));
         EXPECT_EQ(scorer->advance(), TERMINATED);
@@ -216,7 +216,7 @@ TEST(PhraseScorerContractTest, ExactFrequencyMatchesPositionMembershipAcrossCost
             terms.emplace_back(clause, std::make_shared<LoadedPostings>(docs, term_positions));
         }
         auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
-        auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, 0, kDocs + 9);
+        auto scorer = PhraseScorer<PostingsPtr>::create(terms, similarity, {}, kDocs + 9);
         for (uint32_t doc = 0; doc < kDocs; ++doc) {
             SCOPED_TRACE(doc);
             uint32_t frequency = 0;

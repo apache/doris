@@ -78,7 +78,8 @@ WeightPtr phrase_weight(size_t field, bool scoring) {
     terms[1].position = 1;
     SimilarityPtr similarity = scoring ? std::make_shared<BM25Similarity>(2.0F, 32.0F) : nullptr;
     return std::make_shared<PhraseWeight>(std::make_shared<IndexQueryContext>(), kFields[field],
-                                          std::move(terms), std::move(similarity), scoring, false);
+                                          std::move(terms), index_query::PhraseQueryOptions {},
+                                          std::move(similarity), scoring, false);
 }
 
 uint64_t phrase_hash_row(uint64_t hash, uint32_t doc, float score) {

@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "storage/index/inverted/query/query_info.h"
+#include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/snii/format/prx_decode_stats.h"
 #include "storage/index/snii/query/query_profile.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -50,13 +51,7 @@ struct PhraseMatch {
     bool operator==(const PhraseMatch&) const = default;
 };
 
-struct PhraseQueryOptions {
-    uint32_t slop = 0;
-    bool ordered = false;
-    // Optional scan candidate docids. The result is then exactly the unrestricted result
-    // intersected with them, and position verification only visits candidates.
-    const roaring::Roaring* candidates = nullptr;
-};
+using index_query::PhraseQueryOptions;
 
 Status phrase_query(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
                     std::vector<uint32_t>* docids);

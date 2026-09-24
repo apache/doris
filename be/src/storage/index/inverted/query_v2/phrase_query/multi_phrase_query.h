@@ -27,10 +27,11 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 class MultiPhraseQuery : public Query {
 public:
     MultiPhraseQuery(IndexQueryContextPtr context, std::wstring field,
-                     std::vector<TermInfo> term_infos)
+                     std::vector<TermInfo> term_infos, index_query::PhraseQueryOptions options = {})
             : _context(std::move(context)),
               _field(std::move(field)),
-              _term_infos(std::move(term_infos)) {}
+              _term_infos(std::move(term_infos)),
+              _options(options) {}
     ~MultiPhraseQuery() override = default;
 
     WeightPtr weight(bool enable_scoring) override {
@@ -56,8 +57,8 @@ public:
             bm25_similarity->for_terms(_context, _field, all_terms);
         }
 
-        return std::make_shared<MultiPhraseWeight>(_context, _field, _term_infos, bm25_similarity,
-                                                   enable_scoring, _nullable);
+        return std::make_shared<MultiPhraseWeight>(_context, _field, _term_infos, _options,
+                                                   bm25_similarity, enable_scoring, _nullable);
     }
 
 private:
@@ -65,6 +66,7 @@ private:
 
     std::wstring _field;
     std::vector<TermInfo> _term_infos;
+    index_query::PhraseQueryOptions _options;
     bool _nullable = true;
 };
 

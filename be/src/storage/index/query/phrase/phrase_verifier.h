@@ -32,7 +32,19 @@
 #include "storage/index/query/phrase/position_span.h"
 #include "storage/index/query/phrase/sloppy_phrase_matcher.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris::index_query {
+
+// How a phrase query matches on every index format. The tokens may be `slop` moves apart, kept in
+// order when `ordered`, and with `candidates` only those documents are verified and can match.
+struct PhraseQueryOptions {
+    uint32_t slop = 0;
+    bool ordered = false;
+    const roaring::Roaring* candidates = nullptr;
+};
 
 // Decides whether one document holds a phrase and how often, for every index format. Clause i
 // reads the positions of distinct term clause_terms[i] and sits offsets[i] - offsets[0] after the
