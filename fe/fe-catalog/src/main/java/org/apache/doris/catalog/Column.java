@@ -892,6 +892,11 @@ public class Column implements GsonPostProcessable {
     }
 
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
+        return toSql(isUniqueTable, isCompatible, false);
+    }
+
+    /** Use a placeholder only for internal CREATE TABLE LIKE parsing; restore the expression before analysis. */
+    public String toSql(boolean isUniqueTable, boolean isCompatible, boolean useGeneratedColumnPlaceholder) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         String typeStr = type.toSql();
@@ -907,7 +912,8 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExprSql()).append(")");
+            sb.append(" AS (").append(useGeneratedColumnPlaceholder ? "NULL" : generatedColumnInfo.getExprSql())
+                    .append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");

@@ -23,34 +23,16 @@ on:
         required: false
         type: boolean
         default: true
-  workflow_call:
-    inputs:
-      pr_number:
-        required: true
-        type: string
-      head_sha:
-        required: true
-        type: string
-      base_sha:
-        required: true
-        type: string
-      review_focus:
-        required: false
-        type: string
-        default: ''
-      manage_status:
-        description: >-
-          Update the code-review commit status. Callers that enable this must
-          grant statuses: write.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   statuses: write
   pull-requests: write
   contents: read
   issues: write
+
+# One review-step budget for helper download, all attempts, and final verification.
+env:
+  REVIEW_TIMEOUT_MINUTES: 120
 
 jobs:
   code-review:
@@ -218,6 +200,9 @@ jobs:
           sudo install -m 0755 "$tmp_dir/codex-goal" "$codex_target"
           "$codex_cmd" exec --help | grep -q -- '--goal'
           "$codex_cmd" --version
+          # The deployed goal binary currently reports only 0.0.0. Record its
+          # identity so a resume failure can be reproduced with the same build.
+          sha256sum "$codex_target"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
@@ -711,33 +696,42 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 120
+        timeout-minutes: ${{ fromJSON(env.REVIEW_TIMEOUT_MINUTES) }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
+          HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
-          GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
+          review_step_started_at=$SECONDS
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+          helper="$RUNNER_TEMP/run_review_with_resume.py"
+          gh api \
+            -H "Accept: application/vnd.github.raw" \
+            "repos/${REPO}/contents/.github/scripts/run_review_with_resume.py?ref=${HELPER_REF}" \
+            > "$helper"
+
+          # Share the step's budget; reserve two minutes for process cleanup and
+          # the existing GitHub review verification. Helper download counts too.
+          budget_seconds=$((REVIEW_TIMEOUT_MINUTES * 60 - (SECONDS - review_step_started_at) - 120))
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-          codex exec --goal "$GOAL_PROMPT" \
-            --cd "$GITHUB_WORKSPACE" \
+          python3 "$helper" \
+            --context-dir "$REVIEW_CONTEXT_DIR" \
+            --cwd "$GITHUB_WORKSPACE" \
+            --repository "$REPO" \
+            --pr-number "$PR_NUMBER" \
+            --head-sha "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
             --model "gpt-5.6-sol" \
-            --config "model_reasoning_effort=xhigh" \
-            --sandbox danger-full-access \
-            --color never \
-            --json \
-            --output-last-message "$REVIEW_CONTEXT_DIR/codex-final-message.txt" \
-            > "$REVIEW_CONTEXT_DIR/codex-events.jsonl" \
-            2> >(tee "$REVIEW_CONTEXT_DIR/codex-stderr.log" >&2)
+            --effort xhigh \
+            --budget-seconds "$budget_seconds"
           status=$?
-          # Drain the stderr tee before inspecting it for refresh-token failures.
-          wait
           set -e
 
           failure_reason=""

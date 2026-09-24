@@ -2418,15 +2418,15 @@ public class DatabaseTransactionMgr {
         // update table stream offset if necessary
         if (!CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
             updateStreamOffset(transactionState, transactionState.getCommitTime());
-            updateIvmRefreshVersion(transactionState, db);
+            updateIvmSequencePrefix(transactionState, db);
         }
     }
 
-    private void updateIvmRefreshVersion(TransactionState transactionState, Database db) {
+    private void updateIvmSequencePrefix(TransactionState transactionState, Database db) {
         for (Long tableId : transactionState.getTableIdList()) {
             Table table = db.getTableNullable(tableId);
             if (table instanceof MTMV && ((MTMV) table).isIvm()) {
-                ((MTMV) table).getIvmInfo().advanceRefreshVersion();
+                ((MTMV) table).getIvmInfo().advanceSequencePrefix();
             }
         }
     }

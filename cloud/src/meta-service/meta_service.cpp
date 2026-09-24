@@ -1366,6 +1366,8 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_is_persistent(tablet_meta_info.is_persistent());
         } else if (tablet_meta_info.has_ttl_seconds()) {
             tablet_meta.set_ttl_seconds(tablet_meta_info.ttl_seconds());
+        } else if (tablet_meta_info.has_binlog_config()) {
+            tablet_meta.mutable_binlog_config()->CopyFrom(tablet_meta_info.binlog_config());
         } else if (tablet_meta_info.has_compaction_policy()) {
             tablet_meta.set_compaction_policy(tablet_meta_info.compaction_policy());
         } else if (tablet_meta_info.has_time_series_compaction_goal_size_mbytes()) {

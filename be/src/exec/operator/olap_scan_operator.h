@@ -135,6 +135,8 @@ private:
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
+    void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
+
     Status _build_key_ranges_and_filters();
 
     bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
@@ -165,6 +167,10 @@ private:
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_tso_prune_timer = nullptr;
+    RuntimeProfile::Counter* _rowsets_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _segments_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _tablets_pruned_by_tso_counter = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
 
     RuntimeProfile::Counter* _io_timer = nullptr;

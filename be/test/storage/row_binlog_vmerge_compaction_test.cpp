@@ -281,9 +281,13 @@ protected:
                 project_columns_by_ordinal(tablet_schema->columns(), ordinals));
 
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
         reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
 
         RowsetReaderSharedPtr reader;
         EXPECT_TRUE(rowset->create_reader(&reader).ok());

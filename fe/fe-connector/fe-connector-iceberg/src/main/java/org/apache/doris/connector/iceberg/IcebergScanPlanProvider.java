@@ -70,7 +70,6 @@ import org.apache.iceberg.SchemaAwareDataTableScan;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SplittableScanTask;
-import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
@@ -120,6 +119,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * {@link ConnectorScanPlanProvider} for Iceberg tables, mirroring the paimon connector's
@@ -153,6 +153,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    static final String SCAN_REUSE_NAMESPACE = "iceberg.scan-reuse";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
     private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
@@ -433,15 +434,49 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        IcebergTableHandle handle = (IcebergTableHandle) request.getTableHandle();
+        IcebergTableHandle icebergHandle = (IcebergTableHandle) request.getTableHandle();
         try {
-            return planScanInternal(session, handle, request.getColumns(),
-                    request.getFilter(), request.isCountPushdown());
+            // The reuse key deliberately omits projected columns because they do not change Iceberg split
+            // planning. Reader compatibility still depends on whether metadata columns are requested, so
+            // validate every call before a cached range list can be returned.
+            validateMetadataColumnReader(session, request.getColumns());
+            if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+                return planScanInternal(session, icebergHandle, request.getColumns(),
+                        request.getFilter(), request.isCountPushdown());
+            }
+            if (icebergHandle.isSystemTable()) {
+                // System tables read connector metadata through their own readers; never reuse them.
+                return planScanInternal(session, icebergHandle, request.getColumns(),
+                        request.getFilter(), request.isCountPushdown());
+            }
+            // Statement-scoped reuse: within one statement the identical scan (same table, same
+            // snapshot/ref/schema pin, same filter, same COUNT pushdown) plans once and every
+            // duplicated relation shares the result. The scope is NONE for offline planning and tests,
+            // in which case the loader runs on every call. Session variables are constant within a
+            // statement and deliberately absent from the key.
+            //
+            // The ranges are memoized in a map HUNG INSIDE the statement scope rather than cached
+            // directly: planScanInternal re-enters the scope itself (sharedTable and the v3
+            // rewritableDeleteSupply are scope-backed), and a loader of the scope's
+            // ConcurrentHashMap must not touch that map (same-bin re-entry throws
+            // IllegalStateException("Recursive update"); a mid-computation resize silently drops the
+            // outer entry). The scope loader only constructs the memo map; planning then runs on that
+            // separate map, so every scope call from planScanInternal is top-level again. The memo
+            // key is catalog-scoped, which also isolates same-named tables across a cross-catalog
+            // statement.
+            String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
+            Map<IcebergScanReuseKey, List<ConnectorScanRange>> scanReuse =
+                    session.getStatementScope().computeIfAbsent(memoKey, () -> new ConcurrentHashMap<>());
+            IcebergScanReuseKey reuseKey = new IcebergScanReuseKey(icebergHandle, request);
+            return scanReuse.computeIfAbsent(reuseKey,
+                    k -> Collections.unmodifiableList(planScanInternal(session,
+                            icebergHandle, request.getColumns(), request.getFilter(),
+                            request.isCountPushdown())));
         } catch (RuntimeException e) {
             // Normal data scans and native position_deletes run on File Scanner V2. Keep the serialized JNI
             // system-table route untouched because its deferred reads belong to the V1 scanner contract.
-            if (!handle.isSystemTable() || isPositionDeletesSysTable(handle)) {
-                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
+            if (!icebergHandle.isSystemTable() || isPositionDeletesSysTable(icebergHandle)) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(icebergHandle, e);
             }
             throw e;
         }
@@ -549,7 +584,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
+        boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
@@ -707,7 +742,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter,
             boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
-        validateMetadataColumnReader(session, columns);
         if (iceHandle.isResolvedEmptySnapshot() && !isSnapshotIndependentSystemTable(iceHandle)) {
             // Iceberg has no snapshot id that can represent "before the first commit". Returning no ranges is
             // the read-side MVCC fence; otherwise a refreshed Table would turn -1 into "latest" and expose a
@@ -737,7 +771,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
+        boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
 
         // Vended credentials (T09): extract the per-table REST vended token ONCE per scan (gated on the catalog
         // flag iceberg.rest.vended-credentials-enabled, mirroring legacy IcebergVendedCredentialsProvider), then
@@ -1584,6 +1618,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private Integer partitionSpecId;
         private String partitionDataJson;
         private Map<String, String> partitionValues = Collections.emptyMap();
+        // The table's CURRENT spec isPartitioned() — scan-invariant, memoized with the rest so the display
+        // gate (see IcebergScanRange#getScannedPartitionKey) costs one table.spec() per file, not per slice.
+        private boolean countsAsScannedPartition;
         private List<IcebergScanRange.DeleteFile> deleteCarriers = Collections.emptyList();
         private String fileFormat;
         private Long firstRowId;
@@ -1637,6 +1674,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .firstRowId(file.firstRowId)
                 .lastUpdatedSequenceNumber(file.lastUpdatedSequenceNumber)
                 .partitionValues(file.partitionValues)
+                .countsAsScannedPartition(file.countsAsScannedPartition)
                 .deleteFiles(file.deleteCarriers)
                 .pushDownRowCount(pushDownRowCount)
                 .selfSplitWeight(selfSplitWeight)
@@ -1705,6 +1743,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.partitionSpecId = partitionSpecId;
         file.partitionDataJson = partitionDataJson;
         file.partitionValues = partitionValues;
+        // Display-only gate (see IcebergScanRange#getScannedPartitionKey): a table whose CURRENT spec is
+        // unpartitioned reports no partitions, so the old-spec partitions its files still carry must not
+        // start showing up in EXPLAIN partition=N/M or in a sql_block_rule partition_num check.
+        file.countsAsScannedPartition = table.spec().isPartitioned();
         file.fileFormat = fileFormat;
         file.firstRowId = firstRowId;
         file.lastUpdatedSequenceNumber = lastUpdatedSequenceNumber;
@@ -3112,14 +3154,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static void rejectServerSideScanPlanning(Table table, IcebergTableHandle handle) {
-        if (table instanceof SupportsDistributedScanPlanning
-                && !((SupportsDistributedScanPlanning) table).allowDistributedPlanning()) {
-            // Iceberg 1.11 marks REST server-planned tables this way. Doris reads manifests and table.io()
-            // before planFiles(), when REST scan-scoped credentials do not exist, so fail before any local I/O.
-            throw new DorisConnectorException("Iceberg server-side scan planning is not supported for table "
-                    + handle.getDbName() + "." + handle.getTableName()
-                    + "; configure the REST catalog to use client-side scan planning");
-        }
+        IcebergScanPlanning.rejectServerSideScanPlanning(table, handle.getDbName() + "." + handle.getTableName());
     }
 
     /**
@@ -3196,5 +3231,71 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /**
+     * Statement-scoped cache key for one Iceberg scan.
+     *
+     * <p>Includes every input that changes the planned file list: table identity, the typed
+     * time-travel pin (snapshot id / ref / schema id), the rewrite-file scope, the pushed filter
+     * and the COUNT pushdown flag. System tables are excluded upstream, and session variables are
+     * statement-constant, so both stay out of the key.
+     */
+    private static final class IcebergScanReuseKey {
+        private final String dbName;
+        private final String tableName;
+        private final long snapshotId;
+        private final String ref;
+        private final long schemaId;
+        private final List<String> rewriteFileScope;
+        private final Optional<ConnectorExpression> filter;
+        private final boolean countPushdown;
+
+        private IcebergScanReuseKey(IcebergTableHandle handle, ConnectorScanRequest request) {
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.snapshotId = handle.getSnapshotId();
+            this.ref = handle.getRef();
+            this.schemaId = handle.getSchemaId();
+            // System tables are bypassed in planScan before this key is built, so sysTableName is
+            // always null here; if the system-table bypass is ever relaxed, add it back.
+            this.rewriteFileScope = handle.getRewriteFileScope() == null
+                    ? Collections.emptyList()
+                    : handle.getRewriteFileScope().stream().sorted()
+                            .collect(Collectors.toList());
+            this.filter = request.getFilter();
+            this.countPushdown = request.isCountPushdown();
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof IcebergScanReuseKey)) {
+                return false;
+            }
+            IcebergScanReuseKey that = (IcebergScanReuseKey) object;
+            return snapshotId == that.snapshotId
+                    && schemaId == that.schemaId
+                    && countPushdown == that.countPushdown
+                    && Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(ref, that.ref)
+                    && Objects.equals(rewriteFileScope, that.rewriteFileScope)
+                    && Objects.equals(filter, that.filter);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbName, tableName, snapshotId, ref, schemaId,
+                    rewriteFileScope, filter, countPushdown);
+        }
+
+        @Override
+        public String toString() {
+            return "IcebergScanReuseKey{db=" + dbName + ", table=" + tableName
+                    + ", snapshot=" + snapshotId + "}";
+        }
     }
 }

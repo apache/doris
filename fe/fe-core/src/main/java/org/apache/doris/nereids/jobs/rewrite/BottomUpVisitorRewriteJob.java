@@ -57,9 +57,9 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
             return;
         }
 
-        Plan root = rewrite(
-                null, -1, originPlan, jobContext, rules, batchId.incrementAndGet(), false, new ProcessState(originPlan)
-        );
+        ProcessState processState = jobContext.getCascadesContext().showPlanProcess()
+                ? new ProcessState(originPlan) : null;
+        Plan root = rewrite(null, -1, originPlan, jobContext, rules, batchId.incrementAndGet(), false, processState);
         jobContext.getCascadesContext().setRewritePlan(root);
     }
 
@@ -75,9 +75,6 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
         if (state == RewriteState.REWRITTEN) {
             return plan;
         }
-        CascadesContext cascadesContext = jobContext.getCascadesContext();
-        boolean showPlanProcess = cascadesContext.showPlanProcess();
-
         Plan currentPlan = plan;
         while (true) {
             if (fastReturn && rules.getCurrentAndChildrenRules(currentPlan).isEmpty()) {
@@ -100,14 +97,14 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
             }
             if (changed) {
                 currentPlan = currentPlan.withChildren(newChildren.build());
-                if (showPlanProcess) {
+                if (processState != null) {
                     parent = processState.updateChild(parent, childIndex, currentPlan);
                 }
             }
             Plan rewrittenPlan = doRewrite(parent, childIndex, currentPlan, jobContext, rules, processState);
             if (!rewrittenPlan.deepEquals(currentPlan)) {
                 currentPlan = rewrittenPlan;
-                if (showPlanProcess) {
+                if (processState != null) {
                     parent = processState.updateChild(parent, childIndex, currentPlan);
                 }
             } else {
@@ -132,7 +129,7 @@ public class BottomUpVisitorRewriteJob implements RewriteJob {
                 Plan result = transform.get(0);
                 currentRule.acceptPlan(result);
 
-                if (cascadesContext.showPlanProcess()) {
+                if (processState != null) {
                     String beforeShape = processState.getNewestPlan().treeString(true, plan);
                     String afterShape = processState.updateChildAndGetNewest(originParent, childIndex, result)
                             .treeString(true, result);

@@ -17,17 +17,25 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.ranger.plugin.service.RangerAuthContextListener;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
+import org.apache.doris.catalog.authorizer.ranger.LoadedRangerPlugin;
 
-public class RangerHivePlugin extends RangerBasePlugin {
+import org.apache.ranger.plugin.service.RangerAuthContextListener;
+
+/**
+ * The plugin over a Ranger service of type {@code hive}: built with the service's policies or not at all, so
+ * that a catalog is bound to it with them or the binding fails; see {@link LoadedRangerPlugin}. The groups
+ * its requests carry are Ranger's own, where Hive's plugin would have asked Hadoop's group mapping, which
+ * Doris has no equivalent of.
+ */
+public class RangerHivePlugin extends LoadedRangerPlugin {
     public RangerHivePlugin(String serviceName) {
         this(serviceName, null);
     }
 
     public RangerHivePlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         super(serviceName, null, null);
-        super.init();
-        super.registerAuthContextEventListener(rangerAuthContextListener);
+        // Registered before the load, so that the listener hears of the engine the load installs.
+        registerAuthContextEventListener(rangerAuthContextListener);
+        init();
     }
 }

@@ -1395,9 +1395,6 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             fractional_part.emplace(large_fractional2);
             fractional_part.emplace(large_fractional3);
         }
-        auto max_result = dt_to.get_max_digits_number(precision);
-        auto min_result = -max_result;
-
         auto multiplier = dt_to.get_scale_multiplier(scale);
 
         std::vector<std::string> const_test_strs;
@@ -1447,18 +1444,27 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                         float_value = std::strtod(v_str.c_str(), &end);
                     }
                     // float_value = is_negative ? -float_value : float_value;
-                    using DoubleType = std::conditional_t<IsDecimal256<T>, long double, double>;
-                    DoubleType expect_value = float_value * DoubleType(multiplier);
-                    if (expect_value <= DoubleType(min_result) ||
-                        expect_value >= DoubleType(max_result)) {
-                        // std::cerr << fmt::format("{:f} overflow\n", expect_value);
-                    } else {
-                        T v {};
-                        // v.value = typename T::NativeType(FromT(float_value * multiplier +
-                        //                                        (float_value >= 0 ? 0.5 : -0.5)));
-                        v.value = typename T::NativeType(static_cast<double>(
-                                float_value * static_cast<DoubleType>(multiplier) +
-                                ((float_value >= 0) ? 0.5 : -0.5)));
+                    // The original integer part must fit even when floating scaling rounds
+                    // an overflowing value down (for example, 10 into decimal(38, 37)).
+                    const auto integral_str = fmt::format("{:.0f}", std::trunc(float_value));
+                    StringParser::ParseResult integral_result;
+                    static_cast<void>(StringParser::string_to_decimal<T::PType>(
+                            integral_str.data(), integral_str.size(), precision, scale,
+                            &integral_result));
+                    if (integral_result != StringParser::PARSE_SUCCESS) {
+                        continue;
+                    }
+                    // Keep the rounding rule independent of the target decimal backing type.
+                    const auto rounded = std::round(static_cast<double>(float_value) *
+                                                    static_cast<double>(multiplier));
+                    // Derive the expected integer through decimal text parsing, independently
+                    // of the cast implementation's floating-to-integer conversion and bounds.
+                    const auto integer_str = fmt::format("{:.0f}", rounded);
+                    StringParser::ParseResult parse_result;
+                    T v {};
+                    v.value = StringParser::string_to_decimal<T::PType>(
+                            integer_str.data(), integer_str.size(), precision, 0, &parse_result);
+                    if (parse_result == StringParser::PARSE_SUCCESS) {
                         data_set.push_back({{float_value}, v});
                         // dbg_str += fmt::format("({:f}, {})|", float_value, dt_to.to_string(v));
 

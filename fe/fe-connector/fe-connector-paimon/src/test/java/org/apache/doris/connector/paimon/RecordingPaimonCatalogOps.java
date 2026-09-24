@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.function.BooleanSupplier;
 
 /**
  * Hand-written recording fake for {@link PaimonCatalogOps} (no Mockito), mirroring the
@@ -90,6 +91,7 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     // ---- T20 E5 MVCC seam: configurable lookup results (no real Snapshot/SnapshotManager) ----
     OptionalLong latestSnapshotId = OptionalLong.empty();
+    BooleanSupplier latestSnapshotAuthentication;
     OptionalLong snapshotIdAtOrBefore = OptionalLong.empty();
     boolean snapshotExists;
     /** The table the metadata layer passed to the most recent MVCC seam call. */
@@ -242,6 +244,9 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
 
     @Override
     public OptionalLong latestSnapshotId(Table table) {
+        if (latestSnapshotAuthentication != null && !latestSnapshotAuthentication.getAsBoolean()) {
+            throw new IllegalStateException("latestSnapshotId called outside authentication");
+        }
         log.add("latestSnapshotId");
         lastMvccTable = table;
         return latestSnapshotId;

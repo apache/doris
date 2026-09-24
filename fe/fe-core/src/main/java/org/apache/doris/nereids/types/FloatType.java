@@ -32,6 +32,14 @@ public class FloatType extends FractionalType {
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // Every binary32 value is exactly representable as binary64. Doris normalizes signed zero
+        // and NaN payloads before DISTINCT and aggregation, and widening preserves those equivalence
+        // classes. Do not include character targets: their formatting can distinguish signed zero.
+        return target instanceof FloatType || target instanceof DoubleType;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return Type.FLOAT;
     }

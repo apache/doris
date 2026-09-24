@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
@@ -97,6 +98,77 @@ class StringArithmeticTest {
 
     private void assertUrlDecodeValue(String encoded, String expected) {
         Expression result = ExpressionEvaluator.INSTANCE.eval(new UrlDecode(new StringLiteral(encoded)));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    @Test
+    void testParseUrlQueryStopsAtFragment() {
+        // The only '?' is inside the fragment, so the url has no query component.
+        assertParseUrlQueryIsNull("http://h/p#f?k=v");
+        assertParseUrlQueryIsNull("http://h/p#f/?#k=v");
+        // The query component starts at the first '?' and ends before the fragment.
+        assertParseUrlQuery("http://h/p?k=1#f&k=2", "k=1");
+        assertParseUrlQuery("http://h/p?a=1&k=2", "a=1&k=2");
+    }
+
+    @Test
+    void testExtractUrlParameterStopsAtFragment() {
+        // The only '?' is inside the fragment, so the url has no parameters.
+        assertExtractUrlParameter("http://h/p#f?k=v", "k", "");
+        // The parameters end before the fragment.
+        assertExtractUrlParameter("http://h/p?k=1#f&k=2", "k", "1");
+        assertExtractUrlParameter("http://h/p?k1=aa&k2=bb#f", "k2", "bb");
+    }
+
+    @Test
+    void testParseUrlStopsAtTheAuthority() {
+        // A ':' in the path is not a port separator, and an '@' in the path is not a
+        // userinfo separator.
+        assertParseUrl("http://example.com/a:b", "HOST", "example.com");
+        assertParseUrlIsNull("http://example.com/a:b", "PORT");
+        assertParseUrl("http://example.com/a:b", "AUTHORITY", "example.com");
+        assertParseUrl("http://example.com/a@b:c", "HOST", "example.com");
+        assertParseUrlIsNull("http://example.com/a@b:c", "USERINFO");
+        // A ':' in the query or the fragment is not a port separator either.
+        assertParseUrlIsNull("http://example.com/p?r=http:8080", "PORT");
+        assertParseUrl("http://example.com#f:1", "HOST", "example.com");
+        assertParseUrlIsNull("http://example.com#f:1", "PORT");
+        assertParseUrl("http://example.com?x=1", "AUTHORITY", "example.com");
+        // A real port and a real userinfo are still returned.
+        assertParseUrl("http://user:pass@example.com:80/a:b", "HOST", "example.com");
+        assertParseUrl("http://user:pass@example.com:80/a:b", "PORT", "80");
+        assertParseUrl("http://user:pass@example.com:80/a:b", "USERINFO", "user:pass");
+        assertParseUrl("http://user:pass@example.com:80/a:b", "AUTHORITY",
+                "user:pass@example.com:80");
+    }
+
+    private void assertParseUrl(String url, String part, String expected) {
+        Expression result = StringArithmetic.parseurl(
+                new StringLiteral(url), new StringLiteral(part));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    private void assertParseUrlIsNull(String url, String part) {
+        Expression result = StringArithmetic.parseurl(
+                new StringLiteral(url), new StringLiteral(part));
+        Assertions.assertTrue(result instanceof NullLiteral, url + " " + part);
+    }
+
+    private void assertParseUrlQuery(String url, String expected) {
+        Expression result = StringArithmetic.parseurl(
+                new StringLiteral(url), new StringLiteral("QUERY"));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    private void assertParseUrlQueryIsNull(String url) {
+        Expression result = StringArithmetic.parseurl(
+                new StringLiteral(url), new StringLiteral("QUERY"));
+        Assertions.assertTrue(result instanceof NullLiteral, url);
+    }
+
+    private void assertExtractUrlParameter(String url, String parameter, String expected) {
+        Expression result = StringArithmetic.extractUrlParameter(
+                new StringLiteral(url), new StringLiteral(parameter));
         Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
     }
 }

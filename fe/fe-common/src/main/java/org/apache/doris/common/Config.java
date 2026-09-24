@@ -758,7 +758,9 @@ public class Config extends ConfigBase {
             + "Set long enough to fit your tablet size.")
     public static long check_consistency_default_timeout_second = 600; // 10 min
 
-    @ConfField(description = "Maximum number of MySQL server connections per FE.")
+    @ConfField(description = "Maximum number of connections per FE. MySQL connections and Arrow Flight SQL "
+            + "sessions share this one pool (see arrow_flight_max_connections for the share Flight sessions "
+            + "may take of it: half by default).")
     public static int qe_max_connection = 1024;
 
     @ConfField(mutable = true, description = "Colocate join PlanFragment instance memory limit penalty factor. The "
@@ -2008,9 +2010,11 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+    // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
+    public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2300,6 +2304,42 @@ public class Config extends ConfigBase {
                     + "metadata caches in NereidsSortedPartitionsCacheManager, and to accelerate partition "
                     + "pruning.")
     public static int cache_partition_meta_table_manage_num = 100;
+
+    @ConfField(
+            mutable = true,
+            callback = NonNegativeMtmvCacheNumConfHandler.class,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Max mtmv plan cache entries kept by MTMVCacheManager. 0 disables the cache, "
+                    + "negative values are rejected. Default 3000.")
+    public static int mtmv_cache_manage_num = 3000;
+
+    public static class NonNegativeMtmvCacheNumConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0) {
+                throw new ConfigException(field.getName() + " must not be negative, 0 disables the cache");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static void validateMtmvCacheConfig() throws ConfigException {
+        if (mtmv_cache_manage_num < 0) {
+            throw new ConfigException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
+        }
+    }
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Idle expiration in seconds for entries in MTMVCacheManager. Default 86400.")
+    public static long expire_mtmv_cache_in_fe_second = 86400;
+
+    @ConfField(
+            mutable = true,
+            description = "Row cap for SHOW PROC '/mtmv_cache/hot'. Default 500.")
+    public static int mtmv_cache_hot_show_num = 500;
 
     /**
      * HBO plan stats. cache number which can be reused for the next query.
@@ -2648,16 +2688,35 @@ public class Config extends ConfigBase {
             + "automatically. Set to 0 or negative value to disable " + "this limit for user-specified buckets.")
     public static int max_bucket_num_per_partition = 768;
 
-    @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
-    public static int arrow_flight_max_connections = 4096;
+    @ConfField(description = "Arrow Flight SQL sessions share the one connection pool with MySQL connections:"
+            + " both count against qe_max_connection and the user's max_user_connections. This is the sub-quota of"
+            + " Arrow Flight SQL sessions within that pool: -1 (the default) is half of qe_max_connection (512 with"
+            + " the default pool of 1024), and an explicit value never exceeds qe_max_connection (a larger one is"
+            + " capped, with a warning at startup). A session that does not fit is refused when it is opened, at"
+            + " the handshake that authenticates the user, in the words a MySQL client is refused in. A Flight"
+            + " session ends with CloseSession, a KILL CONNECTION from another connection, or wait_timeout, and"
+            + " its bearer token is valid exactly as long as it. A client that closes without CloseSession (the"
+            + " ADBC drivers send it; the Flight SQL JDBC driver only for a connection opened with a catalog) or"
+            + " that died leaves its session in the pool until wait_timeout (8 hours by default; lower it,"
+            + " globally or for the session, to reclaim such sessions sooner), and the default leaves the other"
+            + " half of the pool to MySQL connections however many such sessions there are. Raise it with"
+            + " qe_max_connection, or set it to qe_max_connection on an FE that serves Arrow Flight SQL only."
+            + " A client that authenticates again for each connection it opens to fetch a result (the Flight SQL"
+            + " JDBC driver before 15.0.0; later versions reuse the token) opens a session each time, which"
+            + " stays until wait_timeout as well. -1 is accepted from this version on: an older FE that serves"
+            + " Arrow Flight SQL exits at startup with -1 in fe.conf; remove the setting or set a positive value"
+            + " before a downgrade.")
+    public static int arrow_flight_max_connections = -1;
 
     @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
             + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
             + "while the client pulls the results (DoGet); that coordinator is normally released when the "
             + "session runs its next query or is closed. Most Flight clients never close a session, so the "
             + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
-            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
-            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "would otherwise stay held until wait_timeout. Once this many seconds have passed since the query "
+            + "started and the session is not running a statement, the coordinator is released anyway; each "
+            + "such query is bounded on its own, and the session's other commands in the meantime (a session "
+            + "option, a metadata request) neither release it earlier nor keep it longer. The bound is never "
             + "shorter than the query's own execution timeout, and the session itself is not killed "
             + "(wait_timeout still governs that). 0 disables the bound.")
     public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
@@ -2675,14 +2734,31 @@ public class Config extends ConfigBase {
             + "an abnormal case and triggers an alert.")
     public static double autobucket_out_of_bounds_percent_threshold = 0.5;
 
-    @ConfField(description = "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user "
-            + "tokens in Arrow Flight Server, which will be eliminated by LRU rules after exceeding "
-            + "the limit. Arrow Flight SQL is a stateless protocol; the connection is usually not "
-            + "actively disconnected. A bearer token evicted from the cache will unregister its " + "ConnectContext.")
+    /**
+     * @deprecated No-op: a bearer token of the Arrow Flight SQL server is the credential of exactly one
+     *     session and lives as long as it, so there is no token cache to size; the sessions are bounded by
+     *     the connection pool (qe_max_connection, arrow_flight_max_connections, max_user_connections).
+     *     Retained for one release so operator fe.conf that sets it still parses (a value other than the
+     *     default is reported at startup); will be removed later.
+     */
+    @Deprecated
+    @ConfField(description = "Deprecated and not read: a bearer token of the Arrow Flight SQL server is the"
+            + " credential of exactly one session and lives as long as it (see arrow_flight_max_connections for"
+            + " what bounds the sessions). Kept so that a fe.conf setting it still parses; it will be removed in"
+            + " a later release.")
     public static int arrow_flight_token_cache_size = 4096;
 
-    @ConfField(description = "The alive time of the user token in Arrow Flight Server (expire after write), in "
-            + "seconds. The default value is 86400, which is 1 day.")
+    /**
+     * @deprecated No-op: a bearer token of the Arrow Flight SQL server lives exactly as long as its session,
+     *     which ends with CloseSession, KILL CONNECTION or wait_timeout; there is no expiry of its own.
+     *     Retained for one release so operator fe.conf that sets it still parses (a value other than the
+     *     default is reported at startup); will be removed later.
+     */
+    @Deprecated
+    @ConfField(description = "Deprecated and not read: a bearer token of the Arrow Flight SQL server lives"
+            + " exactly as long as its session, which ends with CloseSession, KILL CONNECTION or wait_timeout"
+            + " (see arrow_flight_max_connections). Kept so that a fe.conf setting it still parses; it will be"
+            + " removed in a later release.")
     public static int arrow_flight_token_alive_time_second = 86400;
 
     @ConfField(mutable = true, description = "To ensure compatibility with the MySQL ecosystem, Doris includes a "
@@ -2708,6 +2784,10 @@ public class Config extends ConfigBase {
             + "and use of Python UDF is disabled. In some scenarios it may be necessary to disable "
             + "this configuration to prevent command injection attacks.")
     public static boolean enable_python_udf = true;
+
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
 
     @ConfField(description = "Whether to ignore unknown modules in Image file. If true, metadata modules not in "
             + "PersistMetaModules.MODULE_NAMES will be ignored and skipped. Default is false, if Image "
@@ -2789,9 +2869,6 @@ public class Config extends ConfigBase {
             + "Doris SQL `select password('root@123')` to generate encrypted "
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
-
-    @ConfField(description = "The path of the nereids trace file.")
-    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
@@ -2969,9 +3046,6 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
-
-    @ConfField
-    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
 
     // The max number of profiles that can be stored to storage.
     @ConfField
@@ -3601,8 +3675,8 @@ public class Config extends ConfigBase {
     public static int tso_max_get_retry_count = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = "TSO service time window in milliseconds. Default is "
-            + "5000, which means the TSO service will apply for a " + "TSO time window of 5000ms from BDBJE once.")
-    public static int tso_service_window_duration_ms = 5000;
+            + "1000. Persist the readable committed TSO together with the reserved allocation window.")
+    public static int tso_service_window_duration_ms = 1000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Max tolerated clock backward threshold during TSO "
             + "calibration in milliseconds. Exceeding this " + "threshold will fail enabling TSO. Default is 30 "

@@ -70,6 +70,7 @@
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 #include "storage/segment/variant_stats_calculator.h"
 #include "storage/storage_engine.h"
@@ -121,7 +122,6 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
-    meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
     if (column.has_path_info()) {
@@ -191,6 +191,13 @@ Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,
     opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
+        if (inverted_indexs.empty() && column.is_extracted_column() &&
+            _opts.rowset_ctx != nullptr) {
+            // A variant subcolumn that compaction materialized carries its indexes only in the
+            // compaction path layout, never on the output schema.
+            inverted_indexs = variant_subcolumn_indexes(
+                    _opts.rowset_ctx->variant_compaction_paths.get(), column);
+        }
         // SNII splits index compaction per (column, index): indexes in the set
         // are produced by the postings merge, every sibling on the column still
         // raw-builds here. V2/V3 skip whole columns above instead.

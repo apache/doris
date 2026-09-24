@@ -524,4 +524,46 @@ suite("null_column_pruning") {
     }
 
     order_qt_34 "select 1 from ncp_tbl where length(str_col) = 0 or str_col is null";
+
+    // ─── Struct fields literally named `null` / `offset` ───────────────────────
+    // The field names collide with the NULL/OFFSET metadata components. The typed
+    // DATA/META protocol must keep routing them as data fields, so projections and
+    // predicates on these fields return real data instead of pruned defaults.
+    sql """ DROP TABLE IF EXISTS ncp_meta_name_tbl """
+    sql """
+        CREATE TABLE ncp_meta_name_tbl (
+            id  INT,
+            s   STRUCT<`null`: STRING, `offset`: STRING> NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        INSERT INTO ncp_meta_name_tbl VALUES
+            (1, named_struct('null', 'n1', 'offset', 'off1')),
+            (2, named_struct('null', null, 'offset', 'longer_offset')),
+            (3, named_struct('null', 'n3', 'offset', null)),
+            (4, null)
+    """
+
+    explain {
+        sql "select length(element_at(s, 'offset')) from ncp_meta_name_tbl"
+        contains "nested columns"
+        contains "s.offset.OFFSET"
+    }
+    order_qt_35 "select id, length(element_at(s, 'offset')) from ncp_meta_name_tbl"
+
+    order_qt_36 "select id, element_at(s, 'null'), element_at(s, 'offset') from ncp_meta_name_tbl"
+
+    explain {
+        sql "select 1 from ncp_meta_name_tbl where element_at(s, 'null') is null"
+        contains "nested columns"
+        contains "s.null.NULL"
+    }
+    order_qt_37 "select id from ncp_meta_name_tbl where element_at(s, 'null') is null"
+
+    order_qt_38 "select id from ncp_meta_name_tbl where element_at(s, 'offset') is not null"
+
+    order_qt_39 "select id, s is null, element_at(s, 'offset') from ncp_meta_name_tbl where s is not null"
 }

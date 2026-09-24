@@ -846,8 +846,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
     if (context.write_binlog_opt().enable) {
-        context.write_binlog_opt().set_need_before(
-                tablet_meta()->binlog_config().need_historical_value());
+        context.write_binlog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.persist_inverted_index_storage_format =
@@ -891,8 +890,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.is_transient_rowset_writer = true;
     if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_row_binlog()) {
         context.write_binlog_opt().enable = true;
-        context.write_binlog_opt().set_need_before(
-                tablet_meta()->binlog_config().need_historical_value());
+        context.write_binlog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();
@@ -1577,6 +1575,7 @@ Status CloudTablet::sync_meta() {
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
+    auto new_binlog_config = tablet_meta->binlog_config();
 
     {
         std::unique_lock wlock(_meta_lock);
@@ -1621,8 +1620,12 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_vertical_compaction_num_columns_per_group(
                     new_vertical_compaction_num_columns_per_group);
         }
+        if (_tablet_meta->binlog_config() != new_binlog_config) {
+            _tablet_meta->set_binlog_config(new_binlog_config);
+        }
     }
 
+    last_sync_tablet_meta_time_s = ::time(nullptr);
     return Status::OK();
 }
 
@@ -1978,7 +1981,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                     continue;
                 }
 
-                int64_t expiration_time = _tablet_meta->ttl_seconds();
+                int64_t expiration_time = _tablet_meta->file_cache_ttl_expiration_time();
                 g_file_cache_cloud_tablet_submitted_segment_num << 1;
                 if (seg.file_size() > 0) {
                     g_file_cache_cloud_tablet_submitted_segment_size << seg.file_size();

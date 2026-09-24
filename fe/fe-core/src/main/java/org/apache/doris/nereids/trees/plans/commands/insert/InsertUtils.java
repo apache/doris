@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
@@ -543,7 +544,7 @@ public class InsertUtils {
                     if (expr.child(0).getDataType() instanceof AggStateType) {
                         expr = ConvertAggStateCast.convert((Cast) expr);
                     } else {
-                        expr = FoldConstantRuleOnFE.evaluate(expr, context);
+                        expr = foldConstantAfterBind(expr, context);
                     }
                 }
                 return expr;
@@ -620,9 +621,15 @@ public class InsertUtils {
             );
             value = rewriteContext == null
                     ? value
-                    : (NamedExpression) FoldConstantRuleOnFE.evaluate(value, rewriteContext);
+                    : (NamedExpression) foldConstantAfterBind(value, rewriteContext);
         }
         optimizedRowConstructor.add(value);
+    }
+
+    private static Expression foldConstantAfterBind(
+            Expression expression, ExpressionRewriteContext rewriteContext) {
+        return MoreFieldsThread.keepFunctionSignature(
+                () -> FoldConstantRuleOnFE.evaluate(expression, rewriteContext));
     }
 
     private static NamedExpression castValue(Expression value, DataType targetType) {

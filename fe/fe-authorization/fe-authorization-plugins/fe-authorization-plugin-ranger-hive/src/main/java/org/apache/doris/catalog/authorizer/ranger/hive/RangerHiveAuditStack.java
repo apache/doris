@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
  * <p>Bundled because the three are one lifetime - the handler is configured out of the plugin and the task
  * exists to drain the handler - and because that lifetime is not a binding's. A catalog bound to this source
  * is detached and re-attached by a plain {@code ALTER CATALOG}, and tearing a stack down between those two
- * costs a {@code cleanup()} on the DDL thread and two synchronous REST calls to the Ranger admin on the way
+ * costs a {@code cleanup()} on the DDL thread and three synchronous REST calls to the Ranger admin on the way
  * back up. So {@link RangerHiveAccessControllerFactory} keeps one stack per Ranger service, hands it to
  * every controller reading that service, and stops it only once nothing has read it for a while - while a
  * controller built directly, a test or an embedding that owns its own, starts and stops one of its own.

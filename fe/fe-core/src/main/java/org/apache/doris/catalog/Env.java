@@ -155,6 +155,7 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVCacheManager;
 import org.apache.doris.mtmv.MTMVPartitionExprFactory;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -590,6 +591,8 @@ public class Env {
 
     private final NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager;
 
+    private final MTMVCacheManager mtmvCacheManager;
+
     private final SplitSourceManager splitSourceManager;
 
     private final GlobalExternalTransactionInfoMgr globalExternalTransactionInfoMgr;
@@ -888,6 +891,7 @@ public class Env {
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
+        this.mtmvCacheManager = new MTMVCacheManager();
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
@@ -2115,7 +2119,7 @@ public class Env {
         splitSourceManager.start();
     }
 
-    private void transferToNonMaster(FrontendNodeType newType) {
+    private boolean transferToNonMaster(FrontendNodeType newType) {
         isReady.set(false);
 
         try {
@@ -2125,7 +2129,7 @@ public class Env {
                 // not set canRead here, leave canRead as what is was.
                 // if meta out of date, canRead will be set to false in replayer thread.
                 metaReplayState.setTransferToUnknown();
-                return;
+                return true;
             }
 
             // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
@@ -2137,8 +2141,11 @@ public class Env {
 
             // 'isReady' will be set to true in 'setCanRead()' method
             if (!postProcessAfterMetadataReplayed(true)) {
-                // the state has changed, exit early.
-                return;
+                // A newer BDB state is already waiting in typeTransferQueue. Abort this stale transition so the
+                // state listener can process the newer state instead of waiting indefinitely for this node to
+                // become ready as a non-master. The caller must not publish newType to feType in this case:
+                // none of the non-master initialization below, including MetricRepo.init(), has completed yet.
+                return false;
             }
 
             checkLowerCaseTableNames();
@@ -2155,11 +2162,13 @@ public class Env {
                 followerColumnSender = new FollowerColumnSender();
                 followerColumnSender.start();
             }
+            return true;
         } catch (Throwable e) {
             // When failed to transfer to non-master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
+            return false;
         }
     }
 
@@ -3279,6 +3288,8 @@ public class Env {
                         return;
                     }
 
+                    boolean transferCompleted = true;
+
                     /*
                      * INIT -> MASTER: transferToMaster
                      * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
@@ -3296,7 +3307,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 case UNKNOWN:
@@ -3314,7 +3325,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3329,7 +3340,7 @@ public class Env {
                                     break;
                                 }
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3340,7 +3351,7 @@ public class Env {
                         case OBSERVER: {
                             switch (newType) {
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3360,6 +3371,17 @@ public class Env {
                             break;
                     } // end switch formerFeType
 
+                    if (!transferCompleted) {
+                        // feType represents the last fully initialized FE state, not merely the latest state
+                        // reported by BDB. A non-master transition can be interrupted when a newer BDB state is
+                        // queued while it waits for metadata to become ready. Committing newType after that early
+                        // return would make a repeated FOLLOWER/OBSERVER event look redundant and skip the
+                        // incomplete initialization permanently. Keep the previous committed state so the queued
+                        // event is evaluated against the state that was actually initialized and can retry the
+                        // transition or take a different path.
+                        LOG.info("skip committing incomplete FE type transfer from {} to {}", feType, newType);
+                        continue;
+                    }
                     feType = newType;
                     LOG.info("finished to transfer FE type to {}", feType);
                 }
@@ -4381,7 +4403,7 @@ public class Env {
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
             if (table.isManagedTable()) {
                 sb.append("  ").append(
-                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, true));
             } else {
                 sb.append("  ").append(column.toSql());
             }
@@ -7690,6 +7712,10 @@ public class Env {
 
     public NereidsSqlCacheManager getSqlCacheManager() {
         return sqlCacheManager;
+    }
+
+    public MTMVCacheManager getMtmvCacheManager() {
+        return mtmvCacheManager;
     }
 
     public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {

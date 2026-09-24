@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -51,6 +52,7 @@ import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -71,6 +73,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.jupiter.api.AfterEach;
@@ -141,23 +144,6 @@ public class MTMVTaskTest {
     public void tearDown() {
         mtmvUtilStatic.close();
         mtmvPartitionUtilStatic.close();
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException, JobException {
-        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(allPartitionNames, result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException, JobException {
-        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
-                RefreshMode.AUTO);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(Lists.newArrayList(poneName), result);
     }
 
     @Test
@@ -245,21 +231,173 @@ public class MTMVTaskTest {
         Assertions.assertEquals(Lists.newArrayList("PARTITIONS"), toNames(attempts));
     }
 
+    @Test
+    public void testBuildAttemptsGoesStraightToCompleteWhenTheStreamIsUnusable() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        Mockito.when(mtmv.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        // The MV's database holds no stream for the base table.
+        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+        MTMVTask task = new MTMVTask(mtmv, relationWithOneBaseTable(), MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // Neither the incremental rewrite nor a partition refresh can read a stream that is not there,
+        // and the IVM attempt would be rejected while a baseline barrier is pending, so the refresh goes
+        // to the only attempt that reconciles the streams.
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(IvmFailureReason.STREAM_UNSUPPORTED.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    @Test
+    public void testBuildAttemptsKeepsTheChainWhenTheStreamsAreUsable() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmv.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        Mockito.when(stream.getBaseTableFullQualifiers())
+                .thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        Mockito.when(stream.isDisabled()).thenReturn(false);
+        Mockito.when(stream.isStale()).thenReturn(false);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(mtmv);
+        Database mvDb = Mockito.mock(Database.class);
+        Mockito.when(mvDb.getTableNullable(Mockito.anyString())).thenReturn(stream);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+        MTMVTask task = new MTMVTask(mtmv, relationWithOneBaseTable(), MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // A usable stream is not a reason to refresh more than the request asked for.
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsIgnoresAStreamOnlyTheClosureCarries() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        // The MV of a chain reads the upstream MV, and the upstream's own base table is in the relation
+        // only because the closure carries it: (t1) => upstream => mv.
+        OlapTable upstream = Mockito.mock(OlapTable.class);
+        Mockito.when(upstream.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "upstream"));
+        OlapTable grandParent = Mockito.mock(OlapTable.class);
+        Mockito.when(grandParent.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        BaseTableInfo upstreamInfo = Mockito.mock(BaseTableInfo.class);
+        BaseTableInfo grandParentInfo = Mockito.mock(BaseTableInfo.class);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(upstreamInfo)).thenReturn(upstream);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(grandParentInfo)).thenReturn(grandParent);
+        // The upstream's stream is there, the grandparent's is not.
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        Mockito.when(stream.getBaseTableFullQualifiers())
+                .thenReturn(Lists.newArrayList("internal", "db", "upstream"));
+        Mockito.when(stream.isDisabled()).thenReturn(false);
+        Mockito.when(stream.isStale()).thenReturn(false);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(upstream);
+        Database mvDb = Mockito.mock(Database.class);
+        Mockito.when(mvDb.getTableNullable(IvmUtil.streamName(7L, upstream.getFullQualifiers())))
+                .thenReturn(stream);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        MTMVRelation chainedRelation = new MTMVRelation(Sets.newHashSet(upstreamInfo, grandParentInfo),
+                Sets.newHashSet(upstreamInfo), Sets.newHashSet(upstreamInfo), Sets.newHashSet(),
+                Sets.newHashSet());
+
+        MTMVTask task = new MTMVTask(mtmv, chainedRelation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // No rewrite reads the grandparent's stream, so its absence is no reason to rebuild the MV.
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    @Test
+    public void testPartitionRefreshChecksOnlyTheStreamsItsPartitionsRead() throws Exception {
+        // t1 UNION ALL t2, both PCT tables of the MV, each backing one of its partitions. Refreshing the
+        // t1-backed partition reads t1's stream and leaves t2 to an ordinary scan, so t2's stream is not
+        // part of this refresh and its absence must not send it to COMPLETE.
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        OlapTable t1 = mockBaseTable("t1");
+        OlapTable t2 = mockBaseTable("t2");
+        BaseTableInfo t1Info = Mockito.mock(BaseTableInfo.class);
+        BaseTableInfo t2Info = Mockito.mock(BaseTableInfo.class);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t1Info)).thenReturn(t1);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t2Info)).thenReturn(t2);
+        OlapTableStream t1Stream = usableStreamFor(t1);
+        Database mvDb = Mockito.mock(Database.class);
+        Mockito.when(mvDb.getTableNullable(IvmUtil.streamName(7L, t1.getFullQualifiers())))
+                .thenReturn(t1Stream);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        Mockito.when(mtmvPartitionInfo.getPctInfos()).thenReturn(Lists.newArrayList(
+                new BaseColInfo("dt", t1Info), new BaseColInfo("dt", t2Info)));
+
+        // The partition this refresh plans reads t1, and t2 keeps its place in the plan as a plain scan.
+        Map<MTMVRelatedTableIf, Set<String>> mapping = Maps.newHashMap();
+        mapping.put(t1, Sets.newHashSet("p1"));
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(context.getByPartitionName(Mockito.anyString())).thenReturn(mapping);
+
+        MTMVRelation relation = new MTMVRelation(Sets.newHashSet(t1Info, t2Info), Sets.newHashSet(t1Info, t2Info),
+                Sets.newHashSet(t1Info, t2Info), Sets.newHashSet(), Sets.newHashSet());
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        Assertions.assertFalse((Boolean) Deencapsulation.invoke(task, "hasUnusableIvmStreamForPartitions",
+                context, Lists.newArrayList("p_t1")));
+
+        // Once a refreshed partition's mapping names t2, its stream is read, and its absence decides.
+        mapping.put(t2, Sets.newHashSet("p2"));
+        Assertions.assertTrue((Boolean) Deencapsulation.invoke(task, "hasUnusableIvmStreamForPartitions",
+                context, Lists.newArrayList("p_t1")));
+    }
+
+    private OlapTable mockBaseTable(String name) {
+        OlapTable baseTable = Mockito.mock(OlapTable.class);
+        Mockito.when(baseTable.getName()).thenReturn(name);
+        Mockito.when(baseTable.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", name));
+        return baseTable;
+    }
+
+    /** A stream that {@code IvmUtil.isIvmStreamUsable} accepts for the given base table. */
+    private OlapTableStream usableStreamFor(OlapTable baseTable) {
+        List<String> qualifiers = baseTable.getFullQualifiers();
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        Mockito.when(stream.getBaseTableFullQualifiers()).thenReturn(qualifiers);
+        Mockito.when(stream.isDisabled()).thenReturn(false);
+        Mockito.when(stream.isStale()).thenReturn(false);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(baseTable);
+        return stream;
+    }
+
+    private MTMVRelation relationWithOneBaseTable() {
+        BaseTableInfo baseTable = Mockito.mock(BaseTableInfo.class);
+        // A table of the query is in the plan, in the first level of the query, and in the closure.
+        return new MTMVRelation(Sets.newHashSet(baseTable), Sets.newHashSet(baseTable),
+                Sets.newHashSet(baseTable), Sets.newHashSet(), Sets.newHashSet());
+    }
+
     private static List<String> toNames(List<?> attempts) {
         List<String> names = Lists.newArrayList();
         for (Object attempt : attempts) {
             names.add(String.valueOf(attempt));
         }
         return names;
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException, JobException {
-        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertTrue(CollectionUtils.isEmpty(result));
     }
 
     @Test
@@ -274,63 +412,6 @@ public class MTMVTaskTest {
 
         Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
         Assertions.assertTrue(CollectionUtils.isEmpty(Deencapsulation.getField(plan, "partitions")));
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException, JobException {
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(allPartitionNames, result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException, JobException {
-        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
-
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-
-        Assertions.assertTrue(CollectionUtils.isEmpty(result));
-        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.isMTMVSync(
-                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)));
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
-            throws AnalysisException, JobException {
-        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
-
-        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
-                RefreshMode.PARTITIONS, false, null);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-
-        Assertions.assertEquals(Lists.newArrayList(poneName), result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException, JobException {
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(allPartitionNames, result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemNotSyncAuto() throws AnalysisException, JobException {
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
-
-        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class))).thenReturn(Lists.newArrayList(ptwoName));
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(Lists.newArrayList(ptwoName), result);
     }
 
     @Test
@@ -378,14 +459,14 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testMvDefaultUnknownRefreshMethodRejected() throws AnalysisException {
+    public void testMvDefaultUnknownRefreshMethodRejected() {
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(null);
         MTMVTaskContext context = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
 
         JobException exception = Assertions.assertThrows(JobException.class,
-                () -> task.calculateNeedRefreshPartitions(null));
+                () -> Deencapsulation.invoke(task, "resolveRefreshRequest"));
 
         Assertions.assertTrue(exception.getMessage().contains("unknown refresh method"));
     }
@@ -895,6 +976,95 @@ public class MTMVTaskTest {
         // The barrier is released by the caller once the reshaped attempts have run.
         Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
     }
+
+    @Test
+    public void testPendingBaselineRebuildChecksTheStreamsItsPartitionsRead() throws Exception {
+        // A partial barrier left by an earlier failed refresh. The pre-step rebuilds those partitions
+        // before the attempts run, and that rebuild reads their streams, so a stream missing for them
+        // decides the request just as it does for the partition attempt -- and PARTITIONS FALLBACK
+        // reaches this pre-step without an IVM attempt for buildAttempts to have judged.
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.addPendingBaselineRebuildPartitions(Sets.newHashSet(poneName));
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        OlapTable t1 = mockBaseTable("t1");
+        BaseTableInfo t1Info = Mockito.mock(BaseTableInfo.class);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t1Info)).thenReturn(t1);
+        // t1 is not a PCT table, so every partition this rebuild refreshes reads it through its stream,
+        // and the MV's database holds no stream for it.
+        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(context.getByPartitionName(Mockito.anyString())).thenReturn(Maps.newHashMap());
+
+        MTMVRelation relation = new MTMVRelation(Sets.newHashSet(t1Info), Sets.newHashSet(t1Info),
+                Sets.newHashSet(t1Info), Sets.newHashSet(), Sets.newHashSet());
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<Object> attempts = Lists.newArrayList();
+        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
+
+        try {
+            Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild", context, request,
+                    new ConnectContext(), attempts);
+        } catch (Exception expected) {
+            // Without the stream check the pre-step rebuilds inline, and how far that rebuild gets
+            // against these mocks is not what this test is about; the attempts it leaves behind are.
+        }
+
+        // The rebuild that cannot read its streams is skipped rather than attempted: its own barrier
+        // would have guarded nothing but the data it never wrote, and the COMPLETE attempt left in the
+        // list reconciles the stream and clears the barrier that is already pending.
+        Assertions.assertEquals("[COMPLETE]", attempts.toString());
+        Assertions.assertEquals(IvmFailureReason.STREAM_UNSUPPORTED.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+        Mockito.verify(mtmv, Mockito.never()).persistIvmBaselineGuard(Mockito.any(), Mockito.anySet(),
+                Mockito.anyLong());
+        Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
+
+        // The same rebuild without fallback is not covered by a COMPLETE attempt, so it fails here
+        // rather than starting a rebuild that cannot read its streams.
+        MTMVTask strictTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
+        Object strictRequest = Deencapsulation.invoke(strictTask, "resolveRefreshRequest");
+        List<Object> strictAttempts = Lists.newArrayList();
+        strictAttempts.addAll(Deencapsulation.invoke(strictTask, "buildAttempts", strictRequest, false));
+        Assertions.assertEquals("[PARTITIONS]", strictAttempts.toString());
+
+        JobException exception = Assertions.assertThrows(JobException.class,
+                () -> Deencapsulation.invoke(strictTask, "handlePendingIvmBaselineRebuild", context,
+                        strictRequest, new ConnectContext(), strictAttempts));
+
+        Assertions.assertTrue(exception.getMessage().contains("IVM stream is unusable"));
+    }
+
+    @Test
+    public void testCompleteAttemptWritesTheBarrierBeforeReconcilingStreams() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName));
+        // The reconcile starts from the MV's database, which is what makes it visible to the order check.
+        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        InOrder inOrder = Mockito.inOrder(mtmv);
+
+        try {
+            Deencapsulation.invoke(task, "executeCompleteAttempt",
+                    Mockito.mock(MTMVRefreshContext.class), new ConnectContext());
+        } catch (Exception expected) {
+            // How far the rebuild itself gets is not what this test is about.
+        }
+
+        // A recreated stream starts from the base table's current rows, so the barrier that makes the
+        // next refresh rebuild the MV has to be durable before the stream is replaced. The other order
+        // loses those rows with no error anywhere.
+        inOrder.verify(mtmv).persistIvmBaselineGuard(Mockito.any(), Mockito.anySet(), Mockito.anyLong());
+        inOrder.verify(mtmv).getDatabase();
+    }
+
 
     @Test
     public void testDroppedBaselinePartitionsReleaseBarrierWithoutRebuild() throws Exception {

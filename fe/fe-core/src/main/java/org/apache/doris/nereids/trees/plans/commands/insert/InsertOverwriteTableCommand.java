@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -176,6 +177,13 @@ public class InsertOverwriteTableCommand extends Command
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         LineageInfoExtractor.registerAnalyzePlanHook(ctx.getStatementContext(), planner);
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        // This plan only locates the sink and the partitions; the insert below plans again and runs
+        // that plan. No coordinator ever takes this one, so what its scan nodes opened for the
+        // backend while planning (a remote Doris scan's Flight SQL session on the other frontend, a
+        // batch split source) is released here, before the real insert opens its own.
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            scanNode.stop();
+        }
         Plan analyzedPlan = planner.getAnalyzedPlan();
         lineagePlan = Optional.ofNullable(analyzedPlan);
         executor.checkBlockRules();

@@ -17,8 +17,10 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.rest.exceptions.ForbiddenException;
 import org.apache.paimon.rest.exceptions.NotImplementedException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -58,5 +60,23 @@ class PaimonRestCatalogPartitionsTest {
                 () -> manifestPartitions);
 
         Assertions.assertSame(manifestPartitions, result);
+    }
+
+    @Test
+    void forbiddenEndpointDoesNotFallBackToFilesystem() {
+        AtomicBoolean fallbackCalled = new AtomicBoolean();
+
+        Assertions.assertThrows(Catalog.TableNoPermissionException.class,
+                () -> PaimonRestCatalogPartitions.listPartitions(
+                        identifier -> {
+                            throw new ForbiddenException("forbidden");
+                        },
+                        TABLE,
+                        () -> {
+                            fallbackCalled.set(true);
+                            return Collections.emptyList();
+                        }));
+
+        Assertions.assertFalse(fallbackCalled.get());
     }
 }

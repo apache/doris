@@ -727,33 +727,6 @@ public:
         TabletIndexes indexes;
     };
 
-    // all path in path_set_info are relative to the parent column
-    struct PathsSetInfo {
-        std::unordered_map<std::string, SubColumnInfo> typed_path_set;    // typed columns
-        std::unordered_map<std::string, TabletIndexes> subcolumn_indexes; // subcolumns indexes
-        PathSet sub_path_set;                                             // extracted columns
-        PathSet sparse_path_set;                                          // sparse columns
-
-        // "Materialized regular path" means compaction chose to store this path as a dedicated
-        // column in the schema, either typed or extracted, instead of re-emitting it dynamically.
-        bool contains_materialized_regular_path(const std::string& path) const {
-            return typed_path_set.contains(path) || sub_path_set.contains(path);
-        }
-    };
-
-    void set_path_set_info(std::unordered_map<int32_t, PathsSetInfo>&& path_set_info_map) {
-        _path_set_info_map = std::move(path_set_info_map);
-    }
-
-    const PathsSetInfo& path_set_info(int32_t unique_id) const {
-        return _path_set_info_map.at(unique_id);
-    }
-
-    const PathsSetInfo* try_path_set_info(int32_t unique_id) const {
-        auto it = _path_set_info_map.find(unique_id);
-        return it == _path_set_info_map.end() ? nullptr : &it->second;
-    }
-
     bool need_record_variant_extended_schema() const { return variant_max_subcolumns_count() == 0; }
 
     int32_t variant_max_subcolumns_count() const {
@@ -850,9 +823,6 @@ private:
     bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
-
-    // value: extracted path set and sparse path set
-    std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;
 
     // key: field_pattern
     // value: indexes

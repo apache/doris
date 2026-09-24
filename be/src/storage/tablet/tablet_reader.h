@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -44,6 +45,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_reader_context.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 
@@ -87,8 +89,8 @@ inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
 
 class TabletReader {
     struct KeysParam {
-        std::vector<RowCursor> start_keys;
-        std::vector<RowCursor> end_keys;
+        std::vector<std::optional<RowCursor>> start_keys;
+        std::vector<std::optional<RowCursor>> end_keys;
         bool start_key_include = false;
         bool end_key_include = false;
     };
@@ -126,6 +128,8 @@ public:
 
         BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
+        // Set only by compaction, alongside its extended tablet_schema.
+        VariantCompactionPathsSPtr variant_compaction_paths = nullptr;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool read_row_binlog = false;
         bool direct_mode = false;
@@ -135,8 +139,9 @@ public:
         bool use_page_cache = false;
         Version version = Version(-1, 0);
 
-        std::vector<OlapTuple> start_key;
-        std::vector<OlapTuple> end_key;
+        // The vectors are range-aligned; nullopt represents an unbounded endpoint.
+        std::vector<std::optional<OlapTuple>> start_key;
+        std::vector<std::optional<OlapTuple>> end_key;
         bool start_key_include = false;
         bool end_key_include = false;
 

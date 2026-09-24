@@ -30,8 +30,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class LazyMaterializeTopNTest {
 
@@ -50,5 +52,33 @@ public class LazyMaterializeTopNTest {
                 materializeMap, ImmutableSet.of(), ImmutableSet.of(baseSlot));
 
         Assertions.assertEquals(ImmutableList.of(aliasSlot), requiredOutputSlots);
+    }
+
+    @Test
+    public void testCollectAliasChainKeepsTheColumnsOrderKeysRead() {
+        SlotReference baseSlot = new SlotReference("base", IntegerType.INSTANCE);
+        Slot aliasSlot = new Alias(baseSlot, "alias").toSlot();
+        Slot aliasOfAliasSlot = new Alias(aliasSlot, "alias_of_alias").toSlot();
+        Map<Slot, Slot> aliasToChild = ImmutableMap.of(aliasOfAliasSlot, aliasSlot, aliasSlot, baseSlot);
+        Set<Slot> requiredMaterializedSlots = new HashSet<>();
+
+        LazyMaterializeTopN.collectAliasChain(aliasOfAliasSlot, aliasToChild, requiredMaterializedSlots);
+
+        Assertions.assertEquals(
+                ImmutableSet.of(aliasOfAliasSlot, aliasSlot, baseSlot), requiredMaterializedSlots);
+    }
+
+    @Test
+    public void testCollectAliasChainStopsOnCycle() {
+        // An alias chain must never keep the planner spinning, even if two slots share one ExprId.
+        SlotReference baseSlot = new SlotReference("base", IntegerType.INSTANCE);
+        Slot firstSlot = new Alias(baseSlot, "first").toSlot();
+        Slot secondSlot = new Alias(baseSlot, "second").toSlot();
+        Map<Slot, Slot> aliasToChild = ImmutableMap.of(firstSlot, secondSlot, secondSlot, firstSlot);
+        Set<Slot> requiredMaterializedSlots = new HashSet<>();
+
+        LazyMaterializeTopN.collectAliasChain(firstSlot, aliasToChild, requiredMaterializedSlots);
+
+        Assertions.assertEquals(ImmutableSet.of(firstSlot, secondSlot), requiredMaterializedSlots);
     }
 }

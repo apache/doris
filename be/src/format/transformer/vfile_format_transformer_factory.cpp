@@ -25,7 +25,7 @@
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vjni_format_transformer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
 namespace doris {
 
@@ -49,8 +49,23 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
         if (tvf_sink.__isset.line_delimiter) {
             writer_params["line_delimiter"] = tvf_sink.line_delimiter;
         }
-        result->reset(new VJniFormatTransformer(state, output_vexpr_ctxs, tvf_sink.writer_class,
-                                                std::move(writer_params)));
+        // writer_class names a plugin factory, not a Java class. A class name stopped being able
+        // to identify a writer when plugins were isolated: a concrete writer lives in its own
+        // plugin's classloader, which BE cannot search by name, so what is addressable is the
+        // plugin directory under plugins/jni and the factory inside it.
+        const std::string& writer = tvf_sink.writer_class;
+        const size_t sep = writer.find(':');
+        if (sep == std::string::npos || sep == 0 || sep + 1 == writer.size()) {
+            return Status::InvalidArgument(
+                    "writer_class must name a plugin factory as \"<plugin>:<factory>\", for "
+                    "example \"java-writer:local-file\", but was \"{}\". A Java class name does "
+                    "not identify a writer: every plugin loads its own classes, so a writer is "
+                    "addressed by its plugin directory under plugins/jni and the factory "
+                    "name inside it.",
+                    writer);
+        }
+        result->reset(new VJniFormatTransformer(state, output_vexpr_ctxs, writer.substr(0, sep),
+                                                writer.substr(sep + 1), std::move(writer_params)));
         return Status::OK();
     }
 
@@ -79,7 +94,7 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
                 parquet_schemas.push_back(schema);
             }
         }
-        result->reset(new VParquetTransformer(
+        result->reset(new VParquetWriter(
                 state, file_writer, output_vexpr_ctxs, parquet_schemas, false,
                 {TParquetCompressionType::SNAPPY, TParquetVersion::PARQUET_1_0, false, false}));
         break;

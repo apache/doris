@@ -92,6 +92,15 @@ public class MTMVPartitionUtil {
             );
 
     /**
+     * Whether a partition_sync_limit is in effect, i.e. whether the windowed mapping leaves base partitions
+     * out. Only that mapping is bounded by the window, so only there does its completeness depend on it.
+     */
+    public static boolean isPartitionSyncLimitActive(Map<String, String> mvProperties) {
+        return MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(mvProperties).getSyncLimit() > 0;
+    }
+
+    /**
      * Determine whether the partition is sync with retated partition and other baseTables
      *
      * @param refreshContext

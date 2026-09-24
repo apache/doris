@@ -17,19 +17,24 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
+import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.DataField;
 
@@ -164,12 +169,9 @@ public interface PaimonCatalogOps {
     boolean branchExists(Table table, String branchName);
 
     /**
-     * Returns the total row count of {@code table} = sum of {@code split.rowCount()} over
-     * {@code table.newReadBuilder().newScan().plan().splits()} (legacy
-     * {@code PaimonExternalTable.fetchRowCount} / {@code PaimonSysExternalTable.fetchRowCount}).
-     * Returns a plain {@code long} (never a paimon {@code Split} list) so the metadata layer's
-     * &gt;0-else-UNKNOWN logic is unit-testable offline with {@code RecordingPaimonCatalogOps}
-     * ({@code FakePaimonTable.newReadBuilder()} throws).
+     * Returns an optimizer estimate from the selected snapshot's unmerged record count, or -1
+     * when snapshot metadata cannot describe the relation. Never plans splits to obtain statistics.
+     * Like the former sum of split row counts, this is not an exact count for primary-key tables.
      */
     long rowCount(Table table);
 
@@ -205,15 +207,42 @@ public interface PaimonCatalogOps {
      * offline without faking a concrete paimon {@code TableSchema}.
      */
     final class PaimonSchemaSnapshot {
+        private final long schemaId;
+        private final String fileDigest;
         private final List<DataField> fields;
         private final List<String> partitionKeys;
         private final List<String> primaryKeys;
 
         public PaimonSchemaSnapshot(List<DataField> fields, List<String> partitionKeys,
                 List<String> primaryKeys) {
+            this(-1L, fields, partitionKeys, primaryKeys);
+        }
+
+        public PaimonSchemaSnapshot(long schemaId, List<DataField> fields, List<String> partitionKeys,
+                List<String> primaryKeys) {
+            this(schemaId, fields, partitionKeys, primaryKeys, null);
+        }
+
+        private PaimonSchemaSnapshot(TableSchema schema) {
+            this(schema.id(), schema.fields(), schema.partitionKeys(), schema.primaryKeys(),
+                    PaimonSchemaPin.schemaDigest(schema));
+        }
+
+        private PaimonSchemaSnapshot(long schemaId, List<DataField> fields, List<String> partitionKeys,
+                List<String> primaryKeys, String fileDigest) {
+            this.schemaId = schemaId;
+            this.fileDigest = fileDigest;
             this.fields = fields;
             this.partitionKeys = partitionKeys;
             this.primaryKeys = primaryKeys;
+        }
+
+        String fileDigest() {
+            return fileDigest;
+        }
+
+        public long schemaId() {
+            return schemaId;
         }
 
         /** The schema's fields ({@code tableSchema.fields()}). */
@@ -276,23 +305,27 @@ public interface PaimonCatalogOps {
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
-            // Relation options are applied after this cached handle is returned. Defer final
-            // validation so a safe relation value can override an unsafe physical value.
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 
         @Override
         public List<Partition> listPartitions(Identifier identifier, Table table)
                 throws Catalog.TableNotExistException {
-            if (catalog instanceof RESTCatalog) {
+            RESTCatalog restCatalog = restCatalog(catalog);
+            if (restCatalog != null) {
                 // REST owns partition visibility when its endpoint is implemented; the bridge
                 // retains this effective relation copy only for the endpoint's filesystem fallback.
                 return PaimonRestCatalogPartitions.listPartitions(
-                        (RESTCatalog) catalog, identifier, table);
+                        restCatalog, identifier, table);
             }
             // The supplied handle already contains catalog and relation policy. Reloading by identifier
             // would discard those copies before manifest enumeration reaches the final scan guard.
             return CatalogUtils.listPartitionsFromFileSystem(table);
+        }
+
+        static RESTCatalog restCatalog(Catalog catalog) {
+            Catalog rootCatalog = DelegateCatalog.rootCatalog(catalog);
+            return rootCatalog instanceof RESTCatalog ? (RESTCatalog) rootCatalog : null;
         }
 
         @Override
@@ -367,8 +400,7 @@ public interface PaimonCatalogOps {
             // schemaManager() is only on DataTable. schema(schemaId) is the historical TableSchema
             // (legacy PaimonExternalTable.initSchema(schemaId) reads the same accessors).
             TableSchema tableSchema = ((DataTable) table).schemaManager().schema(schemaId);
-            return new PaimonSchemaSnapshot(
-                    tableSchema.fields(), tableSchema.partitionKeys(), tableSchema.primaryKeys());
+            return new PaimonSchemaSnapshot(tableSchema);
         }
 
         @Override
@@ -381,7 +413,7 @@ public interface PaimonCatalogOps {
                 return Optional.empty();
             }
             return ((DataTable) table).schemaManager().latest()
-                    .map(s -> new PaimonSchemaSnapshot(s.fields(), s.partitionKeys(), s.primaryKeys()));
+                    .map(PaimonSchemaSnapshot::new);
         }
 
         @Override
@@ -396,13 +428,49 @@ public interface PaimonCatalogOps {
 
         @Override
         public long rowCount(Table table) {
-            // Legacy PaimonExternalTable.fetchRowCount / PaimonSysExternalTable.fetchRowCount: sum
-            // the planned-split record counts.
-            long rowCount = 0;
-            for (Split split : table.newReadBuilder().newScan().plan().splits()) {
-                rowCount += split.rowCount();
+            // System/format tables have no data snapshot count. A fallback pair combines two
+            // branches, so its main snapshot alone cannot estimate the relation either.
+            if (!(table instanceof FileStoreTable)
+                    || PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table)
+                            instanceof FallbackReadFileStoreTable) {
+                return -1;
             }
-            return rowCount;
+            FileStoreTable fileStoreTable = (FileStoreTable) table;
+            CoreOptions options = fileStoreTable.coreOptions();
+            // Batch scans can exclude level-0 files or postponed buckets even in full-snapshot mode.
+            // The snapshot counter includes those files; do not enumerate manifests to correct it.
+            if ((!fileStoreTable.primaryKeys().isEmpty() && options.batchScanSkipLevel0()
+                    && options.toConfiguration().get(CoreOptions.BATCH_SCAN_MODE) == CoreOptions.BatchScanMode.NONE)
+                    || options.bucket() == BucketMode.POSTPONE_BUCKET) {
+                return -1;
+            }
+            switch (options.startupMode()) {
+                case LATEST:
+                case LATEST_FULL:
+                case FROM_TIMESTAMP:
+                case FROM_SNAPSHOT:
+                case FROM_SNAPSHOT_FULL:
+                    break;
+                default:
+                    // Incremental/file-creation-time scans and unresolved compacted-full scans
+                    // do not read the full snapshot selected by TimeTravelUtil.
+                    return -1;
+            }
+            if (fileStoreTable instanceof PrivilegedFileStoreTable) {
+                // Match the old scan's SELECT check without planning any splits. TimeTravelUtil
+                // eagerly calls tagManager(), which requires INSERT on the privilege wrapper.
+                fileStoreTable.newScan();
+                fileStoreTable = PaimonTableDecorators.unwrapToFallbackOrBase(fileStoreTable);
+            }
+            // Catalog query authorization normally runs in scan.plan(), independently of the
+            // privilege wrapper's SELECT check. Preserve it without planning any file splits.
+            if (options.queryAuthEnabled()) {
+                fileStoreTable.catalogEnvironment().tableQueryAuth(options).auth(null);
+            }
+            Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
+            // Old snapshot versions can omit totalRecordCount; an empty table has no snapshot.
+            return snapshot == null || snapshot.totalRecordCount() == null
+                    ? -1 : snapshot.totalRecordCount();
         }
 
         @Override

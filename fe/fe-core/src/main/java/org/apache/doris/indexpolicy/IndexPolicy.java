@@ -129,8 +129,13 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
             ImmutableSet.of("common_grams");
 
     public boolean isInvalid() {
-        return type == IndexPolicyTypeEnum.TOKEN_FILTER
+        boolean hasUnsupportedTokenFilter = type == IndexPolicyTypeEnum.TOKEN_FILTER
                 && properties != null
                 && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE));
+        boolean hasInvalidNgramTokenizer = type == IndexPolicyTypeEnum.TOKENIZER
+                && properties != null
+                && "ngram".equals(properties.get(PROP_TYPE))
+                && !NGramTokenizerValidator.isValidPolicy(properties);
+        return hasUnsupportedTokenFilter || hasInvalidNgramTokenizer;
     }
 }

@@ -788,8 +788,9 @@ public class AccessControllerManager {
         if (isDryRun) {
             // CREATE CATALOG validates its authorization properties by building the source and letting it go
             // again, which is the only way to find out whether they are usable at all - the properties are the
-            // source's to interpret. It is not free: a Ranger source builds a real plugin, policy refresher and
-            // download timer included. Letting it go does not necessarily stop it on the spot - a Ranger
+            // source's to interpret - and, for a Ranger source, whether the service's policies can be had, since
+            // it refuses to be built without them. It is not free: a Ranger source builds a real plugin, policy
+            // refresher and download timer included. Letting it go does not necessarily stop it on the spot - a Ranger
             // source shares one plugin per service and keeps an unread one for a grace period, so that the
             // CREATE this validated for does not immediately rebuild what it just tore down - but a
             // validation nothing follows does stop polling once that period is up.

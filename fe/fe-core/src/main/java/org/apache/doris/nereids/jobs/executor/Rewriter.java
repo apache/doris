@@ -96,7 +96,6 @@ import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
@@ -173,6 +172,7 @@ import org.apache.doris.nereids.rules.rewrite.batch.ApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateApply;
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.eageraggregation.PushDownAggregation;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.ReorderJoinBeforeEagerAgg;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -678,11 +678,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
-                topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
+                topic("Reorder join before eager aggregation",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                        custom(RuleType.REORDER_JOIN_BEFORE_EAGER_AGG, ReorderJoinBeforeEagerAgg::new)
+                ),
                 topic("Eager aggregation",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalAggregate.class, LogicalJoin.class
-                        ),
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                                && cascadesContext.rewritePlanContainsTypes(LogicalJoin.class, LogicalUnion.class),
                         custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
                         topDown(new PushCountIntoUnionAll())
                 ),

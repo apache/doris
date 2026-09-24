@@ -17,6 +17,9 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -30,6 +33,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -208,6 +212,14 @@ private:
 } // namespace
 
 namespace {
+
+bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
+    if (!field->HasMetadata()) {
+        return false;
+    }
+    const auto value = field->metadata()->Get("originalType");
+    return value.ok() && value.ValueUnsafe() == "uuid";
+}
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') {
@@ -550,6 +562,41 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
 }
 
 template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (!is_iceberg_uuid_field(field)) {
+        // Keep the existing CHAR/STRING fixed-binary binding until external type mappings change.
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    if (!is_string_type(type->get_primitive_type()) ||
+        array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
+        return Status::InvalidArgument(
+                "Iceberg UUID writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+    const int byte_width =
+            assert_cast<const arrow::FixedSizeBinaryType&>(*builder.type()).byte_width();
+    if (byte_width != 16) {
+        return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}", byte_width);
+    }
+    const auto& strings = assert_cast<const ColumnType&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+            continue;
+        }
+        std::array<uint8_t, 16> bytes;
+        RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(strings.get_data_at(row), &bytes));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+    }
+    return Status::OK();
+}
+
+template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         IColumn& column, const arrow::Array* arrow_array, int64_t start, int64_t end,
         const cctz::time_zone& ctz) const {
@@ -847,12 +894,15 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
-    // CHAR(N) writes through OlapColumnDataConvertorChar are zero-padded to
-    // the declared schema length, so the serialized OLAP string carries
-    // trailing '\0' bytes. strnlen() drops that padding to surface the
-    // logical character content in the Field. VARCHAR / STRING never write
-    // trailing '\0' through this path, so strnlen is a no-op for them.
-    size_t len = strnlen(str.data(), str.size());
+    // CHAR(N) is zero-padded to the declared schema length before it is written, so its
+    // stored bytes carry trailing '\0' and stop at the first one. The page read path cuts
+    // CHAR values the same way (see BinaryPlainPageCharStripPreDecoder), so a bound built
+    // like this stays comparable with the rows it describes.
+    //
+    // VARCHAR and STRING keep every byte they were given, '\0' included. Cutting such a
+    // value at an embedded '\0' would give a bound the data never held, and a zone map
+    // built from it prunes rows that match.
+    size_t len = _type == TYPE_CHAR ? strnlen(str.data(), str.size()) : str.size();
     field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
 }
