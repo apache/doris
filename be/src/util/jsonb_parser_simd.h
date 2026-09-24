@@ -61,6 +61,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string_view>
 
 #include "common/status.h"
 #include "util/jsonb_document.h"
@@ -70,17 +71,6 @@
 namespace doris {
 using int128_t = __int128;
 struct JsonbParser {
-    // According to https://github.com/simdjson/simdjson/pull/2139
-    // For numbers larger than 64 bits, we can obtain the raw_json_token and parse it ourselves.
-    // This allows handling numbers larger than 64 bits, such as int128.
-    // For example, try to parse a 18446744073709551616, this number is just 1 greater than the maximum value of uint64_t, and simdjson will return a NUMBER_ERROR
-    // If try to parse a 18446744073709551616231231, it is obviously a large integer, at this time simdjson will return a BIGINT_ERROR
-    static bool parse_number_success(simdjson::error_code error_code) {
-        return error_code == simdjson::error_code::SUCCESS ||
-               error_code == simdjson::error_code::NUMBER_ERROR ||
-               error_code == simdjson::error_code::BIGINT_ERROR;
-    }
-
     // parse a UTF-8 JSON string with length
     // will reset writer before parse
     static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
@@ -120,13 +110,18 @@ struct JsonbParser {
             case simdjson::ondemand::json_type::number: {
                 simdjson::ondemand::number num;
                 simdjson::error_code res = doc.get_number().get(num);
-                if (!parse_number_success(res)) {
-                    return Status::InvalidArgument(fmt::format("simdjson get_number failed: {}",
-                                                               simdjson::error_message(res)));
+                std::string_view token = doc.raw_json_token();
+                // For a root number simdjson reports NUMBER_ERROR / BIGINT_ERROR before it
+                // checks for trailing content, and the raw token stops at the next token, so
+                // `18446744073709551616 0` would otherwise be accepted as its first token.
+                // A root number must reach the end of the document.
+                if (token.data() + token.size() != json_str.data() + json_str.size()) {
+                    return Status::InvalidArgument(
+                            "simdjson get_number failed: trailing content after root number "
+                            "{}",
+                            token);
                 }
-                // simdjson get_number() returns a number object, which can be
-                RETURN_IF_ERROR(
-                        write_number(num, doc.get_number_type(), doc.raw_json_token(), writer));
+                RETURN_IF_ERROR(write_number(res, num, token, writer));
                 break;
             }
             }
@@ -159,14 +154,8 @@ private:
         }
         case simdjson::ondemand::json_type::number: {
             simdjson::ondemand::number num;
-            auto res = value.get_number().get(num);
-            if (!parse_number_success(res)) {
-                return Status::InvalidArgument(fmt::format("simdjson get_number failed: {}",
-                                                           simdjson::error_message(res)));
-            }
-
-            RETURN_IF_ERROR(
-                    write_number(num, value.get_number_type(), value.raw_json_token(), writer));
+            simdjson::error_code res = value.get_number().get(num);
+            RETURN_IF_ERROR(write_number(res, num, value.raw_json_token(), writer));
             break;
         }
         case simdjson::ondemand::json_type::object: {
@@ -244,38 +233,121 @@ private:
         return Status::OK();
     }
 
-    static Status write_number(simdjson::ondemand::number num,
-                               simdjson ::ondemand::number_type num_type,
+    // Matches the JSON number grammar exactly:
+    //   -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
+    static bool is_json_number(std::string_view token) {
+        size_t i = 0;
+        const size_t n = token.size();
+        auto skip_digits = [&]() {
+            const size_t start = i;
+            while (i < n && token[i] >= '0' && token[i] <= '9') {
+                ++i;
+            }
+            return i > start;
+        };
+        if (i < n && token[i] == '-') {
+            ++i;
+        }
+        if (i < n && token[i] == '0') {
+            ++i;
+        } else if (!skip_digits()) {
+            return false;
+        }
+        if (i < n && token[i] == '.') {
+            ++i;
+            if (!skip_digits()) {
+                return false;
+            }
+        }
+        if (i < n && (token[i] == 'e' || token[i] == 'E')) {
+            ++i;
+            if (i < n && (token[i] == '+' || token[i] == '-')) {
+                ++i;
+            }
+            if (!skip_digits()) {
+                return false;
+            }
+        }
+        return i == n;
+    }
+
+    // According to https://github.com/simdjson/simdjson/pull/2139, integers that do not fit
+    // in 64 bits can be handled by parsing the raw_json_token ourselves: simdjson returns
+    // NUMBER_ERROR for 18446744073709551616 (one above uint64 max) and BIGINT_ERROR for
+    // longer integers such as 18446744073709551616231231.
+    // However NUMBER_ERROR is also what simdjson returns for malformed tokens (leading
+    // zeros like 01, a trailing dot like 1., 1e, trailing garbage like 1x) and for values
+    // beyond the double range. `num` carries nothing usable in any of these cases, so the
+    // raw token is first checked against the JSON number grammar and then parsed as int128
+    // or double.
+    static Status write_number_from_token(simdjson::error_code res, std::string_view raw_string,
+                                          JsonbWriter& writer) {
+        // raw_json_token() spans up to the start of the next token, so it may end with
+        // JSON whitespace.
+        std::string_view token = raw_string;
+        while (!token.empty() && (token.back() == ' ' || token.back() == '\t' ||
+                                  token.back() == '\n' || token.back() == '\r')) {
+            token.remove_suffix(1);
+        }
+        if (!is_json_number(token)) {
+            return Status::InvalidArgument("simdjson get_number failed: {}, raw string is: {}",
+                                           simdjson::error_message(res), token);
+        }
+
+        // StringParser::string_to_int silently truncates a fraction, so only a token made of
+        // digits may be parsed as an integer.
+        if (token.find_first_of(".eE") == std::string_view::npos) {
+            StringParser::ParseResult result;
+            auto val = StringParser::string_to_int<int128_t>(token.data(), token.size(), &result);
+            if (result == StringParser::PARSE_SUCCESS) {
+                if (!writer.writeInt128(val)) {
+                    return Status::InvalidArgument("writeInt128 failed");
+                }
+                return Status::OK();
+            }
+        }
+
+        // Either a floating point number or an integer beyond int128. Converting it to double
+        // may lose precision, but for JSON, exchanging data as plain text between different
+        // systems may inherently cause precision loss.
+        StringParser::ParseResult result;
+        double double_val =
+                StringParser::string_to_float<double>(token.data(), token.size(), &result);
+        if (result != StringParser::PARSE_SUCCESS || !std::isfinite(double_val)) {
+            return Status::InvalidArgument("invalid number, raw string is: {}", token);
+        }
+        if (!writer.writeDouble(double_val)) {
+            return Status::InvalidArgument("writeDouble failed");
+        }
+        return Status::OK();
+    }
+
+    static Status write_number(simdjson::error_code res, simdjson::ondemand::number num,
                                std::string_view raw_string, JsonbWriter& writer) {
-        // The simdjson library supports four types of numbers:
+        switch (res) {
+        case simdjson::error_code::SUCCESS:
+            break;
+        case simdjson::error_code::NUMBER_ERROR:
+        case simdjson::error_code::BIGINT_ERROR:
+            return write_number_from_token(res, raw_string, writer);
+        default:
+            // simdjson reports no other error for a number token (a root number followed by
+            // another token is already rejected by the end-of-document check in parse()), so
+            // anything else is reported as is.
+            return Status::InvalidArgument("simdjson get_number failed: {}, raw string is: {}",
+                                           simdjson::error_message(res), raw_string);
+        }
+
+        // On success simdjson yields one of three number types:
         // 1. floating_point_number: A binary64 number, which will be converted to jsonb's double type.
         // 2. signed_integer: A signed integer that fits in a 64-bit word using two's complement.
         // 3. unsigned_integer: A positive integer larger or equal to 1<<63.
         //    For these two integer types, we will convert them to jsonb's int8/int16/int32/int64/int128 types according to the specific value.
-        // 4. big_integer: An integer that does not fit in a 64-bit word.
-        //    For this type, simdjson cannot handle it directly. We first try to convert it to jsonb's int128 type.
-        //    If conversion fails, we attempt to convert it to a double type.
-        //    If conversion to double also fails, an error is returned.
-
-        switch (num_type) {
+        switch (num.get_number_type()) {
         case simdjson::ondemand::number_type::floating_point_number: {
-            double number = num.get_double();
-            // When a double exceeds the precision that can be represented by a double type in simdjson, it gets converted to 0.
-            // The correct approach, should be to truncate the double value instead.
-            if (number == 0) {
-                StringParser::ParseResult result;
-                number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
-                                                               &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    return Status::InvalidArgument("invalid number, raw string is: " +
-                                                   std::string(raw_string));
-                }
-            }
-
-            if (writer.writeDouble(number) == 0) {
+            if (writer.writeDouble(num.get_double()) == 0) {
                 return Status::InvalidArgument("writeDouble failed");
             }
-
             break;
         }
         case simdjson::ondemand::number_type::signed_integer:
@@ -304,30 +376,10 @@ private:
             break;
         }
         case simdjson::ondemand::number_type::big_integer: {
-            StringParser::ParseResult result;
-            auto val = StringParser::string_to_int<int128_t>(raw_string.data(), raw_string.size(),
-                                                             &result);
-            if (result != StringParser::PARSE_SUCCESS) {
-                // If the string exceeds the range of int128_t, it will attempt to convert it to double.
-                // This may result in loss of precision, but for JSON, exchanging data as plain text between different systems may inherently cause precision loss.
-                // try parse as double
-                double double_val = StringParser::string_to_float<double>(
-                        raw_string.data(), raw_string.size(), &result);
-                if (result != StringParser::PARSE_SUCCESS) {
-                    // if both parse failed, return error
-                    return Status::InvalidArgument("invalid number, raw string is: " +
-                                                   std::string(raw_string));
-                }
-                if (!writer.writeDouble(double_val)) {
-                    return Status::InvalidArgument("writeDouble failed");
-                }
-            } else {
-                // as int128_t
-                if (!writer.writeInt128(val)) {
-                    return Status::InvalidArgument("writeInt128 failed");
-                }
-            }
-            break;
+            // simdjson never parses a big_integer successfully; integers beyond 64 bits
+            // arrive as NUMBER_ERROR / BIGINT_ERROR and are handled by
+            // write_number_from_token above.
+            __builtin_unreachable();
         }
         }
         return Status::OK();
