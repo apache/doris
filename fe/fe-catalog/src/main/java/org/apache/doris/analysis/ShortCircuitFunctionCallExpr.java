@@ -15,24 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions.scalar;
+package org.apache.doris.analysis;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
+import org.apache.doris.catalog.Function;
 
-import com.google.common.base.Preconditions;
+/** Function call whose unselected arguments must not be evaluated. */
+public final class ShortCircuitFunctionCallExpr extends FunctionCallExpr {
 
-import java.util.List;
+    /** Create a function call with mandatory lazy branch evaluation. */
+    public ShortCircuitFunctionCallExpr(
+            Function function, FunctionParams functionParams, boolean nullable) {
+        super(function, functionParams, nullable);
+    }
 
-/** IF expression with statement-independent short-circuit semantics. */
-public class ShortCircuitIf extends If implements RequiresShortCircuitEvaluation {
-    public ShortCircuitIf(Expression condition, Expression trueValue, Expression falseValue) {
-        super(condition, trueValue, falseValue);
+    private ShortCircuitFunctionCallExpr(ShortCircuitFunctionCallExpr other) {
+        super(other);
     }
 
     @Override
-    public ShortCircuitIf withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3);
-        return new ShortCircuitIf(children.get(0), children.get(1), children.get(2));
+    public Expr clone() {
+        return new ShortCircuitFunctionCallExpr(this);
     }
 }

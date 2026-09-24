@@ -483,7 +483,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
             msg.node_type = TExprNodeType.FUNCTION_CALL;
         }
 
-        if (expr.isForceShortCircuitEvaluation()) {
+        if (expr instanceof ShortCircuitFunctionCallExpr) {
             msg.setShortCircuitEvaluation(true);
         } else if (ConnectContext.get() != null) {
             msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
