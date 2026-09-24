@@ -1127,6 +1127,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
         for (auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            if (_segment->get_read_time_constant_value(cid, *_schema, _opts).has_value()) {
+                continue;
+            }
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
@@ -1153,10 +1156,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
-            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
-                // skip untrustworthy tso placeholder zonemap
-                // if possible already be pruned as a whole before,
-                // so just skip
+            if (_segment->get_read_time_constant_value(cid, *_schema, _opts).has_value()) {
+                // Segment::new_iterator already evaluated the predicate against the read-time
+                // constant shared by every page. The physical page index stores a placeholder.
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -1802,6 +1804,12 @@ Status SegmentIterator::_init_index_iterators() {
 
     // Inverted index iterators
     for (ColumnId cid = 0; cid < _schema->num_read_columns(); ++cid) {
+        if (_segment->get_read_time_constant_value(cid, *_schema, _opts).has_value()) {
+            // The on-disk inverted index contains the physical placeholder, not the logical value
+            // synthesized for this read. Leaving the iterator empty disables both column-predicate
+            // and expression index consumers so row-level evaluation sees the synthesized value.
+            continue;
+        }
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
             // Scan-time Variant path placeholders in the read schema retain the Variant storage
@@ -3419,6 +3427,11 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         const auto cid = cast_set<ColumnId>(slot_index);
         if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                   _opts.target_cast_type_for_variants, _opts)) {
+            continue;
+        }
+        if (_segment->get_read_time_constant_value(cid, *_schema, _opts).has_value()) {
+            // Segment-level expression pruning used the read-time constant. Physical page zone
+            // maps still describe the placeholder, so leave row filtering to expression eval.
             continue;
         }
         const auto* tablet_column = _schema->column(cid);
