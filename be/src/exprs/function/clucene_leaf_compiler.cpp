@@ -17,93 +17,20 @@
 
 #include "exprs/function/clucene_leaf_compiler.h"
 
-#include <memory>
-#include <roaring/roaring.hh>
 #include <utility>
 
-#include "storage/index/inverted/query/query_helper.h"
-#include "storage/index/inverted/query_v2/all_query/all_query.h"
-#include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
-#include "storage/index/inverted/query_v2/boolean_query/operator.h"
-#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
-#include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
-#include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
-#include "storage/index/inverted/query_v2/term_query/term_query.h"
-#include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
-namespace {
-
-namespace logical = index_query::logical;
-namespace query_v2 = segment_v2::inverted_index::query_v2;
-
-query_v2::QueryPtr term_query(const SearchLeafContext& ctx, const std::wstring& field,
-                              const std::string& term) {
-    return std::make_shared<query_v2::TermQuery>(ctx.context, field,
-                                                 segment_v2::StringHelper::to_wstring(term));
-}
-
-// One term is queried as itself; several form the boolean the clause asked for.
-// The SEARCH compile step counts a threshold before a set reaches this compiler.
-query_v2::QueryPtr term_set_query(const SearchLeafContext& ctx, const std::wstring& field,
-                                  const std::string& binding_key, const logical::TermSet& set) {
-    DORIS_CHECK(set.min_should_match == 0);
-    if (set.terms.size() == 1) {
-        return term_query(ctx, field, set.terms.front());
-    }
-    auto builder = query_v2::create_operator_boolean_query_builder(
-            set.require_all ? query_v2::OperatorType::OP_AND : query_v2::OperatorType::OP_OR);
-    for (const auto& term : set.terms) {
-        builder->add(term_query(ctx, field, term), binding_key);
-    }
-    return builder->build();
-}
-
-query_v2::QueryPtr phrase_query(const SearchLeafContext& ctx, const std::wstring& field,
-                                const logical::Phrase& phrase) {
-    if (segment_v2::QueryHelper::is_simple_phrase(phrase.slots)) {
-        return std::make_shared<query_v2::PhraseQuery>(ctx.context, field, phrase.slots);
-    }
-    return std::make_shared<query_v2::MultiPhraseQuery>(ctx.context, field, phrase.slots);
-}
-
-index_query::TermPatternKind pattern_kind(logical::ExpandKind kind) {
-    switch (kind) {
-    case logical::ExpandKind::kPrefix:
-        return index_query::TermPatternKind::kPrefix;
-    case logical::ExpandKind::kRegexp:
-        return index_query::TermPatternKind::kRegexp;
-    case logical::ExpandKind::kWildcard:
-    default:
-        return index_query::TermPatternKind::kWildcard;
-    }
-}
-
-} // namespace
 
 CluceneLeafCompiler::CluceneLeafCompiler(std::wstring field, std::string binding_key)
         : _field(std::move(field)), _binding_key(std::move(binding_key)) {}
 
-Status CluceneLeafCompiler::compile(const logical::Node& leaf, const SearchLeafContext& ctx,
-                                    query_v2::QueryPtr* out) {
-    if (const auto* term = leaf.as<logical::Term>()) {
-        *out = term_query(ctx, _field, term->term);
-    } else if (const auto* set = leaf.as<logical::TermSet>()) {
-        *out = term_set_query(ctx, _field, _binding_key, *set);
-    } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
-        *out = phrase_query(ctx, _field, *phrase);
-    } else if (const auto* expand = leaf.as<logical::Expand>()) {
-        *out = std::make_shared<query_v2::ExpandQuery>(ctx.context, _field,
-                                                       pattern_kind(expand->kind), expand->pattern);
-    } else if (leaf.as<logical::Exists>() != nullptr) {
-        *out = std::make_shared<query_v2::AllQuery>(_field, /*nullable=*/true);
-    } else if (leaf.as<logical::Empty>() != nullptr) {
-        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
-    } else {
-        return Status::InternalError("leaf kind {} cannot be compiled on a CLucene field",
-                                     leaf.value.index());
-    }
-    return Status::OK();
+Status CluceneLeafCompiler::compile(const index_query::logical::Node& leaf,
+                                    const SearchLeafContext& ctx,
+                                    segment_v2::inverted_index::query_v2::QueryPtr* out) {
+    return segment_v2::plan_clucene_query(leaf, ctx.context, _field, _binding_key,
+                                          /*candidates=*/nullptr, out);
 }
 
 } // namespace doris

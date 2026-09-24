@@ -530,11 +530,12 @@ TEST(SearchLoweringTest, MatchAnyAllAndEqualLowerToTermSets) {
     ASSERT_NE(all.as<TermSet>(), nullptr);
     EXPECT_TRUE(all.as<TermSet>()->require_all);
 
-    // An untokenized index analyzes a value to itself, so EQUAL is any of the value's tokens.
-    auto equal = match(InvertedIndexQueryType::EQUAL_QUERY, "Quick", catalog);
+    // A row equal to the value holds all of its tokens. An untokenized index analyzes the value to
+    // itself, and on an analyzed one the scan checks the exact value again.
+    auto equal = match(InvertedIndexQueryType::EQUAL_QUERY, "Quick fox", catalog);
     ASSERT_NE(equal.as<TermSet>(), nullptr);
-    EXPECT_EQ(equal.as<TermSet>()->terms, std::vector<std::string> {"quick"});
-    EXPECT_FALSE(equal.as<TermSet>()->require_all);
+    EXPECT_EQ(equal.as<TermSet>()->terms, (std::vector<std::string> {"quick", "fox"}));
+    EXPECT_TRUE(equal.as<TermSet>()->require_all);
 }
 
 TEST(SearchLoweringTest, MatchPhraseTakesItsSlopFromTheValue) {

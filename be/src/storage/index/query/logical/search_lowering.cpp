@@ -351,9 +351,12 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
         lower_phrase_prefix(std::move(tokens), out);
     } else {
-        out->value = TermSet {.field = {},
-                              .terms = flatten(std::move(tokens)),
-                              .require_all = query_type == InvertedIndexQueryType::MATCH_ALL_QUERY};
+        // A row equal to the value holds every one of its tokens.
+        out->value =
+                TermSet {.field = {},
+                         .terms = flatten(std::move(tokens)),
+                         .require_all = query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
+                                        query_type == InvertedIndexQueryType::EQUAL_QUERY};
     }
     return Status::OK();
 }

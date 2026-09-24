@@ -56,6 +56,21 @@
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/query/phrase_query.h"
 #include "storage/index/inverted/query/query_factory.h"
+#include "storage/index/inverted/query/query_helper.h"
+#include "storage/index/inverted/query_v2/all_query/all_query.h"
+#include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
+#include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
+#include "storage/index/inverted/query_v2/boolean_query/operator.h"
+#include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
+#include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
+#include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_query.h"
+#include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
+#include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
+#include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/logical/search_lowering.h"
+#include "storage/index/query/term_pattern.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/types.h"
@@ -376,6 +391,129 @@ Status InvertedIndexReader::match_index_search(
     return Status::OK();
 }
 
+namespace {
+
+namespace logical = index_query::logical;
+namespace query_v2 = inverted_index::query_v2;
+
+query_v2::QueryPtr term_query(const IndexQueryContextPtr& context, const std::wstring& field,
+                              const std::string& term) {
+    return std::make_shared<query_v2::TermQuery>(context, field, StringHelper::to_wstring(term));
+}
+
+// One term is queried as itself; several form the boolean the set asks for. SEARCH counts a
+// threshold before a set reaches here.
+query_v2::QueryPtr term_set_query(const IndexQueryContextPtr& context, const std::wstring& field,
+                                  const std::string& binding_key, const logical::TermSet& set) {
+    DORIS_CHECK(set.min_should_match == 0);
+    if (set.terms.size() == 1) {
+        return term_query(context, field, set.terms.front());
+    }
+    auto builder = query_v2::create_operator_boolean_query_builder(
+            set.require_all ? query_v2::OperatorType::OP_AND : query_v2::OperatorType::OP_OR);
+    for (const auto& term : set.terms) {
+        builder->add(term_query(context, field, term), binding_key);
+    }
+    return builder->build();
+}
+
+Status phrase_query(const IndexQueryContextPtr& context, const std::wstring& field,
+                    const logical::Phrase& phrase, const roaring::Roaring* candidates,
+                    query_v2::QueryPtr* out) {
+    const bool single_terms = QueryHelper::is_simple_phrase(phrase.slots);
+    if (phrase.prefix) {
+        if (!single_terms) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "a phrase prefix with several terms at one position is not supported");
+        }
+        *out = std::make_shared<query_v2::PhrasePrefixQuery>(context, field, phrase.slots,
+                                                             candidates);
+        return Status::OK();
+    }
+    const index_query::PhraseQueryOptions options {.slop = static_cast<uint32_t>(phrase.slop),
+                                                   .ordered = phrase.ordered,
+                                                   .candidates = candidates};
+    if (single_terms) {
+        *out = std::make_shared<query_v2::PhraseQuery>(context, field, phrase.slots, options);
+    } else {
+        *out = std::make_shared<query_v2::MultiPhraseQuery>(context, field, phrase.slots, options);
+    }
+    return Status::OK();
+}
+
+index_query::TermPatternKind pattern_kind(logical::ExpandKind kind) {
+    switch (kind) {
+    case logical::ExpandKind::kPrefix:
+        return index_query::TermPatternKind::kPrefix;
+    case logical::ExpandKind::kRegexp:
+        return index_query::TermPatternKind::kRegexp;
+    case logical::ExpandKind::kWildcard:
+    default:
+        return index_query::TermPatternKind::kWildcard;
+    }
+}
+
+// Adds the rows `leaf` matches over `searcher` to `result`, and with `scoring` their BM25
+// values to the context's similarity.
+Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+                        const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
+                        const FulltextIndexSearcherPtr& searcher,
+                        const std::shared_ptr<roaring::Roaring>& result) {
+    auto* reader = searcher->getReader();
+    if (context->runtime_state != nullptr &&
+        context->runtime_state->query_options().inverted_index_compatible_read) {
+        reader->setCompatibleRead(true);
+    }
+    try {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
+        query_v2::WeightPtr weight;
+        {
+            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
+            query_v2::QueryPtr query;
+            RETURN_IF_ERROR(plan_clucene_query(leaf, context, field, "", candidates, &query));
+            weight = query->weight(scoring);
+        }
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
+        query_v2::QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = reader->maxDoc();
+        exec_ctx.field_reader_bindings.emplace(field, query_v2::non_owning_reader(reader));
+        query_v2::collect_multi_segment_doc_set(weight, exec_ctx, "", result,
+                                                context->collection_similarity, scoring);
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
+                                                                      e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occurred: {}",
+                                                                      e.what());
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status plan_clucene_query(const logical::Node& leaf, const IndexQueryContextPtr& context,
+                          const std::wstring& field, const std::string& binding_key,
+                          const roaring::Roaring* candidates, query_v2::QueryPtr* out) {
+    if (const auto* term = leaf.as<logical::Term>()) {
+        *out = term_query(context, field, term->term);
+    } else if (const auto* set = leaf.as<logical::TermSet>()) {
+        *out = term_set_query(context, field, binding_key, *set);
+    } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
+        return phrase_query(context, field, *phrase, candidates, out);
+    } else if (const auto* expand = leaf.as<logical::Expand>()) {
+        *out = std::make_shared<query_v2::ExpandQuery>(context, field, pattern_kind(expand->kind),
+                                                       expand->pattern);
+    } else if (leaf.as<logical::Exists>() != nullptr) {
+        *out = std::make_shared<query_v2::AllQuery>(field, /*nullable=*/true);
+    } else if (leaf.as<logical::Empty>() != nullptr) {
+        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
+    } else {
+        return Status::InternalError("leaf kind {} cannot run on a CLucene field",
+                                     leaf.value.index());
+    }
+    return Status::OK();
+}
+
 Status FullTextIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     if (*iterator == nullptr) {
         *iterator = InvertedIndexIterator::create_unique();
@@ -396,6 +534,10 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
+    // MATCH_PHRASE_EDGE is the one query type the legacy executors still run.
+    if (query_type != InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
+        return _match(context, column_name, search_str, query_type, bit_map, analyzer_ctx);
+    }
 
     const auto& queryOptions = context->runtime_state->query_options();
     try {
@@ -495,6 +637,78 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occurred, error msg: {}", e.what());
     }
+}
+
+Status FullTextIndexReader::_match(const IndexQueryContextPtr& context,
+                                   const std::string& column_name, const std::string& value,
+                                   InvertedIndexQueryType query_type,
+                                   std::shared_ptr<roaring::Roaring>& bit_map,
+                                   const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    const InvertedIndexRawQuerySemantic raw_semantic {
+            .raw_query_bytes = value,
+            .query_type = query_type,
+            .max_expansions = index_query::max_expansions(*context)};
+    const InvertedIndexQueryCache::CacheKey cache_key {
+            .index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
+            .column_name = column_name,
+            .query_type = query_type,
+            .value = raw_semantic.encode()};
+    // A scoring query publishes its scores while it runs, so a cached bitmap cannot answer it.
+    const bool scoring = context->collection_similarity != nullptr &&
+                         IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
+    auto* cache = InvertedIndexQueryCache::instance();
+    InvertedIndexQueryCacheHandle cache_handler;
+    if (!scoring && handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
+        return Status::OK();
+    }
+
+    logical::Node node;
+    {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
+        const std::map<std::string, std::string>& properties = _index_meta.properties();
+        RETURN_IF_ERROR(logical::lower_match(
+                query_type, value,
+                [analyzer_ctx, &properties](std::string_view text, std::vector<TermInfo>* tokens) {
+                    return inverted_index::InvertedIndexAnalyzer::analyze(text, analyzer_ctx,
+                                                                          properties, tokens);
+                },
+                &node));
+    }
+    if (node.as<logical::Empty>() != nullptr && !is_match_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+                "token parser result is empty for query, please check your query: '{}' and index "
+                "parser: '{}'",
+                value, get_parser_string_from_properties(_index_meta.properties()));
+    }
+
+    InvertedIndexCacheHandle searcher_cache_handle;
+    try {
+        RETURN_IF_ERROR(handle_searcher_cache(context, &searcher_cache_handle));
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
+                                                                      e.what());
+    }
+    auto searcher_variant = searcher_cache_handle.get_index_searcher();
+    auto* searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+    if (searcher == nullptr) {
+        return Status::OK();
+    }
+    // Only a phrase reads positions row by row, so only it narrows to the scan's candidate rows,
+    // and its partial result stays out of the cache.
+    const roaring::Roaring* candidates =
+            node.as<logical::Phrase>() != nullptr ? context->candidate_rows : nullptr;
+    context->candidate_rows_consumed = candidates != nullptr;
+    // An expansion publishes no score, as the legacy prefix and regexp executors never did.
+    const bool publish_scores = scoring && node.as<logical::Expand>() == nullptr;
+    auto result = std::make_shared<roaring::Roaring>();
+    RETURN_IF_ERROR(run_clucene_leaf(context, StringUtil::string_to_wstring(column_name), node,
+                                     candidates, publish_scores, *searcher, result));
+    result->runOptimize();
+    if (!context->candidate_rows_consumed) {
+        cache->insert(cache_key, result, &cache_handler);
+    }
+    bit_map = std::move(result);
+    return Status::OK();
 }
 
 InvertedIndexReaderType FullTextIndexReader::type() {

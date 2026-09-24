@@ -23,21 +23,25 @@
 
 #include <algorithm>
 #include <cstring>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/field.h"
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/query/term_pattern.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -167,6 +171,27 @@ public:
         EXPECT_TRUE(status.ok()) << status;
         status = index_file_writer->finish_close();
         EXPECT_TRUE(status.ok()) << status;
+    }
+
+    // A reader for an english, lowercasing CLucene (V2) index with phrase support over `values`.
+    std::shared_ptr<FullTextIndexReader> english_fulltext_reader(std::string_view rowset_id,
+                                                                 std::vector<Slice> values,
+                                                                 TabletIndex* idx_meta) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1);
+        index_meta_pb.mutable_properties()->insert({"parser", "english"});
+        index_meta_pb.mutable_properties()->insert({"lower_case", "true"});
+        index_meta_pb.mutable_properties()->insert({"support_phrase", "true"});
+        idx_meta->init_from_pb(index_meta_pb);
+        std::string index_path_prefix;
+        prepare_string_index(rowset_id, 0, values, idx_meta, &index_path_prefix);
+        auto file_reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(file_reader->init().ok());
+        return FullTextIndexReader::create_shared(idx_meta, file_reader);
     }
 
     // Create inverted index with NULL values
@@ -4625,6 +4650,136 @@ TEST_F(InvertedIndexReaderTest, ResultBitmapOrOperatorNullHandling) {
         EXPECT_TRUE(bitmap_field1.get_data_bitmap()->contains(20));
         EXPECT_FALSE(bitmap_field1.get_null_bitmap()->contains(20));
     }
+}
+
+namespace {
+
+// Throws when asked for its analyzer and counts the requests.
+class FailingAnalyzerProvider final : public inverted_index::AnalyzerProvider {
+public:
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        ++calls;
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "this test has no analyzer");
+    }
+
+    mutable uint32_t calls = 0;
+};
+
+// A query context with a score sink when scoring.
+struct MatchContext {
+    explicit MatchContext(bool scoring = false, bool query_cache = true) {
+        TQueryOptions options;
+        options.enable_inverted_index_query_cache = query_cache;
+        runtime_state.set_query_options(options);
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        if (scoring) {
+            context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        }
+    }
+
+    OlapReaderStatistics stats;
+    io::IOContext io_ctx;
+    RuntimeState runtime_state;
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+};
+
+roaring::Roaring match(FullTextIndexReader& reader, const IndexQueryContextPtr& context,
+                       InvertedIndexQueryType query_type, std::string value,
+                       const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr) {
+    std::shared_ptr<roaring::Roaring> bitmap;
+    const Status status =
+            reader.query(context, "1", Field::create_field<TYPE_STRING>(std::move(value)),
+                         query_type, bitmap, analyzer_ctx);
+    EXPECT_TRUE(status.ok()) << status;
+    return bitmap != nullptr ? *bitmap : roaring::Roaring();
+}
+
+roaring::Roaring rows(std::initializer_list<uint32_t> ids) {
+    roaring::Roaring bitmap;
+    for (uint32_t id : ids) {
+        bitmap.add(id);
+    }
+    return bitmap;
+}
+
+} // namespace
+
+// MATCH keys its result cache by the raw value, so a hit needs no analysis.
+TEST_F(InvertedIndexReaderTest, FulltextMatchHitsTheRawCacheBeforeAnalysis) {
+    TabletIndex meta;
+    auto reader = english_fulltext_reader("fulltext_raw_cache", {Slice("quick brown fox")}, &meta);
+    MatchContext run;
+    const std::string value = "quick brown";
+    const InvertedIndexRawQuerySemantic semantic {
+            .raw_query_bytes = value,
+            .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+            .max_expansions = index_query::max_expansions(*run.context)};
+    InvertedIndexQueryCacheHandle handle;
+    InvertedIndexQueryCache::instance()->insert(
+            {reader->get_index_file_reader()->get_index_file_cache_key(&meta), "1",
+             InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic.encode()},
+            std::make_shared<roaring::Roaring>(rows({7})), &handle);
+
+    auto provider = std::make_shared<FailingAnalyzerProvider>();
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer_provider = provider;
+    EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, value,
+                    &analyzer_ctx),
+              rows({7}));
+    EXPECT_EQ(provider->calls, 0U);
+}
+
+// A phrase is analyzed with the query's analyzer, as every other MATCH type is.
+TEST_F(InvertedIndexReaderTest, FulltextMatchPhraseUsesTheQueryAnalyzer) {
+    TabletIndex meta;
+    auto reader =
+            english_fulltext_reader("fulltext_query_analyzer", {Slice("Quick Brown fox")}, &meta);
+    InvertedIndexAnalyzerCtx case_keeping;
+    case_keeping.parser_type = InvertedIndexParserType::PARSER_STANDARD;
+    case_keeping.analyzer = inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+            InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    // The result cache assumes one analyzer per index, which this test breaks on purpose.
+    MatchContext run(/*scoring=*/false, /*query_cache=*/false);
+    EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Quick Brown",
+                    &case_keeping),
+              roaring::Roaring());
+    EXPECT_EQ(
+            match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Quick Brown"),
+            rows({0}));
+}
+
+// Only a phrase narrows to the scan's candidate rows.
+TEST_F(InvertedIndexReaderTest, FulltextMatchPhraseAloneConsumesCandidateRows) {
+    TabletIndex meta;
+    auto reader = english_fulltext_reader("fulltext_candidates",
+                                          {Slice("quick brown fox"), Slice("quick brown dog"),
+                                           Slice("brown quick"), Slice("quick brown")},
+                                          &meta);
+    MatchContext run;
+    const roaring::Roaring candidates = rows({1, 2});
+    run.context->candidate_rows = &candidates;
+    EXPECT_EQ(
+            match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "quick brown"),
+            rows({1}));
+    EXPECT_TRUE(run.context->candidate_rows_consumed);
+    EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_ANY_QUERY, "quick"),
+              rows({0, 1, 2, 3}));
+    EXPECT_FALSE(run.context->candidate_rows_consumed);
+}
+
+// A phrase prefix of one token runs as a prefix of it and publishes no score.
+TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
+    TabletIndex meta;
+    auto reader =
+            english_fulltext_reader("fulltext_prefix_score",
+                                    {Slice("quick brown"), Slice("quickly"), Slice("slow")}, &meta);
+    MatchContext run(/*scoring=*/true);
+    EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "qui"),
+              rows({0, 1}));
+    EXPECT_TRUE(run.context->collection_similarity->release_scores().empty());
 }
 
 } // namespace doris::segment_v2

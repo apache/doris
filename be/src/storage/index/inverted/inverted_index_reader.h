@@ -69,6 +69,9 @@ namespace doris {
 class KeyCoder;
 struct OlapReaderStatistics;
 class RuntimeState;
+namespace index_query::logical {
+struct Node;
+} // namespace index_query::logical
 
 namespace segment_v2 {
 
@@ -77,6 +80,9 @@ class InvertedIndexQueryCacheHandle;
 class IndexFileReader;
 class InvertedIndexQueryInfo;
 class IndexIterator;
+namespace inverted_index::query_v2 {
+class Query;
+} // namespace inverted_index::query_v2
 
 class InvertedIndexResultBitmap {
 private:
@@ -298,6 +304,13 @@ protected:
 };
 using InvertedIndexReaderPtr = std::shared_ptr<InvertedIndexReader>;
 
+// The query_v2 query that runs a logical leaf on the CLucene field `field`. With `candidates`, a
+// phrase only matches those rows.
+Status plan_clucene_query(const index_query::logical::Node& leaf,
+                          const IndexQueryContextPtr& context, const std::wstring& field,
+                          const std::string& binding_key, const roaring::Roaring* candidates,
+                          std::shared_ptr<inverted_index::query_v2::Query>* out);
+
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
 
@@ -320,6 +333,14 @@ public:
     }
 
     InvertedIndexReaderType type() override;
+
+private:
+    // Lowers `value` to the logical IR and runs it on query_v2, keying the result cache by the
+    // raw value.
+    Status _match(const IndexQueryContextPtr& context, const std::string& column_name,
+                  const std::string& value, InvertedIndexQueryType query_type,
+                  std::shared_ptr<roaring::Roaring>& bit_map,
+                  const InvertedIndexAnalyzerCtx* analyzer_ctx);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
