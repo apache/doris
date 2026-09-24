@@ -388,11 +388,8 @@ public abstract class Type {
     */
     public boolean couldBeShortKey() {
         return !(isFloatingPointType()
-                        || getPrimitiveType() == PrimitiveType.STRING
-                        || isJsonbType()
-                        || isComplexType()
-                        || isObjectStored()
-                        || isVariantType());
+                || getPrimitiveType() == PrimitiveType.STRING
+                || isOnlyMetricType());
     }
 
     /**
@@ -647,7 +644,7 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
+        return isObjectStored() || isComplexType() || isJsonbType() || isVariantType() || isAggStateType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
