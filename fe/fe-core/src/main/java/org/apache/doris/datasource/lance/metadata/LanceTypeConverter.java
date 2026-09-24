@@ -104,7 +104,7 @@ public final class LanceTypeConverter {
                 break;
             case DATETIME:
             case DATETIMEV2:
-                sqlType = "TIMESTAMP(" + Math.min(((ScalarType) type).getScalarScale(), 6) + ")";
+                sqlType = "TIMESTAMP(" + supportedTemporalScale((ScalarType) type) + ")";
                 break;
             case DECIMALV2:
             case DECIMAL32:
@@ -280,14 +280,27 @@ public final class LanceTypeConverter {
     }
 
     private static TimeUnit timeUnit(ScalarType type) {
-        int scale = type.getScalarScale();
-        if (scale <= 0) {
+        int scale = supportedTemporalScale(type);
+        if (scale == 0) {
             return TimeUnit.SECOND;
         }
-        if (scale <= 3) {
+        if (scale == 3) {
             return TimeUnit.MILLISECOND;
         }
         return TimeUnit.MICROSECOND;
+    }
+
+    private static int supportedTemporalScale(ScalarType type) {
+        int scale = type.getScalarScale();
+        if (scale <= 0) {
+            return 0;
+        }
+        if (scale == 0 || scale == 3 || scale == 6) {
+            return scale;
+        }
+        throw new IllegalArgumentException("Doris type " + type.toSql()
+                + " uses scale " + scale
+                + ", but Lance only supports temporal scales 0, 3, or 6 without precision loss");
     }
 
     /** Returns whether this field needs the current BE Lance materialization logic. */

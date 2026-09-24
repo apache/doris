@@ -133,15 +133,6 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             throw new DdlException("Failed to get database: '" + dbName
                     + "' in catalog: " + catalog.getName());
         }
-        ExternalTable localTable = db.getTableNullable(tableName);
-        if (localTable != null) {
-            if (createTableInfo.isIfNotExists()) {
-                resetTableNameCache(dbName);
-                return true;
-            }
-            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-        }
-
         List<Column> columns = createTableInfo.getColumns();
         validateCreateColumns(columns);
         Schema schema = LanceTypeConverter.toArrowSchema(columns);
@@ -158,6 +149,10 @@ public class LanceMetadataOps implements ExternalMetadataOps {
                     return true;
                 }
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+            }
+            ExternalTable localTable = db.getTableNullable(tableName);
+            if (localTable != null) {
+                resetTableNameCache(dbName);
             }
             try {
                 client.createTable(db.getRemoteName(), tableName, schema, properties);
@@ -193,6 +188,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterCreateTable(String dbName, String tblName) {
+        catalog.invalidateTableAccessCache();
         resetTableNameCache(dbName);
     }
 
@@ -214,6 +210,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
+        catalog.invalidateTableAccessCache();
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         db.ifPresent(externalDatabase -> externalDatabase.unregisterTable(tblName));
     }
@@ -225,15 +222,22 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             throw new DdlException("Failed to get database: '" + dbName
                     + "' in catalog: " + catalog.getName());
         }
+        ExternalTable oldTable = db.getTableNullable(oldName);
+        if (oldTable == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, oldName, dbName);
+            throw new IllegalStateException("unreachable");
+        }
+        String remoteOldName = oldTable.getRemoteName();
         execute("Failed to rename Lance table " + dbName + "." + oldName + " to " + newName,
                 client -> {
-                    client.renameTable(db.getRemoteName(), oldName, newName);
+                    client.renameTable(db.getRemoteName(), remoteOldName, newName);
                     return null;
                 });
     }
 
     @Override
     public void afterRenameTable(String dbName, String oldName, String newName) {
+        catalog.invalidateTableAccessCache();
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(oldName);
@@ -425,6 +429,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     }
 
     private void refreshTable(ExternalTable dorisTable, long updateTime) {
+        catalog.invalidateTableAccessCache();
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dorisTable.getDbName());
         if (db.isPresent()) {
             Optional<?> table = db.get().getTableForReplay(dorisTable.getName());
