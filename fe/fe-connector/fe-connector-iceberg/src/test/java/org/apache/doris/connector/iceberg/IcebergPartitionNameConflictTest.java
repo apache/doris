@@ -199,6 +199,18 @@ public class IcebergPartitionNameConflictTest {
 
     @Test
     void v1ActiveReplacementKeepsCanonicalName() throws Exception {
+        assertV1ReplacementMetadata(createV1Replacement());
+    }
+
+    @Test
+    void v1DroppedReplacementKeepsCanonicalName() throws Exception {
+        Table table = createV1Replacement();
+        assertV1ReplacementMetadata(table);
+        table.updateSpec().removeField("RECORD_KEY").commit();
+        assertV1ReplacementMetadata(table);
+    }
+
+    private Table createV1Replacement() {
         Table table = createTable(1);
         append(table, "old.parquet", "record_key=7");
         table.updateSpec().removeField("record_key").commit();
@@ -207,7 +219,10 @@ public class IcebergPartitionNameConflictTest {
         current.set(1, 9L);
         table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("new.parquet")
                 .withPartition(current).withRecordCount(1).withFileSizeInBytes(10).build()).commit();
+        return table;
+    }
 
+    private void assertV1ReplacementMetadata(Table table) throws Exception {
         Types.StructType unified = Partitioning.partitionType(table);
         Assertions.assertEquals("record_key_1000", unified.field(1000).name());
         Assertions.assertEquals("RECORD_KEY", unified.field(1001).name());

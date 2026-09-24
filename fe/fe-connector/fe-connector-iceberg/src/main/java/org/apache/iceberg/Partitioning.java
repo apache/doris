@@ -281,12 +281,25 @@ public class Partitioning {
             .sorted(Comparator.comparingLong(PartitionSpec::specId).reversed())
             .collect(Collectors.toList());
 
+    // V1 carries dropped fields into later specs as voids. Preserve the last active name owner
+    // even after all replacements are dropped; type recovery below loses this activity history.
+    Map<Integer, Integer> lastActiveSpecIds = Maps.newHashMap();
     for (PartitionSpec spec : sortedSpecs) {
-      // V1 keeps dropped fields as void entries before their active replacements. Give active
-      // fields name priority within each spec before historical type recovery replaces voids.
+      for (PartitionField field : spec.fields()) {
+        if (projectedFieldIds.contains(field.fieldId()) && !isVoidTransform(field)) {
+          lastActiveSpecIds.putIfAbsent(field.fieldId(), spec.specId());
+        }
+      }
+    }
+
+    for (PartitionSpec spec : sortedSpecs) {
       List<PartitionField> sortedFields =
           spec.fields().stream()
-              .sorted(Comparator.comparing(Partitioning::isVoidTransform))
+              .sorted(
+                  Comparator.comparingInt(
+                          (PartitionField field) ->
+                              lastActiveSpecIds.getOrDefault(field.fieldId(), -1))
+                      .reversed())
               .collect(Collectors.toList());
       for (PartitionField field : sortedFields) {
         int fieldId = field.fieldId();
