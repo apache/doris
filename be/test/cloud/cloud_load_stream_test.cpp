@@ -34,13 +34,17 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/config.h"
+#include "cpp/sync_point.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/channel/load_stream_writer.h"
+#include "load/delta_writer/delta_writer_v2.h"
 #include "runtime/exec_env.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/time.h"
 #include "util/work_thread_pool.hpp"
 
@@ -134,6 +138,98 @@ protected:
     bool _old_skip_empty = false;
     bool _old_make_visible = false;
 };
+
+TEST_F(CloudLoadStreamTest, SinkMowSnapshotSkipsEmptyRowsets) {
+    const bool old_check = config::enable_merge_on_write_correctness_check;
+    config::enable_merge_on_write_correctness_check = true;
+    Defer restore_check([&] { config::enable_merge_on_write_correctness_check = old_check; });
+    auto tablet = create_tablet(UNIQUE_KEYS, true);
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = tablet->tablet_meta();
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [](auto&& args) { try_any_cast_ret<Status>(args)->second = true; });
+    sp->enable_processing();
+    Defer cleanup([&] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    });
+
+    WriteRequest req;
+    req.tablet_id = tablet->tablet_id();
+    req.txn_id = 123;
+    DeltaWriterV2 writer(&req, {}, nullptr);
+    PCloudLoadMowSnapshot snapshot;
+    snapshot.set_version(7);
+    snapshot.mutable_delete_bitmap();
+    RowsetIdUnorderedSet expected_ids;
+    for (int64_t i = 1; i <= 3; ++i) {
+        RowsetId id;
+        id.init(2, 0, req.tablet_id, i);
+        expected_ids.insert(id);
+        auto* meta = snapshot.add_rowsets();
+        meta->set_rowset_id_v2(id.to_string());
+        meta->set_tablet_id(req.tablet_id);
+        meta->set_rowset_type(BETA_ROWSET);
+        meta->set_num_segments(0);
+        tablet->tablet_schema()->to_schema_pb(meta->mutable_tablet_schema());
+    }
+    // Cover absent, empty, and valid resources on zero-segment rowsets.
+    snapshot.mutable_rowsets(1)->set_resource_id("");
+    snapshot.mutable_rowsets(2)->set_resource_id("test_resource");
+    RowsetWriterContext context;
+    ASSERT_TRUE(writer._init_mow_context_from_snapshot(context, snapshot).ok());
+    ASSERT_NE(context.mow_context, nullptr);
+    EXPECT_EQ(*context.mow_context->rowset_ids, expected_ids);
+    EXPECT_TRUE(context.mow_context->rowset_ptrs.empty());
+    EXPECT_EQ(context.mow_context->max_version, snapshot.version());
+    EXPECT_EQ(context.mow_context->txn_id, req.txn_id);
+    EXPECT_NE(context.mow_context->snapshot_delete_bitmap, nullptr);
+    for (const auto& id : expected_ids) {
+        EXPECT_TRUE(context.mow_context->delete_bitmap->contains(
+                {id, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::TEMP_VERSION_COMMON},
+                DeleteBitmap::ROWSET_SENTINEL_MARK));
+    }
+    EXPECT_TRUE(context.mow_context->snapshot_delete_bitmap->delete_bitmap.empty());
+    // The target must see the sentinels after the sink result is serialized and merged.
+    PCloudLoadMowResult result;
+    result.set_snapshot_version(snapshot.version());
+    *result.mutable_delete_bitmap() = context.mow_context->delete_bitmap->to_pb();
+    ASSERT_TRUE(CloudRowsetBuilder::validate_sink_mow_result(result, snapshot.version()).ok());
+    auto target_bitmap = std::make_shared<DeleteBitmap>(req.tablet_id);
+    target_bitmap->merge(DeleteBitmap::from_pb(result.delete_bitmap(), req.tablet_id));
+    EXPECT_TRUE(tablet->check_delete_bitmap_correctness(target_bitmap, snapshot.version(),
+                                                        req.txn_id, expected_ids)
+                        .ok());
+
+    // A mixed snapshot must still reconstruct its non-empty remote rowset.
+    snapshot.mutable_rowsets(2)->set_num_segments(1);
+    ASSERT_TRUE(writer._init_mow_context_from_snapshot(context, snapshot).ok());
+    EXPECT_EQ(*context.mow_context->rowset_ids, expected_ids);
+    ASSERT_EQ(context.mow_context->rowset_ptrs.size(), 1);
+    EXPECT_EQ(context.mow_context->rowset_ptrs.front()->rowset_id().to_string(),
+              snapshot.rowsets(2).rowset_id_v2());
+    const auto non_empty_id = context.mow_context->rowset_ptrs.front()->rowset_id();
+    for (const auto& id : expected_ids) {
+        EXPECT_EQ(context.mow_context->delete_bitmap->contains(
+                          {id, DeleteBitmap::INVALID_SEGMENT_ID, DeleteBitmap::TEMP_VERSION_COMMON},
+                          DeleteBitmap::ROWSET_SENTINEL_MARK),
+                  id != non_empty_id);
+    }
+
+    snapshot.mutable_rowsets(2)->clear_resource_id();
+    auto st = writer._init_mow_context_from_snapshot(context, snapshot);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("has no storage resource"), std::string::npos);
+
+    config::enable_merge_on_write_correctness_check = false;
+    snapshot.mutable_rowsets(2)->set_num_segments(0);
+    ASSERT_TRUE(writer._init_mow_context_from_snapshot(context, snapshot).ok());
+    EXPECT_EQ(*context.mow_context->rowset_ids, expected_ids);
+    EXPECT_TRUE(context.mow_context->delete_bitmap->delete_bitmap.empty());
+}
 
 TEST_F(CloudLoadStreamTest, SetEmptyPolicyBeforePreparingMetadata) {
     for (bool skip_empty : {false, true}) {

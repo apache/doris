@@ -265,6 +265,7 @@ Status DeltaWriterV2::_init_mow_context_from_snapshot(RowsetWriterContext& conte
     auto& engine = static_cast<CloudStorageEngine&>(ExecEnv::GetInstance()->storage_engine());
     context.tablet = DORIS_TRY(engine.get_tablet(_req.tablet_id));
     auto ids = std::make_shared<RowsetIdUnorderedSet>();
+    auto delete_bitmap = std::make_shared<DeleteBitmap>(_req.tablet_id);
     std::vector<RowsetSharedPtr> rowsets;
     rowsets.reserve(snapshot.rowsets_size());
     for (const auto& meta : snapshot.rowsets()) {
@@ -272,15 +273,31 @@ Status DeltaWriterV2::_init_mow_context_from_snapshot(RowsetWriterContext& conte
         if (!rowset_meta->init_from_pb(meta)) {
             return Status::InvalidArgument("invalid sink MOW snapshot rowset");
         }
+        ids->insert(rowset_meta->rowset_id());
+        // Empty cloud compaction outputs may lack a storage resource. Keep their IDs
+        // in the snapshot, but they have no segments to read for bitmap calculation.
+        if (rowset_meta->num_segments() == 0) {
+            // No segment task will mark this rowset as checked for the target's commit check.
+            if (config::enable_merge_on_write_correctness_check) {
+                delete_bitmap->add({rowset_meta->rowset_id(), DeleteBitmap::INVALID_SEGMENT_ID,
+                                    DeleteBitmap::TEMP_VERSION_COMMON},
+                                   DeleteBitmap::ROWSET_SENTINEL_MARK);
+            }
+            continue;
+        }
+        if (rowset_meta->resource_id().empty()) {
+            return Status::InvalidArgument(
+                    "non-empty sink MOW snapshot rowset {} has no storage resource, tablet {}",
+                    rowset_meta->rowset_id().to_string(), _req.tablet_id);
+        }
         RowsetSharedPtr rowset;
         RETURN_IF_ERROR(RowsetFactory::create_rowset(rowset_meta->tablet_schema(), "", rowset_meta,
                                                      &rowset));
-        ids->insert(rowset->rowset_id());
         rowsets.push_back(std::move(rowset));
     }
-    context.mow_context = std::make_shared<MowContext>(
-            snapshot.version(), _req.txn_id, std::move(ids), std::move(rowsets),
-            std::make_shared<DeleteBitmap>(_req.tablet_id));
+    context.mow_context =
+            std::make_shared<MowContext>(snapshot.version(), _req.txn_id, std::move(ids),
+                                         std::move(rowsets), std::move(delete_bitmap));
     context.mow_context->snapshot_delete_bitmap = std::make_shared<DeleteBitmap>(
             DeleteBitmap::from_pb(snapshot.delete_bitmap(), _req.tablet_id));
     return Status::OK();
