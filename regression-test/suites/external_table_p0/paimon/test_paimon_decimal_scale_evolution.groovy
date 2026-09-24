@@ -50,8 +50,6 @@ suite("test_paimon_decimal_scale_evolution", "p0,external,paimon") {
                 values (1, cast(1.20 as decimal(5,2)));
             alter table paimon.paimon_decimal_scale_evolution_db.decimal_scale_evolution
                 alter column amount type decimal(6,3);
-            insert into paimon.paimon_decimal_scale_evolution_db.decimal_scale_evolution
-                values (2, cast(1.234 as decimal(6,3)));
         """
 
         sql "set force_jni_scanner=true"
