@@ -122,6 +122,9 @@ std::vector<std::string> build_corpus(uint32_t doc_count) {
             break;
         }
     }
+    if (!docs.empty()) {
+        docs[doc_count / 4] = "Request 424242 completed latency 42";
+    }
     return docs;
 }
 
@@ -333,6 +336,9 @@ TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
         for (const BenchQuery& query : kQueries) {
             roaring::Roaring full;
             const double full_ms = median_query_ms(reader.get(), query, nullptr, iterations, &full);
+            if (std::string_view(query.label) == "rare_exact") {
+                ASSERT_FALSE(full.isEmpty());
+            }
             for (const bool clustered : {false, true}) {
                 for (const double ratio : kCandidateRatios) {
                     const roaring::Roaring candidates =

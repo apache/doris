@@ -323,7 +323,6 @@ protected:
 
         _iter->_opts.runtime_state = &_runtime_state;
         _iter->_opts.stats = &_stats;
-        _iter->_opts.tablet_schema = _tablet_schema;
         _iter->_index_query_context = std::make_shared<IndexQueryContext>();
         _iter->_index_query_context->stats = &_stats;
         _iter->_column_states.resize(_read_schema->num_read_columns());
