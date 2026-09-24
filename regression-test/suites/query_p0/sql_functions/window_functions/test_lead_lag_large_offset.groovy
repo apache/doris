@@ -60,7 +60,7 @@ suite("test_lead_lag_large_offset") {
             ) AS sum_big
             FROM (SELECT 1 AS k UNION ALL SELECT 2) t
         """
-        exception "BoundOffset of ROWS WindowFrame must not exceed 9223372036854775807"
+        exception "BoundOffset of ROWS WindowFrame must not exceed 2147483647"
     }
 
     ["'abc'", "NULL", "TRUE", "DATE '2026-07-27'"].each { invalidOffset ->

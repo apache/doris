@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
@@ -31,8 +32,6 @@ import java.util.Objects;
  * Window functions, as known as analytic functions.
  */
 public abstract class WindowFunction extends BoundFunction implements SupportWindowAnalytic {
-
-    private static final BigDecimal MAX_LEAD_LAG_OFFSET = BigDecimal.valueOf(Integer.MAX_VALUE);
 
     public WindowFunction(String name, Expression... arguments) {
         super(name, arguments);
@@ -95,9 +94,9 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
                 throw new AnalysisException("The offset parameter of " + functionName
                         + " must be a constant positive integer: " + this.toSql());
             }
-            if (offsetValue.compareTo(MAX_LEAD_LAG_OFFSET) > 0) {
+            if (offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) > 0) {
                 throw new AnalysisException("The offset parameter of " + functionName
-                        + " must not exceed " + Integer.MAX_VALUE + ": " + this.toSql());
+                        + " must not exceed " + WindowFrame.MAX_ROWS_OFFSET + ": " + this.toSql());
             }
         }
     }
