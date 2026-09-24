@@ -108,41 +108,42 @@ struct IntegerRoundingComputation {
 
     static size_t prepare(size_t scale) { return scale; }
 
-    /// Integer overflow is Ok.
     static ALWAYS_INLINE T compute_impl(T x, T scale, T target_scale) {
+        T quotient = x / scale;
+        const T remainder = x - quotient * scale;
+
         if constexpr (rounding_mode == RoundingMode::Trunc) {
-            return target_scale > 1 ? x / scale * target_scale : x / scale;
+            return target_scale > 1 ? quotient * target_scale : quotient;
         }
         if constexpr (rounding_mode == RoundingMode::Floor) {
-            if (x < 0) {
-                x -= scale - 1;
+            if (remainder < 0) {
+                --quotient;
             }
-            return target_scale > 1 ? x / scale * target_scale : x / scale;
+            return target_scale > 1 ? quotient * target_scale : quotient;
         }
         if constexpr (rounding_mode == RoundingMode::Ceil) {
-            if (x >= 0) {
-                x += scale - 1;
+            if (remainder > 0) {
+                ++quotient;
             }
-            return target_scale > 1 ? x / scale * target_scale : x / scale;
+            return target_scale > 1 ? quotient * target_scale : quotient;
         }
         if constexpr (rounding_mode == RoundingMode::Round) {
-            if (x < 0) {
-                x -= scale;
-            }
+            const T abs_remainder = remainder < 0 ? -remainder : remainder;
+            const T remainder_complement = scale - abs_remainder;
+            const T carry = remainder < 0 ? -1 : 1;
             if constexpr (tie_breaking_mode == TieBreakingMode::Auto) {
-                x = (x + scale / 2) / scale;
-            }
-            if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
-                T quotient = (x + scale / 2) / scale;
-                if (quotient * scale == x + scale / 2) {
-                    // round half to even
-                    x = (quotient + (x < 0)) & ~1;
-                } else {
-                    // round the others as usual
-                    x = quotient;
+                if (remainder != 0 && abs_remainder >= remainder_complement) {
+                    quotient += carry;
                 }
             }
-            return target_scale > 1 ? x * target_scale : x;
+            if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
+                if (remainder != 0 &&
+                    (abs_remainder > remainder_complement ||
+                     (abs_remainder == remainder_complement && (quotient & 1) != 0))) {
+                    quotient += carry;
+                }
+            }
+            return target_scale > 1 ? quotient * target_scale : quotient;
         }
     }
 
@@ -157,7 +158,21 @@ struct IntegerRoundingComputation {
                                       U target_scale) {
         if constexpr (sizeof(T) <= sizeof(scale) && scale_mode == ScaleMode::Negative) {
             if (scale >= std::numeric_limits<T>::max()) {
-                *out = 0;
+                if constexpr (!is_decimal(Type)) {
+                    *out = 0;
+                } else {
+                    // A saturated divisor is larger than every valid value of this Decimal type.
+                    // Only directed rounding can produce one representable target unit.
+                    if (target_scale >= std::numeric_limits<T>::max()) {
+                        *out = T(0);
+                    } else if constexpr (rounding_mode == RoundingMode::Floor) {
+                        *out = *in < 0 ? -target_scale : T(0);
+                    } else if constexpr (rounding_mode == RoundingMode::Ceil) {
+                        *out = *in > 0 ? target_scale : T(0);
+                    } else {
+                        *out = T(0);
+                    }
+                }
                 return;
             }
         }
@@ -176,28 +191,21 @@ private:
 
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,
-                                Int16 out_scale) {
-        Int16 scale_arg = in_scale - out_scale;
+                                Int16 out_scale, Int16 result_scale) {
+        Int32 scale_arg = static_cast<Int32>(in_scale) - out_scale;
         if (scale_arg > 0) {
             auto scale = DecimalScaleParams::get_scale_factor<Type>(scale_arg);
+            auto target_scale =
+                    DecimalScaleParams::get_scale_factor<Type>(result_scale - out_scale);
 
-            const NativeType* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
+            const auto* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
-            NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
+            auto* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
-            if (out_scale < 0) {
-                auto negative_scale = DecimalScaleParams::get_scale_factor<Type>(-out_scale);
-                while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, negative_scale);
-                    ++p_in;
-                    ++p_out;
-                }
-            } else {
-                while (p_in < end_in) {
-                    Op::compute(p_in, scale, p_out, 1);
-                    ++p_in;
-                    ++p_out;
-                }
+            while (p_in < end_in) {
+                Op::compute(p_in, scale, p_out, target_scale);
+                ++p_in;
+                ++p_out;
             }
         } else {
             memcpy(out.data(), in.data(), in.size() * sizeof(T));
@@ -205,16 +213,13 @@ public:
     }
 
     static NO_INLINE void apply(const NativeType& in, UInt32 in_scale, NativeType& out,
-                                Int16 out_scale) {
-        Int16 scale_arg = in_scale - out_scale;
+                                Int16 out_scale, Int16 result_scale) {
+        Int32 scale_arg = static_cast<Int32>(in_scale) - out_scale;
         if (scale_arg > 0) {
             auto scale = DecimalScaleParams::get_scale_factor<Type>(scale_arg);
-            if (out_scale < 0) {
-                auto negative_scale = DecimalScaleParams::get_scale_factor<Type>(-out_scale);
-                Op::compute(&in, scale, &out, negative_scale);
-            } else {
-                Op::compute(&in, scale, &out, 1);
-            }
+            auto target_scale =
+                    DecimalScaleParams::get_scale_factor<Type>(result_scale - out_scale);
+            Op::compute(&in, scale, &out, target_scale);
         } else {
             memcpy(&out, &in, sizeof(NativeType));
         }
@@ -486,72 +491,27 @@ struct Dispatcher {
             const auto* const decimal_col =
                     check_and_get_column<typename PrimitiveTypeTraits<T>::ColumnType>(col_general);
             const auto& vec_src = decimal_col->get_data();
-            const size_t input_rows_count = vec_src.size();
             auto col_res = PrimitiveTypeTraits<T>::ColumnType::create(vec_src.size(), result_scale);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
-                FunctionRoundingImpl<ScaleMode::Negative>::apply(
-                        decimal_col->get_data(), decimal_col->get_scale(), vec_res, scale_arg);
+                FunctionRoundingImpl<ScaleMode::Negative>::apply(decimal_col->get_data(),
+                                                                 decimal_col->get_scale(), vec_res,
+                                                                 scale_arg, result_scale);
             }
-            // We need to always make sure result decimal's scale is as expected as its in plan
-            // So we need to append enough zero to result.
-
-            // Case 0: scale_arg <= -(integer part digits count)
-            //      do nothing, because result is 0
-            // Case 1: scale_arg <= 0 && scale_arg > -(integer part digits count)
-            //      decimal parts has been erased, so add them back by multiply 10^(result_scale)
-            // Case 2: scale_arg > 0 && scale_arg < result_scale
-            //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
-            // Case 3: scale_arg >= input_scale
-            //      do nothing
-
-            if (scale_arg <= 0) {
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    vec_res[i] = DecimalV2Value(vec_res[i].value() * int_exp10(result_scale));
-                }
-            } else if (scale_arg > 0 && scale_arg < result_scale) {
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    vec_res[i] = DecimalV2Value(vec_res[i].value() *
-                                                int_exp10(result_scale - scale_arg));
-                }
-            }
-
             return col_res;
         } else if constexpr (is_decimal(T)) {
             const auto* const decimal_col =
                     check_and_get_column<typename PrimitiveTypeTraits<T>::ColumnType>(col_general);
             const auto& vec_src = decimal_col->get_data();
-            const size_t input_rows_count = vec_src.size();
             auto col_res = PrimitiveTypeTraits<T>::ColumnType::create(vec_src.size(), result_scale);
             auto& vec_res = col_res->get_data();
 
             if (!vec_res.empty()) {
-                FunctionRoundingImpl<ScaleMode::Negative>::apply(
-                        decimal_col->get_data(), decimal_col->get_scale(), vec_res, scale_arg);
+                FunctionRoundingImpl<ScaleMode::Negative>::apply(decimal_col->get_data(),
+                                                                 decimal_col->get_scale(), vec_res,
+                                                                 scale_arg, result_scale);
             }
-            // We need to always make sure result decimal's scale is as expected as its in plan
-            // So we need to append enough zero to result.
-
-            // Case 0: scale_arg <= -(integer part digits count)
-            //      do nothing, because result is 0
-            // Case 1: scale_arg <= 0 && scale_arg > -(integer part digits count)
-            //      decimal parts has been erased, so add them back by multiply 10^(result_scale)
-            // Case 2: scale_arg > 0 && scale_arg < result_scale
-            //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
-            // Case 3: scale_arg >= input_scale
-            //      do nothing
-
-            if (scale_arg <= 0) {
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    vec_res[i].value *= int_exp10(result_scale);
-                }
-            } else if (scale_arg > 0 && scale_arg < result_scale) {
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    vec_res[i].value *= int_exp10(result_scale - scale_arg);
-                }
-            }
-
             return col_res;
         } else {
             static_assert(false);
@@ -607,29 +567,7 @@ struct Dispatcher {
             for (size_t i = 0; i < input_row_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
                         decimal_col->get_element(i).value(), input_scale,
-                        col_res->get_element(i).value(), col_scale_i32.get_data()[i]);
-            }
-
-            for (size_t i = 0; i < input_row_count; ++i) {
-                // For func(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
-                // So we need this check to make sure the result have correct digits count
-                //
-                // Case 0: scale_arg <= -(integer part digits count)
-                //      do nothing, because result is 0
-                // Case 1: scale_arg <= 0 && scale_arg > -(integer part digits count)
-                //      decimal parts has been erased, so add them back by multiply 10^(scale_arg)
-                // Case 2: scale_arg > 0 && scale_arg < result_scale
-                //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
-                // Case 3: scale_arg >= input_scale
-                //      do nothing
-                const Int32 scale_arg = col_scale_i32.get_data()[i];
-                if (scale_arg <= 0) {
-                    col_res->get_element(i) = DecimalV2Value(col_res->get_element(i).value() *
-                                                             int_exp10(result_scale));
-                } else if (scale_arg > 0 && scale_arg < result_scale) {
-                    col_res->get_element(i) = DecimalV2Value(col_res->get_element(i).value() *
-                                                             int_exp10(result_scale - scale_arg));
-                }
+                        col_res->get_element(i).value(), col_scale_i32.get_data()[i], result_scale);
             }
 
             return col_res;
@@ -643,27 +581,7 @@ struct Dispatcher {
             for (size_t i = 0; i < input_row_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
                         decimal_col->get_element(i).value, input_scale,
-                        col_res->get_element(i).value, col_scale_i32.get_data()[i]);
-            }
-
-            for (size_t i = 0; i < input_row_count; ++i) {
-                // For func(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
-                // So we need this check to make sure the result have correct digits count
-                //
-                // Case 0: scale_arg <= -(integer part digits count)
-                //      do nothing, because result is 0
-                // Case 1: scale_arg <= 0 && scale_arg > -(integer part digits count)
-                //      decimal parts has been erased, so add them back by multiply 10^(scale_arg)
-                // Case 2: scale_arg > 0 && scale_arg < result_scale
-                //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
-                // Case 3: scale_arg >= input_scale
-                //      do nothing
-                const Int32 scale_arg = col_scale_i32.get_data()[i];
-                if (scale_arg <= 0) {
-                    col_res->get_element(i).value *= int_exp10(result_scale);
-                } else if (scale_arg > 0 && scale_arg < result_scale) {
-                    col_res->get_element(i).value *= int_exp10(result_scale - scale_arg);
-                }
+                        col_res->get_element(i).value, col_scale_i32.get_data()[i], result_scale);
             }
 
             return col_res;
@@ -701,29 +619,7 @@ struct Dispatcher {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
                         general_val, input_scale, col_res->get_element(i).value(),
-                        col_scale_i32.get_data()[i]);
-            }
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                // For func(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
-                // So we need this check to make sure the result have correct digits count
-                //
-                // Case 0: scale_arg <= -(integer part digits count)
-                //      do nothing, because result is 0
-                // Case 1: scale_arg <= 0 && scale_arg > -(integer part digits count)
-                //      decimal parts has been erased, so add them back by multiply 10^(scale_arg)
-                // Case 2: scale_arg > 0 && scale_arg < result_scale
-                //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
-                // Case 3: scale_arg >= input_scale
-                //      do nothing
-                const Int32 scale_arg = col_scale_i32.get_data()[i];
-                if (scale_arg <= 0) {
-                    col_res->get_element(i) = DecimalV2Value(col_res->get_element(i).value() *
-                                                             int_exp10(result_scale));
-                } else if (scale_arg > 0 && scale_arg < result_scale) {
-                    col_res->get_element(i) = DecimalV2Value(col_res->get_element(i).value() *
-                                                             int_exp10(result_scale - scale_arg));
-                }
+                        col_scale_i32.get_data()[i], result_scale);
             }
 
             return col_res;
@@ -739,27 +635,7 @@ struct Dispatcher {
             for (size_t i = 0; i < input_rows_count; ++i) {
                 DecimalRoundingImpl<T, rounding_mode, tie_breaking_mode>::apply(
                         general_val, input_scale, col_res->get_element(i).value,
-                        col_scale_i32.get_data()[i]);
-            }
-
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                // For func(ColumnDecimal, ColumnInt32), we should always have same scale with source Decimal column
-                // So we need this check to make sure the result have correct digits count
-                //
-                // Case 0: scale_arg <= -(integer part digits count)
-                //      do nothing, because result is 0
-                // Case 1: scale_arg <= 0 && scale_arg > -(integer part digits count)
-                //      decimal parts has been erased, so add them back by multiply 10^(scale_arg)
-                // Case 2: scale_arg > 0 && scale_arg < result_scale
-                //      decimal part now has scale_arg digits, so multiply 10^(result_scale - scal_arg)
-                // Case 3: scale_arg >= input_scale
-                //      do nothing
-                const Int32 scale_arg = col_scale_i32.get_data()[i];
-                if (scale_arg <= 0) {
-                    col_res->get_element(i).value *= int_exp10(result_scale);
-                } else if (scale_arg > 0 && scale_arg < result_scale) {
-                    col_res->get_element(i).value *= int_exp10(result_scale - scale_arg);
-                }
+                        col_scale_i32.get_data()[i], result_scale);
             }
 
             return col_res;
