@@ -64,6 +64,9 @@ public:
     // For testing only: pause a deterministic handler after it has copied the published identity.
     static void pause_sigchld_handler_for_test(bool pause);
     static bool sigchld_handler_paused_for_test();
+    // For testing only: observe a normal thread failing to claim an owned child.
+    static void reset_child_claim_failed_for_test();
+    static bool child_claim_failed_for_test();
     // For testing only: pause after inspect's WNOHANG=0 observation and before claim release.
     static void pause_child_inspection_after_running_for_test(bool pause);
     static bool child_inspection_paused_for_test();

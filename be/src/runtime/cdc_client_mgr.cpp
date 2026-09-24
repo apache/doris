@@ -79,6 +79,7 @@ static_assert(std::atomic<uint64_t>::is_always_lock_free);
 static_assert(std::atomic<bool>::is_always_lock_free);
 std::atomic<bool> g_pause_cdc_sigchld_handler {false};
 std::atomic<bool> g_cdc_sigchld_handler_paused {false};
+std::atomic<bool> g_cdc_child_claim_failed {false};
 std::atomic<bool> g_pause_cdc_child_inspection_after_running {false};
 std::atomic<bool> g_cdc_child_inspection_paused {false};
 #endif
@@ -148,6 +149,9 @@ bool claim_child_identity(uint64_t identity) {
         if (try_claim_child_identity(identity)) {
             return true;
         }
+#ifdef BE_TEST
+        g_cdc_child_claim_failed.store(true);
+#endif
         std::this_thread::yield();
     }
     return false;
@@ -470,6 +474,14 @@ void CdcClientMgr::pause_sigchld_handler_for_test(bool pause) {
 
 bool CdcClientMgr::sigchld_handler_paused_for_test() {
     return g_cdc_sigchld_handler_paused.load();
+}
+
+void CdcClientMgr::reset_child_claim_failed_for_test() {
+    g_cdc_child_claim_failed.store(false);
+}
+
+bool CdcClientMgr::child_claim_failed_for_test() {
+    return g_cdc_child_claim_failed.load();
 }
 
 void CdcClientMgr::pause_child_inspection_after_running_for_test(bool pause) {
