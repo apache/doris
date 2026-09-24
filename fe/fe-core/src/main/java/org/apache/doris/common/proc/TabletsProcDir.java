@@ -174,13 +174,13 @@ public class TabletsProcDir implements ProcDirInterface {
                     }
                     for (Replica replica : tablet.getReplicas()) {
                         long beId = replica.getBackendIdWithoutException();
-                        if ((version > -1 && replica.getVersion() != version)
+                        long displayVersion = ProcReplicaVersionDisplay.getDisplayReplicaVersion(
+                                replica, partitionVisibleVersion);
+                        if ((version > -1 && displayVersion != version)
                                 || (backendId > -1 && beId != backendId)
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
-                        long displayVersion = ProcReplicaVersionDisplay.getDisplayReplicaVersion(
-                                replica, partitionVisibleVersion);
                         long displayLastSuccessVersion = ProcReplicaVersionDisplay.getDisplayReplicaLastSuccessVersion(
                                 replica, partitionVisibleVersion);
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
