@@ -351,7 +351,8 @@ public class NestedColumnPruning implements CustomRewriter {
      * only while no access path still requires payload
      * (see {@code ColumnIterator::_check_and_set_meta_read_mode}), so a leftover NULL/OFFSET
      * predicate path cannot downgrade a column that has to be read as data. Keeping them lets BE
-     * read the predicate's null map or offset array eagerly.
+     * read the predicate's null map or offset array eagerly, which is what
+     * null_column_pruning expects.
      */
     private static void addPredicatePathsToFinalAllAccessPaths(
             List<TColumnAccessPath> predicatePaths, List<TColumnAccessPath> allPaths) {

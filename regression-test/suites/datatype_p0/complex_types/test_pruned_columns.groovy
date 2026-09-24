@@ -238,32 +238,12 @@ suite("test_pruned_columns") {
     """
 
     def profileAction = new ProfileAction(context)
-    def profileCompletionStateName = "Profile Completion State"
-    def profileCompletionStateComplete = "COMPLETE"
     def lazyPrunedCounterName = "LazyReadPrunedTime"
-    def lazyPrunedProfile = ""
-    def lazyPrunedProfileState = ""
-    for (int attempt = 0; attempt < 60; attempt++) {
-        for (def profileItem : profileAction.getProfileList()) {
-            if (profileItem["Sql Statement"].toString().contains(lazyPrunedToken)) {
-                lazyPrunedProfileState = profileItem[profileCompletionStateName]?.toString()
-                def currentProfile = profileAction.getProfile(profileItem["Profile ID"].toString())
-                if (currentProfile != null && !currentProfile.isEmpty()) {
-                    lazyPrunedProfile = currentProfile
-                }
-                break
-            }
-        }
-        if (lazyPrunedProfileState == profileCompletionStateComplete
-                && lazyPrunedProfile.contains(lazyPrunedCounterName)) {
-            break
-        }
-        Thread.sleep(500)
-    }
-    assertTrue(lazyPrunedProfile != null && !lazyPrunedProfile.isEmpty(),
-            "profile not found for ${lazyPrunedToken}")
-    assertTrue(lazyPrunedProfileState == profileCompletionStateComplete,
-            "profile is not complete for ${lazyPrunedToken}, state: ${lazyPrunedProfileState}")
+    // getProfileBySql() polls the FE profile list for the query carrying this token and waits
+    // until the profile is complete and contains the lazy-read counter. The profile list rows
+    // expose "Task State"/"Profile ID", not a completion-state column, so the completeness of the
+    // profile has to be taken from the profile text (which is what the helper does).
+    def lazyPrunedProfile = profileAction.getProfileBySql(lazyPrunedToken, [lazyPrunedCounterName])
     logger.info("${lazyPrunedToken} profile: ${lazyPrunedProfile}")
 
     def lazyPrunedTimer = (lazyPrunedProfile =~ /${lazyPrunedCounterName}:\s*([0-9.]+)(ns|us|ms|s)/)
