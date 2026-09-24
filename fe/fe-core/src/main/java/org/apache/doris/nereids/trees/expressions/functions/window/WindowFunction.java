@@ -83,7 +83,7 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
         }
     }
 
-    protected void checkOffset(Expression offset, String functionName) {
+    protected void checkLeadLagOffset(Expression offset, String functionName) {
         if (!offset.getDataType().isIntegralType()) {
             throw new AnalysisException("The offset parameter of " + functionName
                     + " must be a constant positive integer: " + this.toSql());

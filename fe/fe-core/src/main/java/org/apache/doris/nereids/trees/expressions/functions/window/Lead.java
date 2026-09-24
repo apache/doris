@@ -95,7 +95,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkOffset(getArgument(1), "LEAD");
+        checkLeadLagOffset(getArgument(1), "LEAD");
     }
 
     @Override
@@ -106,7 +106,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
         if (children().size() >= 2) {
             checkValidParams(getOffset());
             if (getOffset() instanceof Literal) {
-                checkOffset(getOffset(), "LEAD");
+                checkLeadLagOffset(getOffset(), "LEAD");
             } else {
                 throw new AnalysisException(
                     "The offset parameter of LEAD must be a constant positive integer: " + this.toSql());
