@@ -241,7 +241,7 @@ function jdk_version() {
 }
 
 # check java version
-# must use jdk_17
+# must use jdk_17 or jdk_21
 function check_jdk_version() {
     if [[ ! -x "${JAVA}" ]]; then
         echo "The JAVA_HOME environment variable is not defined correctly"
@@ -255,8 +255,8 @@ function check_jdk_version() {
         set -e
         jdk_version "${JAVA}"
     )"
-    if [[ "${java_version}" -ne 17 ]]; then
-        echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
+    if [[ "${java_version}" -ne 17 && "${java_version}" -ne 21 ]]; then
+        echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17 or JDK-21."
         exit 1
     fi
     return 0
@@ -295,8 +295,8 @@ if test -z "${DO_NOT_CHECK_JAVA_ENV:-}"; then
             set -e
             jdk_version "${JAVA}"
         )"
-        if [[ "${java_version}" -ne 17 ]]; then
-            echo "JAVA_HOME=${JAVA_HOME}. It does not point to JDK-17."
+        if [[ "${java_version}" -ne 17 && "${java_version}" -ne 21 ]]; then
+            echo "JAVA_HOME=${JAVA_HOME}. It does not point to JDK-17 or JDK-21."
             if [[ -n "${JDK_17}" ]]; then
                 echo "Use JDK_17=${JDK_17}."
                 JAVA="${JDK_17}/bin/java"
@@ -305,7 +305,7 @@ if test -z "${DO_NOT_CHECK_JAVA_ENV:-}"; then
                 check_jdk_version
             else
                 echo "The 'JDK_17' environment variable is not set."
-                echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17."
+                echo "ERROR: The JAVA version is ${java_version}, it must be JDK-17 or JDK-21."
                 exit 1
             fi
         fi

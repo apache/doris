@@ -75,7 +75,7 @@ under the License.
         <trino.parser.version>395</trino.parser.version>
         <log4j2.version>2.18.0</log4j2.version>
         <log4j.verion>1.2.17</log4j.verion>
-        <lombok.version>1.18.24</lombok.version>
+        <lombok.version>1.18.34</lombok.version>
         <junit.version>5.8.2</junit.version>
         <jmockit.version>1.49</jmockit.version>
     </properties>
@@ -184,8 +184,8 @@ under the License.
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>2.3.2</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <source>21</source>
+                    <target>21</target>
                 </configuration>
             </plugin>
         </plugins>
