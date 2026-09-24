@@ -265,26 +265,34 @@ Status CloudRowsetBuilder::get_mow_snapshot_for_sink(PCloudLoadMowSnapshot* snap
         {
             std::unique_lock sync_lock(cloud_tablet()->get_sync_meta_lock());
             std::shared_lock lock(_tablet->get_header_lock());
-            if (_tablet->tablet_state() != TABLET_RUNNING) {
-                return Status::NotSupported("sink MOW load requires a running tablet {}",
-                                            _tablet->tablet_id());
+            const auto state = _tablet->tablet_state();
+            if (state != TABLET_RUNNING && state != TABLET_NOTREADY) {
+                return Status::NotSupported(
+                        "sink MOW load requires a running or altering tablet {}",
+                        _tablet->tablet_id());
             }
             _max_version_in_flush_phase = _tablet->max_version_unlocked();
             _rowset_ids->clear();
-            RETURN_IF_ERROR(_tablet->get_all_rs_id_unlocked(_max_version_in_flush_phase,
-                                                            _rowset_ids.get()));
             context->max_version = _max_version_in_flush_phase;
-            context->rowset_ptrs = _tablet->get_rowset_by_ids(_rowset_ids.get());
-            std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowset_segments;
-            for (const auto& rowset : context->rowset_ptrs) {
-                std::vector<DeleteBitmap::SegmentId> ids;
-                for (auto segment : rowset->segments()) {
-                    ids.push_back(cast_set<DeleteBitmap::SegmentId>(segment.id()));
+            context->rowset_ptrs.clear();
+            // As in init_mow_context(), shadow tablets accept full-row loads without
+            // reading unfinished history. Schema change computes their bitmap after
+            // conversion; commit/publish catches up if the tablet becomes RUNNING.
+            if (state == TABLET_RUNNING) {
+                RETURN_IF_ERROR(_tablet->get_all_rs_id_unlocked(_max_version_in_flush_phase,
+                                                                _rowset_ids.get()));
+                context->rowset_ptrs = _tablet->get_rowset_by_ids(_rowset_ids.get());
+                std::vector<DeleteBitmap::RowsetIdWithSegmentIds> rowset_segments;
+                for (const auto& rowset : context->rowset_ptrs) {
+                    std::vector<DeleteBitmap::SegmentId> ids;
+                    for (auto segment : rowset->segments()) {
+                        ids.push_back(cast_set<DeleteBitmap::SegmentId>(segment.id()));
+                    }
+                    rowset_segments.emplace_back(rowset->rowset_id(), std::move(ids));
                 }
-                rowset_segments.emplace_back(rowset->rowset_id(), std::move(ids));
+                _tablet->tablet_meta()->delete_bitmap().subset_and_agg(
+                        rowset_segments, 0, _max_version_in_flush_phase, &snapshot_bitmap);
             }
-            _tablet->tablet_meta()->delete_bitmap().subset_and_agg(
-                    rowset_segments, 0, _max_version_in_flush_phase, &snapshot_bitmap);
         }
         _mow_snapshot_for_sink = std::make_unique<PCloudLoadMowSnapshot>();
         _mow_snapshot_for_sink->set_version(_max_version_in_flush_phase);

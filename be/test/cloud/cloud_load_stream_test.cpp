@@ -231,6 +231,91 @@ TEST_F(CloudLoadStreamTest, SinkMowSnapshotSkipsEmptyRowsets) {
     EXPECT_TRUE(context.mow_context->delete_bitmap->delete_bitmap.empty());
 }
 
+TEST_F(CloudLoadStreamTest, SinkMowSnapshotDuringSchemaChange) {
+    auto tablet = create_tablet(UNIQUE_KEYS, true);
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        *try_any_cast<TabletMetaSharedPtr*>(args[1]) = tablet->tablet_meta();
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [](auto&& args) { try_any_cast_ret<Status>(args)->second = true; });
+    sp->enable_processing();
+    Defer cleanup([&] {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    });
+
+    auto make_rowset = [&](int64_t start, int64_t end) {
+        auto meta = std::make_shared<RowsetMeta>();
+        RowsetId id;
+        id.init(2, 0, tablet->tablet_id(), end);
+        meta->set_rowset_id(id);
+        meta->set_rowset_type(BETA_ROWSET);
+        meta->set_rowset_state(VISIBLE);
+        meta->set_version({start, end});
+        meta->set_resource_id("test_resource");
+        meta->set_tablet_schema(tablet->tablet_schema());
+        meta->set_num_segments(1);
+        RowsetSharedPtr rowset;
+        EXPECT_TRUE(RowsetFactory::create_rowset(nullptr, "", meta, &rowset).ok());
+        return rowset;
+    };
+    auto incremental = make_rowset(4, 4);
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        ASSERT_TRUE(tablet->set_tablet_state(TABLET_NOTREADY).ok());
+        // Converted history [0-3] is not available yet.
+        tablet->add_rowsets({incremental}, false, lock, false);
+        tablet->tablet_meta()->delete_bitmap().add({incremental->rowset_id(), 0, 4}, 9);
+    }
+    WriteRequest req;
+    req.tablet_id = tablet->tablet_id();
+    auto make_builder = [&] {
+        auto builder = std::make_unique<CloudRowsetBuilder>(*_engine, req, nullptr);
+        builder->_tablet = tablet;
+        builder->_rowset_writer = std::make_shared<CloudRowsetWriter>(*_engine);
+        builder->_rowset_writer->_context.mow_context = std::make_shared<MowContext>(
+                -1, req.txn_id, builder->_rowset_ids, std::vector<RowsetSharedPtr> {},
+                std::make_shared<DeleteBitmap>(req.tablet_id));
+        return builder;
+    };
+    auto builder = make_builder();
+    PCloudLoadMowSnapshot snapshot;
+    ASSERT_TRUE(builder->get_mow_snapshot_for_sink(&snapshot).ok());
+    EXPECT_EQ(snapshot.version(), 4);
+    EXPECT_EQ(snapshot.rowsets_size(), 0);
+    EXPECT_TRUE(snapshot.has_delete_bitmap());
+    EXPECT_EQ(snapshot.delete_bitmap().rowset_ids_size(), 0);
+    EXPECT_TRUE(builder->_rowset_ids->empty());
+    EXPECT_TRUE(builder->_rowset_writer->context().mow_context->rowset_ptrs.empty());
+
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        tablet->add_rowsets({make_rowset(0, 1), make_rowset(2, 3)}, false, lock, false);
+        ASSERT_TRUE(tablet->set_tablet_state(TABLET_RUNNING).ok());
+    }
+    PCloudLoadMowSnapshot same_load;
+    ASSERT_TRUE(builder->get_mow_snapshot_for_sink(&same_load).ok());
+    EXPECT_EQ(same_load.SerializeAsString(), snapshot.SerializeAsString());
+    // A new load after conversion sees the completed historical version path.
+    auto running_builder = make_builder();
+    PCloudLoadMowSnapshot running_snapshot;
+    ASSERT_TRUE(running_builder->get_mow_snapshot_for_sink(&running_snapshot).ok());
+    EXPECT_EQ(running_snapshot.version(), 4);
+    EXPECT_EQ(running_snapshot.rowsets_size(), 2);
+    EXPECT_EQ(running_builder->_rowset_ids->size(), 2);
+    auto bitmap = DeleteBitmap::from_pb(running_snapshot.delete_bitmap(), req.tablet_id);
+    EXPECT_TRUE(bitmap.contains({incremental->rowset_id(), 0, 4}, 9));
+
+    {
+        std::unique_lock lock(tablet->get_header_lock());
+        ASSERT_TRUE(tablet->set_tablet_state(TABLET_SHUTDOWN).ok());
+    }
+    auto shutdown_builder = make_builder();
+    EXPECT_FALSE(shutdown_builder->get_mow_snapshot_for_sink(&snapshot).ok());
+}
+
 TEST_F(CloudLoadStreamTest, SetEmptyPolicyBeforePreparingMetadata) {
     for (bool skip_empty : {false, true}) {
         config::skip_writing_empty_rowset_metadata = skip_empty;
