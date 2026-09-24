@@ -329,7 +329,7 @@ public:
 
     RowsetSegmentMetaRange segments() const;
 
-    size_t position_of(int64_t seg_id) const;
+    Result<size_t> position_of(int64_t seg_id) const;
 
     // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema = false) const;
