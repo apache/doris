@@ -47,7 +47,6 @@ import org.lance.namespace.model.ListNamespacesResponse;
 import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.NamespaceExistsRequest;
-import org.lance.namespace.model.RenameTableRequest;
 import org.lance.namespace.model.TableExistsRequest;
 
 import java.net.URI;
@@ -297,20 +296,6 @@ final class LanceNamespaceClient {
             DropTableRequest request = new DropTableRequest().id(buildTableId(dbName, tableName));
             synchronized (namespaceLock) {
                 namespace.dropTable(request);
-            }
-        } catch (DdlException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    void renameTable(String dbName, String oldTableName, String newTableName) {
-        try {
-            RenameTableRequest request = new RenameTableRequest()
-                    .id(buildTableId(dbName, oldTableName))
-                    .newNamespaceId(buildNamespaceId(dbName))
-                    .newTableName(newTableName);
-            synchronized (namespaceLock) {
-                namespace.renameTable(request);
             }
         } catch (DdlException e) {
             throw new RuntimeException(e);

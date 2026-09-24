@@ -248,10 +248,6 @@ final class LanceCatalogClient implements AutoCloseable {
         namespaceClient.dropTable(dbName, tableName);
     }
 
-    void renameTable(String dbName, String oldTableName, String newTableName) {
-        namespaceClient.renameTable(dbName, oldTableName, newTableName);
-    }
-
     void addColumns(String dbName, String tableName, List<AddColumnsEntry> columns) {
         namespaceClient.addColumns(dbName, tableName, columns);
     }

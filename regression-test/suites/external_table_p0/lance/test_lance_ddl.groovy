@@ -27,7 +27,6 @@ suite("test_lance_ddl", "p0,external") {
     String catalogName = "test_lance_ddl"
     String databaseName = "lance_ddl_db"
     String tableName = "events"
-    String renamedTableName = "renamed_events"
 
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     try {
@@ -121,12 +120,12 @@ suite("test_lance_ddl", "p0,external") {
         assertTrue(showCreate.contains("\"owner\" = \"doris\""))
         assertFalse(showCreate.contains("password"))
 
-        sql """ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}` RENAME `${renamedTableName}`"""
-        def tables = sql """SHOW TABLES FROM `${catalogName}`.`${databaseName}`"""
-        assertTrue(tables.collect { it[0] }.contains(renamedTableName))
-        assertFalse(tables.collect { it[0] }.contains(tableName))
+        test {
+            sql """ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}` RENAME `renamed_events`"""
+            exception "Lance table rename is not supported"
+        }
 
-        sql """DROP TABLE `${catalogName}`.`${databaseName}`.`${renamedTableName}`"""
+        sql """DROP TABLE `${catalogName}`.`${databaseName}`.`${tableName}`"""
         sql """DROP DATABASE `${catalogName}`.`${databaseName}`"""
     } finally {
         sql """DROP CATALOG IF EXISTS `${catalogName}`"""
