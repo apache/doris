@@ -28,6 +28,7 @@ import org.apache.doris.statistics.analysis.FollowerColumnSender;
 import org.apache.doris.statistics.cache.StatisticsCache;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,9 +49,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 @Timeout(30)
 public class EnvStateListenerTest {
+    private Env env;
+
+    @BeforeEach
+    public void setUp() {
+        // Cold Env initialization and Mockito instrumentation can exceed the test timeout in CI.
+        // Keep fixture creation outside the timeout that guards the state listener transitions.
+        env = Mockito.spy(new Env(false));
+    }
+
     @Test
     public void testInterruptedNonMasterTransitionDoesNotCommitFeType() throws Exception {
-        Env env = Mockito.spy(new Env(false));
         setField(env, "replayer", Mockito.mock(Daemon.class));
 
         CountDownLatch firstTransitionInterrupted = new CountDownLatch(1);
@@ -91,7 +100,6 @@ public class EnvStateListenerTest {
     @CsvSource({"INIT, FOLLOWER", "INIT, OBSERVER", "UNKNOWN, FOLLOWER", "UNKNOWN, OBSERVER"})
     public void testUnknownInterruptionKeepsStartupGateClosedUntilRetryCompletes(
             FrontendNodeType initialType, FrontendNodeType targetType) throws Exception {
-        Env env = Mockito.spy(new Env(false));
         setField(env, "feType", initialType);
         Mockito.doReturn(false).when(env).replayJournal(-1);
         env.createReplayer();
@@ -198,7 +206,6 @@ public class EnvStateListenerTest {
 
     @Test
     public void testIgnoreMetaCheckDoesNotBypassStartupGate() throws Exception {
-        Env env = Mockito.spy(new Env(false));
         Mockito.doReturn(false).when(env).replayJournal(-1);
         env.createReplayer();
         boolean originalIgnoreMetaCheck = Config.ignore_meta_check;
