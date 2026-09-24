@@ -1618,8 +1618,12 @@ class Suite implements GroovyInterceptable {
         return outBuf.toString()
     }
 
+    static String buildSshCommand(String username, String host, String cmd) {
+        return "ssh -o StrictHostKeyChecking=no ${username}@${host} '${cmd}'"
+    }
+
     void sshExec(String username, String host, String cmd, boolean alert=true) {
-        String command = "ssh ${username}@${host} '${cmd}'"
+        String command = buildSshCommand(username, host, cmd)
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
         Process p = cmds.execute()
