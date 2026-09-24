@@ -36,10 +36,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -48,6 +50,16 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggre
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.window.CumeDist;
+import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.FirstOrLastValue;
+import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
+import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
+import org.apache.doris.nereids.trees.expressions.functions.window.NthValue;
+import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
+import org.apache.doris.nereids.trees.expressions.functions.window.PercentRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -66,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
@@ -85,6 +98,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Pull the correlated predicates of a subquery which aggregates out of the subquery, so that the
@@ -2533,6 +2547,16 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * because the query has to raise its error where the query writes the function, not a second
      * time in the copy.
      *
+     * The values which the two evaluations do not have to compute identically are rejected as well,
+     * although they are not volatile: a window which assigns the value of a row from its position
+     * among the rows which its order keys tie (row_number and the others), and an any_value which
+     * returns the value of an arbitrary row of its group (see containsNonRepeatableExpression). A
+     * correlation key which such a value decides is reported, because the key of the copy may not
+     * be the key of the outer row, and the semi join of the rewrite then drops that outer row:
+     *
+     *     select t.rn from (select e.k, row_number() over () as rn from t1 e) t
+     *     where exists (select count(*) from t2 i where i.k = t.rn having count(*) = 0)
+     *
      * @param correlationKeys the slots of the outer plan whose values are consumed as correlation
      *        keys by the rewrite and by the aggregation it builds
      */
@@ -2541,7 +2565,19 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return true;
         }
         Set<Slot> volatileSlots = collectVolatileSlots(plan);
-        return volatileSlots == null || volatileSlots.stream().anyMatch(correlationKeys::contains);
+        if (volatileSlots == null || volatileSlots.stream().anyMatch(correlationKeys::contains)) {
+            return true;
+        }
+        // The rewrite evaluates the outer plan twice, so it may not duplicate a value which the two
+        // evaluations do not have to compute identically either: a correlation key which the plan
+        // computes from a value that the plan does not fix for a row of its input (a window which
+        // assigns a position among the tied rows, an any_value which picks an arbitrary row, ...)
+        // would be missing from the copy of the plan, and the semi join would drop the outer row
+        // which owns that key (see containsNonRepeatableExpression).
+        Set<Slot> nonRepeatableSlots = collectSensitiveSlots(plan,
+                UnCorrelatedApplyAggregateFilter::containsNonRepeatableExpression);
+        return nonRepeatableSlots == null
+                || nonRepeatableSlots.stream().anyMatch(correlationKeys::contains);
     }
 
     /**
@@ -2575,81 +2611,174 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * plan, or null if a volatile expression contributes to the rows which the plan returns.
      */
     private static Set<Slot> collectVolatileSlots(Plan plan) {
-        Set<Slot> volatileInput = Sets.newHashSet();
+        return collectSensitiveSlots(plan, UnCorrelatedApplyAggregateFilter::containsVolatileExpression);
+    }
+
+    /**
+     * The slots of the plan whose value is computed from one of the sensitive expressions, at any
+     * level of the plan, or null if a sensitive expression contributes to the rows which the plan
+     * returns. The caller decides which expressions are sensitive (see containsVolatileExpression
+     * and containsNonRepeatableExpression): the walk is the same for every kind of value which the
+     * rewrite may not evaluate a second time with the plan.
+     */
+    private static Set<Slot> collectSensitiveSlots(Plan plan, Predicate<Expression> isSensitive) {
+        Set<Slot> sensitiveInput = Sets.newHashSet();
         for (Plan child : plan.children()) {
-            Set<Slot> volatileChild = collectVolatileSlots(child);
-            if (volatileChild == null) {
+            Set<Slot> sensitiveChild = collectSensitiveSlots(child, isSensitive);
+            if (sensitiveChild == null) {
                 return null;
             }
-            volatileInput.addAll(volatileChild);
+            sensitiveInput.addAll(sensitiveChild);
         }
-        Set<Slot> volatileSlots = Sets.newHashSet(volatileInput);
+        Set<Slot> sensitiveSlots = Sets.newHashSet(sensitiveInput);
         if (plan instanceof LogicalProject) {
-            volatileSlots.addAll(volatileSlotsOfOutputs(((LogicalProject<?>) plan).getProjects(), volatileInput));
-            return volatileSlots;
+            sensitiveSlots.addAll(sensitiveSlotsOfOutputs(((LogicalProject<?>) plan).getProjects(),
+                    sensitiveInput, isSensitive));
+            return sensitiveSlots;
         }
         if (plan instanceof LogicalAggregate) {
             LogicalAggregate<?> aggregate = (LogicalAggregate<?>) plan;
-            if (usesVolatile(aggregate.getGroupByExpressions(), volatileInput)) {
+            if (usesSensitive(aggregate.getGroupByExpressions(), sensitiveInput, isSensitive)) {
                 // the grouping decides which rows the aggregate returns
                 return null;
             }
-            volatileSlots.addAll(volatileSlotsOfOutputs(aggregate.getOutputExpressions(), volatileInput));
-            return volatileSlots;
+            sensitiveSlots.addAll(sensitiveSlotsOfOutputs(aggregate.getOutputExpressions(),
+                    sensitiveInput, isSensitive));
+            return sensitiveSlots;
         }
         if (plan instanceof LogicalFilter) {
-            if (usesVolatile(((LogicalFilter<?>) plan).getConjuncts(), volatileInput)) {
+            if (usesSensitive(((LogicalFilter<?>) plan).getConjuncts(), sensitiveInput, isSensitive)) {
                 // the predicate decides which rows the filter returns
                 return null;
             }
-            return volatileSlots;
+            return sensitiveSlots;
         }
         if (plan instanceof LogicalJoin) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-            if (usesVolatile(join.getHashJoinConjuncts(), volatileInput)
-                    || usesVolatile(join.getOtherJoinConjuncts(), volatileInput)
-                    || usesVolatile(join.getMarkJoinConjuncts(), volatileInput)) {
+            if (usesSensitive(join.getHashJoinConjuncts(), sensitiveInput, isSensitive)
+                    || usesSensitive(join.getOtherJoinConjuncts(), sensitiveInput, isSensitive)
+                    || usesSensitive(join.getMarkJoinConjuncts(), sensitiveInput, isSensitive)) {
                 // the conditions decide which rows the join returns
                 return null;
             }
-            return volatileSlots;
+            return sensitiveSlots;
         }
         if (plan instanceof LogicalSort) {
             // the order of the rows does not change the values of the slots
-            return volatileSlots;
+            return sensitiveSlots;
+        }
+        if (plan instanceof LogicalWindow) {
+            // the window computes the slots of its window expressions from the rows of its child
+            // (the position of a row among the rows which its order keys tie, an aggregation of its
+            // partition, ...), and the caller rejects a correlation key and a predicate which decides
+            // the rows of the outer plan when one of them reads such a slot
+            sensitiveSlots.addAll(sensitiveSlotsOfOutputs(((LogicalWindow<?>) plan).getWindowExpressions(),
+                    sensitiveInput, isSensitive));
+            return sensitiveSlots;
         }
         // this rewrite does not know how the other plans compute their output from the values below
         // them, so it cannot prove that a volatile value which reaches one of them cannot change the
         // rows or the correlation keys
-        if (!volatileInput.isEmpty()) {
+        if (!sensitiveInput.isEmpty()) {
             return null;
         }
         for (Expression expression : plan.getExpressions()) {
-            if (containsVolatileExpression(expression)) {
+            if (isSensitive.test(expression)) {
                 return null;
             }
         }
-        return volatileSlots;
+        return sensitiveSlots;
     }
 
-    /** the slots of the given outputs whose value is computed from one of the given volatile slots */
-    private static Set<Slot> volatileSlotsOfOutputs(List<? extends NamedExpression> outputs,
-            Set<Slot> volatileInput) {
-        Set<Slot> volatileSlots = Sets.newHashSet();
+    /** the slots of the given outputs whose value is computed from one of the given sensitive slots */
+    private static Set<Slot> sensitiveSlotsOfOutputs(List<? extends NamedExpression> outputs,
+            Set<Slot> sensitiveInput, Predicate<Expression> isSensitive) {
+        Set<Slot> sensitiveSlots = Sets.newHashSet();
         for (NamedExpression output : outputs) {
-            if (usesVolatile(ImmutableList.of(output), volatileInput)) {
-                volatileSlots.add(output.toSlot());
+            if (usesSensitive(ImmutableList.of(output), sensitiveInput, isSensitive)) {
+                sensitiveSlots.add(output.toSlot());
             }
         }
-        return volatileSlots;
+        return sensitiveSlots;
     }
 
     /**
-     * Whether one of the expressions is volatile, directly or through one of the given slots.
+     * Whether one of the expressions is sensitive, directly or through one of the given slots.
      */
+    private static boolean usesSensitive(Collection<? extends Expression> expressions,
+            Set<Slot> sensitiveSlots, Predicate<Expression> isSensitive) {
+        return expressions.stream().anyMatch(expression -> isSensitive.test(expression)
+                || expression.getInputSlots().stream().anyMatch(sensitiveSlots::contains));
+    }
+
+    /** whether one of the expressions is volatile, directly or through one of the given slots */
     private static boolean usesVolatile(Collection<? extends Expression> expressions, Set<Slot> volatileSlots) {
-        return expressions.stream().anyMatch(expression -> containsVolatileExpression(expression)
-                || expression.getInputSlots().stream().anyMatch(volatileSlots::contains));
+        return usesSensitive(expressions, volatileSlots,
+                UnCorrelatedApplyAggregateFilter::containsVolatileExpression);
+    }
+
+    /**
+     * Whether the expression computes a value which two evaluations of the outer plan may return
+     * differently although both of them read the same rows.
+     *
+     * The rewrite evaluates the outer plan twice (the original plan, and a deep copy which computes
+     * the distinct correlation keys), so the two evaluations have to compute the same value for
+     * every row of the plan. A deterministic function returns the same value for the same input row
+     * (a volatile expression is rejected by containsVolatileExpression). The expressions below are
+     * deterministic as well, but their value depends on the order of the rows instead of the rows
+     * themselves, and the order of the rows which the plan keeps is not part of its contract:
+     *
+     * - a window which assigns the value of a row from the position of that row among the rows
+     *   which its order keys tie (row_number, rank, dense_rank, percent_rank, cume_dist, ntile,
+     *   lag, lead, first_value, last_value, nth_value): two evaluations of the same plan are free to
+     *   order the tied rows differently. The window of the outer query of
+     *
+     *       select t.rn from (select e.k, row_number() over () as rn from t1 e) t
+     *       where exists (select count(*) from t2 i where i.k = t.rn having count(*) = 0)
+     *
+     *   ties every row of t1 (it reads no order keys at all), so the rn of an outer row is not
+     *   necessarily one of the values which the copy of the plan computes for that row: the
+     *   correlation key of the outer row may be missing from the copy, and the semi join of the
+     *   rewrite then drops the outer row (a window over an order key which is unique for every row,
+     *   for example row_number() over (order by e.k) over a not null unique column, would be
+     *   repeatable, but this rule does not prove that);
+     *
+     * - any_value, which returns the value of an arbitrary row of its group: the aggregation of the
+     *   outer query of
+     *
+     *       select t.av from (select any_value(e.k) as av from t1 e) t
+     *       where exists (select count(*) from t2 i where i.k = t.av having count(*) = 0)
+     *
+     *   may return the value of another row in the copy, because both evaluations are free to pick
+     *   any row, so the key of the outer row may not be the key of the copy again.
+     *
+     * The caller checks the correlation keys and the values which decide the rows of the outer plan
+     * (see collectSensitiveSlots), the way it checks the volatile values: a window or an any_value
+     * which only decorates an output that nothing reads is accepted.
+     */
+    private static boolean containsNonRepeatableExpression(Expression expression) {
+        return expression.anyMatch(node -> node instanceof AnyValue
+                || node instanceof WindowExpression
+                        && assignsAValueOfItsOwnToTheTiedRows((WindowExpression) node));
+    }
+
+    /**
+     * Whether the window computes the value of a row from the position of that row among the rows
+     * which its order keys tie: the window functions below return the value of one particular row
+     * of the tied rows (the first row of the partition, the previous or the next row of the order,
+     * ...), and the frame of every other window which reads order keys is evaluated on those rows as
+     * well. A window which reads no order keys and aggregates its partition (sum, count, ...)
+     * returns the same value for the same rows instead, so it is accepted.
+     */
+    private static boolean assignsAValueOfItsOwnToTheTiedRows(WindowExpression window) {
+        Expression function = window.getFunction();
+        if (function instanceof RowNumber || function instanceof Rank || function instanceof DenseRank
+                || function instanceof PercentRank || function instanceof CumeDist
+                || function instanceof Ntile || function instanceof Lag || function instanceof Lead
+                || function instanceof FirstOrLastValue || function instanceof NthValue) {
+            return true;
+        }
+        return !window.getOrderKeys().isEmpty();
     }
 
     /**

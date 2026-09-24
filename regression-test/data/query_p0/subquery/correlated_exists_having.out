@@ -138,3 +138,7 @@
 
 -- !not_exists_grouping_the_row_of_the_empty_domain --
 
+-- !exists_with_a_window_which_does_not_feed_the_correlation_key --
+\N
+7
+

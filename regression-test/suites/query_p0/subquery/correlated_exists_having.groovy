@@ -511,4 +511,29 @@ suite("correlated_exists_having") {
                 " GROUP BY x.g)"
         exception "access outer query's column before join is not supported"
     }
+    // The rewrite evaluates the outer plan twice (the plan itself and a deep copy which computes
+    // the distinct correlation keys), and both evaluations have to compute the same correlation
+    // keys: the window of the outer query below ties every row of the plan (it reads no order
+    // keys), so the copy is free to number the tied rows differently and the key of an outer row
+    // may be missing from the copy, which would drop that outer row
+    test {
+        sql "SELECT t.rn FROM (SELECT e.k, row_number() OVER () AS rn FROM ceh_e e) t" +
+                " WHERE EXISTS (SELECT count(*) FROM ceh_i i WHERE i.k = t.rn HAVING count(*) = 0)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // any_value returns the value of an arbitrary row of its group, so the two evaluations of the
+    // outer plan are free to pick different rows and the copied key may not be the key of the
+    // outer row again
+    test {
+        sql "SELECT t.av FROM (SELECT any_value(e.k) AS av FROM ceh_e e) t" +
+                " WHERE EXISTS (SELECT count(*) FROM ceh_i i WHERE i.k = t.av HAVING count(*) = 0)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // ... while a window which only decorates the output of the outer query is accepted: the
+    // rewrite reads the correlation keys of the plan alone, and the window does not decide them
+    order_qt_exists_with_a_window_which_does_not_feed_the_correlation_key """
+        SELECT t.k FROM (SELECT e.k, row_number() OVER () AS rn FROM ceh_e e) t
+        WHERE EXISTS (SELECT count(*) FROM ceh_i i WHERE i.k = t.k HAVING count(*) = 0)
+        ORDER BY t.k
+    """
 }

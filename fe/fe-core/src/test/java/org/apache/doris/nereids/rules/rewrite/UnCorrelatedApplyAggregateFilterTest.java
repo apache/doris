@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -62,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -655,6 +658,66 @@ class UnCorrelatedApplyAggregateFilterTest {
         // copied plan would not match the value of the outer row
         Assertions.assertThrows(AnalysisException.class,
                 () -> rewriteWithOuter(outer, ImmutableList.of(random.toSlot())));
+    }
+
+    @Test
+    public void testTiedWindowCorrelationKeyIsRejected() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        // row_number() over () ties every row of t1: the two evaluations of the outer plan are free
+        // to number the tied rows differently, so the rn of an outer row is not necessarily one of
+        // the values which the copy of the plan computes for that row
+        Alias rowNumber = new Alias(new WindowExpression(new RowNumber(), ImmutableList.of(),
+                ImmutableList.of()), "rn");
+        LogicalProject<LogicalOlapScan> outer = new LogicalProject<>(ImmutableList.of(rowNumber), left);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteWithOuter(outer, ImmutableList.of(rowNumber.toSlot())));
+    }
+
+    @Test
+    public void testTiedWindowNodeCorrelationKeyIsRejected() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        // the query of the user builds the outer plan with a LogicalWindow node, whose output the
+        // correlation key reads: the window ties every row of t1 (it reads no order keys), so the
+        // copy of the plan is free to number the tied rows differently
+        Alias rowNumber = new Alias(new WindowExpression(new RowNumber(), ImmutableList.of(),
+                ImmutableList.of()), "rn");
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(ImmutableList.of(rowNumber), left);
+        LogicalProject<LogicalWindow<LogicalOlapScan>> outer = new LogicalProject<>(
+                ImmutableList.of(rowNumber.toSlot()), window);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteWithOuter(outer, ImmutableList.of(rowNumber.toSlot())));
+    }
+
+    @Test
+    public void testTiedWindowWhichDoesNotFeedTheCorrelationKeyIsAccepted() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        Alias rowNumber = new Alias(new WindowExpression(new RowNumber(), ImmutableList.of(),
+                ImmutableList.of()), "rn");
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(ImmutableList.of(rowNumber), left);
+        LogicalProject<LogicalWindow<LogicalOlapScan>> outer = new LogicalProject<>(
+                ImmutableList.of(x, rowNumber.toSlot()), window);
+        // the window only decorates the output of the outer query: the copy of the plan may number
+        // the tied rows differently, but the rewrite reads the correlation keys of the plan alone
+        Plan rewritten = rewriteWithOuter(outer, ImmutableList.of(x));
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the outer rows must be filtered by the aggregation result");
+    }
+
+    @Test
+    public void testAnyValueCorrelationKeyIsRejected() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        // any_value returns the value of an arbitrary row of its group: the two evaluations of the
+        // outer plan are free to pick different rows, so the copied key may not be the key of the
+        // outer row again
+        Alias anyValue = new Alias(new AnyValue(x), "av");
+        LogicalAggregate<LogicalOlapScan> outer = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(anyValue), left);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteWithOuter(outer, ImmutableList.of(anyValue.toSlot())));
     }
 
     @Test
