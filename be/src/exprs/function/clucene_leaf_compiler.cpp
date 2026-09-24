@@ -67,13 +67,16 @@ query_v2::QueryPtr phrase_query(const SearchLeafContext& ctx, const std::wstring
     return std::make_shared<query_v2::MultiPhraseQuery>(ctx.context, field, phrase.slots);
 }
 
-query_v2::QueryPtr pattern_query(const SearchLeafContext& ctx, const std::wstring& field,
-                                 logical::ExpandKind kind, const std::string& pattern) {
-    return std::make_shared<query_v2::ExpandQuery>(
-            ctx.context, field,
-            kind == logical::ExpandKind::kRegexp ? index_query::TermPatternKind::kRegexp
-                                                 : index_query::TermPatternKind::kWildcard,
-            pattern);
+index_query::TermPatternKind pattern_kind(logical::ExpandKind kind) {
+    switch (kind) {
+    case logical::ExpandKind::kPrefix:
+        return index_query::TermPatternKind::kPrefix;
+    case logical::ExpandKind::kRegexp:
+        return index_query::TermPatternKind::kRegexp;
+    case logical::ExpandKind::kWildcard:
+    default:
+        return index_query::TermPatternKind::kWildcard;
+    }
 }
 
 } // namespace
@@ -89,11 +92,9 @@ Status CluceneLeafCompiler::compile(const logical::Node& leaf, const SearchLeafC
         *out = term_set_query(ctx, _field, _binding_key, *set);
     } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
         *out = phrase_query(ctx, _field, *phrase);
-    } else if (const auto* prefix = leaf.as<logical::Prefix>()) {
-        // The whole normalized value, trailing '*' included, is one wildcard.
-        *out = pattern_query(ctx, _field, logical::ExpandKind::kWildcard, prefix->pattern);
     } else if (const auto* expand = leaf.as<logical::Expand>()) {
-        *out = pattern_query(ctx, _field, expand->kind, expand->pattern);
+        *out = std::make_shared<query_v2::ExpandQuery>(ctx.context, _field,
+                                                       pattern_kind(expand->kind), expand->pattern);
     } else if (leaf.as<logical::Exists>() != nullptr) {
         *out = std::make_shared<query_v2::AllQuery>(_field, /*nullable=*/true);
     } else if (leaf.as<logical::Empty>() != nullptr) {

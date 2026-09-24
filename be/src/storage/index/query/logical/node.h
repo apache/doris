@@ -65,19 +65,10 @@ struct Phrase {
     std::vector<Token> slots;
 };
 
-// PREFIX on an analyzed index. `tokens` is the analyzed value without the DSL's
-// trailing '*'; `pattern` is the normalized value with that '*' kept, for
-// executors that treat the whole value as one wildcard.
-struct Prefix {
-    FieldRef field;
-    std::vector<Token> tokens;
-    std::string pattern;
-};
+enum class ExpandKind : uint8_t { kPrefix, kWildcard, kRegexp };
 
-enum class ExpandKind : uint8_t { kWildcard, kRegexp };
-
-// Every dictionary term matching `pattern`. A glob matches whole terms; a regular expression
-// matches anywhere in a term unless the pattern anchors it.
+// Every dictionary term matching `pattern`: a prefix matches the terms that start with it, a glob
+// whole terms, and a regular expression matches anywhere in a term unless the pattern anchors it.
 struct Expand {
     FieldRef field;
     ExpandKind kind = ExpandKind::kWildcard;
@@ -128,8 +119,7 @@ struct Bool {
 };
 
 struct Node {
-    std::variant<Term, TermSet, Phrase, Prefix, Expand, Compare, Exists, Empty, Unknown, All, Bool>
-            value;
+    std::variant<Term, TermSet, Phrase, Expand, Compare, Exists, Empty, Unknown, All, Bool> value;
 
     template <typename T>
     const T* as() const {

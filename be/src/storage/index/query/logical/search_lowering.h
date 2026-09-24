@@ -41,8 +41,6 @@ struct FieldProps {
     bool direct_index = false;
     // The index tokenizes values, so clause values are analyzed.
     bool analyzed = false;
-    // An analyzed index with lower_case=true: wildcard and prefix patterns are lowercased.
-    bool lowercase_patterns = false;
     std::string binding;
 };
 
@@ -58,6 +56,11 @@ public:
     // Tokenizes `value` with the analyzer of the index `props` resolved to.
     virtual Status analyze(const FieldProps& props, const std::string& value,
                            std::vector<Token>* out) = 0;
+
+    // Normalizes `value` as the analyzed index `props` resolved to normalizes its terms, without
+    // splitting it.
+    virtual Status normalize(const FieldProps& props, const std::string& value,
+                             std::string* out) = 0;
 };
 
 struct LoweringOptions {

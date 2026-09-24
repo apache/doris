@@ -37,11 +37,25 @@ namespace query_v2 = segment_v2::inverted_index::query_v2;
 using segment_v2::InvertedIndexQueryInfo;
 using segment_v2::InvertedIndexQueryType;
 
-// The reader query a leaf maps to.
+// The reader query a leaf maps to. Expanded terms keep a constant score, as on the CLucene path.
 struct NativeQuery {
     InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
     InvertedIndexQueryInfo query_info;
+    bool scored = true;
 };
+
+InvertedIndexQueryType expand_query_type(logical::ExpandKind kind) {
+    switch (kind) {
+    case logical::ExpandKind::kPrefix:
+        // The reader runs a one-term phrase prefix as a prefix of that term.
+        return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+    case logical::ExpandKind::kRegexp:
+        return InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+    case logical::ExpandKind::kWildcard:
+    default:
+        return InvertedIndexQueryType::WILDCARD_QUERY;
+    }
+}
 
 InvertedIndexQueryInfo single_terms(const std::vector<std::string>& terms) {
     InvertedIndexQueryInfo info;
@@ -72,14 +86,10 @@ Status plan_native_query(const logical::Node& leaf, NativeQuery* out) {
     } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
         *out = {.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                 .query_info = slots(phrase->slots)};
-    } else if (const auto* prefix = leaf.as<logical::Prefix>()) {
-        *out = {.query_type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
-                .query_info = slots(prefix->tokens)};
     } else if (const auto* expand = leaf.as<logical::Expand>()) {
-        *out = {.query_type = expand->kind == logical::ExpandKind::kRegexp
-                                      ? InvertedIndexQueryType::MATCH_REGEXP_QUERY
-                                      : InvertedIndexQueryType::WILDCARD_QUERY,
-                .query_info = single_terms({expand->pattern})};
+        *out = {.query_type = expand_query_type(expand->kind),
+                .query_info = single_terms({expand->pattern}),
+                .scored = false};
     } else {
         return Status::InternalError("leaf kind {} cannot run on a native index reader",
                                      leaf.value.index());
@@ -108,17 +118,18 @@ Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
         RETURN_IF_ERROR(plan_native_query(leaf, &query));
         // The reader publishes BM25 values into the similarity the context carries and the
         // collector also collects the scorer's score, so give the reader a private sink and let
-        // the scores reach the collector through the scored query built below. The sink exists
-        // exactly when the reader will score, which spares unscored clauses its allocation.
-        const bool reader_will_score = ctx.context->collection_similarity != nullptr &&
-                                       segment_v2::IndexReaderHelper::is_need_similarity_score(
-                                               query.query_type, &_reader->get_index_meta());
+        // the scores reach the collector through the scored query built below. An unscored leaf
+        // hides the similarity instead. Both happen only when the reader would score, which
+        // spares the other clauses a context copy.
+        const bool reader_would_score = ctx.context->collection_similarity != nullptr &&
+                                        segment_v2::IndexReaderHelper::is_need_similarity_score(
+                                                query.query_type, &_reader->get_index_meta());
         std::shared_ptr<segment_v2::IndexQueryContext> reader_context = ctx.context;
-        if (reader_will_score || ctx.domain != nullptr) {
+        if (reader_would_score || ctx.domain != nullptr) {
             reader_context = std::make_shared<segment_v2::IndexQueryContext>(*ctx.context);
         }
-        if (reader_will_score) {
-            score_sink = std::make_shared<CollectionSimilarity>();
+        if (reader_would_score) {
+            score_sink = query.scored ? std::make_shared<CollectionSimilarity>() : nullptr;
             reader_context->collection_similarity = score_sink;
         }
         if (ctx.domain != nullptr) {

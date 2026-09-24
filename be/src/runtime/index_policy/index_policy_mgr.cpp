@@ -40,6 +40,8 @@ private:
 } // namespace
 
 const std::unordered_set<std::string> IndexPolicyMgr::BUILTIN_NORMALIZERS = {"lowercase"};
+const std::unordered_set<std::string> IndexPolicyMgr::PER_CHARACTER_TOKEN_FILTERS = {
+        "lowercase", "asciifolding", "icu_normalizer"};
 
 std::string IndexPolicyMgr::normalize_name(const std::string& name) {
     std::string result = name;
@@ -190,6 +192,23 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
     throw Exception(ErrorCode::INVALID_ARGUMENT, "Analyzer policy not found: " + name);
 }
 
+AnalyzerPtr IndexPolicyMgr::get_normalizer_by_name(const std::string& name) {
+    std::shared_lock lock(_mutex);
+    const std::string normalized_name = normalize_name(name);
+    auto name_it = _name_to_id.find(normalized_name);
+    if (name_it == _name_to_id.end()) {
+        if (is_builtin_normalizer(normalized_name)) {
+            return build_builtin_normalizer(name);
+        }
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
+    }
+    auto policy_it = _policys.find(name_it->second);
+    if (policy_it == _policys.end()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with id: " + name);
+    }
+    return build_normalizer_from_policy(policy_it->second);
+}
+
 segment_v2::inverted_index::CustomAnalyzerConfigPtr
 IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_policy_analyzer) {
     segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
@@ -261,13 +280,23 @@ AnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
                                builder.add_char_filter_config(name, settings);
                            });
 
-    process_filter_configs(index_policy_normalizer, PROP_TOKEN_FILTER, "token filter",
-                           [&builder](const std::string& name,
-                                      const segment_v2::inverted_index::Settings& settings) {
-                               builder.add_token_filter_config(name, settings);
-                           });
+    process_filter_configs(
+            index_policy_normalizer, PROP_TOKEN_FILTER, "token filter",
+            [&](const std::string& name, const segment_v2::inverted_index::Settings& settings) {
+                // An analyzer's filters that split or drop tokens are not part of
+                // its normalization.
+                if (index_policy_normalizer.type == TIndexPolicyType::NORMALIZER ||
+                    PER_CHARACTER_TOKEN_FILTERS.contains(name)) {
+                    builder.add_token_filter_config(name, settings);
+                }
+            });
 
     auto custom_normalizer_config = builder.build();
+    if (index_policy_normalizer.type == TIndexPolicyType::ANALYZER &&
+        custom_normalizer_config->get_char_filter_configs().empty() &&
+        custom_normalizer_config->get_token_filter_configs().empty()) {
+        return nullptr;
+    }
     return segment_v2::inverted_index::CustomNormalizer::build_custom_normalizer(
             custom_normalizer_config);
 }

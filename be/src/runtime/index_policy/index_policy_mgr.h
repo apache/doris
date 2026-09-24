@@ -51,6 +51,10 @@ public:
     AnalyzerProviderPtr get_analyzer_provider_by_name(
             const std::string& name,
             const std::map<std::string, std::string>& outer_char_filter_map = {});
+    // The per-character part of a named analyzer or normalizer, which prefix and wildcard terms
+    // go through instead of analysis: its char filters and the token filters that neither split
+    // nor drop tokens. nullptr for an analyzer that has neither.
+    AnalyzerPtr get_normalizer_by_name(const std::string& name);
 
 private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
@@ -79,6 +83,7 @@ private:
     constexpr static auto PROP_TYPE = "type";
 
     static const std::unordered_set<std::string> BUILTIN_NORMALIZERS;
+    static const std::unordered_set<std::string> PER_CHARACTER_TOKEN_FILTERS;
 
     std::shared_mutex _mutex;
 

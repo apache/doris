@@ -51,6 +51,7 @@
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
@@ -261,6 +262,7 @@ public:
         last_column_name = column_name;
         last_query_type = query_type;
         last_query_info = query_info;
+        last_query_scored = context != nullptr && context->collection_similarity != nullptr;
         last_query_value_type = TYPE_STRING;
         last_query_value.clear();
         for (const auto& term_info : query_info.term_infos) {
@@ -364,6 +366,8 @@ public:
     // Identity of the similarity the reader was handed, so a test can prove the query's own
     // collection similarity is not the one the reader writes into.
     const CollectionSimilarity* observed_similarity = nullptr;
+    // Whether the last analyzed query was asked to score, that is handed a similarity.
+    bool last_query_scored = false;
 
 private:
     segment_v2::InvertedIndexReaderType _reader_type;
@@ -1659,14 +1663,27 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverBindsSniiWithoutOpeningClucene
 }
 
 TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->index_policy_mgr();
+    IndexPolicyMgr scoped_policy_mgr;
+    exec_env->_index_policy_mgr = &scoped_policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    // The selected index's analyzer lowercases, so the pattern is lowercased as well.
+    TIndexPolicy analyzer;
+    analyzer.id = 910050;
+    analyzer.name = "function_search_wildcard_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "standard";
+    analyzer.properties["token_filter"] = "lowercase";
+    scoped_policy_mgr.apply_policy_changes({analyzer}, {});
+
     auto context = std::make_shared<IndexQueryContext>();
     std::map<std::string, std::string> decoy_properties {
             {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH},
             {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
     std::map<std::string, std::string> selected_properties {
-            {INVERTED_INDEX_ANALYZER_NAME_KEY, "unregistered_search_wildcard_analyzer"},
-            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE},
-            {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name}};
     auto decoy_meta = make_test_inverted_index(15, decoy_properties);
     auto selected_meta = make_test_inverted_index(16, selected_properties);
     auto decoy_file_reader = std::make_shared<RejectingCluceneIndexFileReader>(
@@ -1732,6 +1749,8 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
     const auto* null_bitmap = scorer->get_null_bitmap();
     ASSERT_NE(nullptr, null_bitmap);
     expect_bitmap_eq(*null_bitmap, {3});
+
+    scoped_policy_mgr.apply_policy_changes({}, {analyzer.id});
 }
 
 TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldExists) {
@@ -2087,16 +2106,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsE
     expect_bitmap_eq(collect_docs(scorer), {});
 }
 
-// On a NON-analysed (keyword) field, PREFIX cannot map to MATCH_PHRASE_PREFIX_QUERY: FE keeps
-// the trailing '*' in the value (SearchDslParser.java), and on a keyword field the whole string
-// -- '*' included -- becomes one literal term (InvertedIndexAnalyzer::get_analyse_result), so
-// MATCH_PHRASE_PREFIX_QUERY would search for a term that can never exist. build_query_recursive's SNII
-// branch (function_search.cpp:819-832) special-cases this by checking
-// !InvertedIndexAnalyzer::should_analyzer(binding.index_properties) and routing to WILDCARD_QUERY
-// instead, exactly like the CLucene path's WildcardQuery(value) for PREFIX. index_meta below omits
-// the parser property entirely, which should_analyzer() (analyzer.cpp:261-273) treats as
-// PARSER_UNKNOWN -- not analysed -- the same as an explicit "none" parser.
-TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
+// On a keyword field (no parser property), a PREFIX is the literal stem without the DSL's '*'.
+TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixIsALiteralStem) {
     OlapReaderStatistics stats;
     auto context = std::make_shared<IndexQueryContext>();
     context->stats = &stats;
@@ -2104,7 +2115,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("al*", make_bitmap({0, 2}));
+    reader->set_query_result("al", make_bitmap({0, 2}));
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2128,10 +2139,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
     EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::WILDCARD_QUERY, reader->last_query_type);
-    // The trailing '*' must survive unmodified: WILDCARD_QUERY on the reader interprets it as a
-    // wildcard, unlike the tokenizer path that would have stripped it.
-    EXPECT_EQ("al*", reader->last_query_value);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, reader->last_query_type);
+    EXPECT_EQ("al", reader->last_query_value);
     EXPECT_EQ(0, index_file_reader->open_calls);
 
     auto weight = query->weight(false);
@@ -2178,7 +2187,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
     EXPECT_EQ("^(alpha)$", reader->last_query_value);
 }
 
-TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBeforeAnalysis) {
+TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsTheDslSuffix) {
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_policy_mgr = exec_env->index_policy_mgr();
     IndexPolicyMgr scoped_policy_mgr;
@@ -2248,6 +2257,123 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBefor
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 
     scoped_policy_mgr.apply_policy_changes({}, {tokenizer.id, analyzer.id});
+}
+
+// Runs one PREFIX clause against a fake SNII reader bound to "body" with `properties`.
+static void search_snii_prefix(const std::map<std::string, std::string>& properties,
+                               const std::shared_ptr<IndexQueryContext>& context,
+                               const std::string& value,
+                               const std::shared_ptr<RecordingNativeInvertedIndexReader>& reader) {
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = properties;
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    const int calls = reader->query_calls;
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = FunctionSearch().build_query_recursive(
+            make_leaf_clause("PREFIX", value), context, resolver, &query, &binding_key, "OR", 0, 4);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(calls + 1, reader->query_calls) << value;
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, reader->last_query_type) << value;
+}
+
+// SEARCH PREFIX follows Elasticsearch's query_string: the stem is normalized, not analyzed, and
+// every term that starts with it matches with a constant score.
+TEST_F(FunctionSearchTest, TestSniiNativePrefixIsAnUnscoredPrefixOfTheNormalizedStem) {
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    const std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD},
+            {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE},
+            {INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY, INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES}};
+    auto index_meta = make_test_inverted_index(25, properties);
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
+
+    // The analyzer would split "Foo-Ba" into two terms and drop the stopword "the".
+    for (const auto& [value, stem] : std::vector<std::pair<std::string, std::string>> {
+                 {"Foo-Ba*", "foo-ba"}, {"The*", "the"}}) {
+        search_snii_prefix(properties, context, value, reader);
+        EXPECT_EQ(stem, reader->last_query_value) << value;
+        EXPECT_FALSE(reader->last_query_scored) << value;
+    }
+}
+
+// A custom analyzer normalizes a prefix with its char filters and the token filters that work
+// per character; its tokenizer and filters such as word_delimiter do not apply.
+TEST_F(FunctionSearchTest, TestSniiNativePrefixNormalizesWithTheAnalyzersPerCharacterFilters) {
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* previous_policy_mgr = exec_env->index_policy_mgr();
+    IndexPolicyMgr scoped_policy_mgr;
+    exec_env->_index_policy_mgr = &scoped_policy_mgr;
+    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
+
+    TIndexPolicy analyzer;
+    analyzer.id = 910040;
+    analyzer.name = "function_search_folding_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "standard";
+    analyzer.properties["token_filter"] = "word_delimiter, asciifolding, lowercase";
+    scoped_policy_mgr.apply_policy_changes({analyzer}, {});
+
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    const std::map<std::string, std::string> properties {
+            {INVERTED_INDEX_ANALYZER_NAME_KEY, analyzer.name}};
+    auto index_meta = make_test_inverted_index(26, properties);
+    auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
+            &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
+    search_snii_prefix(properties, context, "Café-Au*", reader);
+    EXPECT_EQ("cafe-au", reader->last_query_value);
+
+    scoped_policy_mgr.apply_policy_changes({}, {analyzer.id});
+}
+
+// On CLucene too a stopword stays a prefix, since a prefix is normalized and never analyzed.
+TEST_F(FunctionSearchTest, TestBuildLeafQueryClucenePrefixOfAStopwordStaysAPrefix) {
+    auto context = std::make_shared<IndexQueryContext>();
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace("body", IndexFieldNameAndTypePair {"body", nullptr});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context);
+
+    FieldReaderBinding binding;
+    binding.logical_field_name = "body";
+    binding.stored_field_name = "body";
+    binding.stored_field_wstr = L"body";
+    binding.index_properties = {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD},
+                                {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
+    binding.query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
+    binding.binding_key = resolver.binding_key_for("body", InvertedIndexQueryType::MATCH_ANY_QUERY);
+    binding.leaf_compiler = std::make_shared<CluceneLeafCompiler>(L"body", binding.binding_key);
+    auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
+    binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
+            dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
+    resolver._cache[binding.binding_key] = binding;
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    ASSERT_TRUE(function_search
+                        ->build_query_recursive(make_leaf_clause("PREFIX", "The*"), context,
+                                                resolver, &query, &binding_key, "OR", 0)
+                        .ok());
+    auto expand = std::dynamic_pointer_cast<inverted_index::query_v2::ExpandQuery>(query);
+    ASSERT_NE(expand, nullptr);
+    EXPECT_EQ(index_query::TermPatternKind::kPrefix, expand->_kind);
+    EXPECT_EQ("the", expand->_pattern);
 }
 
 // Shared wiring for the SNII native SEARCH scoring tests: one fake SNII reader bound to field

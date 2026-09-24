@@ -20,8 +20,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "util/string_util.h"
-
 namespace doris::index_query::logical {
 
 using segment_v2::InvertedIndexQueryType;
@@ -53,10 +51,6 @@ Occur to_occur(TSearchOccur::type occur) {
     default:
         return Occur::kMust;
     }
-}
-
-std::string normalize_pattern(const FieldProps& props, const std::string& value) {
-    return props.lowercase_patterns ? to_lower(value) : value;
 }
 
 void append_terms(const Token& token, std::vector<std::string>* terms) {
@@ -109,7 +103,9 @@ NodePtr lower_direct_index_leaf(const std::string& clause_type, FieldRef field,
     return make_node(Unknown {.field = std::move(field)});
 }
 
-// WILDCARD, REGEXP and PREFIX match dictionary terms against a pattern.
+// WILDCARD, REGEXP and PREFIX match dictionary terms against a pattern. As in Elasticsearch's
+// query_string, a prefix or a glob is normalized the way the index normalizes its terms and is
+// never analyzed, and a regular expression is taken as written.
 Status lower_pattern_leaf(const std::string& clause_type, const FieldProps& props,
                           FieldCatalog& catalog, FieldRef field, const std::string& value,
                           NodePtr* out) {
@@ -124,27 +120,18 @@ Status lower_pattern_leaf(const std::string& clause_type, const FieldProps& prop
         *out = make_node(Exists {.field = std::move(field)});
         return Status::OK();
     }
-    if (clause_type == "WILDCARD" || !props.analyzed) {
-        *out = make_node(Expand {.field = std::move(field),
-                                 .kind = ExpandKind::kWildcard,
-                                 .pattern = normalize_pattern(props, value)});
-        return Status::OK();
+    const bool prefix = clause_type == "PREFIX";
+    // The DSL keeps a PREFIX value's trailing '*'.
+    std::string pattern =
+            prefix && value.ends_with('*') ? value.substr(0, value.size() - 1) : value;
+    if (props.analyzed) {
+        std::string normalized;
+        RETURN_IF_ERROR(catalog.normalize(props, pattern, &normalized));
+        pattern = std::move(normalized);
     }
-    // PREFIX on an analyzed index: the DSL keeps the trailing '*' in the value, so
-    // analyze the stem only.
-    std::string stem = value;
-    if (!stem.empty() && stem.back() == '*') {
-        stem.pop_back();
-    }
-    std::vector<Token> tokens;
-    RETURN_IF_ERROR(catalog.analyze(props, stem, &tokens));
-    if (tokens.empty()) {
-        *out = make_node(Empty {.field = std::move(field)});
-        return Status::OK();
-    }
-    *out = make_node(Prefix {.field = std::move(field),
-                             .tokens = std::move(tokens),
-                             .pattern = normalize_pattern(props, value)});
+    *out = make_node(Expand {.field = std::move(field),
+                             .kind = prefix ? ExpandKind::kPrefix : ExpandKind::kWildcard,
+                             .pattern = std::move(pattern)});
     return Status::OK();
 }
 

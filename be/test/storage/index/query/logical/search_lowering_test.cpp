@@ -44,36 +44,21 @@ constexpr const char* kNumber = "price";    // scalar (BKD) index
 constexpr const char* kUnbound = "missing"; // no index in this segment
 constexpr const char* kCased = "cased";     // analyzed, case-preserving
 
-// Splits on spaces and lowercases; "a|b" becomes two terms at one position, so
-// a test can produce the multi-term slots a synonym filter would.
+// Splits on spaces and lowercases every analyzed field but kCased; "a|b" becomes two terms
+// at one position, so a test can produce the multi-term slots a synonym filter would.
 class FakeCatalog final : public FieldCatalog {
 public:
     FakeCatalog() {
-        _fields[kText] = {.bound = true,
-                          .direct_index = false,
-                          .analyzed = true,
-                          .lowercase_patterns = true,
-                          .binding = "body#any"};
-        _fields[kCased] = {.bound = true,
-                           .direct_index = false,
-                           .analyzed = true,
-                           .lowercase_patterns = false,
-                           .binding = "cased#any"};
-        _fields[kKeyword] = {.bound = true,
-                             .direct_index = false,
-                             .analyzed = false,
-                             .lowercase_patterns = false,
-                             .binding = "tag#eq"};
-        _fields[kNumber] = {.bound = true,
-                            .direct_index = true,
-                            .analyzed = false,
-                            .lowercase_patterns = false,
-                            .binding = "price#eq"};
-        _fields[kUnbound] = {.bound = false,
-                             .direct_index = false,
-                             .analyzed = false,
-                             .lowercase_patterns = false,
-                             .binding = ""};
+        _fields[kText] = {
+                .bound = true, .direct_index = false, .analyzed = true, .binding = "body#any"};
+        _fields[kCased] = {
+                .bound = true, .direct_index = false, .analyzed = true, .binding = "cased#any"};
+        _fields[kKeyword] = {
+                .bound = true, .direct_index = false, .analyzed = false, .binding = "tag#eq"};
+        _fields[kNumber] = {
+                .bound = true, .direct_index = true, .analyzed = false, .binding = "price#eq"};
+        _fields[kUnbound] = {
+                .bound = false, .direct_index = false, .analyzed = false, .binding = ""};
     }
 
     Status resolve(const std::string& field, InvertedIndexQueryType query_type,
@@ -100,7 +85,7 @@ public:
             std::string alternative;
             while (std::getline(alternatives, alternative, '|')) {
                 Token token;
-                token.term = props.lowercase_patterns ? to_lower(alternative) : alternative;
+                token.term = lowercases(props) ? to_lower(alternative) : alternative;
                 token.position = position;
                 out->push_back(std::move(token));
             }
@@ -108,10 +93,21 @@ public:
         return Status::OK();
     }
 
+    Status normalize(const FieldProps& props, const std::string& value, std::string* out) override {
+        normalized_values.push_back(value);
+        *out = lowercases(props) ? to_lower(value) : value;
+        return Status::OK();
+    }
+
     std::map<std::string, InvertedIndexQueryType> resolved_query_types;
     std::vector<std::string> analyzed_values;
+    std::vector<std::string> normalized_values;
 
 private:
+    bool lowercases(const FieldProps& props) const {
+        return props.binding != _fields.at(kCased).binding;
+    }
+
     std::map<std::string, FieldProps> _fields;
 };
 
@@ -357,33 +353,31 @@ TEST(SearchLoweringTest, AnyAndAllLowerToTermSets) {
     EXPECT_NE(lower(leaf("ALL", kText, ""), catalog)->as<Empty>(), nullptr);
 }
 
-TEST(SearchLoweringTest, PrefixOnAnalyzedIndexKeepsTokensAndNormalizedPattern) {
+TEST(SearchLoweringTest, PrefixOnAnalyzedIndexIsItsNormalizedStem) {
     FakeCatalog catalog;
     auto node = lower(leaf("PREFIX", kText, "Quick Fo*"), catalog);
-    const auto* prefix = node->as<Prefix>();
-    ASSERT_NE(prefix, nullptr);
-    EXPECT_EQ(terms_of(prefix->tokens), (std::vector<std::string> {"quick", "fo"}));
-    EXPECT_EQ(prefix->pattern, "quick fo*");
-    EXPECT_EQ(catalog.analyzed_values, std::vector<std::string> {"Quick Fo"});
+    const auto* expand = node->as<Expand>();
+    ASSERT_NE(expand, nullptr);
+    EXPECT_EQ(expand->kind, ExpandKind::kPrefix);
+    // As in Elasticsearch's query_string, the stem is normalized whole and never analyzed.
+    EXPECT_EQ(expand->pattern, "quick fo");
+    EXPECT_EQ(catalog.normalized_values, std::vector<std::string> {"Quick Fo"});
+    EXPECT_TRUE(catalog.analyzed_values.empty());
 
-    auto cased = lower(leaf("PREFIX", kCased, "Quick Fo*"), catalog);
-    ASSERT_NE(cased->as<Prefix>(), nullptr);
-    EXPECT_EQ(cased->as<Prefix>()->pattern, "Quick Fo*");
-    EXPECT_EQ(terms_of(cased->as<Prefix>()->tokens), (std::vector<std::string> {"Quick", "Fo"}));
+    EXPECT_EQ(lower(leaf("PREFIX", kCased, "Quick Fo*"), catalog)->as<Expand>()->pattern,
+              "Quick Fo");
 }
 
-TEST(SearchLoweringTest, PrefixWithoutTokensIsEmpty) {
-    FakeCatalog catalog;
-    EXPECT_NE(lower(leaf("PREFIX", kText, "*"), catalog)->as<Empty>(), nullptr);
-}
-
-TEST(SearchLoweringTest, PrefixOnKeywordIndexIsAWildcardOnTheWholeValue) {
+TEST(SearchLoweringTest, PrefixOnKeywordIndexIsItsLiteralStem) {
     FakeCatalog catalog;
     auto node = lower(leaf("PREFIX", kKeyword, "Quick Fo*"), catalog);
     const auto* expand = node->as<Expand>();
     ASSERT_NE(expand, nullptr);
-    EXPECT_EQ(expand->kind, ExpandKind::kWildcard);
-    EXPECT_EQ(expand->pattern, "Quick Fo*");
+    EXPECT_EQ(expand->kind, ExpandKind::kPrefix);
+    EXPECT_EQ(expand->pattern, "Quick Fo");
+    // Only the trailing '*' belongs to the DSL; an escaped one stays in the stem.
+    EXPECT_EQ(lower(leaf("PREFIX", kKeyword, "a*b*"), catalog)->as<Expand>()->pattern, "a*b");
+    EXPECT_TRUE(catalog.normalized_values.empty());
 }
 
 TEST(SearchLoweringTest, WildcardStarIsExists) {
@@ -393,7 +387,7 @@ TEST(SearchLoweringTest, WildcardStarIsExists) {
     EXPECT_EQ(node->as<Exists>()->field.name, kText);
 }
 
-TEST(SearchLoweringTest, WildcardLowercasesOnlyWhenTheIndexDoes) {
+TEST(SearchLoweringTest, WildcardIsNormalizedOnlyOnAnAnalyzedIndex) {
     FakeCatalog catalog;
     auto lowered = lower(leaf("WILDCARD", kText, "Qu?ck*"), catalog);
     ASSERT_NE(lowered->as<Expand>(), nullptr);
@@ -402,6 +396,7 @@ TEST(SearchLoweringTest, WildcardLowercasesOnlyWhenTheIndexDoes) {
     EXPECT_EQ(lower(leaf("WILDCARD", kCased, "Qu?ck*"), catalog)->as<Expand>()->pattern, "Qu?ck*");
     EXPECT_EQ(lower(leaf("WILDCARD", kKeyword, "Qu?ck*"), catalog)->as<Expand>()->pattern,
               "Qu?ck*");
+    EXPECT_EQ(catalog.normalized_values, (std::vector<std::string> {"Qu?ck*", "Qu?ck*"}));
     EXPECT_TRUE(catalog.analyzed_values.empty());
 }
 
@@ -414,6 +409,7 @@ TEST(SearchLoweringTest, RegexpIsAnchoredButNeverNormalized) {
     EXPECT_EQ(node->as<Expand>()->pattern, "^(^Qu.*)$");
     EXPECT_EQ(lower(leaf("REGEXP", kText, "a|b"), catalog)->as<Expand>()->pattern, "^(a|b)$");
     EXPECT_TRUE(catalog.analyzed_values.empty());
+    EXPECT_TRUE(catalog.normalized_values.empty());
 }
 
 TEST(SearchLoweringTest, RangeListAndUnknownClauseTypesFallBackToTheRawTerm) {

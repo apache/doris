@@ -49,7 +49,6 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
-#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
@@ -182,14 +181,10 @@ public:
                             binding.inverted_reader->type() == InvertedIndexReaderType::BKD;
         const bool analyzed = !scalar && inverted_index::InvertedIndexAnalyzer::should_analyzer(
                                                  binding.index_properties);
-        *out = logical::FieldProps {
-                .bound = true,
-                .direct_index = scalar,
-                .analyzed = analyzed,
-                .lowercase_patterns =
-                        analyzed && get_parser_lowercase_from_properties(
-                                            binding.index_properties) == INVERTED_INDEX_PARSER_TRUE,
-                .binding = binding.binding_key};
+        *out = logical::FieldProps {.bound = true,
+                                    .direct_index = scalar,
+                                    .analyzed = analyzed,
+                                    .binding = binding.binding_key};
         return Status::OK();
     }
 
@@ -223,6 +218,26 @@ public:
         } catch (const Exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "search: analyzing '{}' failed: {}", value, e.what());
+        }
+        return Status::OK();
+    }
+
+    Status normalize(const logical::FieldProps& props, const std::string& value,
+                     std::string* out) override {
+        const FieldReaderBinding* binding = _resolver.find_binding(props.binding);
+        if (binding == nullptr) {
+            return Status::InternalError("search: no binding '{}' to normalize with",
+                                         props.binding);
+        }
+        try {
+            *out = inverted_index::InvertedIndexAnalyzer::normalize(value,
+                                                                    binding->index_properties);
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "search: normalizing '{}' failed: {}", value, e.what());
+        } catch (const Exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "search: normalizing '{}' failed: {}", value, e.what());
         }
         return Status::OK();
     }
@@ -392,7 +407,7 @@ bool is_required(const logical::Bool& boolean, logical::Occur occur) {
 
 // Cheap leaves run first so that dearer ones run within their rows.
 int required_rank(const logical::Node& node) {
-    if (node.as<logical::Phrase>() != nullptr || node.as<logical::Prefix>() != nullptr) {
+    if (node.as<logical::Phrase>() != nullptr) {
         return 1;
     }
     if (node.as<logical::Expand>() != nullptr || node.as<logical::Bool>() != nullptr) {

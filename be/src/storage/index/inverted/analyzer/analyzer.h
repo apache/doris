@@ -58,6 +58,12 @@ public:
     static std::vector<TermInfo> get_analyse_result(
             const std::string& search_str, const std::map<std::string, std::string>& properties);
 
+    // Normalizes a prefix or a wildcard pattern the way the index normalizes its terms, without
+    // splitting it: lowercase for a builtin analyzer unless lower_case is false, or the
+    // per-character part of a custom analyzer or normalizer.
+    static std::string normalize(const std::string& value,
+                                 const std::map<std::string, std::string>& properties);
+
     static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };
 

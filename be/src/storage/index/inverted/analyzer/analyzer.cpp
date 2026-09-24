@@ -41,6 +41,7 @@
 #include "storage/index/inverted/analyzer/ik/IKAnalyzer.h"
 #include "storage/index/inverted/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/char_filter/char_replace_char_filter_factory.h"
+#include "util/string_util.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
@@ -246,6 +247,30 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     auto reader = create_reader(config.char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader, analyzer.get());
+}
+
+std::string InvertedIndexAnalyzer::normalize(const std::string& value,
+                                             const std::map<std::string, std::string>& properties) {
+    const std::string analyzer_name = get_analyzer_name_from_properties(properties);
+    if (analyzer_name.empty() || is_builtin_analyzer(analyzer_name)) {
+        // The index writers lowercase a builtin analyzer's terms unless lower_case is false.
+        return get_parser_lowercase_from_properties<true>(properties) == INVERTED_INDEX_PARSER_TRUE
+                       ? to_lower(value)
+                       : value;
+    }
+    auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
+    if (index_policy_mgr == nullptr) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "Index policy manager is not initialized");
+    }
+    const auto normalizer = index_policy_mgr->get_normalizer_by_name(analyzer_name);
+    if (normalizer == nullptr) {
+        return value;
+    }
+    auto reader = create_reader({});
+    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+    const auto terms = get_analyse_result(reader, normalizer.get());
+    return terms.empty() ? std::string() : terms.front().get_single_term();
 }
 
 bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {
