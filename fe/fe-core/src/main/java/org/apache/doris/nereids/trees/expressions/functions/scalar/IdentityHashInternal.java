@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -55,6 +57,27 @@ public class IdentityHashInternal extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private IdentityHashInternal(ScalarFunctionParams functionParams) {
         super(functionParams);
+        checkArguments(functionParams.arguments);
+    }
+
+    /**
+     * The trailing bucket count must be a positive integer literal. Analyzing it here rejects
+     * malformed calls (non-constant or non-positive count) at plan time, before the expression
+     * reaches BE, whose identity_hash_internal expects the modulus as a constant column.
+     */
+    private void checkArguments(List<Expression> children) {
+        Expression last = children.get(children.size() - 1);
+        if (!(last instanceof IntegerLikeLiteral)) {
+            throw new AnalysisException(String.format(
+                    "the bucket count argument of %s must be an integer literal, but is %s",
+                    getName(), last.toSql()));
+        }
+        long bucketCount = ((IntegerLikeLiteral) last).getLongValue();
+        if (bucketCount <= 0 || bucketCount > Integer.MAX_VALUE) {
+            throw new AnalysisException(String.format(
+                    "the bucket count argument of %s must be a positive integer, but is %s",
+                    getName(), last.toSql()));
+        }
     }
 
     /**
