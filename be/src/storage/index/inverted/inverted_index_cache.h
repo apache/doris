@@ -219,7 +219,8 @@ private:
 class InvertedIndexQueryCacheHandle;
 
 // v2: Result cache keys no longer include the removed CommonGrams query-plan flags.
-inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 2;
+// v3: A phrase's slop is no longer a separate field; the raw query bytes hold it.
+inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 3;
 
 // Stable identity shared by result-cache and row-accurate single-flight. It intentionally contains
 // no analyzer output or internal plan kind: those are segment-local implementation details below
@@ -227,8 +228,6 @@ inline constexpr uint32_t INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION = 2;
 struct InvertedIndexRawQuerySemantic {
     std::string_view raw_query_bytes;
     InvertedIndexQueryType query_type;
-    int32_t slop = 0;
-    bool ordered = false;
     int32_t max_expansions = 0;
     uint32_t cache_semantics_version = INVERTED_INDEX_QUERY_CACHE_SEMANTICS_VERSION;
 

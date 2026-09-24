@@ -23,8 +23,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
-#include <charconv>
 #include <memory>
 #include <optional>
 #include <roaring/roaring.hh>
@@ -44,6 +42,7 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/query/docid_sink.h"
+#include "storage/index/query/logical/search_lowering.h"
 #include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/format/null_bitmap.h"
@@ -113,6 +112,19 @@ std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
         terms.push_back(term_info.get_single_term());
     }
     return terms;
+}
+
+InvertedIndexQueryType expand_query_type(index_query::logical::ExpandKind kind) {
+    switch (kind) {
+    case index_query::logical::ExpandKind::kPrefix:
+        // A one-term phrase prefix runs as a prefix of that term.
+        return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+    case index_query::logical::ExpandKind::kRegexp:
+        return InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+    case index_query::logical::ExpandKind::kWildcard:
+    default:
+        return InvertedIndexQueryType::WILDCARD_QUERY;
+    }
 }
 
 bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
@@ -209,49 +221,6 @@ Status score_phrase_matches(const IndexQueryContextPtr& context, std::string_vie
                                                 static_cast<float>(scored_doc.score));
     }
     return Status::OK();
-}
-
-void parse_phrase_slop(std::string* query, InvertedIndexQueryInfo* query_info) {
-    DCHECK(query != nullptr);
-    DCHECK(query_info != nullptr);
-    const auto is_digits = [](std::string_view str) {
-        return std::all_of(str.begin(), str.end(), [](unsigned char c) { return std::isdigit(c); });
-    };
-
-    const size_t last_space_pos = query->find_last_of(' ');
-    if (last_space_pos == std::string::npos) {
-        return;
-    }
-    const size_t tilde_pos = last_space_pos + 1;
-    if (tilde_pos >= query->size() - 1 || (*query)[tilde_pos] != '~') {
-        return;
-    }
-
-    const size_t slop_pos = tilde_pos + 1;
-    std::string_view slop_str(query->data() + slop_pos, query->size() - slop_pos);
-    if (slop_str.empty()) {
-        return;
-    }
-
-    bool ordered = false;
-    if (slop_str.size() == 1) {
-        if (!std::isdigit(static_cast<unsigned char>(slop_str[0]))) {
-            return;
-        }
-    } else if (slop_str.back() == '+') {
-        ordered = true;
-        slop_str.remove_suffix(1);
-    }
-
-    if (!is_digits(slop_str)) {
-        return;
-    }
-    auto result = std::from_chars(slop_str.begin(), slop_str.end(), query_info->slop);
-    if (result.ec != std::errc()) {
-        return;
-    }
-    query_info->ordered = ordered;
-    *query = query->substr(0, last_space_pos);
 }
 
 // Multi-term phrases verify positions per document, so only they gain from restricting the
@@ -396,19 +365,6 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                                                       max_expansions);
         emitted_to_sink = true;
         break;
-    case InvertedIndexQueryType::LESS_THAN_QUERY:
-    case InvertedIndexQueryType::LESS_EQUAL_QUERY:
-    case InvertedIndexQueryType::GREATER_THAN_QUERY:
-    case InvertedIndexQueryType::GREATER_EQUAL_QUERY:
-    case InvertedIndexQueryType::RANGE_QUERY:
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII inverted index storage format does not support BKD/range query");
-    case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
-        // SNII has no native edge-phrase operator yet. V3 answers this through
-        // PhraseEdgeQuery, and a row implementation exists (match_phrase_edge), so
-        // downgrade to scalar evaluation instead of failing the query outright.
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                "SNII does not implement MATCH_PHRASE_EDGE; evaluating by function");
     default:
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII unsupported inverted index query type {}", query_type_to_string(query_type));
@@ -429,6 +385,39 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
 
 } // namespace
 
+Status plan_native_query(index_query::logical::Node&& leaf, NativeQuery* out) {
+    namespace logical = index_query::logical;
+    DCHECK(out->query_info.term_infos.empty());
+    std::vector<TermInfo>& term_infos = out->query_info.term_infos;
+    if (auto* term = std::get_if<logical::Term>(&leaf.value)) {
+        out->query_type = InvertedIndexQueryType::EQUAL_QUERY;
+        term_infos.emplace_back(std::move(term->term));
+    } else if (auto* set = std::get_if<logical::TermSet>(&leaf.value)) {
+        // The executors know all-of and any-of; the SEARCH compile step counts a
+        // threshold above them.
+        DORIS_CHECK(set->min_should_match == 0);
+        out->query_type = set->require_all ? InvertedIndexQueryType::MATCH_ALL_QUERY
+                                           : InvertedIndexQueryType::MATCH_ANY_QUERY;
+        term_infos.reserve(set->terms.size());
+        for (auto& value : set->terms) {
+            term_infos.emplace_back(std::move(value));
+        }
+    } else if (auto* phrase = std::get_if<logical::Phrase>(&leaf.value)) {
+        out->query_type = phrase->prefix ? InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY
+                                         : InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+        term_infos = std::move(phrase->slots);
+        out->query_info.slop = phrase->slop;
+        out->query_info.ordered = phrase->ordered;
+    } else if (auto* expand = std::get_if<logical::Expand>(&leaf.value)) {
+        out->query_type = expand_query_type(expand->kind);
+        term_infos.emplace_back(std::move(expand->pattern));
+        out->scored = false;
+    } else {
+        return Status::InternalError("leaf kind {} cannot run on SNII", leaf.value.index());
+    }
+    return Status::OK();
+}
+
 Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     if (*iterator == nullptr) {
         *iterator = InvertedIndexIterator::create_unique();
@@ -436,48 +425,6 @@ Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     dynamic_cast<InvertedIndexIterator*>(iterator->get())
             ->add_reader(_reader_type,
                          dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
-    return Status::OK();
-}
-
-Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
-                                           std::string search_str,
-                                           InvertedIndexQueryType query_type,
-                                           const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                           InvertedIndexQueryInfo* query_info) {
-    DCHECK(query_info != nullptr);
-    if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
-        query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
-        query_info->term_infos.emplace_back(search_str, 0);
-        return Status::OK();
-    }
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-        parse_phrase_slop(&search_str, query_info);
-    }
-
-    SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-    try {
-        if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
-            query_info->term_infos.emplace_back(search_str);
-        } else {
-            auto analyzer = analyzer_ctx == nullptr ? nullptr : analyzer_ctx->get_analyzer();
-            if (analyzer != nullptr) {
-                auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
-                        analyzer_ctx->char_filter_map);
-                reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
-                query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        reader, analyzer.get());
-            } else {
-                query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        search_str, _index_meta.properties());
-            }
-        }
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII analyze query failed: {}", e.what());
-    } catch (const Exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "SNII analyze query failed: {}", e.what());
-    }
     return Status::OK();
 }
 
@@ -589,11 +536,10 @@ Status SniiIndexReader::query_analyzed(const IndexQueryContextPtr& context,
                           .value = semantic.encode()},
             .max_expansions = max_expansions,
             .longest_value_bytes = longest_value_bytes,
-            .query_info = query_info,
             // A WILDCARD or REGEXP query carries its pattern as the one term.
             .search_str = query_info.term_infos.front().get_single_term(),
-            .parse_terms = [&query_info](InvertedIndexQueryInfo* out) {
-                *out = query_info;
+            .plan = [&query_info](InvertedIndexQueryType, std::string_view, NativeQuery* out) {
+                out->query_info = query_info;
                 return Status::OK();
             }};
     return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
@@ -604,21 +550,33 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                                std::shared_ptr<roaring::Roaring>& bit_map,
                                InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                                const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
+        // SNII has no edge-phrase operator, and a row implementation (match_phrase_edge)
+        // answers it, so downgrade instead of failing the query.
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                "SNII does not implement MATCH_PHRASE_EDGE; evaluating by function");
+    }
     const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
     const int32_t max_expansions = index_query::max_expansions(*context);
-    InvertedIndexQueryInfo query_info;
-    std::string plain_analysis_str = search_str;
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-        parse_phrase_slop(&plain_analysis_str, &query_info);
-    }
     // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
     // is determined by index properties and policies, which are immutable once referenced, so
     // sharing can be decided before opening the segment.
     const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
                                                       .query_type = query_type,
-                                                      .slop = query_info.slop,
-                                                      .ordered = query_info.ordered,
                                                       .max_expansions = max_expansions};
+    const std::map<std::string, std::string>& properties = _index_meta.properties();
+    // Two captures keep the callback inside std::function's inline storage.
+    const index_query::logical::AnalyzeValue analyze =
+            [analyzer_ctx, &properties](std::string_view value, std::vector<TermInfo>* tokens) {
+                RETURN_IF_ERROR(inverted_index::InvertedIndexAnalyzer::analyze(value, analyzer_ctx,
+                                                                               properties, tokens));
+                // SNII's phrases take one term per position, so tokens an analyzer stacks at one
+                // position run one after another, in the order it emitted them.
+                for (size_t i = 0; i < tokens->size(); ++i) {
+                    (*tokens)[i].position = static_cast<int32_t>(i + 1);
+                }
+                return Status::OK();
+            };
     SniiQueryRequest request {
             .query_type = query_type,
             .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
@@ -627,12 +585,18 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                           .value = raw_semantic.encode()},
             .max_expansions = max_expansions,
             .longest_value_bytes = search_str.size(),
-            .query_info = query_info,
             .search_str = search_str,
-            // Analysis runs only for a query the cache does not answer.
-            .parse_terms = [&, this](InvertedIndexQueryInfo* out) {
-                return _parse_query_terms(context, plain_analysis_str, query_type, analyzer_ctx,
-                                          out);
+            // Analysis runs only for a query the cache does not answer. Two captures keep the
+            // plan inside std::function's inline storage too.
+            .plan = [&context, &analyze](InvertedIndexQueryType type, std::string_view value,
+                                         NativeQuery* out) {
+                SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
+                index_query::logical::Node node;
+                RETURN_IF_ERROR(index_query::logical::lower_match(type, value, analyze, &node));
+                // A value without tokens runs with no terms.
+                return node.as<index_query::logical::Empty>() != nullptr
+                               ? Status::OK()
+                               : plan_native_query(std::move(node), out);
             }};
     return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
 }
@@ -708,8 +672,11 @@ Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
 
-    InvertedIndexQueryInfo execution_query_info = request.query_info;
-    RETURN_IF_ERROR(request.parse_terms(&execution_query_info));
+    NativeQuery planned {.query_type = query_type, .query_info = {}};
+    RETURN_IF_ERROR(request.plan(query_type, search_str, &planned));
+    // The request's type keys the cache and decides scoring; the planned type runs.
+    const InvertedIndexQueryType execution_type = planned.query_type;
+    const InvertedIndexQueryInfo& execution_query_info = planned.query_info;
     if (execution_query_info.term_infos.empty()) {
         auto msg = fmt::format("token parser result is empty for SNII query '{}'", search_str);
         if (is_match_query(query_type)) {
@@ -721,7 +688,7 @@ Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
         }
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
     }
-    if (actual_similarity && query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY &&
+    if (actual_similarity && execution_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY &&
         execution_query_info.term_infos.size() == 1) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII scoring does not support a single-token phrase-prefix query");
@@ -739,8 +706,9 @@ Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
     if (context->count_on_index_fastpath) {
         bool count_handled = false;
         std::shared_ptr<roaring::Roaring> count_bitmap;
-        RETURN_IF_ERROR(_try_count_only_fastpath(context, query_type, execution_query_info, terms,
-                                                 &count_handled, &count_bitmap, logical_reader));
+        RETURN_IF_ERROR(_try_count_only_fastpath(context, execution_type, execution_query_info,
+                                                 terms, &count_handled, &count_bitmap,
+                                                 logical_reader));
         if (count_handled) {
             bit_map = std::move(count_bitmap);
             RETURN_IF_ERROR(finish_query(logical_reader));
@@ -757,10 +725,10 @@ Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
     // A multi-term phrase restricted to the scan candidates produces a partial bitmap. It stays
     // out of the result cache and single-flight, which both serve the full-segment query.
     const bool consume_candidates =
-            context->candidate_rows != nullptr && consumes_candidates(query_type, terms.size());
+            context->candidate_rows != nullptr && consumes_candidates(execution_type, terms.size());
     context->candidate_rows_consumed = consume_candidates;
     const SniiQueryBitmapRequest bitmap_request {
-            .query_type = query_type,
+            .query_type = execution_type,
             .query_info = execution_query_info,
             .search_str = search_str,
             .max_expansions = max_expansions,
@@ -776,7 +744,7 @@ Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
     std::shared_ptr<roaring::Roaring> result_bitmap;
     std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
     auto* phrase_matches_out =
-            actual_similarity && uses_phrase_frequency_scoring(query_type, execution_query_info)
+            actual_similarity && uses_phrase_frequency_scoring(execution_type, execution_query_info)
                     ? &phrase_matches
                     : nullptr;
     Status single_flight_status;
@@ -809,10 +777,10 @@ Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
         RETURN_IF_ERROR(
                 ::doris::snii::stats::SniiStatsProvider::open(logical_reader, &segment_stats));
         if (phrase_matches_out != nullptr) {
-            RETURN_IF_ERROR(score_phrase_matches(context, column_name, query_type,
+            RETURN_IF_ERROR(score_phrase_matches(context, column_name, execution_type,
                                                  execution_query_info, *logical_reader,
                                                  segment_stats, *result_bitmap, phrase_matches));
-        } else if (uses_plain_term_frequency_scoring(query_type, execution_query_info)) {
+        } else if (uses_plain_term_frequency_scoring(execution_type, execution_query_info)) {
             RETURN_IF_ERROR(score_plain_term_candidates(context, column_name, execution_query_info,
                                                         *logical_reader, segment_stats,
                                                         *result_bitmap));

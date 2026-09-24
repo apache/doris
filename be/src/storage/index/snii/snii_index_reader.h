@@ -28,6 +28,7 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/query/logical/node.h"
 
 namespace doris::snii::reader {
 class LogicalIndexReader;
@@ -38,6 +39,18 @@ struct PhraseMatch;
 } // namespace doris::snii::query
 
 namespace doris::segment_v2 {
+
+// The query SNII's executors run for a logical leaf. Expanded terms keep a constant score, as on
+// the CLucene path.
+struct NativeQuery {
+    InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
+    InvertedIndexQueryInfo query_info;
+    bool scored = true;
+};
+
+// Fills `out`, which has no terms yet, with the query that runs `leaf`, moving the terms out of
+// `leaf`.
+Status plan_native_query(index_query::logical::Node&& leaf, NativeQuery* out);
 
 // All query inputs passed to _compute_query_bitmap after opening the logical reader.
 struct SniiQueryBitmapRequest {
@@ -50,18 +63,17 @@ struct SniiQueryBitmapRequest {
     const roaring::Roaring* candidates = nullptr;
 };
 
-// One query once its cache identity is known. `parse_terms` supplies the term
-// infos of a query the cache does not answer; `query_info` carries the rest.
+// One query once its cache identity is known. `plan` supplies the query a cache miss runs for
+// `query_type` and `search_str`, filling a query that starts from `query_type` and no terms.
 struct SniiQueryRequest {
     InvertedIndexQueryType query_type;
     InvertedIndexQueryCache::CacheKey cache_key;
     int32_t max_expansions = 0;
     // The longest value the STRING_TYPE ignore_above limit applies to.
     size_t longest_value_bytes = 0;
-    InvertedIndexQueryInfo query_info;
     // The pattern of a WILDCARD or REGEXP query, and the text messages quote.
     std::string_view search_str;
-    std::function<Status(InvertedIndexQueryInfo*)> parse_terms;
+    std::function<Status(InvertedIndexQueryType, std::string_view, NativeQuery*)> plan;
 };
 
 class SniiIndexReader final : public InvertedIndexReader {
@@ -142,10 +154,6 @@ private:
     Status _execute(const IndexQueryContextPtr& context, const std::string& column_name,
                     const SniiQueryRequest& request, std::shared_ptr<roaring::Roaring>& bit_map,
                     InvertedIndexQueryCacheHandle* null_bitmap_cache_handle);
-    Status _parse_query_terms(const IndexQueryContextPtr& context, std::string search_str,
-                              InvertedIndexQueryType query_type,
-                              const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                              InvertedIndexQueryInfo* query_info);
     Status _get_logical_reader(
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,

@@ -345,4 +345,52 @@ TEST_F(AnalyzerTest, TestAnalyzerFunctionality) {
     }
 }
 
+// ==================== Query values ====================
+
+TEST_F(AnalyzerTest, TestAnalyzeQueryValue) {
+    const std::map<std::string, std::string> english = {{"parser", "english"},
+                                                        {"lower_case", "true"}};
+    const std::map<std::string, std::string> keyword;
+    const auto terms = [](const std::vector<TermInfo>& infos) {
+        std::vector<std::string> out;
+        for (const auto& info : infos) {
+            out.push_back(info.get_single_term());
+        }
+        return out;
+    };
+    std::vector<TermInfo> out;
+
+    // Without a query context the index's properties decide.
+    ASSERT_TRUE(InvertedIndexAnalyzer::analyze("Hello World", nullptr, english, &out).ok());
+    EXPECT_EQ(terms(out), (std::vector<std::string> {"hello", "world"}));
+    EXPECT_EQ(out[1].position, 2);
+    ASSERT_TRUE(InvertedIndexAnalyzer::analyze("Hello World", nullptr, keyword, &out).ok());
+    EXPECT_EQ(terms(out), std::vector<std::string> {"Hello World"});
+
+    // A context that does not analyze keeps the value whole, even on a tokenized index.
+    InvertedIndexAnalyzerCtx untokenized;
+    untokenized.parser_type = InvertedIndexParserType::PARSER_NONE;
+    ASSERT_TRUE(InvertedIndexAnalyzer::analyze("Hello World", &untokenized, english, &out).ok());
+    EXPECT_EQ(terms(out), std::vector<std::string> {"Hello World"});
+
+    // A context's analyzer comes before the index's.
+    InvertedIndexAnalyzerCtx standard;
+    standard.parser_type = InvertedIndexParserType::PARSER_STANDARD;
+    standard.analyzer = InvertedIndexAnalyzer::create_builtin_analyzer(
+            InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    ASSERT_TRUE(InvertedIndexAnalyzer::analyze("Hello World", &standard, english, &out).ok());
+    EXPECT_EQ(terms(out), (std::vector<std::string> {"Hello", "World"}));
+
+    // A context without an analyzer leaves the choice to the index.
+    InvertedIndexAnalyzerCtx without_analyzer;
+    without_analyzer.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    ASSERT_TRUE(
+            InvertedIndexAnalyzer::analyze("Hello World", &without_analyzer, english, &out).ok());
+    EXPECT_EQ(terms(out), (std::vector<std::string> {"hello", "world"}));
+
+    const std::map<std::string, std::string> missing = {{"analyzer", "no_such_analyzer"}};
+    EXPECT_TRUE(InvertedIndexAnalyzer::analyze("Hello", nullptr, missing, &out)
+                        .is<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>());
+}
+
 } // namespace doris::segment_v2::inverted_index

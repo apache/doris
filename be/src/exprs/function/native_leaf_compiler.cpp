@@ -20,82 +20,18 @@
 #include <memory>
 #include <roaring/roaring.hh>
 #include <utility>
-#include <vector>
 
 #include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_query_type.h"
-#include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/query_v2/scored_bit_set_query/scored_bit_set_query.h"
+#include "storage/index/snii/snii_index_reader.h"
 
 namespace doris {
 namespace {
 
 namespace logical = index_query::logical;
 namespace query_v2 = segment_v2::inverted_index::query_v2;
-using segment_v2::InvertedIndexQueryInfo;
-using segment_v2::InvertedIndexQueryType;
-
-// The reader query a leaf maps to. Expanded terms keep a constant score, as on the CLucene path.
-struct NativeQuery {
-    InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
-    InvertedIndexQueryInfo query_info;
-    bool scored = true;
-};
-
-InvertedIndexQueryType expand_query_type(logical::ExpandKind kind) {
-    switch (kind) {
-    case logical::ExpandKind::kPrefix:
-        // The reader runs a one-term phrase prefix as a prefix of that term.
-        return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
-    case logical::ExpandKind::kRegexp:
-        return InvertedIndexQueryType::MATCH_REGEXP_QUERY;
-    case logical::ExpandKind::kWildcard:
-    default:
-        return InvertedIndexQueryType::WILDCARD_QUERY;
-    }
-}
-
-InvertedIndexQueryInfo single_terms(const std::vector<std::string>& terms) {
-    InvertedIndexQueryInfo info;
-    info.term_infos.reserve(terms.size());
-    for (const auto& term : terms) {
-        info.term_infos.emplace_back(term);
-    }
-    return info;
-}
-
-InvertedIndexQueryInfo slots(std::vector<segment_v2::TermInfo> term_infos) {
-    InvertedIndexQueryInfo info;
-    info.term_infos = std::move(term_infos);
-    return info;
-}
-
-Status plan_native_query(const logical::Node& leaf, NativeQuery* out) {
-    if (const auto* term = leaf.as<logical::Term>()) {
-        *out = {.query_type = InvertedIndexQueryType::EQUAL_QUERY,
-                .query_info = single_terms({term->term})};
-    } else if (const auto* set = leaf.as<logical::TermSet>()) {
-        // The reader knows all-of and any-of; the SEARCH compile step counts a
-        // threshold above it.
-        DORIS_CHECK(set->min_should_match == 0);
-        *out = {.query_type = set->require_all ? InvertedIndexQueryType::MATCH_ALL_QUERY
-                                               : InvertedIndexQueryType::MATCH_ANY_QUERY,
-                .query_info = single_terms(set->terms)};
-    } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
-        *out = {.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                .query_info = slots(phrase->slots)};
-    } else if (const auto* expand = leaf.as<logical::Expand>()) {
-        *out = {.query_type = expand_query_type(expand->kind),
-                .query_info = single_terms({expand->pattern}),
-                .scored = false};
-    } else {
-        return Status::InternalError("leaf kind {} cannot run on a native index reader",
-                                     leaf.value.index());
-    }
-    return Status::OK();
-}
 
 } // namespace
 
@@ -114,8 +50,8 @@ Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
     if (leaf.as<logical::Exists>() != nullptr) {
         rows->addRange(0, ctx.num_rows);
     } else {
-        NativeQuery query;
-        RETURN_IF_ERROR(plan_native_query(leaf, &query));
+        segment_v2::NativeQuery query;
+        RETURN_IF_ERROR(segment_v2::plan_native_query(logical::Node(leaf), &query));
         // The reader publishes BM25 values into the similarity the context carries and the
         // collector also collects the scorer's score, so give the reader a private sink and let
         // the scores reach the collector through the scored query built below. An unscored leaf

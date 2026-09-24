@@ -23,6 +23,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/status.h"
@@ -32,7 +33,7 @@
 // The SEARCH lowering contract: every clause type maps to one IR shape, values
 // are analyzed exactly once with the bound index's analyzer, and the operator,
 // threshold and normalization rules the two format branches used to apply
-// separately are applied here.
+// separately are applied here. MATCH predicates lower to the same shapes.
 namespace doris::index_query::logical {
 namespace {
 
@@ -148,6 +149,21 @@ std::vector<std::string> terms_of(const std::vector<Token>& tokens) {
         out.push_back(token.get_single_term());
     }
     return out;
+}
+
+// Lowers a MATCH predicate on kText, analyzing with the fake catalog.
+Node match(InvertedIndexQueryType query_type, const std::string& value, FakeCatalog& catalog) {
+    FieldProps props;
+    EXPECT_TRUE(catalog.resolve(kText, query_type, &props).ok());
+    Node node;
+    Status status = lower_match(
+            query_type, value,
+            [&](std::string_view text, std::vector<Token>* tokens) {
+                return catalog.analyze(props, std::string(text), tokens);
+            },
+            &node);
+    EXPECT_TRUE(status.ok()) << status;
+    return node;
 }
 
 TEST(SearchLoweringTest, QueryTypeHintPrefersTokenizedIndexForPatternClauses) {
@@ -501,6 +517,155 @@ TEST(SearchLoweringTest, NestedIsRejected) {
     clause.__set_clause_type("NESTED");
     NodePtr node;
     EXPECT_TRUE(lower_search_clause(clause, {}, catalog, &node).is<ErrorCode::INVALID_ARGUMENT>());
+}
+
+TEST(SearchLoweringTest, MatchAnyAllAndEqualLowerToTermSets) {
+    FakeCatalog catalog;
+    auto any = match(InvertedIndexQueryType::MATCH_ANY_QUERY, "Quick fox", catalog);
+    ASSERT_NE(any.as<TermSet>(), nullptr);
+    EXPECT_EQ(any.as<TermSet>()->terms, (std::vector<std::string> {"quick", "fox"}));
+    EXPECT_FALSE(any.as<TermSet>()->require_all);
+
+    auto all = match(InvertedIndexQueryType::MATCH_ALL_QUERY, "quick fox", catalog);
+    ASSERT_NE(all.as<TermSet>(), nullptr);
+    EXPECT_TRUE(all.as<TermSet>()->require_all);
+
+    // An untokenized index analyzes a value to itself, so EQUAL is any of the value's tokens.
+    auto equal = match(InvertedIndexQueryType::EQUAL_QUERY, "Quick", catalog);
+    ASSERT_NE(equal.as<TermSet>(), nullptr);
+    EXPECT_EQ(equal.as<TermSet>()->terms, std::vector<std::string> {"quick"});
+    EXPECT_FALSE(equal.as<TermSet>()->require_all);
+}
+
+TEST(SearchLoweringTest, MatchPhraseTakesItsSlopFromTheValue) {
+    FakeCatalog catalog;
+    auto sloppy = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Quick fox ~2", catalog);
+    const auto* phrase = sloppy.as<Phrase>();
+    ASSERT_NE(phrase, nullptr);
+    EXPECT_EQ(terms_of(phrase->slots), (std::vector<std::string> {"quick", "fox"}));
+    EXPECT_EQ(phrase->slots[1].position, 2);
+    EXPECT_EQ(phrase->slop, 2);
+    EXPECT_FALSE(phrase->ordered);
+    EXPECT_FALSE(phrase->prefix);
+
+    auto ordered = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "quick fox ~12+", catalog);
+    ASSERT_NE(ordered.as<Phrase>(), nullptr);
+    EXPECT_EQ(ordered.as<Phrase>()->slop, 12);
+    EXPECT_TRUE(ordered.as<Phrase>()->ordered);
+    EXPECT_EQ(catalog.analyzed_values, (std::vector<std::string> {"Quick fox", "quick fox"}));
+}
+
+// Only a last word of exactly "~N" or "~N+" is a slop; anything else stays in the phrase.
+TEST(SearchLoweringTest, MatchPhraseKeepsAnyOtherTildeAsText) {
+    FakeCatalog catalog;
+    for (const std::string value :
+         {"quick fox ~", "quick fox ~+", "quick fox ~2x", "quick fox ~2++", "quick fox ~abc",
+          "quick fox ~2+ ", "quick fox~2", "quick fox ~99999999999"}) {
+        catalog.analyzed_values.clear();
+        auto node = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, value, catalog);
+        ASSERT_NE(node.as<Phrase>(), nullptr) << value;
+        EXPECT_EQ(node.as<Phrase>()->slop, 0) << value;
+        EXPECT_FALSE(node.as<Phrase>()->ordered) << value;
+        EXPECT_EQ(catalog.analyzed_values, std::vector<std::string> {value});
+    }
+}
+
+// One position is any of its terms, whatever the slop.
+TEST(SearchLoweringTest, MatchPhraseOfOnePositionIsAnyOfItsTerms) {
+    FakeCatalog catalog;
+    auto single = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Fox ~3", catalog);
+    ASSERT_NE(single.as<TermSet>(), nullptr);
+    EXPECT_EQ(single.as<TermSet>()->terms, std::vector<std::string> {"fox"});
+
+    auto stacked = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "brown|red", catalog);
+    ASSERT_NE(stacked.as<TermSet>(), nullptr);
+    EXPECT_EQ(stacked.as<TermSet>()->terms, (std::vector<std::string> {"brown", "red"}));
+    EXPECT_FALSE(stacked.as<TermSet>()->require_all);
+
+    auto phrase = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "quick brown|red", catalog);
+    ASSERT_NE(phrase.as<Phrase>(), nullptr);
+    ASSERT_EQ(phrase.as<Phrase>()->slots.size(), 2U);
+    EXPECT_EQ(phrase.as<Phrase>()->slots[1].get_multi_terms(),
+              (std::vector<std::string> {"brown", "red"}));
+}
+
+TEST(SearchLoweringTest, MatchPhrasePrefixMarksItsLastSlot) {
+    FakeCatalog catalog;
+    auto phrase = match(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "quick Fo", catalog);
+    ASSERT_NE(phrase.as<Phrase>(), nullptr);
+    EXPECT_EQ(terms_of(phrase.as<Phrase>()->slots), (std::vector<std::string> {"quick", "fo"}));
+    EXPECT_TRUE(phrase.as<Phrase>()->prefix);
+    EXPECT_EQ(phrase.as<Phrase>()->slop, 0);
+
+    // A phrase prefix has no slop syntax.
+    auto tilde = match(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "quick fo ~1", catalog);
+    ASSERT_NE(tilde.as<Phrase>(), nullptr);
+    EXPECT_EQ(terms_of(tilde.as<Phrase>()->slots),
+              (std::vector<std::string> {"quick", "fo", "~1"}));
+
+    auto one = match(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "Qui", catalog);
+    ASSERT_NE(one.as<Expand>(), nullptr);
+    EXPECT_EQ(one.as<Expand>()->kind, ExpandKind::kPrefix);
+    EXPECT_EQ(one.as<Expand>()->pattern, "qui");
+
+    auto stacked = match(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "brown|red", catalog);
+    ASSERT_NE(stacked.as<Phrase>(), nullptr);
+    ASSERT_EQ(stacked.as<Phrase>()->slots.size(), 1U);
+    EXPECT_TRUE(stacked.as<Phrase>()->slots[0].is_multi_terms());
+    EXPECT_TRUE(stacked.as<Phrase>()->prefix);
+}
+
+// MATCH_REGEXP matches anywhere inside a term, so its pattern is not anchored.
+TEST(SearchLoweringTest, MatchRegexpAndWildcardTakeThePatternAsWritten) {
+    FakeCatalog catalog;
+    auto regexp = match(InvertedIndexQueryType::MATCH_REGEXP_QUERY, "Qu.*k", catalog);
+    ASSERT_NE(regexp.as<Expand>(), nullptr);
+    EXPECT_EQ(regexp.as<Expand>()->kind, ExpandKind::kRegexp);
+    EXPECT_EQ(regexp.as<Expand>()->pattern, "Qu.*k");
+
+    auto wildcard = match(InvertedIndexQueryType::WILDCARD_QUERY, "Qu?ck*", catalog);
+    ASSERT_NE(wildcard.as<Expand>(), nullptr);
+    EXPECT_EQ(wildcard.as<Expand>()->kind, ExpandKind::kWildcard);
+    EXPECT_EQ(wildcard.as<Expand>()->pattern, "Qu?ck*");
+    EXPECT_TRUE(catalog.analyzed_values.empty());
+}
+
+TEST(SearchLoweringTest, MatchValueWithoutTokensIsEmpty) {
+    FakeCatalog catalog;
+    for (const auto query_type :
+         {InvertedIndexQueryType::MATCH_ANY_QUERY, InvertedIndexQueryType::MATCH_ALL_QUERY,
+          InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+          InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, InvertedIndexQueryType::EQUAL_QUERY}) {
+        EXPECT_NE(match(query_type, "  ", catalog).as<Empty>(), nullptr)
+                << query_type_to_string(query_type);
+    }
+}
+
+TEST(SearchLoweringTest, MatchRejectsQueryTypesWithoutAShape) {
+    FakeCatalog catalog;
+    const auto analyze = [&](std::string_view text, std::vector<Token>* tokens) {
+        return catalog.analyze({}, std::string(text), tokens);
+    };
+    for (const auto query_type :
+         {InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, InvertedIndexQueryType::BOOLEAN_QUERY,
+          InvertedIndexQueryType::LESS_THAN_QUERY, InvertedIndexQueryType::RANGE_QUERY}) {
+        Node node;
+        EXPECT_TRUE(lower_match(query_type, "a b", analyze, &node)
+                            .is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>())
+                << query_type_to_string(query_type);
+    }
+    EXPECT_TRUE(catalog.analyzed_values.empty());
+}
+
+TEST(SearchLoweringTest, MatchReturnsTheAnalysisError) {
+    Node node;
+    Status status = lower_match(
+            InvertedIndexQueryType::MATCH_ANY_QUERY, "a b",
+            [](std::string_view, std::vector<Token>*) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("no analyzer");
+            },
+            &node);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>()) << status;
 }
 
 } // namespace

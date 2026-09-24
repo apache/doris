@@ -59,10 +59,15 @@ struct TermSet {
 };
 
 // A phrase over analyzed tokens grouped by position. A slot with several terms
-// accepts any of them at that position.
+// accepts any of them at that position. The tokens may be `slop` moves apart,
+// kept in order when `ordered`, and with `prefix` the last slot matches the
+// terms that start with it.
 struct Phrase {
     FieldRef field;
     std::vector<Token> slots;
+    int32_t slop = 0;
+    bool ordered = false;
+    bool prefix = false;
 };
 
 enum class ExpandKind : uint8_t { kPrefix, kWildcard, kRegexp };

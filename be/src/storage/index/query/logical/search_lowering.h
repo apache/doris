@@ -20,17 +20,19 @@
 #include <gen_cpp/Exprs_types.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/status.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/query/logical/node.h"
 
-// Lowers the SEARCH DSL clause tree to the logical IR. This is the only place
-// that interprets clause types, analyzes values, applies `default_operator`,
-// `minimum_should_match` and pattern normalization; every index format then
-// executes the same tree.
+// Lowers the SEARCH DSL clause tree and MATCH predicates to the logical IR. This
+// is the only place that interprets clause types and phrase slop, analyzes
+// values, and applies `default_operator`, `minimum_should_match` and pattern
+// normalization; every index format then executes the same tree.
 namespace doris::index_query::logical {
 
 // What lowering needs to know about the index a field resolves to.
@@ -76,5 +78,15 @@ segment_v2::InvertedIndexQueryType search_clause_query_type(const std::string& c
 // Lowers `clause` and its children. NESTED must be handled by the caller.
 Status lower_search_clause(const TSearchClause& clause, const LoweringOptions& options,
                            FieldCatalog& catalog, NodePtr* out);
+
+// Tokenizes a value with the analyzer of the index a predicate runs on.
+using AnalyzeValue = std::function<Status(std::string_view value, std::vector<Token>* out)>;
+
+// Lowers a predicate on one index: MATCH_ANY, MATCH_ALL, MATCH_PHRASE, MATCH_PHRASE_PREFIX,
+// MATCH_REGEXP, EQUAL or WILDCARD. The value is analyzed, except a MATCH_REGEXP or WILDCARD
+// pattern, which is taken as written. A MATCH_PHRASE value ending in " ~N" or " ~N+" has slop N,
+// and "+" keeps the tokens in order.
+Status lower_match(segment_v2::InvertedIndexQueryType query_type, std::string_view value,
+                   const AnalyzeValue& analyze, Node* out);
 
 } // namespace doris::index_query::logical

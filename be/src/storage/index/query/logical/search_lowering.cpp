@@ -17,6 +17,11 @@
 
 #include "storage/index/query/logical/search_lowering.h"
 
+#include <algorithm>
+#include <cctype>
+#include <charconv>
+#include <iterator>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -53,45 +58,89 @@ Occur to_occur(TSearchOccur::type occur) {
     }
 }
 
-void append_terms(const Token& token, std::vector<std::string>* terms) {
+void append_terms(Token token, std::vector<std::string>* terms) {
     if (token.is_single_term()) {
-        terms->push_back(token.get_single_term());
+        terms->push_back(std::move(std::get<std::string>(token.term)));
     } else {
-        const auto& many = token.get_multi_terms();
-        terms->insert(terms->end(), many.begin(), many.end());
+        auto& many = std::get<std::vector<std::string>>(token.term);
+        terms->insert(terms->end(), std::make_move_iterator(many.begin()),
+                      std::make_move_iterator(many.end()));
     }
 }
 
-// Groups tokens that share a position into one slot.
-std::vector<Token> group_by_position(const std::vector<Token>& tokens) {
-    std::vector<Token> slots;
-    size_t i = 0;
-    while (i < tokens.size()) {
-        const int32_t position = tokens[i].position;
-        std::vector<std::string> alternatives;
-        while (i < tokens.size() && tokens[i].position == position) {
-            append_terms(tokens[i], &alternatives);
-            ++i;
+// Groups tokens that share a position into one slot, in place.
+std::vector<Token> group_by_position(std::vector<Token> tokens) {
+    size_t slots = 0;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (slots > 0 && tokens[slots - 1].position == tokens[i].position) {
+            Token& slot = tokens[slots - 1];
+            if (slot.is_single_term()) {
+                slot.term = std::vector<std::string> {std::move(std::get<std::string>(slot.term))};
+            }
+            append_terms(std::move(tokens[i]), &std::get<std::vector<std::string>>(slot.term));
+            continue;
         }
-        Token slot;
-        slot.position = position;
-        if (alternatives.size() == 1) {
-            slot.term = std::move(alternatives.front());
-        } else {
-            slot.term = std::move(alternatives);
+        if (slots != i) {
+            tokens[slots] = std::move(tokens[i]);
         }
-        slots.push_back(std::move(slot));
+        ++slots;
     }
-    return slots;
+    tokens.resize(slots);
+    return tokens;
 }
 
-std::vector<std::string> flatten(const std::vector<Token>& tokens) {
+std::vector<std::string> flatten(std::vector<Token> tokens) {
     std::vector<std::string> terms;
     terms.reserve(tokens.size());
-    for (const auto& token : tokens) {
-        append_terms(token, &terms);
+    for (auto& token : tokens) {
+        append_terms(std::move(token), &terms);
     }
     return terms;
+}
+
+// Sets `out` to `phrase` over `tokens`, or to any of their terms when they take one position.
+void lower_phrase(Phrase phrase, std::vector<Token> tokens, Node* out) {
+    phrase.slots = group_by_position(std::move(tokens));
+    if (phrase.slots.size() > 1) {
+        out->value = std::move(phrase);
+        return;
+    }
+    out->value =
+            TermSet {.field = std::move(phrase.field), .terms = flatten(std::move(phrase.slots))};
+}
+
+// Sets `out` to a phrase whose last slot is a prefix; a single token is just that prefix.
+void lower_phrase_prefix(std::vector<Token> tokens, Node* out) {
+    std::vector<Token> slots = group_by_position(std::move(tokens));
+    if (slots.size() == 1 && slots.front().is_single_term()) {
+        out->value = Expand {.field = {},
+                             .kind = ExpandKind::kPrefix,
+                             .pattern = std::move(std::get<std::string>(slots.front().term))};
+        return;
+    }
+    out->value = Phrase {.field = {}, .slots = std::move(slots), .prefix = true};
+}
+
+// Moves the trailing " ~N" or " ~N+" of a MATCH_PHRASE value into `phrase`.
+void take_slop(std::string_view* value, Phrase* phrase) {
+    const size_t space = value->find_last_of(' ');
+    if (space == std::string_view::npos || value->substr(space + 1, 1) != "~") {
+        return;
+    }
+    std::string_view digits = value->substr(space + 2);
+    const bool ordered = digits.size() > 1 && digits.back() == '+';
+    if (ordered) {
+        digits.remove_suffix(1);
+    }
+    int32_t slop = 0;
+    if (digits.empty() ||
+        !std::ranges::all_of(digits, [](unsigned char c) { return std::isdigit(c) != 0; }) ||
+        std::from_chars(digits.data(), digits.data() + digits.size(), slop).ec != std::errc()) {
+        return;
+    }
+    phrase->slop = slop;
+    phrase->ordered = ordered;
+    *value = value->substr(0, space);
 }
 
 NodePtr lower_direct_index_leaf(const std::string& clause_type, FieldRef field,
@@ -146,15 +195,12 @@ Status lower_analyzed_leaf(const std::string& clause_type, const LoweringOptions
         return Status::OK();
     }
     if (clause_type == "PHRASE") {
-        std::vector<Token> slots = group_by_position(tokens);
-        if (slots.size() > 1) {
-            *out = make_node(Phrase {.field = std::move(field), .slots = std::move(slots)});
-            return Status::OK();
-        }
-        // One position: any of its terms.
-        tokens = std::move(slots);
+        Node node;
+        lower_phrase(Phrase {.field = std::move(field), .slots = {}}, std::move(tokens), &node);
+        *out = std::make_shared<const Node>(std::move(node));
+        return Status::OK();
     }
-    std::vector<std::string> terms = flatten(tokens);
+    std::vector<std::string> terms = flatten(std::move(tokens));
     bool require_all = false;
     uint32_t min_should_match = 0;
     if (clause_type == "TERM") {
@@ -263,6 +309,48 @@ InvertedIndexQueryType search_clause_query_type(const std::string& clause_type) 
     };
     auto it = query_types.find(clause_type);
     return it == query_types.end() ? InvertedIndexQueryType::EQUAL_QUERY : it->second;
+}
+
+Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
+                   const AnalyzeValue& analyze, Node* out) {
+    DCHECK(out != nullptr);
+    switch (query_type) {
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
+    case InvertedIndexQueryType::WILDCARD_QUERY:
+        out->value = Expand {.field = {},
+                             .kind = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY
+                                             ? ExpandKind::kRegexp
+                                             : ExpandKind::kWildcard,
+                             .pattern = std::string(value)};
+        return Status::OK();
+    case InvertedIndexQueryType::EQUAL_QUERY:
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+        break;
+    default:
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "no index query lowers query type {}", query_type_to_string(query_type));
+    }
+    Phrase phrase;
+    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+        take_slop(&value, &phrase);
+    }
+    std::vector<Token> tokens;
+    RETURN_IF_ERROR(analyze(value, &tokens));
+    if (tokens.empty()) {
+        out->value = Empty {};
+    } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
+        lower_phrase(std::move(phrase), std::move(tokens), out);
+    } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
+        lower_phrase_prefix(std::move(tokens), out);
+    } else {
+        out->value = TermSet {.field = {},
+                              .terms = flatten(std::move(tokens)),
+                              .require_all = query_type == InvertedIndexQueryType::MATCH_ALL_QUERY};
+    }
+    return Status::OK();
 }
 
 Status lower_search_clause(const TSearchClause& clause, const LoweringOptions& options,

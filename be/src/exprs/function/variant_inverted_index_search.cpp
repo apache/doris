@@ -424,8 +424,16 @@ Status FieldReaderResolver::analyzer_context_for(const std::string& binding_key,
     }
     FieldReaderBinding& binding = it->second;
     if (binding.analyzer_context == nullptr) {
-        binding.analyzer_context =
-                build_analyzer_context(binding.index_properties, binding.analyzer_key);
+        try {
+            binding.analyzer_context =
+                    build_analyzer_context(binding.index_properties, binding.analyzer_key);
+        } catch (const CLuceneError& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "search: building the analyzer of '{}' failed: {}", binding_key, e.what());
+        } catch (const Exception& e) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                    "search: building the analyzer of '{}' failed: {}", binding_key, e.what());
+        }
     }
     *out = binding.analyzer_context;
     return Status::OK();

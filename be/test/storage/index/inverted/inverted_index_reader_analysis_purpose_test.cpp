@@ -277,8 +277,6 @@ protected:
         const InvertedIndexRawQuerySemantic semantic {
                 .raw_query_bytes = raw_query,
                 .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                .slop = 0,
-                .ordered = false,
                 .max_expansions =
                         execution.runtime_state.query_options().inverted_index_max_expansions};
         const InvertedIndexQueryCache::CacheKey key {
@@ -321,13 +319,11 @@ TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutD
     const std::string raw_query("a/b\0c", 5);
     InvertedIndexRawQuerySemantic base {.raw_query_bytes = raw_query,
                                         .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                        .slop = 2,
-                                        .ordered = true,
                                         .max_expansions = 50,
                                         .cache_semantics_version = 3};
     const std::string encoded = base.encode();
-    constexpr size_t kFixedEncodedBytes = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint32_t) +
-                                          sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+    constexpr size_t kFixedEncodedBytes =
+            sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(uint32_t);
     EXPECT_EQ(encoded.size(), kFixedEncodedBytes + raw_query.size());
 
     auto changed = base;
@@ -335,12 +331,6 @@ TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutD
     EXPECT_NE(changed.encode(), encoded);
     changed = base;
     changed.query_type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
-    EXPECT_NE(changed.encode(), encoded);
-    changed = base;
-    changed.slop = 3;
-    EXPECT_NE(changed.encode(), encoded);
-    changed = base;
-    changed.ordered = false;
     EXPECT_NE(changed.encode(), encoded);
     changed = base;
     changed.max_expansions = 51;

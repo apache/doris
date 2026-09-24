@@ -227,12 +227,12 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        const std::string& search_str, const std::map<std::string, std::string>& properties) {
+        std::string_view search_str, const std::map<std::string, std::string>& properties) {
     if (!should_analyzer(properties)) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.
         std::vector<TermInfo> result;
-        result.emplace_back(search_str);
+        result.emplace_back(std::string(search_str));
         return result;
     }
     InvertedIndexAnalyzerConfig config;
@@ -247,6 +247,32 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     auto reader = create_reader(config.char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader, analyzer.get());
+}
+
+Status InvertedIndexAnalyzer::analyze(std::string_view value, const InvertedIndexAnalyzerCtx* ctx,
+                                      const std::map<std::string, std::string>& properties,
+                                      std::vector<TermInfo>* out) {
+    try {
+        if (ctx == nullptr) {
+            *out = get_analyse_result(value, properties);
+        } else if (!ctx->requires_analysis()) {
+            // Every string, the empty one included, is a term of an untokenized index.
+            *out = {TermInfo {.term = std::string(value)}};
+        } else if (const auto analyzer = ctx->get_analyzer(); analyzer != nullptr) {
+            auto reader = create_reader(ctx->char_filter_map);
+            reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+            *out = get_analyse_result(reader, analyzer.get());
+        } else {
+            *out = get_analyse_result(value, properties);
+        }
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
+                                                                       value, e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
+                                                                       value, e.what());
+    }
+    return Status::OK();
 }
 
 std::string InvertedIndexAnalyzer::normalize(const std::string& value,

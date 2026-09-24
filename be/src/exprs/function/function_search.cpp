@@ -198,28 +198,10 @@ public:
         SCOPED_RAW_TIMER(_context != nullptr && _context->stats != nullptr
                                  ? &_context->stats->inverted_index_analyzer_timer
                                  : &unused_timer);
-        try {
-            InvertedIndexAnalyzerCtxSPtr analyzer_ctx;
-            RETURN_IF_ERROR(_resolver.analyzer_context_for(props.binding, &analyzer_ctx));
-            auto analyzer = analyzer_ctx != nullptr ? analyzer_ctx->get_analyzer() : nullptr;
-            if (analyzer_ctx != nullptr && analyzer != nullptr) {
-                auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
-                        analyzer_ctx->char_filter_map);
-                reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-                *out = inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
-                                                                                 analyzer.get());
-            } else {
-                *out = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                        value, binding->index_properties);
-            }
-        } catch (const CLuceneError& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "search: analyzing '{}' failed: {}", value, e.what());
-        } catch (const Exception& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "search: analyzing '{}' failed: {}", value, e.what());
-        }
-        return Status::OK();
+        InvertedIndexAnalyzerCtxSPtr analyzer_ctx;
+        RETURN_IF_ERROR(_resolver.analyzer_context_for(props.binding, &analyzer_ctx));
+        return inverted_index::InvertedIndexAnalyzer::analyze(value, analyzer_ctx.get(),
+                                                              binding->index_properties, out);
     }
 
     Status normalize(const logical::FieldProps& props, const std::string& value,
