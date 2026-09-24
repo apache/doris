@@ -78,6 +78,15 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
     }
+    // Check the reader that runs the query, not the first candidate of its type, because the
+    // analyzer decides which index is selected and the two can disagree on support_phrase. Only
+    // a tokenized index stores positions, so an untokenized one runs a phrase as a whole term.
+    if (is_phrase_query(i_param->query_type) &&
+        reader->type() == InvertedIndexReaderType::FULLTEXT &&
+        !IndexReaderHelper::is_support_phrase(reader)) {
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                "phrase queries require setting support_phrase = true");
+    }
     auto* runtime_state = _context->runtime_state;
     if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {
         if (runtime_state != nullptr &&
@@ -175,14 +184,6 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
     }
     const size_t selected = *selection;
     DORIS_CHECK(selected < _readers.size());
-    // Check the reader that runs the query, not the first candidate of its type, because the
-    // analyzer decides which index is selected and the two can disagree on support_phrase.
-    if (is_phrase_query(query_type) &&
-        !IndexReaderHelper::is_support_phrase(
-                std::static_pointer_cast<IndexReader>(_readers[selected]))) {
-        return ResultError(Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
-                "phrase queries require setting support_phrase = true"));
-    }
     return _readers[selected];
 }
 
