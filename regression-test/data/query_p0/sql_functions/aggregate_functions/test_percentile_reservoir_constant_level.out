@@ -36,13 +36,25 @@
 \N
 
 -- !decimalv2_divide --
-0	\N
+0E-9	\N
 
 -- !decimalv2_zero_dividend_level --
 0
 
 -- !decimalv2_zero_divisor_level --
 \N
+
+-- !decimal_quotient --
+0.333333333	0.000976563	-0.666666667	0.33333	0.66666	-0.66666	0.00097
+
+-- !decimalv2_quotient_level --
+2.999999997
+
+-- !decimalv2_small_quotient_level --
+0.008789067
+
+-- !decimalv3_quotient_level --
+5.9999400000000005
 
 -- !skip_fold_literal_level --
 4.5
@@ -57,11 +69,23 @@
 \N
 
 -- !skip_fold_decimalv2_divide --
-0	\N
+0E-9	\N
 
 -- !skip_fold_decimalv2_zero_dividend_level --
 0
 
 -- !skip_fold_decimalv2_zero_divisor_level --
 \N
+
+-- !skip_fold_decimal_quotient --
+0.333333333	0.000976563	-0.666666667	0.33333	0.66666	-0.66666	0.00097
+
+-- !skip_fold_decimalv2_quotient_level --
+2.999999997
+
+-- !skip_fold_decimalv2_small_quotient_level --
+0.008789067
+
+-- !skip_fold_decimalv3_quotient_level --
+5.9999400000000005
 

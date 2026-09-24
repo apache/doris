@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -141,6 +142,46 @@ public class PercentileReservoirParameterTest {
         }
         for (Expression expression : variants(new Divide(
                 new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, BigDecimal.ZERO)))) {
+            assertAccepted(expression);
+        }
+        // a recurring or an excess-scale quotient is rounded to scale 9 like BE, not rejected
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, new BigDecimal("3"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, new BigDecimal("1024"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, new BigDecimal("4")), new DecimalLiteral(type, new BigDecimal("3"))))) {
+            assertRejected(expression, "level must be in [0, 1], but got 1.333333333");
+        }
+    }
+
+    @Test
+    void testDecimalV3DivisionLevelFoldsLikeBe() {
+        // type coercion shapes 2.0 / 3 as DECIMALV3(6, 5) / DECIMALV3(3, 0); BE truncates the quotient
+        DecimalV3Type dividendType = DecimalV3Type.createDecimalV3Type(6, 5);
+        DecimalV3Type divisorType = DecimalV3Type.createDecimalV3Type(3, 0);
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(4, 0), new BigDecimal("1024"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("4.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3"))))) {
+            assertRejected(expression, "level must be in [0, 1], but got 1.33333");
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(divisorType, BigDecimal.ZERO)))) {
             assertAccepted(expression);
         }
     }

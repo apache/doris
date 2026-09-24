@@ -122,6 +122,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -1161,12 +1162,57 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         rewritten = executor.rewrite(divide, context);
         Assertions.assertEquals(new DoubleLiteral(Double.NaN), rewritten);
         // DECIMALV2 division is NULL only for a zero divisor, as BE executes it
+        DecimalV2Type decimalV2 = DecimalV2Type.SYSTEM_DEFAULT;
         divide = new Divide(new DecimalLiteral(new BigDecimal("0")), new DecimalLiteral(new BigDecimal("2")));
         rewritten = executor.rewrite(divide, context);
-        Assertions.assertEquals(new DecimalLiteral(new BigDecimal("0")), rewritten);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0")), rewritten);
         divide = new Divide(new DecimalLiteral(new BigDecimal("1")), new DecimalLiteral(new BigDecimal("0")));
         rewritten = executor.rewrite(divide, context);
-        Assertions.assertInstanceOf(NullLiteral.class, rewritten);
+        Assertions.assertEquals(new NullLiteral(decimalV2), rewritten);
+        // a DECIMALV2 quotient keeps scale 9 and rounds like BE DecimalV2Value::operator/
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0.333333333")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("1024")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0.000976563")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("-2")),
+                new DecimalLiteral(decimalV2, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("-0.666666667")), rewritten);
+        // BE rounds up once the remainder reaches divisor >> 1, which differs from half up for an odd divisor
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("0.000000003")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("333333333.333333334")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("0.000000001")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("1000000000")), rewritten);
+
+        // a DECIMALV3 quotient is truncated toward zero at the result scale like BE DivideDecimalImpl;
+        // type coercion casts 2.0 / 3 to DECIMALV3(6, 5) / DECIMALV3(3, 0) with result DECIMALV3(6, 5)
+        DecimalV3Type dividendType = DecimalV3Type.createDecimalV3Type(6, 5);
+        DecimalV3Type divisorType = DecimalV3Type.createDecimalV3Type(3, 0);
+        DecimalV3Type quotientType = DecimalV3Type.createDecimalV3Type(6, 5);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("0.66666")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("-2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("-0.66666")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(4, 0), new BigDecimal("1024")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("0.00097")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("0")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new NullLiteral(quotientType), rewritten);
 
         Fmod fmod = new Fmod(new DoubleLiteral(Double.POSITIVE_INFINITY), new DoubleLiteral(1));
         rewritten = executor.rewrite(fmod, context);

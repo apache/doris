@@ -134,6 +134,30 @@ suite("test_percentile_reservoir_constant_level") {
         FROM numbers('number' = '10')
     """
 
+    // a nonzero DECIMAL quotient folds on FE with the scale and rounding BE uses (DECIMALV2 keeps
+    // scale 9 and rounds, DECIMALV3 truncates at the result scale), so it is a valid level
+    qt_decimal_quotient """
+        SELECT cast(1 as decimalv2(27, 9)) / cast(3 as decimalv2(27, 9)),
+               cast(1 as decimalv2(27, 9)) / cast(1024 as decimalv2(27, 9)),
+               cast(-2 as decimalv2(27, 9)) / cast(3 as decimalv2(27, 9)),
+               1.0 / 3, 2.0 / 3, -2.0 / 3, 1.0 / 1024
+    """
+    qt_decimalv2_quotient_level """
+        SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(3 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+    qt_decimalv2_small_quotient_level """
+        SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(1024 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+    qt_decimalv3_quotient_level """
+        SELECT percentile_reservoir(number, 2.0 / 3) FROM numbers('number' = '10')
+    """
+    test {
+        sql "SELECT percentile_reservoir(number, 4.0 / 3) FROM numbers('number' = '10')"
+        exception "percentile_reservoir level must be in [0, 1], but got 1.33333"
+    }
+
     // a constant that FE cannot fold is rejected instead of being clamped by BE
     test {
         sql "SELECT percentile_reservoir(number, pow(0.5, 1)) FROM numbers('number' = '10')"
@@ -182,5 +206,27 @@ suite("test_percentile_reservoir_constant_level") {
         SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(0 as decimalv2(27, 9)))
         FROM numbers('number' = '10')
     """
+    // BE computes these quotients now, they must match the FE-folded values above
+    qt_skip_fold_decimal_quotient """
+        SELECT cast(1 as decimalv2(27, 9)) / cast(3 as decimalv2(27, 9)),
+               cast(1 as decimalv2(27, 9)) / cast(1024 as decimalv2(27, 9)),
+               cast(-2 as decimalv2(27, 9)) / cast(3 as decimalv2(27, 9)),
+               1.0 / 3, 2.0 / 3, -2.0 / 3, 1.0 / 1024
+    """
+    qt_skip_fold_decimalv2_quotient_level """
+        SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(3 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+    qt_skip_fold_decimalv2_small_quotient_level """
+        SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(1024 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+    qt_skip_fold_decimalv3_quotient_level """
+        SELECT percentile_reservoir(number, 2.0 / 3) FROM numbers('number' = '10')
+    """
+    test {
+        sql "SELECT percentile_reservoir(number, 4.0 / 3) FROM numbers('number' = '10')"
+        exception "percentile_reservoir level must be in [0, 1], but got 1.33333"
+    }
     sql "SET debug_skip_fold_constant = false"
 }
