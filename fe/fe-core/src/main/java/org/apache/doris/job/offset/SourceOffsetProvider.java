@@ -206,6 +206,11 @@ public interface SourceOffsetProvider {
         return 0;
     }
 
+    /** Snapshot phase lasts until splitting and consumption of produced splits both finish. */
+    default boolean isSnapshotPhase() {
+        return !noMoreSplits() || pendingSplitCount() > 0;
+    }
+
     /** Get the latest successfully observed source-log lag in bytes, or -1 before any observation. */
     default long getLagBytes() {
         return -1;

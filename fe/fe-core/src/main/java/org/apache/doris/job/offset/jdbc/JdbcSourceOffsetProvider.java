@@ -166,7 +166,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         synchronized (splitsLock) {
             JdbcOffset nextOffset = new JdbcOffset();
             if (!remainingSplits.isEmpty()) {
-                int splitsNum = Math.min(remainingSplits.size(), snapshotParallelism);
+                int taskParallelism = Integer.parseInt(properties.getOrDefault(
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM, String.valueOf(snapshotParallelism)));
+                int splitsNum = Math.min(remainingSplits.size(), taskParallelism);
                 List<SnapshotSplit> snapshotSplits = new ArrayList<>(remainingSplits.subList(0, splitsNum));
                 nextOffset.setSplits(snapshotSplits);
                 return nextOffset;
@@ -741,6 +743,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public int pendingSplitCount() {
         synchronized (splitsLock) {
             return remainingSplits.size();
+        }
+    }
+
+    @Override
+    public boolean isSnapshotPhase() {
+        synchronized (splitsLock) {
+            return !remainingSplits.isEmpty() || !noMoreSplits();
         }
     }
 
