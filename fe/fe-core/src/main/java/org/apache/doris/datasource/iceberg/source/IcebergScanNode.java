@@ -2577,16 +2577,18 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(selectFeSplitSize(fileScanTask, targetSplitSize));
-        if (isPartitionedTable) {
-            int specId = fileScanTask.file().specId();
+        // REPLACE or partition evolution can leave an unpartitioned table with historical specs.
+        // Row-level deletes must retain each file's spec instead of defaulting to historical spec 0.
+        int specId = dataFile.specId();
+        split.setPartitionSpecId(specId);
+        PartitionData partitionData = (PartitionData) dataFile.partition();
+        if (partitionData != null) {
             PartitionSpec partitionSpec = icebergTable.specs().get(specId);
             Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
                     specId, icebergTable.name());
-            PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
-            if (partitionData != null) {
-                split.setPartitionSpecId(specId);
-                split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
-                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
+                    partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            if (isPartitionedTable) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
                                 partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
@@ -2598,9 +2600,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                 if (!partitionInfoMap.isEmpty()) {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
-            } else {
-                partitionMapInfos.put(Pair.of(specId, null), Collections.emptyMap());
             }
+        } else if (isPartitionedTable) {
+            partitionMapInfos.put(Pair.of(specId, null), Collections.emptyMap());
         }
         return split;
     }
