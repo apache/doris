@@ -40,6 +40,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -55,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -703,6 +707,31 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     AggregateType aggregateType) {
                 return PreAggStatus
                         .off(String.format("%s is not supported.", aggregateFunction.toSql()));
+            }
+
+            @Override
+            public PreAggStatus visitMergeCombinator(MergeCombinator combinator, AggregateType aggregateType) {
+                return checkAggStateCombinator(combinator, aggregateType);
+            }
+
+            @Override
+            public PreAggStatus visitUnionCombinator(UnionCombinator combinator, AggregateType aggregateType) {
+                return checkAggStateCombinator(combinator, aggregateType);
+            }
+
+            private PreAggStatus checkAggStateCombinator(AggregateFunction aggregateFunction,
+                    AggregateType aggregateType) {
+                // GENERIC merges stored states with the same aggregate function. A matching
+                // merge/union can consume the partial states directly; REPLACE cannot.
+                // The caller requires a bare value slot, and the combinator builder derives
+                // the nested argument types and nullability from that slot's AggStateType.
+                AggStateType stateType = (AggStateType) aggregateFunction.child(0).getDataType();
+                String functionName = ((Combinator) aggregateFunction).getNestedFunction().getName();
+                if (aggregateType == AggregateType.GENERIC && stateType.getFunctionName().equals(functionName)) {
+                    return PreAggStatus.on();
+                }
+                return PreAggStatus.off(String.format("%s is not match agg mode %s or state function %s",
+                        aggregateFunction.toSql(), aggregateType, stateType.getFunctionName()));
             }
 
             @Override
