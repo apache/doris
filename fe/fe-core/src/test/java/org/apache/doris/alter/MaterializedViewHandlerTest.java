@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -185,6 +186,43 @@ public class MaterializedViewHandlerTest {
                         addRollupOp, olapTable, baseIndexId, false));
         Assertions.assertTrue(e.getMessage().contains("Column[v] can not be used as a duplicate key of rollup"),
                 e.getMessage());
+    }
+
+    @Test
+    public void testRollupDupKeyOnAggStateColumn() {
+        final long baseIndexId = 1L;
+        Column idColumn = new Column("id", Type.INT, true, null, false, null, "");
+        AggStateType aggStateType = new AggStateType("sum", false,
+                Lists.newArrayList(Type.INT), Lists.newArrayList(false));
+        Column aggStateColumn = new Column("st", aggStateType, false, AggregateType.NONE, true, null, "");
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getRowStoreCol()).thenReturn(null);
+        Mockito.when(olapTable.hasMaterializedIndex(Mockito.anyString())).thenReturn(false);
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getSchemaByIndexId(baseIndexId, true))
+                .thenReturn(Lists.newArrayList(idColumn, aggStateColumn));
+
+        AddRollupOp explicitKeyRollup = Mockito.mock(AddRollupOp.class);
+        Mockito.when(explicitKeyRollup.getRollupName()).thenReturn("r_explicit");
+        Mockito.when(explicitKeyRollup.getColumnNames()).thenReturn(Lists.newArrayList("st", "id"));
+        Mockito.when(explicitKeyRollup.getDupKeys()).thenReturn(Lists.newArrayList("st"));
+
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        DdlException explicitException = Assertions.assertThrows(DdlException.class,
+                () -> materializedViewHandler.checkAndPrepareMaterializedView(
+                        explicitKeyRollup, olapTable, baseIndexId, false));
+        Assertions.assertTrue(explicitException.getMessage()
+                .contains("Column[st] can not be used as a duplicate key of rollup"));
+
+        AddRollupOp inferredKeyRollup = Mockito.mock(AddRollupOp.class);
+        Mockito.when(inferredKeyRollup.getRollupName()).thenReturn("r_inferred");
+        Mockito.when(inferredKeyRollup.getColumnNames()).thenReturn(Lists.newArrayList("st", "id"));
+
+        DdlException inferredException = Assertions.assertThrows(DdlException.class,
+                () -> materializedViewHandler.checkAndPrepareMaterializedView(
+                        inferredKeyRollup, olapTable, baseIndexId, false));
+        Assertions.assertTrue(inferredException.getMessage()
+                .contains("The first column could not be float or double"));
     }
 
     @Test

@@ -58,13 +58,47 @@ suite("test_rollup_dup_key_type") {
     order_qt_rollup_s "SELECT s, id, CAST(v['a'] AS INT) FROM test_rollup_dup_key_type"
 
     sql "DROP TABLE IF EXISTS test_rollup_dup_key_type_create"
+    def colocateGroup = "test_rollup_dup_key_type_" + UUID.randomUUID().toString().replace("-", "")
     test {
         sql """
             CREATE TABLE test_rollup_dup_key_type_create (id INT, v VARIANT)
             DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
             ROLLUP (r_v (v, id) DUPLICATE KEY(v))
-            PROPERTIES ("replication_num" = "1")
+            PROPERTIES ("replication_num" = "1", "colocate_with" = "${colocateGroup}")
         """
         exception "Column[v] can not be used as a duplicate key of rollup"
+    }
+
+    // A failed inline-rollup validation must not leave a phantom colocation group.
+    sql """
+        CREATE TABLE test_rollup_dup_key_type_create (id INT, v VARIANT)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES ("replication_num" = "1", "colocate_with" = "${colocateGroup}")
+    """
+
+    sql "set enable_agg_state = true"
+    sql "DROP TABLE IF EXISTS test_rollup_dup_key_agg_state"
+    sql """
+        CREATE TABLE test_rollup_dup_key_agg_state (id INT, value INT)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        ALTER TABLE test_rollup_dup_key_agg_state
+        ADD COLUMN st AGG_STATE<sum(INT NOT NULL)> GENERIC NULL
+    """
+    test {
+        sql """
+            ALTER TABLE test_rollup_dup_key_agg_state
+            ADD ROLLUP r_st_explicit (st, id) DUPLICATE KEY(st)
+        """
+        exception "Column[st] can not be used as a duplicate key of rollup"
+    }
+    test {
+        sql """
+            ALTER TABLE test_rollup_dup_key_agg_state
+            ADD ROLLUP r_st_inferred (st, id)
+        """
+        exception "The first column could not be float or double"
     }
 }
