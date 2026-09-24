@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -183,6 +184,39 @@ public:
 
 private:
     segment_v2::InvertedIndexReaderType _reader_type = segment_v2::InvertedIndexReaderType::BKD;
+};
+
+// A bound SNII reader whose query throws, standing in for anything inside the search that
+// raises instead of returning a Status.
+class ThrowingSniiInvertedIndexReader final : public segment_v2::InvertedIndexReader {
+public:
+    ThrowingSniiInvertedIndexReader(const TabletIndex* index_meta,
+                                    std::shared_ptr<segment_v2::IndexFileReader> index_file_reader)
+            : segment_v2::InvertedIndexReader(index_meta, std::move(index_file_reader)) {}
+
+    Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* /*iterator*/) override {
+        return Status::OK();
+    }
+
+    Status query(const segment_v2::IndexQueryContextPtr& /*context*/,
+                 const std::string& /*column_name*/, const Field& /*query_value*/,
+                 segment_v2::InvertedIndexQueryType /*query_type*/,
+                 std::shared_ptr<roaring::Roaring>& /*bit_map*/,
+                 const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/ = nullptr) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "token stream failed on first use");
+    }
+
+    Status try_query(const segment_v2::IndexQueryContextPtr& /*context*/,
+                     const std::string& /*column_name*/, const Field& /*query_value*/,
+                     segment_v2::InvertedIndexQueryType /*query_type*/,
+                     size_t* /*count*/) override {
+        return Status::OK();
+    }
+
+    segment_v2::InvertedIndexReaderType type() override {
+        return segment_v2::InvertedIndexReaderType::FULLTEXT;
+    }
 };
 
 class RejectingCluceneIndexFileReader final : public segment_v2::IndexFileReader {
@@ -3884,5 +3918,44 @@ TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
     EXPECT_TRUE(resolver.readers().empty());
 }
 // NESTED clause tests moved to function_search_nested_test.cpp
+
+TEST_F(FunctionSearchTest, SearchConvertsExceptionInsideSearchToStatus) {
+    // VSearchExpr enters this overload directly, outside IFunction::execute(), so an exception
+    // raised anywhere inside the search has to come back as a Status. The bound SNII reader
+    // throws from its query, standing in for an analyzer whose first token stream fails: every
+    // tokenizer that loads lazily does so through a process-wide once-guard, so a real one cannot
+    // be made to fail deterministically inside a shared test binary.
+    std::map<std::string, std::string> index_properties {
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}};
+    auto index_meta = make_test_inverted_index(41, index_properties);
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader = std::make_shared<ThrowingSniiInvertedIndexReader>(&index_meta, index_file_reader);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+
+    TSearchParam search_param;
+    search_param.original_dsl = "body:hello";
+    search_param.root = make_leaf_clause("TERM", "hello");
+    TSearchFieldBinding binding;
+    binding.field_name = "body";
+    binding.slot_index = 0;
+    binding.index_properties = index_properties;
+    binding.__isset.index_properties = true;
+    search_param.field_bindings = {binding};
+
+    InvertedIndexResultBitmap result;
+    Status status;
+    ASSERT_NO_THROW(status = function_search->evaluate_inverted_index_with_search_param(
+                            search_param, data_type_with_names, iterators, 10, result, false));
+    EXPECT_FALSE(status.ok()) << status;
+    EXPECT_NE(status.to_string().find("token stream failed on first use"), std::string::npos)
+            << status;
+}
 
 } // namespace doris

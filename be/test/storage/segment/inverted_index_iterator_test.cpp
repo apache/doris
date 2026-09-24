@@ -903,11 +903,18 @@ TEST_F(InvertedIndexIteratorTest, PhraseSupportIsCheckedOnTheSelectedReader) {
         EXPECT_EQ(*selected_with, with_positions);
         EXPECT_TRUE(IndexReaderHelper::is_support_phrase(*selected_with));
 
+        // Selection itself refuses the index that stored no positions, so every caller of this
+        // entry point is covered, including direct SEARCH, which never runs read_from_index().
         const auto selected_without = iterator.select_best_reader(
                 column_type, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "plain_analyzer");
-        ASSERT_TRUE(selected_without.has_value()) << selected_without.error();
-        EXPECT_EQ(*selected_without, without_positions);
-        EXPECT_FALSE(IndexReaderHelper::is_support_phrase(*selected_without));
+        ASSERT_FALSE(selected_without.has_value());
+        EXPECT_EQ(selected_without.error().code(), ErrorCode::INDEX_INVALID_PARAMETERS);
+
+        // A non-positional query keeps using that same index.
+        const auto selected_any = iterator.select_best_reader(
+                column_type, InvertedIndexQueryType::MATCH_ANY_QUERY, "plain_analyzer");
+        ASSERT_TRUE(selected_any.has_value()) << selected_any.error();
+        EXPECT_EQ(*selected_any, without_positions);
 
         // The first candidate of the type is what the old preflight looked at, and it disagrees
         // with the selected reader in one of the two orderings.
