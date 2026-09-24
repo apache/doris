@@ -66,9 +66,9 @@
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -104,6 +104,7 @@
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 #include "storage/tablet/tablet_schema.h"
@@ -371,6 +372,33 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     return status;
 }
 
+Status SegmentIterator::_init_query_read_ahead() {
+    if (!SegmentReadAhead::enabled() || _opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(_opts.runtime_state != nullptr);
+    auto* exec_env = _opts.runtime_state->exec_env();
+    DORIS_CHECK(exec_env != nullptr);
+    auto* scheduler = exec_env->file_range_read_scheduler();
+    DORIS_CHECK(scheduler != nullptr);
+    auto* query_context = _opts.runtime_state->get_query_ctx();
+    DORIS_CHECK(query_context != nullptr);
+    auto read_context = query_context->get_or_create_file_range_read_context(scheduler);
+    const auto status = SegmentReadAhead::create_for_query(
+            _file_reader, exec_env, std::move(read_context), _opts, &_segment_read_ahead);
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100)
+                << "failed to initialize query read-ahead; use the original read path: " << status;
+        return Status::OK();
+    }
+    DORIS_CHECK(_segment_read_ahead != nullptr);
+    _file_reader = _segment_read_ahead->file_reader();
+    _column_read_ahead_context =
+            std::make_unique<ColumnReadAheadContext>(_segment_read_ahead->column_context());
+    return Status::OK();
+}
+
 std::unique_ptr<AdaptiveBlockSizePredictor> SegmentIterator::_make_block_size_predictor() const {
     if (!config::enable_adaptive_batch_size || _opts.preferred_block_size_bytes == 0) {
         return nullptr;
@@ -406,6 +434,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     SCOPED_RAW_TIMER(&_opts.stats->segment_iterator_init_timer_ns);
     _inited = true;
     _file_reader = _segment->_file_reader;
+    RETURN_IF_ERROR(_init_query_read_ahead());
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
@@ -599,7 +628,9 @@ Status SegmentIterator::_lazy_init(Block* block) {
 
     _lazy_inited = true;
 
-    _init_segment_prefetchers();
+    if (_column_read_ahead_context == nullptr) {
+        _init_segment_prefetchers();
+    }
 
     // G03: engage the count-emission shortcut. All inputs are final here (the
     // index apply ran, _row_bitmap saw every subtraction/intersection above,
@@ -609,6 +640,8 @@ Status SegmentIterator::_lazy_init(Block* block) {
     _count_emit_shortcut = _should_engage_count_emit_shortcut(block);
     if (_count_emit_shortcut) {
         _count_emit_rows_remaining = _row_bitmap.cardinality();
+    } else {
+        _prepare_scan_read_ahead();
     }
 
     return Status::OK();
@@ -701,6 +734,75 @@ void SegmentIterator::_init_segment_prefetchers() {
             }
         }
     }
+}
+
+void SegmentIterator::_prepare_scan_read_ahead() {
+    auto plans = _plan_scan_read_ahead();
+    if (!plans.empty()) {
+        DORIS_CHECK(_segment_read_ahead != nullptr);
+        static_cast<void>(_segment_read_ahead->apply_plans(std::move(plans)));
+    }
+}
+
+std::vector<ColumnReadAheadPlan> SegmentIterator::_plan_scan_read_ahead() {
+    if (_column_read_ahead_context == nullptr || _row_bitmap.isEmpty()) {
+        return {};
+    }
+    std::vector<ColumnReadAheadPlan> plans;
+    const auto prepare_columns = [&](const std::vector<ColumnId>& ordinals,
+                                     ColumnReadAheadRole role,
+                                     ColumnIterator::ReadPhase fixed_phase) {
+        for (ColumnId cid : ordinals) {
+            DORIS_CHECK_LT(cid, _column_iterators.size());
+            if (_no_need_read_key_data_eligible(cid) || !_need_read_data(cid)) {
+                continue;
+            }
+            auto* column_iterator = _column_iterators[cid].get();
+            DORIS_CHECK(column_iterator != nullptr);
+            auto phase = fixed_phase;
+            if (fixed_phase == ColumnIterator::ReadPhase::NORMAL &&
+                _has_lazy_pruned_children(cid)) {
+                phase = ColumnIterator::ReadPhase::PREDICATE;
+            }
+            ScopedColumnIteratorReadPhase scoped_read_phase {column_iterator, phase};
+            const ColumnReadAheadRequest request {
+                    .scan_rowids = &_row_bitmap,
+                    .context = _column_read_ahead_context.get(),
+                    .role = role,
+                    .reverse = _opts.read_orderby_key_reverse,
+                    .page_driven = true,
+            };
+            const auto status = column_iterator->prepare_read_ahead(request, &plans);
+            if (!status.ok()) {
+                LOG_EVERY_N(WARNING, 100)
+                        << "failed to prepare column read-ahead; use the original read path: "
+                        << status;
+            }
+        }
+    };
+
+    const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
+    if (need_predicate_eval) {
+        prepare_columns(_predicate_ordinals, ColumnReadAheadRole::EAGER,
+                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::LAZY,
+                        ColumnIterator::ReadPhase::NORMAL);
+    } else if (_is_need_expr_eval) {
+        prepare_columns(_common_expr_ordinals, ColumnReadAheadRole::EAGER,
+                        ColumnIterator::ReadPhase::NORMAL);
+    }
+
+    if (need_predicate_eval || _is_need_expr_eval) {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::LAZY,
+                        ColumnIterator::ReadPhase::NORMAL);
+        prepare_columns(_lazy_pruned_ordinals, ColumnReadAheadRole::LAZY,
+                        ColumnIterator::ReadPhase::LAZY);
+    } else {
+        prepare_columns(_output_ordinals, ColumnReadAheadRole::EAGER,
+                        ColumnIterator::ReadPhase::NORMAL);
+    }
+
+    return plans;
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {

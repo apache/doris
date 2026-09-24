@@ -87,6 +87,11 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
+class ColumnReadAhead;
+class SegmentReadAhead;
+struct ColumnReadAheadContext;
+struct ColumnReadAheadRequest;
+struct ColumnReadAheadPlan;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -420,6 +425,13 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
+    /// Appends plans for the physical columns that need data in the iterator's current read phase.
+    /// Complex iterators forward the request only to their active children.
+    virtual Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                                      std::vector<ColumnReadAheadPlan>* plans) {
+        return Status::OK();
+    }
+
     virtual void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
@@ -603,6 +615,8 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -617,6 +631,11 @@ private:
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
+    // Materialize compressed data-page ranges from the ordinal index once. Later calls must keep
+    // the same window options and scan direction for this iterator.
+    Status _init_read_ahead(const ColumnReadAheadRequest& request);
+    // Run before PageIO so both buffered reads and Page Cache hits advance the scan window.
+    void _advance_read_ahead(int32_t page_index);
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
@@ -648,6 +667,9 @@ private:
     bool _enable_prefetch {false};
     std::unique_ptr<SegmentPrefetcher> _prefetcher;
     std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
+    std::unique_ptr<ColumnReadAhead> _read_ahead;
+    // Set only for page-driven scans; owned by the enclosing SegmentIterator.
+    SegmentReadAhead* _read_ahead_segment {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -712,6 +734,8 @@ public:
     }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -749,6 +773,8 @@ public:
         return _offsets_iterator->get_current_ordinal();
     }
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -789,6 +815,8 @@ private:
     OffsetFileColumnIteratorUPtr _offsets_iterator; //OffsetFileIterator
     ColumnIteratorUPtr _key_iterator;
     ColumnIteratorUPtr _val_iterator;
+    const ColumnReadAheadContext* _read_ahead_context {nullptr};
+    bool _read_ahead_reverse {false};
 };
 
 class StructFileColumnIterator final : public ColumnIterator {
@@ -828,6 +856,8 @@ public:
     void remove_pruned_sub_iterators() override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -896,6 +926,8 @@ public:
     void remove_pruned_sub_iterators() override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
+    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
+                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
@@ -928,6 +960,8 @@ private:
     std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
+    const ColumnReadAheadContext* _read_ahead_context {nullptr};
+    bool _read_ahead_reverse {false};
 
     Status _seek_by_offsets(ordinal_t ord);
 };
