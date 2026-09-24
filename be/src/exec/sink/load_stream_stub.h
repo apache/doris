@@ -287,6 +287,7 @@ protected:
     std::atomic<bool> _is_cancelled;
     std::atomic<bool> _is_eos;
 
+    std::shared_ptr<ResourceContext> _resource_ctx;
     PUniqueId _load_id;
     brpc::StreamId _stream_id;
     int64_t _src_id = -1; // source backend_id

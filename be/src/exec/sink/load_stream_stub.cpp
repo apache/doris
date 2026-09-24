@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "common/cast_set.h"
+#include "cpp/sync_point.h"
 #include "runtime/query_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "util/brpc_client_cache.h"
@@ -56,9 +57,11 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
                      << ", stream_id=" << id;
         return 0;
     }
+    SCOPED_ATTACH_TASK(stub->_resource_ctx);
     for (size_t i = 0; i < size; i++) {
         butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
         PLoadStreamResponse response;
+        TEST_SYNC_POINT_CALLBACK("LoadStreamReplyHandler::before_parse");
         response.ParseFromZeroCopyStream(&wrapper);
 
         if (response.eos()) {
@@ -155,7 +158,8 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
                                std::shared_ptr<IndexToTabletSchema> schema_map,
                                std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental,
                                std::shared_ptr<CloseWaitNotifier> close_wait_notifier)
-        : _load_id(load_id),
+        : _resource_ctx(thread_context()->resource_ctx()),
+          _load_id(load_id),
           _src_id(src_id),
           _tablet_schema_for_index(schema_map),
           _enable_unique_mow_for_index(mow_map),
@@ -165,6 +169,8 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
 };
 
 LoadStreamStub::~LoadStreamStub() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    _write_context_responses.clear();
     if (_is_open.load() && !_is_closed.load()) {
         auto ret = brpc::StreamClose(_stream_id);
         LOG(INFO) << *this << " is deconstructed, close " << (ret == 0 ? "success" : "failed");

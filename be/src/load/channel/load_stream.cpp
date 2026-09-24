@@ -29,6 +29,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/signal_handler.h"
+#include "cpp/sync_point.h"
 #include "load/channel/load_channel.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/channel/load_stream_writer.h"
@@ -754,6 +755,7 @@ Status LoadStream::_write_stream(StreamId stream, butil::IOBuf& buf) {
 
 void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) {
     butil::IOBufAsZeroCopyInputStream wrapper(*message);
+    TEST_SYNC_POINT_CALLBACK("LoadStream::before_parse");
     hdr.ParseFromZeroCopyStream(&wrapper);
     VLOG_DEBUG << "header parse result: " << hdr.DebugString();
 }
@@ -777,6 +779,7 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data,
 }
 
 int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) {
+    SCOPED_ATTACH_TASK(_resource_ctx);
     VLOG_DEBUG << "on_received_messages " << id << " " << size;
     for (size_t i = 0; i < size; ++i) {
         while (messages[i]->size() > 0) {
@@ -805,7 +808,6 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
-    SCOPED_ATTACH_TASK(_resource_ctx);
     // CLOSE_LOAD message should not be fault injected,
     // otherwise the message will be ignored and causing close wait timeout
     if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
