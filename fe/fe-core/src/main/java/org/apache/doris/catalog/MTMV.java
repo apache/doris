@@ -756,6 +756,55 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * The partitions whose requirement has been raised and not met, which a refresh has to rebuild rather
+     * than catch up.
+     *
+     * <p>Detached names rather than the states themselves: a caller that only routes by them has no
+     * business holding the map the MV journals, and it needs nothing else from an entry.
+     */
+    public Set<String> getPartitionsNeedingRebuild() {
+        // Built before the lock, like the map getLatestEpochs returns: which entries go in is what needs
+        // the lock, not having somewhere to put them.
+        Set<String> res = Sets.newLinkedHashSet();
+        readMvLock();
+        try {
+            for (Entry<String, MTMVPartitionState> entry : partitionStates.entrySet()) {
+                if (entry.getValue().isDirty()) {
+                    res.add(entry.getKey());
+                }
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    /**
+     * Whether every partition the MV holds needs a rebuild, which is when a whole-MV refresh does nothing
+     * the per-partition routing would not.
+     *
+     * <p>A partition that holds data and does not need one makes this false: a whole-MV refresh would
+     * recompute it for nothing, which is the waste the per-partition routing exists to avoid. A partition
+     * that was never refreshed does not count against it -- a whole-MV refresh fills it, which its
+     * per-partition branch would do as well -- and it needs no clause of its own: an aligned entry is
+     * {@code {0, 1}}, so it is behind its requirement already. An MV with no partitions is not an
+     * escalation either.
+     *
+     * <p>Read in place rather than through {@link #getPartitionStates()}: the caller asks a yes/no
+     * question, and copying the map to answer it would allocate a state object per partition, under this
+     * lock, on every refresh -- including the ones that escalate nothing.
+     */
+    public boolean allPartitionsNeedRebuild() {
+        readMvLock();
+        try {
+            return !partitionStates.isEmpty()
+                    && partitionStates.values().stream().allMatch(MTMVPartitionState::isDirty);
+        } finally {
+            readMvUnlock();
+        }
+    }
+
     // ALTER_PARTITION_STATES replay applies a detached snapshot here, mirroring alterIvmInfo(). Live
     // invalidation changes submit their journal from the mutating method instead.
     //

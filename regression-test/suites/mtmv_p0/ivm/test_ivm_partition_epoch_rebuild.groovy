@@ -122,7 +122,7 @@ suite("test_ivm_partition_epoch_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} COMPLETE"""
     def taskId = waitForNewTask(null)
     qt_baseline_task taskQuery(taskId)
-    order_qt_baseline_mv """SELECT order_id, dt, amount FROM ${mvName} ORDER BY order_id"""
+    order_qt_baseline_mv """SELECT order_id, dt, amount FROM ${mvName}"""
 
     // The ordinary incremental refresh: nothing was invalidated, so no partition is rebuilt -- and the
     // delta still lands, which is what makes the count meaningful rather than a constant.
@@ -130,7 +130,7 @@ suite("test_ivm_partition_epoch_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     taskId = waitForNewTask(taskId)
     qt_incremental_task taskQuery(taskId)
-    order_qt_incremental_mv """SELECT order_id, dt, amount FROM ${mvName} ORDER BY order_id"""
+    order_qt_incremental_mv """SELECT order_id, dt, amount FROM ${mvName}"""
 
     // A truncated base partition emits no binlog, so the MV partition that read it keeps rows that no
     // longer exist anywhere. It is rebuilt; the row inserted into the other partition in the same window
@@ -140,7 +140,7 @@ suite("test_ivm_partition_epoch_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     taskId = waitForNewTask(taskId)
     qt_truncate_task taskQuery(taskId)
-    order_qt_truncate_mv """SELECT order_id, dt, amount FROM ${mvName} ORDER BY order_id"""
+    order_qt_truncate_mv """SELECT order_id, dt, amount FROM ${mvName}"""
 
     // A rename leaves every column alone and names nothing new to read, so it raises no partition
     // requirement: an epoch is not where this change belongs. What it does move is the MV state. The
@@ -157,12 +157,12 @@ suite("test_ivm_partition_epoch_rebuild") {
     sql """REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL"""
     taskId = waitForNewTask(taskId)
     qt_rename_task taskQuery(taskId)
-    order_qt_rename_mv """SELECT order_id, dt, amount FROM ${mvName} ORDER BY order_id"""
+    order_qt_rename_mv """SELECT order_id, dt, amount FROM ${mvName}"""
 
     // The requirement keeps naming its own partition: truncating the other one rebuilds that one.
     sql """TRUNCATE TABLE ${baseTable} PARTITION(p202602)"""
     sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO"""
     taskId = waitForNewTask(taskId)
     qt_second_truncate_task taskQuery(taskId)
-    order_qt_second_truncate_mv """SELECT order_id, dt, amount FROM ${mvName} ORDER BY order_id"""
+    order_qt_second_truncate_mv """SELECT order_id, dt, amount FROM ${mvName}"""
 }

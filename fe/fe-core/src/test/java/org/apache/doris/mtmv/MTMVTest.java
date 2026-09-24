@@ -947,6 +947,49 @@ public class MTMVTest {
     }
 
     @Test
+    public void testPartitionsNeedingRebuildAreTheDirtyOnes() {
+        MTMV mtmv = ivmMvWithPartitions(Sets.newHashSet("p202601", "p202602", "p202603"));
+        mtmv.alterPartitionStates(Map.of(
+                "p202601", new MTMVPartitionState(1, 2),
+                "p202602", new MTMVPartitionState(4, 4),
+                "p202603", MTMVPartitionState.initial()));
+
+        // The names a refresh has to rebuild rather than catch up: the state the whole-MV-rebuild-did-not-
+        // finish case leaves behind is exactly this one, so a reader that routes by it gets the partitions
+        // the snapshots cannot name.
+        Assertions.assertEquals(Sets.newHashSet("p202601", "p202603"), mtmv.getPartitionsNeedingRebuild());
+
+        // A plain MV keeps no states, so it has no requirement to report: the plan of a partition refresh
+        // reads this, and the answer has to be empty rather than anything the snapshots do not say.
+        Assertions.assertTrue(buildSerializableMTMV().getPartitionsNeedingRebuild().isEmpty());
+    }
+
+    @Test
+    public void testAllPartitionsNeedARebuildOnlyWhenNoneOfThemIsClean() {
+        MTMV mtmv = ivmMvWithPartitions(Sets.newHashSet("p202601", "p202602"));
+        mtmv.alterPartitionStates(Map.of(
+                "p202601", new MTMVPartitionState(1, 2),
+                "p202602", MTMVPartitionState.initial()));
+
+        // Every partition is either behind its requirement or never filled, so a whole-MV refresh does
+        // nothing the per-partition routing would not. The second is what a fresh partition looks like:
+        // {0, 1} is dirty, so it needs no clause of its own.
+        Assertions.assertTrue(mtmv.allPartitionsNeedRebuild());
+
+        // A partition that holds data and is caught up is what makes a whole-MV refresh waste: it would be
+        // recomputed for nothing. Which is why the verdict is read for the escalation only -- the routing
+        // leaves such a partition alone.
+        mtmv.alterPartitionStates(Map.of(
+                "p202601", new MTMVPartitionState(2, 2),
+                "p202602", new MTMVPartitionState(2, 2)));
+        Assertions.assertFalse(mtmv.allPartitionsNeedRebuild());
+
+        // An MV with no partitions is not an escalation either: the empty answer must not read as "all of
+        // them".
+        Assertions.assertFalse(buildSerializableMTMV().allPartitionsNeedRebuild());
+    }
+
+    @Test
     public void testPartitionStateIsDirtyWhenItIsBehindItsRequirement() {
         Assertions.assertFalse(new MTMVPartitionState(1, 1).isDirty());
         Assertions.assertFalse(new MTMVPartitionState(4, 4).isDirty());
