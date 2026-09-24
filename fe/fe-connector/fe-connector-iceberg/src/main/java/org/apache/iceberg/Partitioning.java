@@ -230,7 +230,8 @@ public class Partitioning {
    * @return the constructed grouping key type
    */
   public static StructType groupingKeyType(Schema schema, Collection<PartitionSpec> specs) {
-    return buildPartitionProjectionType("grouping key", specs, commonActiveFieldIds(schema, specs));
+    return buildPartitionProjectionType(
+        "grouping key", specs, commonActiveFieldIds(schema, specs), List.of());
   }
 
   /**
@@ -247,7 +248,7 @@ public class Partitioning {
   public static StructType partitionType(Table table) {
     Collection<PartitionSpec> specs = table.specs().values();
     return buildPartitionProjectionType(
-        "table partition", specs, allActiveFieldIds(table.schema(), specs));
+        "table partition", specs, allActiveFieldIds(table.schema(), specs), table.spec().fields());
   }
 
   /**
@@ -261,7 +262,10 @@ public class Partitioning {
   }
 
   private static StructType buildPartitionProjectionType(
-      String typeName, Collection<PartitionSpec> specs, Set<Integer> projectedFieldIds) {
+      String typeName,
+      Collection<PartitionSpec> specs,
+      Set<Integer> projectedFieldIds,
+      List<PartitionField> currentFields) {
 
     // we currently don't know the output type of unknown transforms
     List<Transform<?, ?>> unknownTransforms = collectUnknownTransforms(specs);
@@ -271,41 +275,27 @@ public class Partitioning {
         typeName,
         unknownTransforms);
 
-    Map<Integer, PartitionField> fieldMap = Maps.newLinkedHashMap();
+    Map<Integer, PartitionField> fieldMap = Maps.newHashMap();
     Map<Integer, Type> typeMap = Maps.newHashMap();
     Map<Integer, String> nameMap = Maps.newHashMap();
+    Map<Integer, Integer> highestNonVoidSpecIds = Maps.newHashMap();
 
-    // sort specs by ID in descending order to pick up the most recent field names
+    // Use spec definition order for historical names; reused spec IDs are not activation times.
     List<PartitionSpec> sortedSpecs =
         specs.stream()
             .sorted(Comparator.comparingLong(PartitionSpec::specId).reversed())
             .collect(Collectors.toList());
 
-    // V1 carries dropped fields into later specs as voids. Preserve the last active name owner
-    // even after all replacements are dropped; type recovery below loses this activity history.
-    Map<Integer, Integer> lastActiveSpecIds = Maps.newHashMap();
     for (PartitionSpec spec : sortedSpecs) {
       for (PartitionField field : spec.fields()) {
-        if (projectedFieldIds.contains(field.fieldId()) && !isVoidTransform(field)) {
-          lastActiveSpecIds.putIfAbsent(field.fieldId(), spec.specId());
-        }
-      }
-    }
-
-    for (PartitionSpec spec : sortedSpecs) {
-      List<PartitionField> sortedFields =
-          spec.fields().stream()
-              .sorted(
-                  Comparator.comparingInt(
-                          (PartitionField field) ->
-                              lastActiveSpecIds.getOrDefault(field.fieldId(), -1))
-                      .reversed())
-              .collect(Collectors.toList());
-      for (PartitionField field : sortedFields) {
         int fieldId = field.fieldId();
 
         if (!projectedFieldIds.contains(fieldId)) {
           continue;
+        }
+
+        if (!isVoidTransform(field)) {
+          highestNonVoidSpecIds.putIfAbsent(fieldId, spec.specId());
         }
 
         NestedField structField = spec.partitionType().field(fieldId);
@@ -333,8 +323,28 @@ public class Partitioning {
       }
     }
 
-    // Different field IDs can reuse a name across specs. Keep the newest field's name and
-    // disambiguate older fields without losing their IDs or historical partition values.
+    // A reactivated spec can have a lower ID than historical specs. Prefer its active fields and
+    // declared spellings, with current name collisions resolved in spec order, before history.
+    Set<Integer> nameOrder = Sets.newLinkedHashSet();
+    for (PartitionField field : currentFields) {
+      if (projectedFieldIds.contains(field.fieldId()) && !isVoidTransform(field)) {
+        nameOrder.add(field.fieldId());
+        nameMap.put(field.fieldId(), field.name());
+      }
+    }
+
+    // Rank historical fields globally: a carried v1 void in a newer spec must not outrank a
+    // later non-void definition in another spec after a v2 drop. This is a deterministic fallback,
+    // not activation chronology, which the spec definitions alone cannot reconstruct.
+    nameOrder.addAll(
+        fieldMap.keySet().stream()
+            .sorted(
+                Comparator.<Integer>comparingInt(
+                        fieldId -> highestNonVoidSpecIds.getOrDefault(fieldId, -1))
+                    .reversed()
+                    .thenComparingInt(Integer::intValue))
+            .collect(Collectors.toList()));
+
     // Reserve all original names first so a generated suffix cannot shadow another real field.
     // Doris struct fields and Iceberg's case-insensitive binder fold names with Locale.ROOT.
     Set<String> reservedNames =
@@ -342,7 +352,7 @@ public class Partitioning {
             .map(name -> name.toLowerCase(Locale.ROOT))
             .collect(Collectors.toSet());
     Set<String> assignedNames = Sets.newHashSet();
-    for (int fieldId : fieldMap.keySet()) {
+    for (int fieldId : nameOrder) {
       String name = nameMap.get(fieldId);
       if (!assignedNames.add(name.toLowerCase(Locale.ROOT))) {
         String uniqueName = name + "_" + fieldId;
