@@ -74,7 +74,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -300,21 +299,15 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             ConnectorColumn bound = boundColumns.get(i);
             ConnectorType currentType = IcebergTypeMapping.fromIcebergType(
                     current.type(), enableVarbinary, enableTimestampTz);
-            String boundDefaultSql = bound.getDefaultValueSql();
-            if ("NULL".equalsIgnoreCase(boundDefaultSql)) {
-                boundDefaultSql = null;
-            }
-            String currentDefaultSql = current.writeDefault() == null ? null
-                    : IcebergWriteSchemaContext.toDorisSql(current.type(), current.writeDefault(),
-                            enableVarbinary, enableTimestampTz);
             // Do not compare top-level nullability: Doris widens Iceberg required columns in its read schema
             // so evolution default-fill may yield NULL. Nested requiredness remains authoritative in
             // sameBoundType, while current schema JSON enforces writes at the root.
+            // Do not compare write defaults either. A default change always commits a new schema id, which the
+            // schema-generation fences reject for every write that pins a schema context. REWRITE materializes
+            // no default and binds the cached read schema, which carries none, so a comparison only rejects it.
             if (!current.name().equalsIgnoreCase(bound.getName())
                     || !sameBoundType(currentType, bound.getType())
-                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())
-                    // Omitted columns and DEFAULT expressions were already materialized from this value at bind.
-                    || !Objects.equals(boundDefaultSql, currentDefaultSql)) {
+                    || (bound.getUniqueId() >= 0 && current.fieldId() != bound.getUniqueId())) {
                 // BE maps write expressions to schema-json by ordinal, so accepting a reordered live
                 // schema here could silently place values under the wrong Iceberg field names.
                 throw new DorisConnectorException("Iceberg table schema changed after the write was bound; retry "
