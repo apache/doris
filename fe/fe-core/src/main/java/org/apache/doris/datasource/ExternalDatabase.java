@@ -120,10 +120,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void resetMetaToUninitialized() {
-        resetMetaToUninitialized(true);
+        resetMetaToUninitialized(true, true);
     }
 
     public void resetMetaToUninitialized(boolean invalidateEngineCache) {
+        resetMetaToUninitialized(invalidateEngineCache, invalidateEngineCache);
+    }
+
+    public void resetMetaToUninitialized(boolean invalidateEngineCache, boolean invalidateRowCountCache) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
@@ -146,8 +150,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 objectInvalidation.run();
             }
         }
-        if (invalidateEngineCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(this);
+        try {
+            if (invalidateEngineCache) {
+                // Route through the typed overload: connector-specific caches (for example Paimon's
+                // table loader) are keyed by the database object and are not fully covered by the
+                // name-based scan in invalidateDb(long, String).
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(this);
+            }
+        } finally {
+            if (invalidateRowCountCache) {
+                // Independent of the routed invalidation: a connector cache failure (for example
+                // Paimon's CacheException) must not skip the row-count fence.
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidateRowCountCache(extCatalog.getId(), getId());
+            }
         }
     }
 
@@ -619,15 +635,36 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // Check whether the table still exists in the local replay cache.
         ExternalTable dorisTable = getTableForReplay(tableName).orElse(null);
         if (dorisTable == null) {
+            // A mode-2 table-name mapping can disappear while the old object stays resident in
+            // MetaCache.metaObjCache; getTableForReplay then misses only because the mapping is
+            // absent. Retire the hidden table-object generation so a same-name recreation cannot
+            // reuse the prior incarnation, then widen the engine and row-count fence.
+            if (!hasLocalTableName(tableName)) {
+                retireAllTableObjectsWithoutEngineInvalidation();
+            }
+            // The table object cache is much smaller than the row-count and Hive engine caches. A drop
+            // or rename must still retire stale entries when the table object was evicted, and the
+            // event carries the caller spelling, so widen to the canonical scope.
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(extCatalog.getId(), getFullName(), tableName);
             return false;
         }
-        // clear the cache related to this table.
+        // Fence the held table's row count before releasing its local name/id slot: a query does not
+        // take this database's write lock, so a same-name replacement admitted right after the removal
+        // could otherwise observe the retired row-count entry through the deterministic table id.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(dorisTable);
+        // Local retirement is unconditional: a routed engine failure must not leave the table visible.
         if (isInitialized()) {
             metaCache.invalidate(dorisTable.getName(),
                     Util.genIdByName(extCatalog.getName(), name, dorisTable.getName()));
         }
-
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        // Routed engine invalidation plus completion fencing, isolated from the local retirement.
+        try {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        } catch (RuntimeException e) {
+            LOG.warn("failed to invalidate engine caches after unregistering table {}.{}", name,
+                    dorisTable.getName(), e);
+        }
         return true;
     }
 

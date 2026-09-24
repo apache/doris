@@ -314,19 +314,26 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        super.notifyPropertiesUpdated(updatedProps);
-        String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
-        String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
-        }
-        if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
-        }
-        if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        try {
+            super.notifyPropertiesUpdated(updatedProps);
+        } finally {
+            // The committed ALTER already published the properties; the engine-specific groups below
+            // must still be retired when the generic reset cleanup throws.
+            String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+            String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
+            if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
+            }
+            if (updatedProps.keySet().stream()
+                    .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
+            }
+            if (updatedProps.keySet().stream()
+                    .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+            }
         }
     }
 

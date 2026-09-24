@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
@@ -217,12 +218,44 @@ public class LanceCatalogLifecycleTest {
 
             // Leader REFRESH TABLE reaches only the typed table route, which must still retire the
             // Lance access cache even though it bypasses the name-based invalidateTable() entry.
+            ExternalDatabase<?> lanceDb = Mockito.mock(ExternalDatabase.class);
+            Mockito.when(lanceDb.getId()).thenReturn(70L);
             ExternalTable lanceTable = Mockito.mock(ExternalTable.class);
             Mockito.when(lanceTable.getCatalog()).thenReturn(catalog);
+            Mockito.doReturn(lanceDb).when(lanceTable).getDb();
+            Mockito.when(lanceTable.getId()).thenReturn(71L);
             caches.invalidateTableCache(lanceTable);
             Mockito.verify(client, Mockito.times(3)).invalidateTableAccessCache();
             Mockito.verify(session, Mockito.never()).close();
             Mockito.verify(catalog, Mockito.never()).createClient();
+        } finally {
+            catalog.onClose();
+        }
+    }
+
+    @Test
+    public void testHeldTableInvalidationResetsLanceAccess() throws Exception {
+        Session session = Mockito.mock(Session.class);
+        LanceCatalogClient client = Mockito.spy(client(session));
+        LanceExternalCatalog catalog = catalog(client);
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+        long catalogId = catalog.getId();
+        Mockito.doReturn(catalog).when(catalogs).getCatalog(catalogId);
+        ExternalMetaCacheMgr caches = new ExternalMetaCacheMgr(true);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(db.getId()).thenReturn(70L);
+        Mockito.doReturn(db).when(table).getDb();
+        Mockito.when(table.getId()).thenReturn(71L);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(table.getDbName()).thenReturn("mapped_db");
+        Mockito.when(table.getName()).thenReturn("mapped_table");
+        try (MockedStatic<Env> currentEnv = Mockito.mockStatic(Env.class)) {
+            currentEnv.when(Env::getCurrentEnv).thenReturn(env);
+            caches.invalidateTableCache(table);
+            Mockito.verify(client).invalidateTableAccessCache();
         } finally {
             catalog.onClose();
         }

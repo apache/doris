@@ -120,6 +120,9 @@ public class RefreshManager {
 
             if (!db.isPresent()) {
                 LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
+                // No canonical identity is available: retire the catalog scope so engine entries and
+                // row counts cannot survive the committed refresh.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(catalog.getId());
                 invalidatePaimonCatalogForUnresolvedReplay(catalog);
             } else {
                 refreshDbInternal(db.get());
@@ -174,6 +177,22 @@ public class RefreshManager {
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
+    public void refreshTableAfterCommit(ExternalTable table) {
+        long updateTime = System.currentTimeMillis();
+        try {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table);
+            refreshTableInternal((ExternalDatabase) table.getDatabase(), table, updateTime);
+        } catch (RuntimeException e) {
+            // The external transaction is already committed. Still notify follower FEs even if a
+            // cache layer failed, so peers do not keep serving the pre-commit state.
+            LOG.warn("Failed to refresh table cache after committing external insert for {}",
+                    table.getNameWithFullQualifiers(), e);
+        }
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+                table.getCatalog().getId(), table.getDatabase().getFullName(), table.getName(), updateTime);
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
+    }
+
     public void replayRefreshTable(ExternalObjectLog log) {
         replayRefreshSafely("refresh table " + log.getCatalogId(), () -> {
             ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
@@ -192,6 +211,9 @@ public class RefreshManager {
             // See comment in refreshDbInternal for why db and table may be null.
             if (!db.isPresent()) {
                 LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
+                // No canonical identity is available: retire the catalog scope so engine entries and
+                // row counts cannot survive the committed refresh.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(catalog.getId());
                 invalidatePaimonCatalogForUnresolvedReplay(catalog);
                 return;
             }
@@ -210,6 +232,10 @@ public class RefreshManager {
                         && !db.get().hasLocalTableName(log.getTableName())) {
                     db.get().retireAllTableObjectsWithoutEngineInvalidation();
                 }
+                // The independent row-count cache can outlive the table object, so fence the
+                // canonical database scope before acknowledging the committed refresh.
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidateRowCountCache(catalog.getId(), db.get().getId());
                 invalidatePaimonCatalogForUnresolvedReplay(catalog);
                 return;
             }
@@ -223,11 +249,26 @@ public class RefreshManager {
                 if (catalog instanceof HMSExternalCatalog
                         && ((modifiedPartNames != null && !modifiedPartNames.isEmpty())
                         || (newPartNames != null && !newPartNames.isEmpty()))) {
-                    // Partition-level cache invalidation, only for hive catalog
-                    HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                            .hive(catalog.getId());
-                    cache.refreshAffectedPartitionsCache(
-                            (HMSExternalTable) table.get(), modifiedPartNames, newPartNames);
+                    // Partition-level cache invalidation, only for hive catalog. Fence the held table
+                    // before the hive(...) lookup can lazily initialize the group and throw; otherwise
+                    // a failed acquisition skips the row-count fence and the full-table fallback.
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                    try {
+                        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                                .hive(catalog.getId());
+                        cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames,
+                                newPartNames);
+                        // Close the admission window the opening fence left open: a load admitted after
+                        // it can publish the pre-insert value from the still-resident file list.
+                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                    } catch (RuntimeException e) {
+                        // The insert is already committed. A partial or failed selective refresh must not
+                        // leave stale Hive partition/file entries, so fall back to the same conservative
+                        // full-table invalidation the leader uses.
+                        LOG.warn("failed to refresh affected partitions when replaying refresh table for {}",
+                                table.get().getNameWithFullQualifiers(), e);
+                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
+                    }
                     if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
                         ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());
                     }
@@ -253,13 +294,22 @@ public class RefreshManager {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh ExternalCatalog Tables");
         }
+        // Whole-table events are already committed remotely. Fence the row count by cached identity
+        // before any database/table reload can fail and make the not-found path return.
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateRowCountCache(catalog.getId(), dbName, tableName);
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
+            // Cold database: widen so independently resident engine entries are retired too.
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             return;
         }
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             return;
         }
         refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
@@ -314,8 +364,14 @@ public class RefreshManager {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
+        // Partition events are already committed remotely. Fence the row count by cached identity
+        // before any database/table reload can fail and make the ignored-not-found path return.
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateRowCountCache(catalog.getId(), dbName, tableName);
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
             }
@@ -324,6 +380,8 @@ public class RefreshManager {
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }
@@ -332,8 +390,15 @@ public class RefreshManager {
 
         ExternalTable externalTable = (ExternalTable) table;
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
-        for (String partitionName : partitionNames) {
-            cache.invalidatePartitionCache(externalTable, partitionName);
+        try {
+            for (String partitionName : partitionNames) {
+                cache.invalidatePartitionCache(externalTable, partitionName);
+            }
+        } finally {
+            // Close the admission window opened by the pre-fence above, even when the selective
+            // invalidation fails partway.
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
         }
         ((HMSExternalTable) table).setUpdateTime(updateTime);
     }
