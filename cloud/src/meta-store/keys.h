@@ -79,7 +79,7 @@
 // 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
 // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
 //
-// 0x01 "storage_vault" ${instance_id} "vault" ${vault_id}                                 -> StorageVaultPB
+// 0x01 "storage_vault" ${instance_id} "vault" ${resource_id/vault_id}                     -> StorageVaultPB
 //
 // 0x01 "job" ${instance_id} "restore_tablet" ${tablet_id}                             -> RestoreJobCloudPB
 // 0x01 "job" ${instance_id} "restore_rowset" ${tablet_id} ${version}                  -> RowsetMetaCloudPB

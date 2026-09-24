@@ -644,8 +644,8 @@ std::string version_key_prefix(std::string_view instance_id) {
 std::string index_key_prefix(std::string_view instance_id) {
     std::string out;
     out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
-    encode_bytes(INDEX_KEY_PREFIX, &out); // "index"
-    encode_bytes(instance_id, &out);      // instance_id
+    encode_bytes(INDEX_INDEX_KEY_INFIX, &out); // "index"
+    encode_bytes(instance_id, &out);           // instance_id
     return out;
 }
 
@@ -1258,7 +1258,7 @@ bool decode_snapshot_ref_key(std::string_view* in, std::string* instance_id,
         return false;
     }
 
-    return in->empty();
+    return true;
 }
 
 bool decode_data_rowset_ref_count_key(std::string_view* in, int64_t* tablet_id,

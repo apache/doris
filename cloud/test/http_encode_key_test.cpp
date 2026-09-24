@@ -952,6 +952,7 @@ static auto versioned_test_inputs = std::array {
 };
 // clang-format on
 
+// Keep the HTTP key registries and their golden fixtures in one-to-one correspondence.
 TEST(HttpEncodeKeyTest, RegisteredKeyTypesMatchGoldenFixtures) {
     std::set<std::string_view> fixture_key_types;
     for (const auto& input : test_inputs) {

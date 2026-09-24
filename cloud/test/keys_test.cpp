@@ -2630,12 +2630,13 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         EXPECT_FALSE(decode_snapshot_ref_key(&key_view, nullptr, nullptr, nullptr));
     }
 
-    // A valid key with trailing bytes is not the documented key shape.
+    // A successfully decoded key may retain a caller-owned suffix.
     {
-        std::string invalid_key = encoded_key;
-        invalid_key.push_back('\0');
-        std::string_view key_view = invalid_key;
-        EXPECT_FALSE(decode_snapshot_ref_key(&key_view, nullptr, nullptr, nullptr));
+        std::string key_with_suffix = encoded_key;
+        key_with_suffix.push_back('\0');
+        std::string_view key_view = key_with_suffix;
+        EXPECT_TRUE(decode_snapshot_ref_key(&key_view, nullptr, nullptr, nullptr));
+        EXPECT_EQ(key_view, std::string_view("\0", 1));
     }
 
     // The timestamp field must carry a versionstamp tag, not merely another decodable field.
