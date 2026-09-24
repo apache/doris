@@ -125,9 +125,7 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
         });
 
         bthread_t bthread_id;
-        if (SYNC_POINT_HOOK_RETURN_VALUE(
-                    bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn),
-                    "bthread_fork_join::start_background") != 0) {
+        if (bthread_start_background(&bthread_id, nullptr, run_bthread_work, fn) != 0) {
             run_bthread_work(fn);
         }
     }
