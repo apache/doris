@@ -37,6 +37,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
@@ -44,6 +45,7 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/condition_cache.h"
 #include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
@@ -213,6 +215,23 @@ public:
 
 private:
     RowRanges _row_ranges;
+};
+
+class ScopedConditionCache {
+public:
+    ScopedConditionCache()
+            : _previous(ExecEnv::GetInstance()->get_condition_cache()),
+              _cache(ConditionCache::create_global_cache(1024 * 1024, 4)) {
+        ExecEnv::GetInstance()->_condition_cache = _cache.get();
+    }
+
+    ~ScopedConditionCache() { ExecEnv::GetInstance()->_condition_cache = _previous; }
+
+    ConditionCache* get() const { return _cache.get(); }
+
+private:
+    ConditionCache* _previous;
+    std::unique_ptr<ConditionCache> _cache;
 };
 
 TabletSchemaSPtr make_tablet_schema() {
@@ -406,6 +425,37 @@ TEST_F(SegmentIteratorCandidatePushdownTest, delete_bitmap_engages_candidate_bef
     EXPECT_TRUE(_expr->captured_candidate_copy()->contains(4));
     EXPECT_FALSE(_expr->captured_candidate_copy()->contains(5));
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, versioned_deletes_do_not_publish_condition_cache) {
+    ScopedConditionCache cache;
+    constexpr uint64_t digest = 12345;
+    auto older_reader = std::make_unique<SegmentIterator>(_segment, _read_schema);
+    OlapReaderStatistics older_stats;
+    older_reader->_opts.stats = &older_stats;
+    older_reader->_opts.condition_cache_digest = digest;
+    older_reader->_common_expr_ctxs_push_down = {
+            make_capturing_ctx(std::make_shared<CapturingExpr>(older_reader.get()))};
+
+    _iter->_opts.condition_cache_digest = digest;
+    _iter->_row_bitmap.addRange(0, 100);
+    auto deleted_rows = std::make_shared<roaring::Roaring>();
+    deleted_rows->addRange(0, 100);
+    _iter->_opts.delete_bitmap.emplace(_iter->segment_id(), std::move(deleted_rows));
+    _iter->_init_row_bitmap_by_condition_cache();
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+    ASSERT_TRUE(_iter->_row_bitmap.isEmpty());
+
+    if (_iter->_opts.condition_cache_digest && !_iter->_find_condition_cache) {
+        ConditionCache::CacheKey key(_iter->_opts.rowset_id, _iter->segment_id(), digest);
+        cache.get()->insert(key, std::move(_iter->_condition_cache));
+    }
+
+    older_reader->_row_bitmap.addRange(0, 100);
+    older_reader->_init_row_bitmap_by_condition_cache();
+    EXPECT_FALSE(older_reader->_find_condition_cache);
+    EXPECT_EQ(older_reader->_row_bitmap.cardinality(), 100);
+    EXPECT_EQ(_iter->_opts.condition_cache_digest, 0);
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, condition_ranges_engage_candidate_before_expr) {

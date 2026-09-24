@@ -145,6 +145,14 @@ private:
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
+    // Delete bitmaps vary by read version, but the condition cache key does not.
+    auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr &&
+        !delete_bitmap_it->second->isEmpty()) {
+        _opts.condition_cache_digest = 0;
+        return;
+    }
+
     // Only dispose need column predicate and expr cal in condition cache
     if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty()) {
         if (_opts.condition_cache_digest) {
