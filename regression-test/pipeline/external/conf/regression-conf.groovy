@@ -140,9 +140,8 @@ hive3PgPort=5732
 enableKafkaTest=true
 kafka_port=19193
 
-// fluss catalog tests stay opt-in until the external pipeline starts the fluss component.
-// To enable them, first run `docker/thirdparties/run-thirdparties-docker.sh -c fluss`.
-enableFlussTest=false
+// The external regression pipeline starts the fluss component for these suites.
+enableFlussTest=true
 fluss_coordinator_port=19123
 // The object store the tiered half of a fluss table lives in; the suites give
 // its endpoint and the minio default credentials to their own catalog, because
