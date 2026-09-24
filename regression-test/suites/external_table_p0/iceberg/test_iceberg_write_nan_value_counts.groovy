@@ -84,5 +84,26 @@ suite("test_iceberg_write_nan_value_counts", "p0,external") {
         contains "inputSplitNum=1"
     }
 
+    // ---- The same, written as ORC -----------------------------------------------------------------
+    // ORC column statistics carry no NaN count either, and a Doris-written ORC file does report bounds,
+    // so without counting it the `OR isNaN` arm would keep every NaN-free ORC file that the bounds alone
+    // used to prune. Both writers now feed the same counter.
+    sql """drop table if exists write_nan_finite_orc"""
+    sql """create table write_nan_finite_orc (id int, d double) properties ("write-format"="orc")"""
+    sql """insert into write_nan_finite_orc values (1, 1.0), (2, 2.0)"""
+
+    sql """drop table if exists write_nan_present_orc"""
+    sql """create table write_nan_present_orc (id int, d double) properties ("write-format"="orc")"""
+    sql """insert into write_nan_present_orc values (1, 1.0), (2, cast('nan' as double))"""
+
+    explain {
+        sql("select id from write_nan_finite_orc where d > 100")
+        contains "inputSplitNum=0"
+    }
+    explain {
+        sql("select id from write_nan_present_orc where d > 100")
+        contains "inputSplitNum=1"
+    }
+
     sql """drop catalog if exists ${catalog_name}"""
 }
