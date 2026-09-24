@@ -19,6 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
+#ifdef ADDRESS_SANITIZER
+#include <sanitizer/allocator_interface.h>
+#endif
+
 namespace doris::segment_v2::inverted_index {
 
 TokenStreamPtr create_icu_tokenizer(const std::string& text, Settings settings = Settings()) {
@@ -180,6 +186,103 @@ TEST_F(ICUTokenizerFactoryTest, LongText) {
             {"with", 1},       {"multiple", 1}, {"words", 1},  {"and", 1},  {"中文", 1},
             {"characters", 1}, {"and", 1},      {"日本語", 1}, {"text", 1}};
     assert_tokenizer_output(long_text, expected);
+}
+
+TEST_F(ICUTokenizerFactoryTest, LargeInputResetUsesBoundedOffsetMemory) {
+    constexpr size_t input_size = 4 * 1024 * 1024;
+    const std::string input(input_size, 'a');
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(input.data(), static_cast<int32_t>(input.size()), false);
+
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    tokenizer->set_reader(reader);
+
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
+#endif
+    tokenizer->reset();
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
+    ASSERT_GE(allocated_after, allocated_before);
+    EXPECT_LT(allocated_after - allocated_before, input_size * 4);
+#endif
+}
+
+TEST_F(ICUTokenizerFactoryTest, ClipsLongTokensAtUnicodeScalarBoundary) {
+    const std::string expected(LUCENE_MAX_WORD_LEN - 1, 'a');
+    const std::string text = expected + "\xF0\x90\x90\x80";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    tokenizer->set_source_byte_offsets_enabled(true);
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+
+    Token token;
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), expected);
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), expected.size());
+    ASSERT_FALSE(tokenizer->get_source_byte_offsets().empty());
+    EXPECT_EQ(tokenizer->get_source_byte_offsets().back(), expected.size());
+
+    const std::string reset_text = "reset";
+    reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), reset_text);
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 5);
+}
+
+TEST_F(ICUTokenizerFactoryTest, IndexesMalformedUtf8UnlessOffsetsAreTracked) {
+    const std::string malformed = std::string("alpha ") + static_cast<char>(0xFF) + " beta";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(malformed.data(), static_cast<int32_t>(malformed.size()), false);
+
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    tokenizer->set_reader(reader);
+    // A column may hold malformed bytes, so indexing keeps the valid words around them.
+    ASSERT_NO_THROW(tokenizer->reset());
+    Token malformed_token;
+    ASSERT_NE(tokenizer->next(&malformed_token), nullptr);
+    EXPECT_EQ(std::string(malformed_token.termBuffer<char>(), malformed_token.termLength<char>()),
+              "alpha");
+    ASSERT_NE(tokenizer->next(&malformed_token), nullptr);
+    EXPECT_EQ(std::string(malformed_token.termBuffer<char>(), malformed_token.termLength<char>()),
+              "beta");
+}
+
+TEST_F(ICUTokenizerFactoryTest, RejectsMalformedUtf8AndCanBeReset) {
+    const std::string malformed = std::string("alpha ") + static_cast<char>(0xFF) + " beta";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(malformed.data(), static_cast<int32_t>(malformed.size()), false);
+
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    // Malformed bytes have no source span, so the offset-aware path still rejects them.
+    tokenizer->set_source_byte_offsets_enabled(true);
+    tokenizer->set_reader(reader);
+    EXPECT_THROW(tokenizer->reset(), Exception);
+
+    const std::string valid = "gamma delta";
+    reader->init(valid.data(), static_cast<int32_t>(valid.size()), false);
+    tokenizer->set_reader(reader);
+    ASSERT_NO_THROW(tokenizer->reset());
+    Token token;
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "gamma");
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 5);
 }
 
 TEST_F(ICUTokenizerFactoryTest, SpecialCharacters) {

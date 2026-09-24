@@ -17,6 +17,9 @@
 
 #include "storage/index/inverted/token_filter/word_delimiter_filter.h"
 
+#include <unicode/utf8.h>
+
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <string_view>
@@ -32,7 +35,7 @@ WordDelimiterFilter::WordDelimiterFilter(const TokenStreamPtr& in,
         : DorisTokenFilter(in),
           _flags(configuration_flags),
           _prot_words(std::move(prot_words)),
-          _states(8) {
+          _states(INITIAL_BUFFERED_STATES) {
     _iterator = std::make_unique<WordDelimiterIterator>(char_type_table, has(SPLIT_ON_CASE_CHANGE),
                                                         has(SPLIT_ON_NUMERICS),
                                                         has(STEM_ENGLISH_POSSESSIVE));
@@ -40,6 +43,7 @@ WordDelimiterFilter::WordDelimiterFilter(const TokenStreamPtr& in,
     _concat_all = std::make_unique<WordDelimiterConcatenation>(*this);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size): keep the token emission state machine together.
 Token* WordDelimiterFilter::next(Token* t) {
     while (true) {
         if (!_has_saved_state) {
@@ -50,6 +54,9 @@ Token* WordDelimiterFilter::next(Token* t) {
             char* term_buffer = t->termBuffer<char>();
             auto term_length = static_cast<int32_t>(t->termLength<char>());
             std::string_view term(term_buffer, term_length);
+            _saved_start_offset = t->startOffset();
+            _saved_end_offset = t->endOffset();
+            save_source_state(term);
 
             _accum_pos_inc += get_position_increment(t);
             _iterator->set_text(term.data(), static_cast<int32_t>(term.size()));
@@ -61,6 +68,9 @@ Token* WordDelimiterFilter::next(Token* t) {
                 set_position_increment(t, _accum_pos_inc);
                 _accum_pos_inc = 0;
                 _first = false;
+                _current_source_byte_offsets = _saved_source_byte_offsets;
+                _current_source_byte_end_offsets = _saved_source_byte_end_offsets;
+                _current_generated = false;
                 return t;
             }
 
@@ -81,6 +91,9 @@ Token* WordDelimiterFilter::next(Token* t) {
                 set_position_increment(t, _accum_pos_inc);
                 _accum_pos_inc = 0;
                 _first = false;
+                _current_source_byte_offsets = _saved_source_byte_offsets;
+                _current_source_byte_end_offsets = _saved_source_byte_end_offsets;
+                _current_generated = false;
                 return t;
             }
         }
@@ -116,6 +129,12 @@ Token* WordDelimiterFilter::next(Token* t) {
                 int32_t position = _states[_buffered_pos].pos_inc;
                 _buffered_pos++;
                 set(t, term, position);
+                t->setStartOffset(_states[_buffered_pos - 1].token_start_offset);
+                t->setEndOffset(_states[_buffered_pos - 1].token_end_offset);
+                _current_source_byte_offsets = _states[_buffered_pos - 1].source_byte_offsets;
+                _current_source_byte_end_offsets =
+                        _states[_buffered_pos - 1].source_byte_end_offsets;
+                _current_generated = true;
                 if (_first && get_position_increment(t) == 0) {
                     set_position_increment(t, 1);
                 }
@@ -133,6 +152,11 @@ Token* WordDelimiterFilter::next(Token* t) {
             _iterator->next();
             _first = false;
             set(t, _attribute.buffered, _attribute.pos_inc);
+            t->setStartOffset(_attribute.token_start_offset);
+            t->setEndOffset(_attribute.token_end_offset);
+            _current_source_byte_offsets = _attribute.source_byte_offsets;
+            _current_source_byte_end_offsets = _attribute.source_byte_end_offsets;
+            _current_generated = true;
             return t;
         }
 
@@ -169,12 +193,74 @@ Token* WordDelimiterFilter::next(Token* t) {
 void WordDelimiterFilter::reset() {
     DorisTokenFilter::reset();
     _has_saved_state = false;
+    _current_generated = false;
     _concat->clear();
     _concat_all->clear();
     _accum_pos_inc = 0;
     _buffered_pos = 0;
     _buffered_len = 0;
     _first = true;
+    _saved_source_byte_offsets.clear();
+    _saved_source_byte_end_offsets.clear();
+    _saved_token_byte_offsets.clear();
+    _current_source_byte_offsets.clear();
+    _current_source_byte_end_offsets.clear();
+    release_oversized_scratch(_saved_source_byte_offsets);
+    release_oversized_scratch(_saved_source_byte_end_offsets);
+    release_oversized_scratch(_saved_token_byte_offsets);
+    release_oversized_scratch(_current_source_byte_offsets);
+    release_oversized_scratch(_current_source_byte_end_offsets);
+    _concat->release_oversized_buffers();
+    _concat_all->release_oversized_buffers();
+    auto release_attribute = [](Attribute& attribute) {
+        release_oversized_scratch(attribute.buffered);
+        release_oversized_scratch(attribute.source_byte_offsets);
+        release_oversized_scratch(attribute.source_byte_end_offsets);
+    };
+    release_attribute(_attribute);
+    if (_states.capacity() * sizeof(Attribute) > ANALYZER_SCRATCH_HIGH_WATER_BYTES) {
+        std::vector<Attribute>(INITIAL_BUFFERED_STATES).swap(_states);
+    } else {
+        std::ranges::for_each(_states, release_attribute);
+    }
+}
+
+bool WordDelimiterFilter::get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+    if (!_current_source_byte_offsets.empty()) {
+        return false;
+    }
+    if (!_current_generated) {
+        return DorisTokenFilter::get_conservative_source_byte_span(start, end);
+    }
+    if (DorisTokenFilter::get_conservative_source_byte_span(start, end)) {
+        return true;
+    }
+    // A generated part without an exact slice keeps the whole upstream token as its span, which
+    // is also the offset range it was published with.
+    start = 0;
+    end = _saved_end_offset - _saved_start_offset;
+    return end >= 0;
+}
+
+size_t WordDelimiterFilter::scratch_capacity_bytes_for_test() const {
+    auto offsets_bytes = [](const std::vector<int32_t>& offsets) {
+        return offsets.capacity() * sizeof(int32_t);
+    };
+    auto attribute_bytes = [&](const Attribute& attribute) {
+        return attribute.buffered.capacity() + offsets_bytes(attribute.source_byte_offsets) +
+               offsets_bytes(attribute.source_byte_end_offsets);
+    };
+    size_t bytes = offsets_bytes(_saved_source_byte_offsets) +
+                   offsets_bytes(_saved_source_byte_end_offsets) +
+                   offsets_bytes(_saved_token_byte_offsets) +
+                   offsets_bytes(_current_source_byte_offsets) +
+                   offsets_bytes(_current_source_byte_end_offsets) + attribute_bytes(_attribute) +
+                   _concat->scratch_capacity_bytes() + _concat_all->scratch_capacity_bytes() +
+                   _states.capacity() * sizeof(Attribute);
+    for (const auto& state : _states) {
+        bytes += attribute_bytes(state);
+    }
+    return bytes;
 }
 
 void WordDelimiterFilter::save_state(const std::string_view& term) {
@@ -200,6 +286,10 @@ void WordDelimiterFilter::buffer() {
     _states[_buffered_len].buffered = _attribute.buffered;
     _states[_buffered_len].start_off = _attribute.start_off;
     _states[_buffered_len].pos_inc = _attribute.pos_inc;
+    _states[_buffered_len].source_byte_offsets = _attribute.source_byte_offsets;
+    _states[_buffered_len].source_byte_end_offsets = _attribute.source_byte_end_offsets;
+    _states[_buffered_len].token_start_offset = _attribute.token_start_offset;
+    _states[_buffered_len].token_end_offset = _attribute.token_end_offset;
     _buffered_len++;
 }
 
@@ -208,6 +298,85 @@ void WordDelimiterFilter::generate_part(bool is_single_word) {
             _saved_buffer.substr(_iterator->_current, _iterator->_end - _iterator->_current);
     _attribute.start_off = _iterator->_current;
     _attribute.pos_inc = position(false);
+    auto [source_byte_offsets, source_byte_end_offsets] =
+            slice_source_byte_offsets(_iterator->_current, _iterator->_end);
+    set_attribute_source_byte_offsets(std::move(source_byte_offsets),
+                                      std::move(source_byte_end_offsets));
+}
+
+void WordDelimiterFilter::save_source_state(std::string_view term) {
+    auto source_byte_offsets = DorisTokenFilter::get_source_byte_offsets();
+    _saved_source_byte_offsets.assign(source_byte_offsets.begin(), source_byte_offsets.end());
+    _saved_source_byte_end_offsets.clear();
+    _saved_token_byte_offsets.clear();
+    if (_saved_source_byte_offsets.empty()) {
+        return;
+    }
+
+    _saved_token_byte_offsets.push_back(0);
+    int32_t offset = 0;
+    const auto length = static_cast<int32_t>(term.size());
+    while (offset < length) {
+        UChar32 codepoint;
+        const char* term_data = term.data();
+        U8_NEXT(term_data, offset, length, codepoint);
+        _saved_token_byte_offsets.push_back(offset);
+    }
+    if (_saved_token_byte_offsets.size() != _saved_source_byte_offsets.size()) {
+        _saved_source_byte_offsets.clear();
+        _saved_token_byte_offsets.clear();
+        return;
+    }
+    auto source_byte_end_offsets = DorisTokenFilter::get_source_byte_end_offsets();
+    if (source_byte_end_offsets.empty()) {
+        _saved_source_byte_end_offsets.assign(_saved_source_byte_offsets.begin() + 1,
+                                              _saved_source_byte_offsets.end());
+    } else {
+        DORIS_CHECK_EQ(source_byte_end_offsets.size() + 1, _saved_source_byte_offsets.size());
+        _saved_source_byte_end_offsets.assign(source_byte_end_offsets.begin(),
+                                              source_byte_end_offsets.end());
+    }
+}
+
+std::pair<std::vector<int32_t>, std::vector<int32_t>>
+WordDelimiterFilter::slice_source_byte_offsets(int32_t start, int32_t end) const {
+    if (_saved_source_byte_offsets.empty()) {
+        return {};
+    }
+    auto start_it = std::ranges::lower_bound(_saved_token_byte_offsets, start);
+    auto end_it = std::ranges::lower_bound(_saved_token_byte_offsets, end);
+    if (start_it == _saved_token_byte_offsets.end() || *start_it != start ||
+        end_it == _saved_token_byte_offsets.end() || *end_it != end || start_it > end_it) {
+        return {};
+    }
+    const auto start_index = std::distance(_saved_token_byte_offsets.begin(), start_it);
+    const auto end_index = std::distance(_saved_token_byte_offsets.begin(), end_it);
+    std::vector<int32_t> offsets {_saved_source_byte_offsets.begin() + start_index,
+                                  _saved_source_byte_offsets.begin() + end_index};
+    std::vector<int32_t> ends {_saved_source_byte_end_offsets.begin() + start_index,
+                               _saved_source_byte_end_offsets.begin() + end_index};
+    DORIS_CHECK(!ends.empty());
+    offsets.push_back(ends.back());
+    return {std::move(offsets), std::move(ends)};
+}
+
+void WordDelimiterFilter::set_attribute_source_byte_offsets(
+        std::vector<int32_t> source_byte_offsets, std::vector<int32_t> source_byte_end_offsets) {
+    _attribute.token_start_offset = _saved_start_offset;
+    _attribute.token_end_offset = _saved_end_offset;
+    if (!source_byte_offsets.empty()) {
+        const int32_t relative_start = source_byte_offsets.front();
+        _attribute.token_start_offset += relative_start;
+        _attribute.token_end_offset = _saved_start_offset + source_byte_offsets.back();
+        for (int32_t& offset : source_byte_offsets) {
+            offset -= relative_start;
+        }
+        for (int32_t& offset : source_byte_end_offsets) {
+            offset -= relative_start;
+        }
+    }
+    _attribute.source_byte_offsets = std::move(source_byte_offsets);
+    _attribute.source_byte_end_offsets = std::move(source_byte_end_offsets);
 }
 
 int32_t WordDelimiterFilter::position(bool inject) {

@@ -25,23 +25,33 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 public class InvertedIndexUtil {
 
     private static final Logger LOG = LogManager.getLogger(InvertedIndexUtil.class);
+
+    // A MATCH analyzer name may select an index by its analyzer or its normalizer.
+    private static final Set<String> BUILTIN_TOP_LEVEL_NAMES = ImmutableSet.<String>builder()
+            .addAll(IndexPolicy.BUILTIN_ANALYZERS)
+            .addAll(IndexPolicy.BUILTIN_NORMALIZERS)
+            .build();
 
     public static String INVERTED_INDEX_PARSER_KEY = InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY;
     public static String INVERTED_INDEX_PARSER_KEY_ALIAS = InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS;
@@ -337,21 +347,52 @@ public class InvertedIndexUtil {
             // dict_compression now silently ignores by V2/V3 inverted index
         }
 
-        // Normalize analyzer and normalizer names to lowercase for case-insensitive matching
+        // Canonicalize built-ins while retaining the exact spelling of a resolved legacy policy.
         normalizeInvertedIndexProperties(properties);
     }
 
     /**
-     * Normalize analyzer and normalizer names in index properties to lowercase.
-     * This ensures case-insensitive matching between table creation and query time.
+     * Canonicalize analyzer and normalizer names in index properties. Legacy metadata may contain
+     * case-distinct policy names, so a resolved custom policy must keep its exact stored name.
      */
     private static void normalizeInvertedIndexProperties(Map<String, String> properties) {
+        resolvePolicyNames(properties);
         AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
                 properties,
-                INVERTED_INDEX_ANALYZER_NAME_KEY,
-                INVERTED_INDEX_NORMALIZER_NAME_KEY,
                 INVERTED_INDEX_PARSER_KEY,
                 INVERTED_INDEX_PARSER_KEY_ALIAS);
+    }
+
+    /** Store analyzer and normalizer names in the spelling BE dispatches on. */
+    public static void resolvePolicyNames(Map<String, String> properties) {
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_ANALYZER_NAME_KEY, IndexPolicy.BUILTIN_ANALYZERS);
+        normalizeResolvedPolicyName(properties, INVERTED_INDEX_NORMALIZER_NAME_KEY, IndexPolicy.BUILTIN_NORMALIZERS);
+    }
+
+    private static void normalizeResolvedPolicyName(Map<String, String> properties, String key,
+            Set<String> builtins) {
+        String name = properties.get(key);
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        properties.put(key, resolveAnalyzerName(name, builtins));
+    }
+
+    /** Resolve built-in names and retain the stored spelling of custom policies. */
+    public static String resolveAnalyzerName(String name) {
+        return resolveAnalyzerName(name, BUILTIN_TOP_LEVEL_NAMES);
+    }
+
+    // Validation resolves in the same order, so the stored name binds what it accepted.
+    private static String resolveAnalyzerName(String name, Set<String> builtins) {
+        String trimmedName = name.trim();
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        String builtin = policyMgr.getTopLevelBuiltin(trimmedName, builtins);
+        if (builtin != null) {
+            return builtin;
+        }
+        IndexPolicy policy = policyMgr.getPolicyByName(trimmedName);
+        return policy == null ? trimmedName.toLowerCase(Locale.ROOT) : policy.getName();
     }
 
     private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
@@ -393,14 +434,38 @@ public class InvertedIndexUtil {
         }
 
         Set<String> analyzerKeys = new HashSet<>();
+        Set<String> analyzerSelectors = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
-            String key = buildAnalyzerIdentity(indexDef.getProperties());
+            Map<String, String> properties = indexDef.getProperties();
+            String key = buildAnalyzerIdentity(properties);
             // HashSet.add() returns false if element already exists
             if (!analyzerKeys.add(key)) {
                 return false;
             }
+            String selector = getAnalyzerSelector(properties);
+            if (!INVERTED_INDEX_PARSER_IK.equals(selector) && !analyzerSelectors.add(selector)) {
+                return false;
+            }
         }
         return true;
+    }
+
+    private static String getAnalyzerSelector(Map<String, String> properties) {
+        String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
+        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            return resolveAnalyzerName(preferredAnalyzer);
+        }
+        String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
+        return Strings.isNullOrEmpty(parser)
+                ? InvertedIndexProperties.INVERTED_INDEX_DEFAULT_ANALYZER_KEY
+                : parser.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public static boolean hasSameNonIkAnalyzerSelector(
+            Map<String, String> leftProperties, Map<String, String> rightProperties) {
+        String leftSelector = getAnalyzerSelector(leftProperties);
+        return !INVERTED_INDEX_PARSER_IK.equals(leftSelector)
+                && leftSelector.equals(getAnalyzerSelector(rightProperties));
     }
 
     public static String buildAnalyzerIdentity(Map<String, String> properties) {
@@ -423,17 +488,39 @@ public class InvertedIndexUtil {
                     buildAnalyzerIdentity(properties));
         }
 
+        String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
+        return isAnalyzerNameMatched(properties, normalizedAnalyzer)
+                && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
+                    || matchesBuiltinIkDefaults(properties));
+    }
+
+    /**
+     * Whether the index is served by the named analyzer, regardless of how a built-in IK index is
+     * configured. This name check is all that selected an index before built-in IK indexes were
+     * matched by their effective configuration.
+     */
+    public static boolean isAnalyzerNameMatched(Map<String, String> properties, String analyzer) {
+        String normalizedAnalyzer = Strings.isNullOrEmpty(analyzer) ? "" : analyzer.trim();
+        if (normalizedAnalyzer.isEmpty()) {
+            return false;
+        }
+        String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
         String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return normalizedAnalyzer.equalsIgnoreCase(preferredAnalyzer);
+            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer));
         }
 
         String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
         if (Strings.isNullOrEmpty(parser)) {
-            return normalizedAnalyzer.equalsIgnoreCase("default")
-                    || normalizedAnalyzer.equalsIgnoreCase(INVERTED_INDEX_PARSER_NONE);
+            return resolvedAnalyzer.equals("default")
+                    || resolvedAnalyzer.equals(INVERTED_INDEX_PARSER_NONE);
         }
-        return normalizedAnalyzer.equalsIgnoreCase(parser);
+        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private static boolean matchesBuiltinIkDefaults(Map<String, String> properties) {
+        return buildAnalyzerIdentity(properties).equals(
+                buildAnalyzerIdentity(Map.of(INVERTED_INDEX_ANALYZER_NAME_KEY, INVERTED_INDEX_PARSER_IK)));
     }
 
     public static String getAnalyzerIdentity(Index index) {

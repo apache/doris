@@ -18,9 +18,14 @@
 #pragma once
 
 #include <unicode/utext.h>
+#include <unicode/utf8.h>
 
+#include <algorithm>
+#include <cstddef>
 #include <memory>
+#include <span>
 #include <string_view>
+#include <utility>
 
 #include "CLucene.h"
 #include "CLucene/analysis/AnalysisHeader.h"
@@ -35,6 +40,36 @@ class DorisTokenizer;
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
 
 using TokenStreamPtr = std::shared_ptr<TokenStream>;
+
+// Reused analyzers keep ordinary scratch across values; one oversized value must not pin its
+// capacity for the rest of the writer lifetime.
+constexpr size_t ANALYZER_SCRATCH_HIGH_WATER_BYTES = 64 * 1024;
+
+// Longest prefix of text that fits in max_bytes without splitting a rune, and its rune count.
+inline std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
+    const auto length = static_cast<int32_t>(text.size());
+    const auto limit = static_cast<int32_t>(std::min(text.size(), max_bytes));
+    int32_t offset = 0;
+    size_t rune_count = 0;
+    while (offset < length) {
+        int32_t next = offset;
+        U8_FWD_1(text, next, length);
+        if (next > limit) {
+            break;
+        }
+        offset = next;
+        ++rune_count;
+    }
+    return {static_cast<size_t>(offset), rune_count};
+}
+
+template <typename Container>
+void release_oversized_scratch(Container& container) {
+    if (container.capacity() * sizeof(typename Container::value_type) >
+        ANALYZER_SCRATCH_HIGH_WATER_BYTES) {
+        Container().swap(container);
+    }
+}
 
 /**
  * All custom tokenizers and token_filters must use the following functions 
@@ -59,6 +94,20 @@ public:
 
     int32_t get_position_increment(Token* t) { return t->getPositionIncrement(); }
     void set_position_increment(Token* t, int32_t pos) { t->setPositionIncrement(pos); }
+
+    // Return each rune's original relative byte start followed by the token's final byte end.
+    virtual std::span<const int32_t> get_source_byte_offsets() const { return {}; }
+
+    // Return separate rune ends when removed delimiters leave gaps between adjacent runes.
+    virtual std::span<const int32_t> get_source_byte_end_offsets() const { return {}; }
+
+    // Return a conservative relative source span when exact rune boundaries are unavailable.
+    virtual bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+        return false;
+    }
+
+    // Enable source-boundary tracking only for streams with a downstream consumer.
+    virtual void set_source_byte_offsets_enabled(bool enabled) {}
 };
 
 class TokenStreamWrapper : public TokenStream {

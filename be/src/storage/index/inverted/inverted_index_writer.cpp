@@ -254,6 +254,10 @@ Status InvertedIndexColumnWriter<field_type>::add_document() {
         close_on_error();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError add_document: {}", e.what());
+    } catch (const Exception& e) {
+        close_on_error();
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error while adding document: {}", e.what());
     }
     return Status::OK();
 }
@@ -329,6 +333,9 @@ Status InvertedIndexColumnWriter<field_type>::new_inverted_index_field(const cha
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError create new index field error: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error while creating new index field: {}", e.what());
     }
     return Status::OK();
 }
@@ -450,16 +457,29 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                         return st;
                     }
                     if (_should_analyzer) {
-                        // in this case stream need to delete after add_document, because the
-                        // stream can not reuse for different field
-                        bool own_token_stream = true;
-                        ReaderPtr char_string_reader = DORIS_TRY(
-                                create_char_string_reader(_analyzer_config.char_filter_map));
-                        char_string_reader->init(v->get_data(), cast_set<int32_t>(v->get_size()),
-                                                 false);
-                        ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
-                        new_field->setValue(ts, own_token_stream);
-                        keep_readers.emplace_back(std::move(char_string_reader));
+                        try {
+                            // Each array field needs an owned stream because streams cannot be
+                            // reused across fields.
+                            bool own_token_stream = true;
+                            ReaderPtr char_string_reader = DORIS_TRY(
+                                    create_char_string_reader(_analyzer_config.char_filter_map));
+                            char_string_reader->init(v->get_data(),
+                                                     cast_set<int32_t>(v->get_size()), false);
+                            ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
+                            new_field->setValue(ts, own_token_stream);
+                            keep_readers.emplace_back(std::move(char_string_reader));
+                        } catch (const CLuceneError& e) {
+                            _doc->clear();
+                            close_on_error();
+                            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                                    "CLuceneError while creating array index field: {}", e.what());
+                        } catch (const Exception& e) {
+                            _doc->clear();
+                            close_on_error();
+                            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                                    "Analyzer error while creating array index field: {}",
+                                    e.what());
+                        }
                     } else {
                         new_field_char_value(v->get_data(), v->get_size(), new_field.get());
                     }

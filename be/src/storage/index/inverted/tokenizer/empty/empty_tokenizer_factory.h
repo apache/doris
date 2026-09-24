@@ -37,6 +37,9 @@ public:
             }
             std::string_view term(_char_buffer, _char_length);
             set(token, term);
+            set_source_byte_offsets(term, 0);
+            token->setStartOffset(correct_source_offset(0));
+            token->setEndOffset(correct_source_offset(_char_length));
             return token;
         }
         return nullptr;

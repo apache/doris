@@ -112,15 +112,17 @@ const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
 const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 const std::string INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 
-// Normalize a physical analyzer selection key to lowercase. Empty stays empty.
+// Preserve resolved policy names as exact keys. FE canonicalizes built-in names.
 std::string normalize_analyzer_key(std::string_view analyzer);
 
 // Runtime context for analyzer
 // Contains only the fields needed at runtime
 struct InvertedIndexAnalyzerCtx {
-    // Physical reader selection key from Thrift. Empty allows fallback selection;
-    // non-empty requires an exact match.
+    // Physical reader selection key. Empty allows fallback selection.
     std::string analyzer_key;
+
+    // Optional lowercase metadata key verified against the same analyzer policy.
+    std::string legacy_analyzer_key;
 
     // Named custom analyzer or normalizer used to execute the predicate.
     std::string analyzer_name;
@@ -195,8 +197,8 @@ std::string get_parser_dict_compression_from_properties(
 
 std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
-// Build a normalized analyzer key from index properties.
-// Precedence is analyzer, normalizer, then parser type. A raw index uses "none".
+// Build an exact analyzer key from index properties.
+// Include IK mode/lowercase and effective outer character filters to distinguish physical readers.
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties);
 
@@ -204,7 +206,7 @@ std::string build_analyzer_key_from_properties(
 struct AnalyzerConfig {
     std::string provider_name;
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_NONE;
-    // Physical reader selection key from the Thrift analyzer name.
+    // Physical reader selection key from the Thrift analyzer configuration.
     // Empty allows fallback selection; non-empty requires an exact match.
     std::string analyzer_key;
 
@@ -212,22 +214,20 @@ struct AnalyzerConfig {
     bool uses_provider() const { return !provider_name.empty(); }
 };
 
-// Parser for analyzer configuration from Thrift TMatchPredicate.
-// Extracts analyzer_name and parser_type_str, determines if builtin or custom,
-// and produces a normalized AnalyzerConfig.
+// Parse resolved analyzer names and legacy parser types from Thrift TMatchPredicate.
 class AnalyzerConfigParser {
 public:
-    // Parse from raw analyzer name and parser type string (extracted from Thrift).
+    // Parse the resolved analyzer name and legacy parser type from Thrift.
     // @param analyzer_name: Analyzer selection name from Thrift (custom, builtin, or empty).
     // @param parser_type_str: Parser type string like "chinese", "standard", etc.
     [[nodiscard]] static AnalyzerConfig parse(const std::string& analyzer_name,
-                                              const std::string& parser_type_str);
+                                              const std::string& parser_type_str,
+                                              const std::string& parser_mode = "",
+                                              bool lowercase = true,
+                                              const CharFilterMap& char_filter_map = {});
 
-    // Check if a normalized analyzer name looks like a builtin parser type
-    [[nodiscard]] static bool is_builtin_analyzer(const std::string& normalized_name);
-
-private:
-    static std::string normalize_to_lower(const std::string& value);
+    // Use the writer's case-sensitive built-in dispatch.
+    [[nodiscard]] static bool is_builtin_analyzer(const std::string& analyzer_name);
 };
 
 } // namespace doris

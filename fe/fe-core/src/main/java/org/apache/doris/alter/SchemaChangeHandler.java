@@ -3344,6 +3344,12 @@ public class SchemaChangeHandler extends AlterHandler {
                     Column column = olapTable.getColumn(columnName);
                     if (column != null && (column.getType().isStringType() || column.getType().isVariantType())) {
                         if (index.getIndexType() == IndexType.INVERTED) {
+                            if (InvertedIndexUtil.hasSameNonIkAnalyzerSelector(
+                                    index.getProperties(), indexDef.getProperties())) {
+                                throw new DdlException(indexDef.getIndexType()
+                                        + " index for column (" + columnName
+                                        + ") with the same analyzer selector already exists.");
+                            }
                             String existingIdentity = InvertedIndexUtil.getAnalyzerIdentity(index);
                             String newIdentity = indexDef.getAnalyzerIdentity();
                             if (Objects.equals(existingIdentity, newIdentity)) {

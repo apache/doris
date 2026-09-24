@@ -38,9 +38,21 @@ public:
     Token* next(Token* token) override;
     void reset() override;
 
+#ifdef BE_TEST
+    size_t source_scratch_size_for_test() const { return sourceUtf8Str_.size(); }
+#endif
+
 private:
+    bool advance_source_offset(int32_t utf16_offset, int32_t& utf8_offset);
+
     std::string utf8Str_;
+    std::string sourceUtf8Str_;
     icu::UnicodeString buffer_;
+    const char* sourceBuffer_ = nullptr;
+    int32_t sourceLength_ = 0;
+    int32_t sourceUtf8Offset_ = 0;
+    int32_t sourceUtf16Offset_ = 0;
+    bool sourceOffsetsValid_ = true;
 
     ICUTokenizerConfigPtr config_;
     CompositeBreakIteratorPtr breaker_;
