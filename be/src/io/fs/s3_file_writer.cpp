@@ -99,6 +99,24 @@ Status S3FileWriter::_create_multi_upload_request() {
     if (nullptr == client) {
         return Status::InternalError<false>("invalid obj storage client");
     }
+    // Fail the first CreateMultipartUpload of a matched writer only once, emulating a transient
+    // object storage error. Later calls of the same writer go to object storage normally.
+    // params: path_contains (optional) - only inject for objects whose path contains it.
+    DBUG_EXECUTE_IF("S3FileWriter._create_multi_upload_request.inject_error_once", {
+        auto path_contains = dp->param<std::string>("path_contains", "");
+        const auto& path = _obj_storage_path_opts.path.native();
+        if (!_debug_create_multipart_failed &&
+            (path_contains.empty() || path.find(path_contains) != std::string::npos)) {
+            _debug_create_multipart_failed = true;
+            auto msg = fmt::format(
+                    "debug point {} inject CreateMultipartUpload failure, path={}, "
+                    "pending_buf_size={}, bytes_appended={}, cur_part_num={}",
+                    DP_NAME, path, _pending_buf ? _pending_buf->get_size() : 0, _bytes_appended,
+                    _cur_part_num);
+            LOG(WARNING) << msg;
+            return Status::IOError("{}", msg);
+        }
+    });
     auto resp = client->create_multipart_upload(_obj_storage_path_opts);
     if (resp.resp.status.code == ErrorCode::OK) {
         _upload_id = resp.upload_id.value_or("");
@@ -345,6 +363,30 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
             // and shouldn't be larger than buf
             data_size_to_append = std::min(data_size - pos, _pending_buf->get_file_offset() +
                                                                     buffer_size - _bytes_appended);
+            // Tests can restore the legacy calculation based on the buffer's physical size.
+            TEST_SYNC_POINT_CALLBACK("S3FileWriter::appendv_data_size", this, &data_size_to_append);
+            // Restore the legacy (3.0.x) calculation based on the buffer's physical size:
+            // after a failed CreateMultipartUpload the full pending buffer is kept, the next
+            // append consumes 0 bytes and the retained bytes are uploaded without being counted
+            // in _bytes_appended.
+            // params: path_contains (optional) - only affect objects whose path contains it.
+            DBUG_EXECUTE_IF("S3FileWriter.appendv.legacy_data_size", {
+                auto path_contains = dp->param<std::string>("path_contains", "");
+                if (path_contains.empty() ||
+                    _obj_storage_path_opts.path.native().find(path_contains) != std::string::npos) {
+                    auto legacy_size = std::min(data_size - pos, _pending_buf->get_capacaticy() -
+                                                                         _pending_buf->get_size());
+                    if (legacy_size != data_size_to_append) {
+                        LOG(WARNING) << "debug point " << DP_NAME
+                                     << " use legacy data_size_to_append=" << legacy_size
+                                     << " instead of " << data_size_to_append
+                                     << ", path=" << _obj_storage_path_opts.path.native()
+                                     << ", pending_buf_size=" << _pending_buf->get_size()
+                                     << ", bytes_appended=" << _bytes_appended;
+                    }
+                    data_size_to_append = legacy_size;
+                }
+            });
 
             // if the buffer has memory buf inside, the data would be written into memory first then S3 then file cache
             // it would be written to cache then S3 if the buffer doesn't have memory preserved

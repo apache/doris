@@ -26,8 +26,11 @@
 #include <string>
 #include <utility>
 
+#include "common/config.h"
 #include "core/packed_int128.h"
 #include "core/value/decimalv2_value.h"
+#include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "storage/index/indexed_column_writer.h"
 #include "storage/index/primary_key_index.h"
@@ -225,9 +228,52 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     options.encoding = PLAIN_ENCODING;
     IndexedColumnWriter bf_writer(options, FieldType::OLAP_FIELD_TYPE_VARCHAR, file_writer);
     RETURN_IF_ERROR(bf_writer.init());
+    // Pad the file with unreferenced zero bytes so that the bloom filter pages start at
+    // `target_offset`. With the default target (s3_write_buffer_size - 39828) the first bloom
+    // filter page fills the first S3 multipart buffer, which makes the first
+    // CreateMultipartUpload happen inside bf_writer.add(). The padding is never referenced by
+    // any index, so the segment is still valid when no other fault is injected.
+    // params: path_contains (optional), target_offset (optional)
+    DBUG_EXECUTE_IF("PrimaryKeyBloomFilterIndexWriterImpl::finish.pad_before_bloom_filter", {
+        auto path_contains = dp->param<std::string>("path_contains", "");
+        const auto& path = file_writer->path().native();
+        if (path_contains.empty() || path.find(path_contains) != std::string::npos) {
+            auto target_offset =
+                    dp->param<int64_t>("target_offset", config::s3_write_buffer_size - 39828);
+            auto cur_offset = static_cast<int64_t>(file_writer->bytes_appended());
+            if (cur_offset < target_offset) {
+                std::string padding(target_offset - cur_offset, '\0');
+                RETURN_IF_ERROR(file_writer->append(Slice(padding)));
+                LOG(WARNING) << "debug point " << DP_NAME << " pad " << padding.size()
+                             << " bytes before pk bloom filter, path=" << path
+                             << ", bloom filter offset=" << file_writer->bytes_appended();
+            } else {
+                LOG(WARNING) << "debug point " << DP_NAME << " can not pad, path=" << path
+                             << ", current offset=" << cur_offset
+                             << " >= target_offset=" << target_offset;
+            }
+        }
+    });
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        RETURN_IF_ERROR(bf_writer.add(&data));
+        auto st = bf_writer.add(&data);
+        // Tests can emulate older callers that ignored a failed page write.
+        TEST_SYNC_POINT_CALLBACK("PrimaryKeyBloomFilterIndexWriterImpl::finish_after_add", &st,
+                                 &bf_writer);
+        // Emulate the legacy (3.0.x) caller which ignored the Status of bf_writer.add().
+        // params: path_contains (optional)
+        DBUG_EXECUTE_IF("PrimaryKeyBloomFilterIndexWriterImpl::finish.ignore_add_error", {
+            auto path_contains = dp->param<std::string>("path_contains", "");
+            const auto& path = file_writer->path().native();
+            if (!st.ok() &&
+                (path_contains.empty() || path.find(path_contains) != std::string::npos)) {
+                LOG(WARNING) << "debug point " << DP_NAME
+                             << " ignore bloom filter add error, path=" << path
+                             << ", bf_size=" << bf->size() << ", st=" << st;
+                st = Status::OK();
+            }
+        });
+        RETURN_IF_ERROR(st);
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
