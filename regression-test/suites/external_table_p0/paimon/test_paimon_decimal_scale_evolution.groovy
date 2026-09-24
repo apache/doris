@@ -48,10 +48,16 @@ suite("test_paimon_decimal_scale_evolution", "p0,external,paimon") {
             ) using paimon tblproperties ('file.format'='parquet');
             insert into paimon.paimon_decimal_scale_evolution_db.decimal_scale_evolution
                 values (1, cast(1.20 as decimal(5,2)));
+        """
+
+        sql "select amount from test_paimon_decimal_scale_evolution.paimon_decimal_scale_evolution_db.decimal_scale_evolution limit 1"
+
+        spark_paimon_multi """
             alter table paimon.paimon_decimal_scale_evolution_db.decimal_scale_evolution
                 alter column amount type decimal(6,3);
         """
 
+        sql "refresh catalog test_paimon_decimal_scale_evolution"
         sql "set force_jni_scanner=false"
         sql "set enable_file_scanner_v2=false"
         order_qt_decimal_scale_evolution_v1 """
