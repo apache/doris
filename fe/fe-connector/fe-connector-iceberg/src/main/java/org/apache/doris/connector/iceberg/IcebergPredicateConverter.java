@@ -326,6 +326,12 @@ public class IcebergPredicateConverter {
         if (Double.isNaN(v)) {
             // Expressions.*(col, NaN) throws ("Cannot create expression literal from NaN") -- iceberg models a
             // NaN literal only through the unary isNaN/notNaN. Doris: NaN is the greatest value, NaN = NaN.
+            //
+            // notNaN is the one arm that needs a NULL guard: iceberg reads notNaN(null) as TRUE
+            // (Evaluator: !NaNUtil.isNaN(value)), while Doris leaves `NULL != NaN` / `NULL < NaN` UNKNOWN,
+            // so a null row does not match. isNaN and notNull are already false for null. Without the guard
+            // a REWRITE, whose filter has no downstream re-filter, would pull in a null-only file that holds
+            // no matching row at all.
             switch (op) {
                 case EQ:
                 case EQ_FOR_NULL:
@@ -333,7 +339,7 @@ public class IcebergPredicateConverter {
                     return Expressions.isNaN(colName);
                 case NE:
                 case LT:
-                    return Expressions.notNaN(colName);
+                    return andNotNull(colName, Expressions.notNaN(colName));
                 case GT:
                     return Expressions.alwaysFalse();
                 case LE:
@@ -396,11 +402,14 @@ public class IcebergPredicateConverter {
         }
         if (negated) {
             // A listed NaN excludes NaN rows; otherwise NaN rows satisfy NOT IN. iceberg's and()/or() fold the
-            // alwaysTrue/alwaysFalse identity away, so `d NOT IN (NaN)` comes out as plain notNaN(d).
+            // alwaysTrue/alwaysFalse identity away, so `d NOT IN (NaN)` comes out as and(notNaN, notNull) --
+            // the same NULL guard the NaN-literal comparison needs, since notNaN(null) reads as TRUE in
+            // iceberg while Doris leaves `NULL NOT IN (NaN)` UNKNOWN.
             Expression excluded = literals.isEmpty()
                     ? Expressions.alwaysTrue() : Expressions.notIn(colName, literals);
             return hasNaN
-                    ? Expressions.and(excluded, Expressions.notNaN(colName)) : orIsNaN(colName, excluded);
+                    ? andNotNull(colName, Expressions.and(excluded, Expressions.notNaN(colName)))
+                    : orIsNaN(colName, excluded);
         }
         Expression included = literals.isEmpty()
                 ? Expressions.alwaysFalse() : andNotNaN(colName, Expressions.in(colName, literals));
@@ -452,6 +461,13 @@ public class IcebergPredicateConverter {
     // instead of collapsing to a bare range predicate. See the banner above.
     private static Expression andNotNaN(String colName, Expression expr) {
         return Expressions.and(expr, Expressions.notNaN(colName));
+    }
+
+    // Only needed where the emitted arm is a bare notNaN: iceberg evaluates notNaN(null) as TRUE, while Doris
+    // leaves a comparison against NULL UNKNOWN, so the row does not match. Every other leaf already excludes
+    // null on its own -- a range/equality bound is false for null, and isNaN/notNull are false for null.
+    private static Expression andNotNull(String colName, Expression expr) {
+        return Expressions.and(expr, Expressions.notNull(colName));
     }
 
     private Types.NestedField getPushdownField(String colName) {
