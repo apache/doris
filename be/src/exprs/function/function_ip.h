@@ -708,8 +708,6 @@ public:
         }
         // apply for inverted index
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-        bool has_null = DORIS_TRY(iter->has_null());
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
 
         // >= min ip
         segment_v2::InvertedIndexParam min_param;
@@ -719,14 +717,7 @@ public:
         min_param.query_value = min_ip;
         min_param.num_rows = num_rows;
         min_param.roaring = std::make_shared<roaring::Roaring>();
-        if (has_null) {
-            // Fetch the NULL bitmap together with the first range query to reuse its index reader.
-            min_param.null_bitmap_cache_handle = &null_bitmap_cache_handle;
-        }
         RETURN_IF_ERROR(iter->read_from_index(&min_param));
-        if (has_null) {
-            null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        }
 
         // <= max ip
         segment_v2::InvertedIndexParam max_param;
