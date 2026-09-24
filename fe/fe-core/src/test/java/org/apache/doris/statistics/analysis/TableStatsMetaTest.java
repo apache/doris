@@ -17,8 +17,15 @@
 
 package org.apache.doris.statistics.analysis;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogIf;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -32,13 +39,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 class TableStatsMetaTest {
 
     private static final long BASE_INDEX_ID = 10001L;
+    private static final long ROLLUP_INDEX_ID = 10002L;
     private static final String BASE_INDEX_NAME = "baseIndex";
 
     private OlapTable mockOlapTable() {
         OlapTable table = Mockito.mock(OlapTable.class);
-        Mockito.doReturn(Lists.newArrayList(BASE_INDEX_ID, 10002L)).when(table).getIndexIdList();
+        Mockito.doReturn(Lists.newArrayList(BASE_INDEX_ID, ROLLUP_INDEX_ID)).when(table).getIndexIdList();
         Mockito.doReturn(BASE_INDEX_ID).when(table).getBaseIndexId();
         Mockito.doReturn(BASE_INDEX_NAME).when(table).getIndexNameById(BASE_INDEX_ID);
+        DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.doReturn(db).when(table).getDatabase();
+        Mockito.doReturn(catalog).when(db).getCatalog();
         return table;
     }
 
@@ -259,6 +271,45 @@ class TableStatsMetaTest {
         // rows of the table counted as delta rows, because the reader paired the collected row count of one of
         // them with the baseline of the other.
         Assertions.assertFalse(incoherent.get(), "the reader saw a row count of neither state");
+    }
+
+    // The table has a rollup index of the given kind besides the base index. The schema is the one a real
+    // index has: a key column, which carries no aggregation type at all, and a value column with the given
+    // one.
+    private void mockRollupIndex(OlapTable table, long indexId, KeysType keysType, AggregateType valueType) {
+        MaterializedIndexMeta indexMeta = Mockito.mock(MaterializedIndexMeta.class);
+        Mockito.doReturn(keysType).when(indexMeta).getKeysType();
+        Column keyColumn = new Column("col1", PrimitiveType.INT);
+        keyColumn.setAggregationType(null, false);
+        Column valueColumn = new Column("col2", PrimitiveType.INT);
+        valueColumn.setAggregationType(valueType, false);
+        Mockito.doReturn(Lists.newArrayList(keyColumn, valueColumn)).when(indexMeta).getSchema();
+        Mockito.doReturn(indexMeta).when(table).getIndexMetaByIndexId(indexId);
+    }
+
+    @Test
+    void testRollupKeepingOneRowPerBaseRowReportsTheRowsLoadedAfterTheTruncate() {
+        OlapTable table = mockOlapTable();
+        mockRollupIndex(table, ROLLUP_INDEX_ID, KeysType.DUP_KEYS, AggregateType.NONE);
+        // The record a truncation creates: every index which follows the base index is known to be empty.
+        TableStatsMeta meta = new TableStatsMeta(table);
+        meta.updatedRows.set(150);
+
+        Assertions.assertEquals(150, meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID));
+        Assertions.assertEquals(150, meta.getRowCountWithDeltaRows(table, ROLLUP_INDEX_ID));
+    }
+
+    @Test
+    void testAggregatingRollupDoesNotReportTheRowsLoadedAfterTheTruncate() {
+        OlapTable table = mockOlapTable();
+        mockRollupIndex(table, ROLLUP_INDEX_ID, KeysType.AGG_KEYS, AggregateType.SUM);
+        TableStatsMeta meta = new TableStatsMeta(table);
+        meta.updatedRows.set(150);
+
+        Assertions.assertEquals(150, meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID));
+        // The rollup aggregates the loaded rows, its row count is unknown until the backends report it, and
+        // the rows of the base index must not be reported as its row count.
+        Assertions.assertEquals(-1, meta.getRowCountWithDeltaRows(table, ROLLUP_INDEX_ID));
     }
 
 }

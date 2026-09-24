@@ -94,4 +94,37 @@ suite("test_row_count_after_truncate") {
         sql """SELECT k2 FROM test_row_count_after_truncate_aggr"""
         contains "cardinality=100, "
     }
+
+    // A rollup of a duplicate key table which keeps one row per base row has the same row count as the base
+    // index, so the rows loaded after the truncation are its rows as well. The rollup drops a key column
+    // (k2), which is what makes it a rollup the analyzer accepts: a projection whose columns are a prefix of
+    // the base table's columns is rejected as useless for a duplicate key table.
+    sql """DROP TABLE IF EXISTS test_row_count_after_truncate_dup_rollup"""
+    sql """CREATE TABLE test_row_count_after_truncate_dup_rollup (
+            k1 INT NOT NULL,
+            k2 INT NOT NULL,
+            v INT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """ALTER TABLE test_row_count_after_truncate_dup_rollup ADD ROLLUP r_dup (k1, v)"""
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE ROLLUP WHERE TableName='test_row_count_after_truncate_dup_rollup' ORDER BY CreateTime DESC LIMIT 1"""
+        time 600
+    }
+    sql """INSERT INTO test_row_count_after_truncate_dup_rollup VALUES (1, 1, 1), (2, 2, 2), (3, 3, 3)"""
+    sql """TRUNCATE TABLE test_row_count_after_truncate_dup_rollup"""
+    sql """INSERT INTO test_row_count_after_truncate_dup_rollup VALUES (1, 1, 1), (2, 2, 2), (3, 3, 3)"""
+
+    // The scan of the rollup reports the rows loaded into the table: it keeps one row per base row, so
+    // neither its own -1 (the backends have not reported the new rollup tablets yet) nor 1 is right.
+    explain {
+        sql """SELECT k1, v FROM test_row_count_after_truncate_dup_rollup INDEX r_dup"""
+        contains "(r_dup)"
+        contains "cardinality=3, "
+    }
 }

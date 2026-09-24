@@ -17,7 +17,10 @@
 
 package org.apache.doris.statistics.analysis;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
@@ -188,12 +191,41 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     }
 
     private static ConcurrentMap<Long, Long> buildEmptyIndexRowCount(OlapTable table) {
-        // Only the base index is known to be empty. The rows loaded after the truncation are only known for
-        // the base index (getBaseIndexDeltaRowCount() returns its delta), the row count of a rollup or an
-        // aggregate index of the table is unknown until the backends report that index.
+        // TRUNCATE TABLE removed the data of every index of the table, so every index whose row count is known
+        // to follow the row count of the base index is known to be empty. The row count of an index which
+        // aggregates is unknown until the backends report it, so it is not claimed to be 0 here.
         ConcurrentMap<Long, Long> indexRowCount = new ConcurrentHashMap<>();
-        indexRowCount.put(table.getBaseIndexId(), 0L);
+        for (Long indexId : table.getIndexIdList()) {
+            if (keepsOneRowPerBaseRow(table, indexId)) {
+                indexRowCount.put(indexId, 0L);
+            }
+        }
         return indexRowCount;
+    }
+
+    /**
+     * Whether the rows loaded into the base index are the rows of this index as well. That holds for the base
+     * index itself and for an index which keeps one row per base row, i.e. a duplicate key index whose columns
+     * are all plain. An index which aggregates, or which merges the rows of a unique key table, has a smaller
+     * row count of its own, so the rows loaded into the base index must not be added to it.
+     */
+    public static boolean keepsOneRowPerBaseRow(OlapTable table, long indexId) {
+        if (indexId == table.getBaseIndexId()) {
+            return true;
+        }
+        MaterializedIndexMeta indexMeta = table.getIndexMetaByIndexId(indexId);
+        if (indexMeta == null || indexMeta.getKeysType() != KeysType.DUP_KEYS) {
+            return false;
+        }
+        for (Column column : indexMeta.getSchema()) {
+            // A key column has no aggregation type at all, the value columns of a duplicate key index are
+            // NONE. Neither of them merges rows, only an aggregating column does.
+            AggregateType aggregationType = column.getAggregationType();
+            if (aggregationType != null && aggregationType != AggregateType.NONE) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -384,9 +416,9 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
      */
     public synchronized long getRowCountWithDeltaRows(OlapTable table, long indexId) {
         long rowCount = getRowCount(indexId);
-        if (indexId != table.getBaseIndexId()) {
-            // The delta rows are the rows of the base index. A rollup or an aggregate index has its own
-            // collected row count, which is smaller than the one of the base index by design.
+        if (!keepsOneRowPerBaseRow(table, indexId)) {
+            // The index aggregates, or it merges the rows of a unique key table: it has its own, smaller row
+            // count, and the rows loaded into the base index would overstate it.
             return rowCount;
         }
         return rowCount + getBaseIndexDeltaRowCount(table);

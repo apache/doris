@@ -386,9 +386,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private long computeDeltaRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         // The delta rows are the rows loaded into the base index which the collected base index row count
-        // doesn't include yet. They are not the rows of a rollup or an aggregate index selected by the scan,
-        // that index has its own (usually much smaller) row count, so they only apply to the base index.
-        if (olapScan.getSelectedIndexId() != olapTable.getBaseIndexId()) {
+        // doesn't include yet. They are not the rows of an index which aggregates them: such an index has its
+        // own (usually much smaller) row count, so the delta only applies to a scan of an index which keeps
+        // one row per base row.
+        if (!TableStatsMeta.keepsOneRowPerBaseRow(olapTable, olapScan.getSelectedIndexId())) {
             return 0;
         }
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
