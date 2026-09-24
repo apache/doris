@@ -16,12 +16,14 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Lists running jobs without confusing "no jobs" with a failed Flink command.
+# Lists every non-terminal job without confusing "no jobs" with a failed Flink command. Flink's
+# running selector excludes CREATED/INITIALIZING jobs; -s adds those scheduled states so a detached
+# submission that timed out after remote acceptance cannot escape retry cleanup and start later.
 # The caller supplies the shared-deadline helpers from run-init-sql.sh.
 list_running_job_ids() {
     local command_timeout output status
     command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 1
-    if output="$(timeout "${command_timeout}" "${FLINK_BIN}" list -r 2>&1)"; then
+    if output="$(timeout "${command_timeout}" "${FLINK_BIN}" list -r -s 2>&1)"; then
         printf '%s\n' "${output}" | grep -oE '[[:xdigit:]]{32}' || true
         return 0
     else
@@ -32,7 +34,7 @@ list_running_job_ids() {
     fi
 }
 
-# Cancels every running job, then proves the running set is empty before the
+# Cancels every running or scheduled job, then proves the non-terminal set is empty before the
 # caller writes rows that must remain in the Fluss log. A successful cancel RPC
 # is only an acknowledgement; polling is what establishes the frozen boundary.
 cancel_all_jobs() {
@@ -55,7 +57,7 @@ cancel_all_jobs() {
     while :; do
         running="$(list_running_job_ids)" || return 1
         if [[ -z "${running}" ]]; then
-            echo "No running Flink jobs remain"
+            echo "No non-terminal Flink jobs remain"
             return 0
         fi
         if ! remaining_until "${deadline}" >/dev/null; then

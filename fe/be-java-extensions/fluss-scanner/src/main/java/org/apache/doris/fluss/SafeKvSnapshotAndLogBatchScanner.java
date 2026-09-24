@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
@@ -250,8 +251,8 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
             if (snapshotId >= 0) {
                 // Keep this last. Once createSnapshotScanner returns, only a field assignment and return
                 // remain, neither of which can strand the asynchronously initializing reader.
-                resources.snapshotScanner =
-                        factory.createSnapshotScanner(tableBucket, snapshotId, projectedFields);
+                resources.snapshotScanner = new PublicationGuardedBatchScanner(
+                        factory.createSnapshotScanner(tableBucket, snapshotId, projectedFields));
             }
             return resources;
         } catch (RuntimeException | Error failure) {
@@ -274,6 +275,109 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
         }
     }
 
+    /**
+     * Defers the one delegate close until Fluss 1.0 has either published its native snapshot reader
+     * or reported initialization failure.
+     *
+     * <p>{@code KvSnapshotBatchScanner.close()} sets its own closed bit even when the asynchronous
+     * initializer has not published {@code SnapshotFilesReader} yet. Calling it in that state loses
+     * the only future close: the initializer can publish RocksDB resources afterwards, and the SDK's
+     * second close becomes a no-op. Normal reads establish publication from the SDK contract ({@code
+     * null} means ready-but-empty; a non-empty iterator means ready-with-data). An early close starts
+     * one daemon waiter only for that cancelled scanner, observes the same publication boundary, and
+     * then performs the delegate's first and only close.</p>
+     */
+    static final class PublicationGuardedBatchScanner implements BatchScanner {
+        private static final Duration PUBLICATION_POLL = Duration.ofMillis(100);
+
+        private final BatchScanner delegate;
+        private final AtomicBoolean closed = new AtomicBoolean();
+        private final AtomicBoolean publicationObserved = new AtomicBoolean();
+        private final AtomicBoolean delegateClosed = new AtomicBoolean();
+
+        PublicationGuardedBatchScanner(BatchScanner delegate) {
+            this.delegate = delegate;
+        }
+
+        @Nullable
+        @Override
+        public CloseableIterator<InternalRow> pollBatch(Duration timeout) throws IOException {
+            if (closed.get()) {
+                return null;
+            }
+            CloseableIterator<InternalRow> batch = delegate.pollBatch(timeout);
+            observePublication(batch);
+            return batch;
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (!closed.compareAndSet(false, true)) {
+                return;
+            }
+            if (publicationObserved.get()) {
+                closeDelegate();
+                return;
+            }
+
+            // Only early cancellation needs a waiter. A dedicated daemon avoids deadlocking the
+            // ForkJoin common pool that Fluss 1.0 also uses for its initializer, while normal scans
+            // create no extra thread at all.
+            Thread closeAfterPublication = new Thread(
+                    this::awaitPublicationAndClose, "fluss-snapshot-publication-close");
+            closeAfterPublication.setDaemon(true);
+            try {
+                closeAfterPublication.start();
+            } catch (RuntimeException | Error startFailure) {
+                // Losing the waiter would recreate the native leak. Fall back to waiting on this
+                // cancellation thread; publication/failure is the only safe point for the SDK close.
+                awaitPublicationAndClose();
+                throw startFailure;
+            }
+        }
+
+        private void awaitPublicationAndClose() {
+            while (!delegateClosed.get()) {
+                try {
+                    CloseableIterator<InternalRow> batch = delegate.pollBatch(PUBLICATION_POLL);
+                    if (observePublication(batch)) {
+                        return;
+                    }
+                } catch (IOException | RuntimeException initializationFailure) {
+                    // Fluss publishes its initialization exception only after its private resource
+                    // registry has been closed, so the delegate is safe to close at this point too.
+                    closeDelegateQuietly();
+                    return;
+                }
+            }
+        }
+
+        private boolean observePublication(@Nullable CloseableIterator<InternalRow> batch) {
+            // Fluss's only pre-publication value is its empty NO_DATA_AVAILABLE iterator. Once
+            // ready, an empty snapshot returns null and a non-empty one returns the reader itself.
+            boolean observed = batch == null || batch.hasNext();
+            if (observed) {
+                publicationObserved.set(true);
+                if (closed.get()) {
+                    closeDelegateQuietly();
+                }
+            }
+            return observed;
+        }
+
+        private void closeDelegate() throws IOException {
+            if (delegateClosed.compareAndSet(false, true)) {
+                delegate.close();
+            }
+        }
+
+        private void closeDelegateQuietly() {
+            if (delegateClosed.compareAndSet(false, true)) {
+                IOUtils.closeQuietly(delegate);
+            }
+        }
+    }
+
     interface ScannerFactory {
         BatchScanner createSnapshotScanner(
                 TableBucket tableBucket, long snapshotId, int[] projectedFields);
@@ -282,8 +386,8 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
     }
 
     static final class ScannerResources {
-        @Nullable private BatchScanner snapshotScanner;
-        @Nullable private LogScanner logScanner;
+        @Nullable BatchScanner snapshotScanner;
+        @Nullable LogScanner logScanner;
 
         private ScannerResources() {
         }

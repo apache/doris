@@ -373,6 +373,34 @@ public class PaimonSiblingPropertiesTest {
     }
 
     @Test
+    public void directKerberosGateWinsOverAClusterSimpleDefault() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.hadoop.security.authentication", "simple");
+        Map<String, String> gateway = new LinkedHashMap<>();
+        gateway.put("hadoop.security.authentication", "kerberos");
+
+        Map<String, String> synthesized = PaimonSiblingProperties.synthesize(
+                gateway, properties, Collections.emptyMap());
+
+        Assertions.assertEquals("kerberos",
+                synthesized.get("hadoop.security.authentication"),
+                "the raw Paimon gate must use the same direct-over-derived priority as storage");
+    }
+
+    @Test
+    public void directSimpleGateWinsOverAClusterKerberosDefault() {
+        Map<String, String> properties = flussTableProperties();
+        properties.put("table.datalake.paimon.hadoop.security.authentication", "kerberos");
+        Map<String, String> gateway = new LinkedHashMap<>();
+        gateway.put("hadoop.security.authentication", "simple");
+
+        Map<String, String> synthesized = PaimonSiblingProperties.synthesize(
+                gateway, properties, Collections.emptyMap());
+
+        Assertions.assertEquals("simple", synthesized.get("hadoop.security.authentication"));
+    }
+
+    @Test
     public void catalogOverridesAreAppliedBeforeTheChecks() {
         Map<String, String> properties = flussTableProperties();
         properties.remove("table.datalake.paimon.warehouse");

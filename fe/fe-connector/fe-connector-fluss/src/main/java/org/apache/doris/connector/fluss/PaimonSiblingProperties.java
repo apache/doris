@@ -87,6 +87,8 @@ final class PaimonSiblingProperties {
     private static final String DORIS_REST = "rest";
     private static final String PAIMON_REST_PREFIX = "paimon.rest.";
     private static final String REST_PREFIX = "rest.";
+    private static final String HADOOP_SECURITY_AUTHENTICATION =
+            "hadoop.security.authentication";
 
     private PaimonSiblingProperties() {
     }
@@ -134,6 +136,14 @@ final class PaimonSiblingProperties {
         siblingProperties.put(PAIMON_CATALOG_TYPE, catalogType);
         siblingProperties.put(WAREHOUSE, warehouse);
         siblingProperties.putAll(lakeOptions);
+        // CatalogProperty folds connector-derived storage in as defaults, so an explicit direct
+        // catalog key wins over the cluster/nested lake value. Paimon's raw authentication gate must
+        // make the same choice; otherwise it can see "simple" while the effective shared storage is
+        // Kerberos (or vice versa) and build the wrong plugin-classloader identity.
+        if (gatewayCatalogProperties.containsKey(HADOOP_SECURITY_AUTHENTICATION)) {
+            siblingProperties.put(HADOOP_SECURITY_AUTHENTICATION,
+                    gatewayCatalogProperties.get(HADOOP_SECURITY_AUTHENTICATION));
+        }
         if (DORIS_REST.equals(catalogType)) {
             normalizeRestOptions(siblingProperties, clusterLakeOptions,
                     gatewayCatalogProperties, catalogLakeOverrides);

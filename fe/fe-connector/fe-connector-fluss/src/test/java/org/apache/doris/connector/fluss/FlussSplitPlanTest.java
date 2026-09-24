@@ -1416,6 +1416,70 @@ public class FlussSplitPlanTest {
         assertTailRange(ranges.get(1), 0, 100L, 105L);
     }
 
+    @Test
+    public void retainedLogHistoryDoesNotValidateAnExcludedTruncatedLiveTail() {
+        registerPartitionedLakeTable(1, "today");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L,
+                partitionedOffsets(new long[] {4L}));
+        latestOffsets("today", 9L);
+        earliestOffsets("today", 5L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(
+                0, Collections.singletonMap("dt", "old")));
+
+        for (String mode : Arrays.asList("auto", "required")) {
+            List<ConnectorScanRange> ranges = planPrunedToEmpty(LOG_TABLE,
+                    catalog(FlussCatalogProperties.UNION_READ_MODE, mode));
+            Assertions.assertEquals(1, ranges.size(), mode);
+            assertPlainLake(ranges.get(0));
+            Assertions.assertEquals(Collections.singletonMap("dt", "old"),
+                    ranges.get(0).getPartitionValues());
+        }
+        Assertions.assertTrue(offsetCalls().isEmpty(),
+                "a predicate that selected no live partition must not inspect an excluded tail");
+    }
+
+    @Test
+    public void retainedPkHistoryDoesNotValidateAnExcludedTruncatedLiveTail() {
+        registerPartitionedPkLakeTable(1, "today");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L,
+                partitionedOffsets(new long[] {100L}));
+        kvSnapshots("today", new long[] {1L}, new long[] {10L});
+        latestOffsets("today", 105L);
+        earliestOffsets("today", 101L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(
+                0, Collections.singletonMap("dt", "old")));
+
+        List<ConnectorScanRange> ranges = planPrunedToEmpty(PK_TABLE,
+                catalog(FlussCatalogProperties.UNION_READ_MODE, "required"));
+
+        Assertions.assertEquals(1, ranges.size());
+        assertPlainLake(ranges.get(0));
+        Assertions.assertTrue(offsetCalls().isEmpty(),
+                "required mode must validate only live partitions selected by the predicate");
+    }
+
+    @Test
+    public void retainedPkHistoryDoesNotBudgetAnExcludedLiveTail() {
+        registerPartitionedPkLakeTable(1, "today");
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L,
+                partitionedOffsets(new long[] {100L}));
+        kvSnapshots("today", new long[] {1L}, new long[] {10L});
+        latestOffsets("today", 105L);
+        earliestOffsets("today", 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(
+                0, Collections.singletonMap("dt", "old")));
+        Map<String, String> properties = catalog(
+                FlussCatalogProperties.UNION_READ_MODE, "required");
+        properties.put(FlussCatalogProperties.UNION_READ_MAX_TAIL_ROWS, "4");
+
+        List<ConnectorScanRange> ranges = planPrunedToEmpty(PK_TABLE, properties);
+
+        Assertions.assertEquals(1, ranges.size());
+        assertPlainLake(ranges.get(0));
+        Assertions.assertTrue(offsetCalls().isEmpty(),
+                "an excluded live tail must not consume or fail the PK union budget");
+    }
+
     /** A live partition pruned by the engine must not come back through the sibling's independent plan. */
     @Test
     public void lakeSplitOfAPrunedButLivePartitionIsSkipped() {
@@ -2208,6 +2272,17 @@ public class FlussSplitPlanTest {
             List<String> requiredPartitions) {
         return new FlussScanPlanProvider(adminOps, FlussCatalogProperties.of(catalogProperties), this::lakeSibling)
                 .planScan(session, request(handle(tablePath), requiredPartitions));
+    }
+
+    private List<ConnectorScanRange> planPrunedToEmpty(
+            TablePath tablePath, Map<String, String> catalogProperties) {
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                        handle(tablePath), Collections.emptyList())
+                .partitionsPrunedToEmpty(true)
+                .build();
+        return new FlussScanPlanProvider(
+                adminOps, FlussCatalogProperties.of(catalogProperties), this::lakeSibling)
+                .planScan(session, request);
     }
 
     private Map<String, String> nodeProperties(TablePath tablePath, Map<String, String> catalogProperties) {
