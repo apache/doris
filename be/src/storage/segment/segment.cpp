@@ -1051,16 +1051,16 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
             return _column_reader_cache->get_column_reader(
                     col_uid, column_reader, read_options.stats, &read_options.io_ctx);
         }
-        // A TSO column has no meaningful fallback when its rowset context is missing. Returning
-        // the on-disk NULL/0 placeholder would silently turn a caller bug into an incorrect
-        // snapshot result.
-        if (start_tso < 0 || end_tso < start_tso) {
-            return Status::InternalError(
-                    "reading {} requires a valid commit tso, rowset version={}, commit tso={}",
-                    col.name(), read_options.version.to_string(),
-                    read_options.commit_tso.to_string());
-        }
         if (read_options.version.first == read_options.version.second) {
+            // A singleton needs its publish TSO to replace the on-disk NULL/0 placeholder.
+            // Range rowsets already contain materialized TSOs: compacting the initial empty
+            // [0-1] rowset with [2-2] and [3-3] can leave a valid output with TSO range [-1, T3].
+            if (start_tso < 0 || end_tso < start_tso) {
+                return Status::InternalError(
+                        "reading {} requires a valid commit tso, rowset version={}, commit tso={}",
+                        col.name(), read_options.version.to_string(),
+                        read_options.commit_tso.to_string());
+            }
             if (start_tso != end_tso) {
                 return Status::InternalError(
                         "singleton rowset {} requires a singleton commit tso when reading {}, "

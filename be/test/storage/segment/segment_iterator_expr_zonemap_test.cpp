@@ -569,21 +569,28 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
 
     StorageReadOptions read_options(_stats);
-    read_options.version = Version(7, 9);
-    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.version = Version(0, 9);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.read_row_binlog = true;
 
-    MutableColumnPtr version_column;
-    MutableColumnPtr binlog_timestamp_column;
-    MutableColumnPtr commit_tso_column;
-    ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
-    ASSERT_NO_FATAL_FAILURE(
-            read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
-    ASSERT_NO_FATAL_FAILURE(read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
-    ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
-    ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
+    // The initial empty [0-1] rowset contributes -1 to the compaction TSO lower bound.
+    // Physical values must also remain readable when range metadata has no TSO at all.
+    for (const auto& tso_range :
+         {TsoRange(kCommitTso, kCommitTso), TsoRange(-1, kCommitTso), TsoRange(-1, -1)}) {
+        SCOPED_TRACE(tso_range.to_string());
+        read_options.commit_tso = tso_range;
+        MutableColumnPtr version_column;
+        MutableColumnPtr binlog_timestamp_column;
+        MutableColumnPtr commit_tso_column;
+        ASSERT_NO_FATAL_FAILURE(read_column(segment, kVersionCid, read_options, &version_column));
+        ASSERT_NO_FATAL_FAILURE(
+                read_column(segment, kBinlogTimestampCid, read_options, &binlog_timestamp_column));
+        ASSERT_NO_FATAL_FAILURE(
+                read_column(segment, kCommitTsoCid, read_options, &commit_tso_column));
+        ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 0));
+        ASSERT_NO_FATAL_FAILURE(expect_all_null(binlog_timestamp_column));
+        ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, 0));
+    }
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptions) {
