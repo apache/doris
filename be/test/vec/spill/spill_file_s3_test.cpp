@@ -17,8 +17,8 @@
 
 // Tests spill on object storage (spill_storage_type=s3) against an in-memory
 // ObjStorageClient injected through S3ClientFactory. Covers the write/read round trip,
-// cleanup (file gc, query directory, residue of the previous process), the capacity limit,
-// upload back pressure and request statistics.
+// cleanup (file gc and its retry), the capacity limit, upload back pressure and request
+// statistics.
 
 #include <gtest/gtest.h>
 
@@ -67,7 +67,6 @@
 #include "util/s3_util.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
-#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris::vectorized {
@@ -100,8 +99,6 @@ struct MockS3Store {
     std::atomic<bool> fail_deletes {false};
     std::atomic<bool> block_uploads {false};
     std::atomic<int64_t> put_requests {0};
-    // LIST of a whole spill root ("{vault}/spill/{ip}_{port}/"), issued by the startup cleanup only.
-    std::atomic<int64_t> root_list_requests {0};
     std::atomic<int64_t> get_requests {0};
     // Bytes returned by each GET, in order. Guarded by mutex.
     std::vector<size_t> get_sizes;
@@ -136,7 +133,6 @@ struct MockS3Store {
         fail_deletes = false;
         block_uploads = false;
         put_requests = 0;
-        root_list_requests = 0;
         get_requests = 0;
         get_sizes.clear();
         head_requests = 0;
@@ -170,11 +166,6 @@ struct MockS3Store {
             }
         }
         return keys;
-    }
-
-    void put_raw(const std::string& bucket, const std::string& key, std::string data) {
-        std::lock_guard lock(mutex);
-        objects[make_key(bucket, key)] = std::move(data);
     }
 };
 
@@ -306,26 +297,9 @@ public:
         return io::ObjStorageResponse::OK();
     }
 
-    // "{vault}/spill/{ip}_{port}/": nothing after the host component.
-    static bool is_spill_root(const std::string& prefix) {
-        auto pos = prefix.find("/spill/");
-        if (pos == std::string::npos) {
-            return false;
-        }
-        std::string rest = prefix.substr(pos + 7);
-        if (!rest.empty() && rest.back() == '/') {
-            rest.pop_back();
-        }
-        return !rest.empty() && rest.find('/') == std::string::npos;
-    }
-
     io::ObjStorageListPageResult list_objects_page(const io::ObjStoragePath& opts,
                                                    std::string_view /*token*/) override {
-        if (is_spill_root(opts.prefix)) {
-            _store->root_list_requests++; // the startup cleanup, not spill data traffic
-        } else {
-            _store->list_requests++;
-        }
+        _store->list_requests++;
         std::lock_guard lock(_store->mutex);
         const auto& object_prefix = opts.prefix.empty() ? opts.key : opts.prefix;
         std::string prefix = _store->make_key(opts.bucket, object_prefix);
@@ -470,10 +444,6 @@ protected:
         _saved_inflight = config::spill_s3_max_inflight_upload_bytes;
         _saved_check_after_upload = config::enable_s3_object_check_after_upload;
         _saved_read_coalesce = config::spill_s3_read_coalesce_bytes;
-        _saved_heartbeat_interval = config::spill_s3_heartbeat_interval_second;
-        // The GC thread would put heartbeat objects in the middle of the request counts below;
-        // tests of the heartbeat enable it.
-        config::spill_s3_heartbeat_interval_second = 0;
         // The manager talks to meta-service through the cloud storage engine only in cloud
         // mode; there is no engine in this test, so pin the mode regardless of earlier tests.
         _saved_deploy_mode = config::deploy_mode;
@@ -520,7 +490,6 @@ protected:
         config::spill_s3_max_inflight_upload_bytes = _saved_inflight;
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
         config::spill_s3_read_coalesce_bytes = _saved_read_coalesce;
-        config::spill_s3_heartbeat_interval_second = _saved_heartbeat_interval;
         config::deploy_mode = _saved_deploy_mode;
         config::cloud_unique_id = _saved_cloud_unique_id;
         BackendOptions::set_localhost(_saved_localhost);
@@ -697,7 +666,6 @@ protected:
     int64_t _saved_inflight = 0;
     bool _saved_check_after_upload = true;
     int64_t _saved_read_coalesce = 0;
-    int64_t _saved_heartbeat_interval = 0;
     std::string _saved_deploy_mode;
     std::string _saved_cloud_unique_id;
     std::string _saved_localhost;
@@ -727,7 +695,6 @@ TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {
     ASSERT_FALSE(st.ok());
     ASSERT_TRUE(st.to_string().find("only supported in cloud mode") != std::string::npos) << st;
     ASSERT_EQ(spill_file, nullptr);
-    ASSERT_TRUE(_manager->remote_startup_cleanup_pending());
 
     // Cloud mode but the address of this BE is not known.
     auto saved_deploy_mode = config::deploy_mode;
@@ -1021,38 +988,9 @@ TEST_F(SpillFileS3Test, GcDeletesObjects) {
     ASSERT_EQ(mock_store().delete_requests, deletes_before);
 }
 
-TEST_F(SpillFileS3Test, QueryDirectoryDeletionRetriesUntilSuccess) {
-    _create_manager();
-    // Stop the GC thread so that retries are driven by the test.
-    _manager->stop();
-
-    std::mt19937 rng(3);
-    Status st;
-    auto spill_file =
-            _write_blocks("query_4/sort-1-0-1", {_random_string_block(rng, 64, 200)}, &st);
-    ASSERT_TRUE(st.ok()) << st;
-    // Simulate a query whose per-file gc failed: leave the objects in place.
-    mock_store().fail_deletes = true;
-    spill_file.reset();
-    ASSERT_FALSE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_4/").empty());
-
-    _manager->delete_query_spill_directory("query_4", _data_dir);
-    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
-    ASSERT_FALSE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_4/").empty());
-
-    mock_store().fail_deletes = false;
-    _manager->gc(1000);
-    ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_4/").empty());
-}
-
-// Query directories under spill/{ip}_{port}/ that no query of this process uses are residue of the
-// previous process and go; a directory of a running query of this process, the data of other BEs
-// (another host, or another port on this host), and directories created after the first listing
-// stay.
-// A spill file whose deletion fails keeps its bytes charged, also when the query directory
-// deletion fails after it, until a retry deletes the objects: an outage cannot free capacity
-// that is still used, and the spill size reported to SHOW DATA does not drop.
+// A spill file whose deletion fails keeps its bytes charged until a retry of the GC thread
+// deletes the objects: an outage cannot free capacity that is still used, and the spill size
+// reported to SHOW DATA does not drop. The query directory is never deleted on object storage.
 TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
     _create_manager();
     _manager->stop();
@@ -1076,8 +1014,12 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
     ASSERT_TRUE(_data_dir->update_capacity().ok());
     ASSERT_TRUE(_data_dir->reach_capacity_limit(1));
 
-    // The failed query directory deletion takes over the pending spill file directory.
+    // The query teardown issues no request on object storage; the pending file stays.
+    const int64_t lists_before = mock_store().list_requests;
+    const int64_t deletes_before = mock_store().delete_requests;
     _manager->delete_query_spill_directory("query_8", _data_dir);
+    ASSERT_EQ(mock_store().list_requests, lists_before);
+    ASSERT_EQ(mock_store().delete_requests, deletes_before);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
     _manager->gc(1000);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
@@ -1089,171 +1031,6 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1));
     ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_8/").empty());
-}
-
-// The query directory is deleted while the pending spill file directory under it, whose
-// deletion failed before, is still queued: its bytes stay charged until the next retry finds
-// the prefix empty (one LIST, no DELETE) and releases them.
-TEST_F(SpillFileS3Test, PendingFileDirectoryOutlivesDeletedQueryDirectory) {
-    _create_manager();
-    _manager->stop();
-
-    std::mt19937 rng(23);
-    Status st;
-    auto spill_file =
-            _write_blocks("query_15/sort-1-0-1", {_random_string_block(rng, 64, 200)}, &st);
-    ASSERT_TRUE(st.ok()) << st;
-    const int64_t charged = _data_dir->get_spill_data_bytes();
-    ASSERT_GT(charged, 0);
-
-    mock_store().fail_deletes = true;
-    spill_file.reset();
-    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
-    ASSERT_EQ(_data_dir->get_spill_data_bytes(), charged);
-
-    mock_store().fail_deletes = false;
-    _manager->delete_query_spill_directory("query_15", _data_dir);
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_15/").empty());
-    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
-    ASSERT_EQ(_data_dir->get_spill_data_bytes(), charged);
-
-    const int64_t lists_before = mock_store().list_requests;
-    const int64_t deletes_before = mock_store().delete_requests;
-    _manager->gc(1000);
-    ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
-    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
-    ASSERT_EQ(mock_store().list_requests, lists_before + 1);
-    ASSERT_EQ(mock_store().delete_requests, deletes_before);
-}
-
-// The GC thread rewrites spill/{ip}_{port}/_heartbeat every spill_s3_heartbeat_interval_second;
-// the meta-service recycler keeps the directory of a BE whose heartbeat is fresh. The startup
-// cleanup of query directories leaves the heartbeat alone.
-TEST_F(SpillFileS3Test, HeartbeatObjectIsWritten) {
-    config::spill_s3_heartbeat_interval_second = 3600;
-    _create_manager();
-    _manager->stop();
-    _manager->gc(1000);
-    const std::string heartbeat_key = spill_root() + "/_heartbeat";
-    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, heartbeat_key),
-              std::vector<std::string> {heartbeat_key});
-    ASSERT_EQ(_object(heartbeat_key).empty(), false);
-    ASSERT_FALSE(_manager->remote_startup_cleanup_pending());
-
-    // Not due again within the interval.
-    int64_t puts = mock_store().put_requests;
-    _manager->gc(1000);
-    ASSERT_EQ(mock_store().put_requests, puts);
-    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, heartbeat_key).size(), 1);
-}
-
-// A heartbeat that cannot be written is retried after a minute, not after the whole interval,
-// and the next round after the fault clears writes it.
-TEST_F(SpillFileS3Test, HeartbeatFailureIsRetriedWithinAMinute) {
-    config::spill_s3_heartbeat_interval_second = 3600;
-    _create_manager();
-    _manager->stop();
-    const std::string heartbeat_key = spill_root() + "/_heartbeat";
-
-    mock_store().fail_uploads = true;
-    const int64_t before_s = MonotonicSeconds();
-    _manager->gc(1000);
-    const int64_t after_s = MonotonicSeconds();
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, heartbeat_key).empty());
-    ASSERT_GE(_manager->_next_remote_heartbeat_s, before_s + 60);
-    ASSERT_LE(_manager->_next_remote_heartbeat_s, after_s + 60);
-
-    // Not due yet: no request.
-    mock_store().fail_uploads = false;
-    const int64_t puts = mock_store().put_requests;
-    _manager->gc(1000);
-    ASSERT_EQ(mock_store().put_requests, puts);
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, heartbeat_key).empty());
-
-    // The retry is due.
-    _manager->_next_remote_heartbeat_s = 0;
-    _manager->gc(1000);
-    ASSERT_EQ(mock_store().put_requests, puts + 1);
-    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, heartbeat_key).size(), 1);
-    ASSERT_GE(_manager->_next_remote_heartbeat_s, before_s + 3600);
-}
-
-TEST_F(SpillFileS3Test, StartupCleanupDeletesResidueOfPreviousProcess) {
-    // The test drives the GC rounds itself.
-    const auto saved_gc_interval = config::spill_gc_interval_ms;
-    config::spill_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {[&]() { config::spill_gc_interval_ms = saved_gc_interval; }};
-
-    mock_store().put_raw(kBucket, spill_root() + "/query_old/sort-1-0-1/0", "old");
-    mock_store().put_raw(kBucket, spill_root() + "/query_old/sort-1-0-1/1", "old");
-    mock_store().put_raw(kBucket, spill_root() + "/query_old2/agg-1-0-1/0", "old");
-    mock_store().put_raw(kBucket, spill_root() + "/query_live/sort-1-0-1/0", "live");
-    mock_store().put_raw(kBucket,
-                         fmt::format("{}/spill/10.0.0.2_9050/q/sort-1-0-1/0", kVaultPrefix),
-                         "other host");
-    // Another BE on the same host: different heartbeat port, different directory.
-    mock_store().put_raw(kBucket,
-                         fmt::format("{}/spill/10.0.0.1_9051/q/sort-1-0-1/0", kVaultPrefix),
-                         "other BE on this host");
-
-    _create_manager();
-    // A query of this process registered its directory before writing it.
-    _manager->register_remote_query_dir("query_live");
-    ASSERT_TRUE(_manager->remote_startup_cleanup_pending());
-
-    // First round: one listing, one directory deleted.
-    _manager->gc(1000);
-    ASSERT_TRUE(_manager->remote_startup_cleanup_pending());
-    ASSERT_EQ(mock_store().root_list_requests, 1);
-    // A directory that shows up after the listing is not residue of the previous process.
-    mock_store().put_raw(kBucket, spill_root() + "/query_new/sort-1-0-1/0", "new");
-
-    for (int i = 0; i < 10 && _manager->remote_startup_cleanup_pending(); ++i) {
-        _manager->gc(1000);
-    }
-    ASSERT_FALSE(_manager->remote_startup_cleanup_pending());
-    ASSERT_EQ(mock_store().root_list_requests, 1);
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_old/").empty());
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_old2/").empty());
-    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_live/").size(), 1);
-    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_new/").size(), 1);
-    ASSERT_EQ(
-            mock_store()
-                    .keys_with_prefix(kBucket, fmt::format("{}/spill/10.0.0.2_9050/", kVaultPrefix))
-                    .size(),
-            1);
-    ASSERT_EQ(
-            mock_store()
-                    .keys_with_prefix(kBucket, fmt::format("{}/spill/10.0.0.1_9051/", kVaultPrefix))
-                    .size(),
-            1);
-    ASSERT_EQ(mock_store().put_requests, 0);
-
-    // Further rounds do nothing.
-    _manager->gc(1000);
-    ASSERT_EQ(mock_store().root_list_requests, 1);
-}
-
-// Writing registers the query directory before the first object, so the startup cleanup
-// leaves a running query's data alone even when the query spills before the first GC round.
-TEST_F(SpillFileS3Test, StartupCleanupKeepsDirectoryOfRunningQuery) {
-    const auto saved_gc_interval = config::spill_gc_interval_ms;
-    config::spill_gc_interval_ms = 3600 * 1000;
-    Defer restore_gc_interval {[&]() { config::spill_gc_interval_ms = saved_gc_interval; }};
-
-    _create_manager();
-    std::mt19937 rng(7);
-    Status st;
-    auto spill_file =
-            _write_blocks("query_running/sort-1-0-1", {_random_string_block(rng, 64, 200)}, &st);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_FALSE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_running/").empty());
-    for (int i = 0; i < 10 && _manager->remote_startup_cleanup_pending(); ++i) {
-        _manager->gc(1000);
-    }
-    ASSERT_FALSE(_manager->remote_startup_cleanup_pending());
-    ASSERT_FALSE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_running/").empty());
-    ASSERT_TRUE(spill_file->ready_for_reading());
 }
 
 TEST_F(SpillFileS3Test, StorageLimitIsEnforced) {
@@ -1843,11 +1620,6 @@ TEST_F(SpillFileS3Test, ManagerMetrics) {
     }
     ASSERT_TRUE(reader->close().ok());
     ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
-    // The startup cleanup runs on the GC thread (spill_gc_interval_ms); give it time.
-    for (int i = 0; i < 100 && _manager->remote_startup_cleanup_pending(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    ASSERT_FALSE(_manager->remote_startup_cleanup_pending());
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), mock_store().get_requests);
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS), mock_store().put_requests);
 }

@@ -28,7 +28,6 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -389,37 +388,6 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
-    // delete the spill directories ("spill/{ip}_{port}/" of every S3 storage vault) in which no
-    // object changed for config::spill_objects_expire_time_second. A live BE rewrites a
-    // heartbeat object in its directory every hour, so only BEs that died and never restarted
-    // with the same address leave such directories behind.
-    // returns 0 for success otherwise error
-    int recycle_expired_spill_objects();
-
-    // "spill/": the vault prefix under which BEs write spill ("spill/{ip}_{port}/{query_id}/...").
-    std::string spill_object_prefix() const;
-
-    // A BE directory "spill/{ip}_{port}/" or one object directly under "spill/" (a directory
-    // marker "spill/" included) whose objects all stopped changing before the expiration time.
-    struct ExpiredSpillGroup {
-        std::string path;
-        int64_t latest_mtime_s = 0;
-        // Sum of the object sizes as listed.
-        int64_t bytes = 0;
-        // true: `path` is a "spill/{ip}_{port}/" prefix; false: `path` is one object.
-        bool is_directory = false;
-    };
-
-    // Objects of a spill group that changed at or before this time are expired: now minus
-    // config::spill_objects_expire_time_second, INT64_MAX with force_immediate_recycle, and
-    // nullopt when the sweep is disabled by a non-positive TTL.
-    std::optional<int64_t> spill_objects_expiration_time() const;
-
-    // List the spill objects of `accessor` (S3 or MOCK) under spill_object_prefix() once and
-    // collect the expired groups. Returns 0 for success otherwise error.
-    int list_expired_spill_groups(StorageVaultAccessor& accessor, int64_t expiration_time,
-                                  std::vector<ExpiredSpillGroup>* groups);
-
     // scan and recycle operation logs
     // returns 0 for success otherwise error
     int recycle_operation_logs();
@@ -462,8 +430,6 @@ public:
     int scan_and_statistics_stage();
 
     int scan_and_statistics_expired_stage_objects();
-
-    int scan_and_statistics_expired_spill_objects();
 
     int scan_and_statistics_versions();
 

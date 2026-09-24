@@ -111,12 +111,8 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
              [](InstanceRecycler& instance_recycler) {
                  instance_recycler.scan_and_statistics_stage();
              }},
-            {"recycle_expired_stage_objects",
-             [](InstanceRecycler& instance_recycler) {
+            {"recycle_expired_stage_objects", [](InstanceRecycler& instance_recycler) {
                  instance_recycler.scan_and_statistics_expired_stage_objects();
-             }},
-            {"recycle_expired_spill_objects", [](InstanceRecycler& instance_recycler) {
-                 instance_recycler.scan_and_statistics_expired_spill_objects();
              }}};
 
     std::set<std::string> resource_types;
@@ -289,11 +285,6 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
                 ss << "  • Need to recycle expired stage object count: " << to_recycle_num
                    << " items\n";
                 ss << "  • Need to recycle expired stage object size: " << to_recycle_bytes
-                   << " bytes\n";
-            } else if (resource_type == "recycle_expired_spill_objects") {
-                ss << "  • Need to recycle expired spill group count: " << to_recycle_num
-                   << " items\n";
-                ss << "  • Need to recycle expired spill object size: " << to_recycle_bytes
                    << " bytes\n";
             } else {
                 ss << "  • Need to recycle count: " << to_recycle_num << " items\n";
