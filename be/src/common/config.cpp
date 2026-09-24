@@ -859,12 +859,12 @@ DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 DEFINE_mInt32(flush_thread_num_per_store, "6");
 // Deprecated compatibility setting; foreground load tasks share the normal flush pool.
 DEFINE_mInt32(high_priority_flush_thread_num_per_store, "6");
-// number of threads = min(flush_thread_num_per_store * num_store,
-//                         max_flush_thread_num_per_cpu * num_cpu)
-DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
+// Maximum shared foreground load threads per CPU (default 8).
+// Without adaptive flushing, also capped by flush_thread_num_per_store * num_store.
+DEFINE_mInt32(max_flush_thread_num_per_cpu, "8");
 
-// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
-DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
+// Minimum shared foreground load threads per CPU when adaptive flushing is enabled (default 1).
+DEFINE_mDouble(min_flush_thread_num_per_cpu, "1.0");
 
 // Whether to enable adaptive flush thread adjustment
 DEFINE_mBool(enable_adaptive_flush_threads, "true");
