@@ -74,6 +74,19 @@ suite("test_convert_median_to_percentile") {
     qt_select_5 "${sql5}"
     qt_select_6 "${sql6}"
 
+    sql "DROP TABLE IF EXISTS median_distinct"
+    sql """
+        CREATE TABLE median_distinct (
+            id INT,
+            value INT
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO median_distinct VALUES (1, 1), (2, 1), (3, 10)"
+    order_qt_median_distinct "SELECT median(DISTINCT value), median(value) FROM median_distinct"
+    sql "DROP TABLE IF EXISTS median_distinct"
+
     sql "DROP TABLE if exists sales"
     sql "DROP DATABASE if exists test_convert_median_to_percentile"
 }
