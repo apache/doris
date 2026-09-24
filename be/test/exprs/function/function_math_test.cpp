@@ -636,6 +636,29 @@ TEST(MathFunctionTest, conv_test) {
     }
 }
 
+TEST(MathFunctionTest, conv_int64_boundary_test) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_TINYINT,
+                                PrimitiveType::TYPE_TINYINT};
+    DataSet data_set = {
+            {{BIGINT(8000000000000000LL), TINYINT(16), TINYINT(-10)},
+             VARCHAR("-9223372036854775808")},
+            {{BIGINT(8000000000000000LL), TINYINT(16), TINYINT(10)},
+             VARCHAR("9223372036854775808")},
+            {{BIGINT(std::numeric_limits<int64_t>::min()), TINYINT(10), TINYINT(-10)},
+             VARCHAR("-9223372036854775808")},
+            {{BIGINT(8000000000000000LL), TINYINT(16), TINYINT(-16)}, VARCHAR("-8000000000000000")},
+            {{BIGINT(10000000000000000LL), TINYINT(16), TINYINT(-10)}, VARCHAR("-1")},
+            {{BIGINT(10000000000000000LL), TINYINT(16), TINYINT(10)},
+             VARCHAR("18446744073709551615")},
+            {{BIGINT(-255), TINYINT(10), TINYINT(-16)}, VARCHAR("-FF")},
+            {{BIGINT(-1), TINYINT(10), TINYINT(16)}, VARCHAR("FFFFFFFFFFFFFFFF")},
+            {{BIGINT(255), TINYINT(10), TINYINT(-16)}, VARCHAR("FF")},
+            {{BIGINT(0), TINYINT(16), TINYINT(-10)}, VARCHAR("0")},
+            {{Null(), TINYINT(16), TINYINT(-10)}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeString, true>("conv", input_types, data_set);
+}
+
 TEST(MathFunctionTest, money_format_test) {
     std::string func_name = "money_format";
 
