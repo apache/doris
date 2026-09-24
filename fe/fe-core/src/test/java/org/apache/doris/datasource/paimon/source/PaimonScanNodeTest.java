@@ -2086,15 +2086,21 @@ public class PaimonScanNodeTest {
     }
 
     private DataSplit createDataSplit(String fileName) {
-        DataFileMeta dataFileMeta = DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
-                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
-                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
+        return createDataSplit(Collections.singletonList(fileName));
+    }
+
+    private DataSplit createDataSplit(List<String> fileNames) {
+        List<DataFileMeta> dataFileMetas = fileNames.stream().map(fileName ->
+                DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                        1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                        Collections.<String>emptyList(), null, null, Collections.<String>emptyList()))
+                .collect(Collectors.toList());
         return DataSplit.builder()
                 .rawConvertible(true)
                 .withPartition(BinaryRow.singleColumn(1))
                 .withBucket(1)
                 .withBucketPath("file://b1")
-                .withDataFiles(Collections.singletonList(dataFileMeta))
+                .withDataFiles(dataFileMetas)
                 .build();
     }
 
@@ -2397,11 +2403,80 @@ public class PaimonScanNodeTest {
                         "orc_ntz.orc"));
     }
 
+    @Test
+    public void testRustReaderSelectionRejectsMixedFormatOrcLtzSplits() throws Exception {
+        // Paimon allows per-level file.format, so one DataSplit can mix
+        // Parquet and ORC members. The old gate read only the split path's
+        // suffix (the first file), so a first-Parquet/later-ORC split with an
+        // LTZ schema passed while rust still applied the shifted ORC decode
+        // to the ORC members. The format now comes from every member file.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+        List<DataField> ltzFields = Arrays.asList(
+                new DataField(0, "id", new IntType()),
+                new DataField(1, "ts_ltz", new LocalZonedTimestampType(6)));
+
+        // First file Parquet, later member ORC: the first file's suffix no
+        // longer speaks for the split -> JNI.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                readerTypeOf(vars, ltzFields, "first.parquet", "second.orc"));
+        // ORC first, later Parquet member (the shape the suffix check did
+        // catch) stays JNI.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                readerTypeOf(vars, ltzFields, "first.orc", "second.parquet"));
+        // All-Parquet members with the same LTZ schema stay rust-eligible.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOf(vars, ltzFields, "a.parquet", "b.parquet"));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsNestedTimestampLtzSchemas() throws Exception {
+        // An LTZ nested under MAP/ARRAY/ROW reaches the same shifted ORC
+        // decode through the container's field materialization; the old
+        // top-level-only type-root check missed it. The search recurses; the
+        // same containers without LTZ stay rust-eligible, and Parquet splits
+        // with nested LTZ are unaffected (only the ORC decoder diverges).
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+        LocalZonedTimestampType ltz = new LocalZonedTimestampType(6);
+
+        // LTZ under each container kind, uniform-ORC split -> JNI.
+        for (DataField nested : Arrays.asList(
+                new DataField(1, "m", new org.apache.paimon.types.MapType(new IntType(), ltz)),
+                new DataField(1, "arr", new org.apache.paimon.types.ArrayType(ltz)),
+                new DataField(1, "r",
+                        new RowType(Collections.singletonList(new DataField(0, "ts_ltz", ltz)))))) {
+            Assert.assertEquals("nested " + nested.name() + " under ORC",
+                    TPaimonReaderType.PAIMON_JNI,
+                    readerTypeOf(vars, Arrays.asList(
+                            new DataField(0, "id", new IntType()), nested),
+                            "nested.orc"));
+            // The same nested-LTZ schema over Parquet stays rust-eligible.
+            Assert.assertEquals("nested " + nested.name() + " over Parquet",
+                    TPaimonReaderType.PAIMON_RUST,
+                    readerTypeOf(vars, Arrays.asList(
+                            new DataField(0, "id", new IntType()), nested),
+                            "nested.parquet"));
+        }
+
+        // Containers without any LTZ over ORC stay rust-eligible.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOf(vars, Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "m",
+                                new org.apache.paimon.types.MapType(new IntType(), new IntType()))),
+                        "map_int.orc"));
+    }
+
     // Builds a node whose processed table carries the given row-type fields
     // (all other gates open: no query-auth, v2 on, ordinary DataSplit) and
-    // returns the reader type chosen for a split over the given file name.
+    // returns the reader type chosen for a split over the given member files.
+    // Multiple file names build a multi-file split (paimon allows per-level
+    // file.format, so one DataSplit can mix Parquet and ORC members).
     private TPaimonReaderType readerTypeOf(SessionVariable vars, List<DataField> fields,
-            String fileName) throws Exception {
+            String... fileNames) throws Exception {
         PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
                 new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
         PaimonSource source = Mockito.mock(PaimonSource.class);
@@ -2423,7 +2498,7 @@ public class PaimonScanNodeTest {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         invokePrivateMethod(node, "setPaimonParams",
                 new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
-                rangeDesc, new PaimonSplit(createDataSplit(fileName)));
+                rangeDesc, new PaimonSplit(createDataSplit(Arrays.asList(fileNames))));
         return rangeDesc.getTableFormatParams().getPaimonParams().getReaderType();
     }
 

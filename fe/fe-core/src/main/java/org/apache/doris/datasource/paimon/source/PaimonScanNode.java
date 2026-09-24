@@ -84,7 +84,11 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -397,6 +401,51 @@ public class PaimonScanNode extends FileQueryScanNode {
         return sep > 0 && "hdfs".equalsIgnoreCase(location.substring(0, sep));
     }
 
+    // Whether any member file of the split is ORC. Paimon allows per-level
+    // file.format, so one DataSplit can mix Parquet and ORC files; the split
+    // path's suffix (the first file) cannot speak for the whole split, and the
+    // shifted ORC LTZ decode applies to whichever ORC members rust reads.
+    @VisibleForTesting
+    static boolean splitHasOrcFile(DataSplit dataSplit) {
+        if (dataSplit == null) {
+            return false;
+        }
+        for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
+            String format = fileMeta.fileFormat();
+            if (format != null && "orc".equalsIgnoreCase(format)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Recursively whether this paimon type, or any member of it, is
+    // TIMESTAMP_WITH_LOCAL_TIME_ZONE: an LTZ nested under MAP/ARRAY/ROW
+    // reaches the same shifted ORC decode through the container's field
+    // materialization.
+    @VisibleForTesting
+    static boolean containsTimestampLtz(DataType type) {
+        if (type == null) {
+            return false;
+        }
+        if (type.getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+            return true;
+        }
+        if (type instanceof ArrayType) {
+            return containsTimestampLtz(((ArrayType) type).getElementType());
+        }
+        if (type instanceof MapType) {
+            MapType mapType = (MapType) type;
+            return containsTimestampLtz(mapType.getKeyType())
+                    || containsTimestampLtz(mapType.getValueType());
+        }
+        if (type instanceof RowType) {
+            return ((RowType) type).getFields().stream()
+                    .anyMatch(field -> containsTimestampLtz(field.type()));
+        }
+        return false;
+    }
+
     /**
      * Whether an HDFS catalog's shipped backend properties carry no identity the
      * pinned paimon-rust HDFS parser would silently drop. The parser reads only
@@ -687,14 +736,21 @@ public class PaimonScanNode extends FileQueryScanNode {
             // DataSplit that selects rust (e.g. with force_jni_scanner=true or
             // when raw conversion is unavailable) returns a different instant
             // than JNI — applying the session timezone in BE cannot repair an
-            // epoch already shifted during decode. fileFormat is resolved per
-            // split above; a bucket-directory split without a file suffix falls
-            // back to the table-level 'file.format' option, which matches the
-            // files Paimon writes for that table. Parquet LTZ is unaffected.
+            // epoch already shifted during decode. Two bypasses are covered:
+            // (a) the format must come from EVERY member file — paimon allows
+            // per-level file.format, so one DataSplit can mix Parquet and ORC
+            // files and the split path's suffix (the first file) would hide
+            // the ORC members; (b) the LTZ search must recurse into nested
+            // types — an LTZ under MAP/ARRAY/ROW reaches the same shifted ORC
+            // decode through the container's field materialization. Parquet
+            // files with any LTZ, and ORC without any recursive LTZ, stay
+            // rust-eligible. nativeSplit only guards the cast — non-DataSplit
+            // splits already route to JNI.
             boolean orcLtzSchema = paimonFileStoreTable != null
-                    && "orc".equals(fileFormat.toLowerCase(Locale.ROOT))
-                    && paimonFileStoreTable.schema().fields().stream().anyMatch(field ->
-                            field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
+                    && nativeSplit
+                    && splitHasOrcFile((DataSplit) split)
+                    && paimonFileStoreTable.schema().fields().stream()
+                            .anyMatch(field -> containsTimestampLtz(field.type()));
             // Projected VARIANT columns stay on JNI: the rust leaf feeds its
             // Arrow arrays to the slot serdes, and DataTypeVariantV2SerDe::
             // read_column_from_arrow unconditionally returns
