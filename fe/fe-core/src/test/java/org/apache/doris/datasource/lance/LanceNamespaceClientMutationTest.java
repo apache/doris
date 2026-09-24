@@ -31,7 +31,6 @@ import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.DropNamespaceRequest;
 import org.lance.namespace.model.DropTableRequest;
-import org.lance.namespace.model.RenameTableRequest;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
@@ -83,8 +82,7 @@ public class LanceNamespaceClientMutationTest {
 
         client.createTable("analytics", "events",
                 Collections.singletonMap("purpose", "test"), arrowStream);
-        client.renameTable("analytics", "events", "renamed_events");
-        client.dropTable("analytics", "renamed_events");
+        client.dropTable("analytics", "events");
 
         ArgumentCaptor<CreateTableRequest> create = ArgumentCaptor.forClass(CreateTableRequest.class);
         ArgumentCaptor<byte[]> payload = ArgumentCaptor.forClass(byte[].class);
@@ -96,17 +94,9 @@ public class LanceNamespaceClientMutationTest {
                 create.getValue().getStorageOptions().get("aws_secret_access_key"));
         Assertions.assertArrayEquals(arrowStream, payload.getValue());
 
-        ArgumentCaptor<RenameTableRequest> rename = ArgumentCaptor.forClass(RenameTableRequest.class);
-        Mockito.verify(namespace).renameTable(rename.capture());
-        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"),
-                rename.getValue().getId());
-        Assertions.assertEquals(Arrays.asList("tenant", "analytics"),
-                rename.getValue().getNewNamespaceId());
-        Assertions.assertEquals("renamed_events", rename.getValue().getNewTableName());
-
         ArgumentCaptor<DropTableRequest> drop = ArgumentCaptor.forClass(DropTableRequest.class);
         Mockito.verify(namespace).dropTable(drop.capture());
-        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "renamed_events"),
+        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"),
                 drop.getValue().getId());
     }
 

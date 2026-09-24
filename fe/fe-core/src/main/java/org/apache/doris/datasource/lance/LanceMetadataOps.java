@@ -97,25 +97,28 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
-        execute("Failed to drop Lance database " + dbName, client -> {
-            if (client.isRootDatabase(dbName)) {
+    public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        String remoteDbName = db == null ? dbName : db.getRemoteName();
+        return execute("Failed to drop Lance database " + dbName, client -> {
+            if (client.isRootDatabase(remoteDbName)) {
                 throw new DdlException("Cannot drop the configured Lance root database: " + dbName);
             }
-            if (!client.databaseExists(dbName)) {
+            if (!client.databaseExists(remoteDbName)) {
                 if (ifExists) {
-                    return null;
+                    return false;
                 }
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
             }
             try {
-                client.dropDatabase(dbName, ifExists, force);
+                client.dropDatabase(remoteDbName, ifExists, force);
             } catch (NamespaceNotFoundException e) {
-                if (!ifExists) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+                if (ifExists) {
+                    return false;
                 }
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
             }
-            return null;
+            return true;
         });
     }
 
@@ -222,22 +225,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void renameTableImpl(String dbName, String oldName, String newName) throws DdlException {
-        ExternalDatabase<?> db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName
-                    + "' in catalog: " + catalog.getName());
-        }
-        ExternalTable oldTable = db.getTableNullable(oldName);
-        if (oldTable == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, oldName, dbName);
-            throw new IllegalStateException("unreachable");
-        }
-        String remoteOldName = oldTable.getRemoteName();
-        execute("Failed to rename Lance table " + dbName + "." + oldName + " to " + newName,
-                client -> {
-                    client.renameTable(db.getRemoteName(), remoteOldName, newName);
-                    return null;
-                });
+        throw new DdlException("Lance table rename is not supported by the pinned Lance SDK");
     }
 
     @Override
