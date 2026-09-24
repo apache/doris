@@ -33,6 +33,24 @@ QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPR
 
 QuantileState::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}
 
+QuantileState::QuantileState(const QuantileState& other)
+        : _type(other._type),
+          _tdigest_ptr(other._tdigest_ptr ? TDigest::create_unique(*other._tdigest_ptr) : nullptr),
+          _single_data(other._single_data),
+          _explicit_data(other._explicit_data),
+          _compression(other._compression) {}
+
+QuantileState& QuantileState::operator=(const QuantileState& other) {
+    if (this != &other) {
+        *this = QuantileState(other);
+    }
+    return *this;
+}
+
+QuantileState::QuantileState(QuantileState&& other) noexcept = default;
+QuantileState& QuantileState::operator=(QuantileState&& other) noexcept = default;
+QuantileState::~QuantileState() = default;
+
 QuantileState::QuantileState(const Slice& slice) {
     if (!deserialize(slice)) {
         _type = EMPTY;
@@ -186,7 +204,7 @@ bool QuantileState::deserialize(const Slice& slice) {
     }
     case TDIGEST: {
         // 4: Tdigest object value
-        _tdigest_ptr = std::make_shared<TDigest>(0);
+        _tdigest_ptr = TDigest::create_unique(0);
         _tdigest_ptr->unserialize(ptr);
         break;
     }
@@ -235,6 +253,11 @@ size_t QuantileState::serialize(uint8_t* dst) const {
 }
 
 void QuantileState::merge(const QuantileState& other) {
+    if (this == &other) {
+        const QuantileState snapshot(other);
+        merge(snapshot);
+        return;
+    }
     switch (other._type) {
     case EMPTY:
         break;
@@ -256,7 +279,7 @@ void QuantileState::merge(const QuantileState& other) {
         case EXPLICIT:
             if (_explicit_data.size() + other._explicit_data.size() > QUANTILE_STATE_EXPLICIT_NUM) {
                 _type = TDIGEST;
-                _tdigest_ptr = std::make_shared<TDigest>(_compression);
+                _tdigest_ptr = TDigest::create_unique(_compression);
                 for (int i = 0; i < _explicit_data.size(); i++) {
                     _tdigest_ptr->add((float)_explicit_data[i]);
                 }
@@ -282,16 +305,16 @@ void QuantileState::merge(const QuantileState& other) {
         switch (_type) {
         case EMPTY:
             _type = TDIGEST;
-            _tdigest_ptr = other._tdigest_ptr;
+            _tdigest_ptr = TDigest::create_unique(*other._tdigest_ptr);
             break;
         case SINGLE:
             _type = TDIGEST;
-            _tdigest_ptr = other._tdigest_ptr;
+            _tdigest_ptr = TDigest::create_unique(*other._tdigest_ptr);
             _tdigest_ptr->add((float)_single_data);
             break;
         case EXPLICIT:
             _type = TDIGEST;
-            _tdigest_ptr = other._tdigest_ptr;
+            _tdigest_ptr = TDigest::create_unique(*other._tdigest_ptr);
             for (int i = 0; i < _explicit_data.size(); i++) {
                 _tdigest_ptr->add((float)_explicit_data[i]);
             }
@@ -322,7 +345,7 @@ void QuantileState::add_value(const double& value) {
         break;
     case EXPLICIT:
         if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
-            _tdigest_ptr = std::make_shared<TDigest>(_compression);
+            _tdigest_ptr = TDigest::create_unique(_compression);
             for (int i = 0; i < _explicit_data.size(); i++) {
                 _tdigest_ptr->add((float)_explicit_data[i]);
             }

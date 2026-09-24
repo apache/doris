@@ -20,9 +20,12 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <future>
+#include <latch>
 #include <memory>
 #include <numeric>
 #include <random>
+#include <thread>
 
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
@@ -55,6 +58,39 @@ protected:
     }
 };
 
+class TDigestSnapshotTest : public TDigestTest {
+protected:
+    static void expect_read_matches(const TDigest& reader, const TDigest& expected, int worker) {
+        if (worker % 3 == 0) {
+            EXPECT_FLOAT_EQ(expected.quantile(0.5), reader.quantile(0.5));
+        } else if (worker % 3 == 1) {
+            EXPECT_FLOAT_EQ(expected.cdf(40000), reader.cdf(40000));
+        } else {
+            const double levels[] = {0, 0.5, 1};
+            const size_t permutation[] = {0, 1, 2};
+            double values[3];
+            double expected_values[3];
+            reader.quantiles(levels, permutation, 3, values);
+            expected.quantiles(levels, permutation, 3, expected_values);
+            for (int i = 0; i < 3; ++i) {
+                EXPECT_DOUBLE_EQ(expected_values[i], values[i]);
+            }
+        }
+    }
+
+    void SetUp() override {
+        TDigestTest::SetUp();
+        SyncPoint::get_instance()->enable_processing();
+    }
+
+    void TearDown() override {
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->clear_trace();
+        TDigestTest::TearDown();
+    }
+};
+
 static double quantile(const double q, const std::vector<double>& values) {
     double q1;
     if (values.size() == 0) {
@@ -75,6 +111,311 @@ static double quantile(const double q, const std::vector<double>& values) {
         }
     }
     return q1;
+}
+
+static std::string serialize_digest(const TDigest& digest) {
+    std::string bytes(digest.serialized_size(), '\0');
+    digest.serialize(reinterpret_cast<uint8_t*>(bytes.data()));
+    return bytes;
+}
+
+TEST_F(TDigestTest, CopiesShareUntilWritten) {
+    TDigest source(100);
+    source.add(10);
+    source.add(20);
+    auto copy = source;
+    TDigest assigned;
+    assigned = source;
+    // Copying must not allocate another centroid buffer.
+    EXPECT_EQ(source.unprocessed().data(), copy.unprocessed().data());
+    EXPECT_EQ(source.unprocessed().data(), assigned.unprocessed().data());
+    copy.add(30);
+    EXPECT_NE(source.unprocessed().data(), copy.unprocessed().data());
+    const auto* detached_data = copy._data.get();
+    copy.add(40);
+    EXPECT_EQ(detached_data, copy._data.get());
+    EXPECT_EQ(2, source.total_weight());
+    EXPECT_EQ(4, copy.total_weight());
+    assigned.compress();
+    EXPECT_TRUE(source.processed().empty());
+    EXPECT_EQ(2, assigned.processed().size());
+    EXPECT_FLOAT_EQ(20, source.quantile(1));
+    EXPECT_FLOAT_EQ(40, copy.quantile(1));
+}
+
+TEST_F(TDigestTest, ConstReadsReuseSnapshotAndWritesInvalidateIt) {
+    TDigest digest(100);
+    digest.add(10);
+    digest.add(20);
+    const auto before = serialize_digest(digest);
+    const auto* original_data = digest._data.get();
+    const auto& readonly = digest;
+    EXPECT_FLOAT_EQ(15, readonly.quantile(0.5));
+    const auto* snapshot_address = digest._data->_processed_snapshot.get();
+    const TDigest snapshot(*snapshot_address);
+    EXPECT_FLOAT_EQ(20, readonly.quantile(1));
+    EXPECT_EQ(snapshot_address, digest._data->_processed_snapshot.get());
+    EXPECT_EQ(before, serialize_digest(readonly));
+    digest.add(30);
+    EXPECT_EQ(original_data, digest._data.get());
+    EXPECT_FLOAT_EQ(30, readonly.quantile(1));
+    EXPECT_FLOAT_EQ(20, readonly.quantile(0.5));
+    EXPECT_FLOAT_EQ(20, snapshot.quantile(1));
+
+    TDigest incoming(100);
+    incoming.add(50);
+    digest.merge(&incoming);
+    EXPECT_FLOAT_EQ(50, readonly.quantile(1));
+    EXPECT_FLOAT_EQ(25, readonly.quantile(0.5));
+    const auto bytes = serialize_digest(incoming);
+    digest.unserialize(reinterpret_cast<const uint8_t*>(bytes.data()));
+    EXPECT_EQ(1, digest.total_weight());
+    EXPECT_FLOAT_EQ(50, readonly.quantile(0.5));
+}
+
+TEST_F(TDigestTest, SelfAndAliasedBatchMergePreserveWeights) {
+    for (bool processed : {false, true}) {
+        TDigest digest(100);
+        digest.add(10);
+        digest.add(20);
+        if (processed) {
+            digest.compress();
+        }
+        auto copy = digest;
+        digest.merge(&digest);
+        EXPECT_EQ(4, digest.total_weight());
+        EXPECT_EQ(2, copy.total_weight());
+        EXPECT_FLOAT_EQ(15, digest.quantile(0.5));
+        digest.add(std::vector<const TDigest*> {&digest, &copy, &copy});
+        EXPECT_EQ(12, digest.total_weight());
+        EXPECT_EQ(2, copy.total_weight());
+        EXPECT_FLOAT_EQ(15, digest.quantile(0.5));
+    }
+}
+
+TEST_F(TDigestTest, ConcurrentReadersAndIndependentWriters) {
+    TDigest source(100);
+    for (int i = 0; i < 500; ++i) {
+        source.add(10);
+    }
+    const auto before = serialize_digest(source);
+    std::latch start(8);
+    std::vector<std::thread> threads;
+    for (int worker = 0; worker < 8; ++worker) {
+        threads.emplace_back([&, worker] {
+            auto copy = source;
+            start.arrive_and_wait();
+            if (worker < 4) {
+                for (int i = 0; i < 1000; ++i) {
+                    copy.add(100 + worker);
+                }
+                EXPECT_EQ(1500, copy.total_weight());
+                EXPECT_FLOAT_EQ(100 + worker, copy.quantile(1));
+            } else {
+                const double levels[] = {0, 0.5, 1};
+                const size_t permutation[] = {0, 1, 2};
+                for (int i = 0; i < 100; ++i) {
+                    double values[3];
+                    source.quantiles(levels, permutation, 3, values);
+                    for (auto value : values) {
+                        EXPECT_DOUBLE_EQ(10, value);
+                    }
+                    EXPECT_FLOAT_EQ(10, source.quantile(0.9));
+                    EXPECT_FLOAT_EQ(0, source.cdf(0));
+                    EXPECT_EQ(before, serialize_digest(source));
+                }
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    EXPECT_EQ(500, source.total_weight());
+    EXPECT_EQ(before, serialize_digest(source));
+}
+
+TEST_F(TDigestSnapshotTest, ConcurrentColdReadsBuildOneSnapshot) {
+    std::atomic<int> builds = 0;
+    SyncPoint::get_instance()->set_call_back("TDigest::_processed_digest:build_snapshot",
+                                             [&](auto&&) { ++builds; });
+    TDigest source(10000);
+    for (int i = 0; i < 79000; ++i) {
+        source.add((i * 37) % 79000);
+    }
+    ASSERT_EQ(79000, source.unprocessed().size());
+    const auto before = serialize_digest(source);
+    auto expected = source;
+    expected.compress();
+
+    std::latch start(8);
+    std::vector<const TDigest*> snapshots(8);
+    std::vector<std::thread> threads;
+    for (int worker = 0; worker < 8; ++worker) {
+        threads.emplace_back([&, worker] {
+            auto copy = source;
+            const auto& reader = worker % 2 == 0 ? source : copy;
+            start.arrive_and_wait();
+            expect_read_matches(reader, expected, worker);
+            snapshots[worker] = &reader._processed_digest();
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    for (const auto* snapshot : snapshots) {
+        EXPECT_EQ(source._data->_processed_snapshot.get(), snapshot);
+    }
+    EXPECT_EQ(1, builds.load());
+    EXPECT_EQ(before, serialize_digest(source));
+}
+
+TEST_F(TDigestTest, DetachPreservesWriteCapacity) {
+    TDigest source(100);
+    source.add(10);
+    source.compress();
+    source.add(20);
+    auto copy = source;
+    copy.add(30);
+    EXPECT_GE(copy.processed().capacity(), source.processed().capacity());
+    EXPECT_GE(copy.unprocessed().capacity(), source.unprocessed().capacity());
+    const auto* buffer = copy.unprocessed().data();
+    for (int i = 0; i < 100; ++i) {
+        copy.add(i);
+    }
+    EXPECT_EQ(buffer, copy.unprocessed().data());
+    EXPECT_EQ(2, source.total_weight());
+
+    // Read copies should not inherit the spare capacity intended for writes.
+    TDigest read_copy(*source._data);
+    EXPECT_LT(read_copy.processed().capacity(), source.processed().capacity());
+    EXPECT_LT(read_copy.unprocessed().capacity(), source.unprocessed().capacity());
+}
+
+TEST_F(TDigestSnapshotTest, FailedSnapshotBuildWakesReadersToRetry) {
+    TDigest source(100);
+    source.add(10);
+    std::atomic<int> builds = 0;
+    std::atomic<int> waiters = 0;
+    std::atomic<int> failures = 0;
+    std::promise<void> all_waiting;
+    auto waiting = all_waiting.get_future();
+    SyncPoint::get_instance()->set_call_back("TDigest::_processed_digest:wait_snapshot",
+                                             [&](auto&&) {
+                                                 if (++waiters == 7) {
+                                                     all_waiting.set_value();
+                                                 }
+                                             });
+    SyncPoint::get_instance()->set_call_back(
+            "TDigest::_processed_digest:build_snapshot", [&](auto&& args) {
+                if (++builds == 1) {
+                    // Hold the builder outside the mutex until all other readers
+                    // have registered to wait, then simulate an allocation failure.
+                    EXPECT_EQ(std::future_status::ready,
+                              waiting.wait_for(std::chrono::seconds(10)));
+                    *std::any_cast<bool*>(args[0]) = true;
+                }
+            });
+    std::latch start(8);
+    std::vector<std::thread> threads;
+    for (int worker = 0; worker < 8; ++worker) {
+        threads.emplace_back([&] {
+            start.arrive_and_wait();
+            try {
+                EXPECT_FLOAT_EQ(10, source.quantile(0.5));
+            } catch (const std::bad_alloc&) {
+                ++failures;
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    EXPECT_EQ(1, failures.load());
+    EXPECT_EQ(2, builds.load());
+    EXPECT_FLOAT_EQ(10, source.quantile(0.5));
+    EXPECT_EQ(2, builds.load());
+}
+
+TEST_F(TDigestTest, DeserializeDetachesSharedData) {
+    TDigest source(100);
+    source.add(10);
+    auto copy = source;
+    TDigest replacement(200);
+    replacement.add(50, 3);
+    const auto bytes = serialize_digest(replacement);
+    copy.unserialize(reinterpret_cast<const uint8_t*>(bytes.data()));
+    EXPECT_EQ(bytes, serialize_digest(copy));
+    EXPECT_EQ(1, source.total_weight());
+    EXPECT_EQ(3, copy.total_weight());
+    EXPECT_FLOAT_EQ(10, source.quantile(0.5));
+    EXPECT_FLOAT_EQ(50, copy.quantile(0.5));
+    EXPECT_FLOAT_EQ(200, copy.compression());
+}
+
+TEST_F(TDigestTest, ConcurrentWritersWithOnlyTwoOwners) {
+    for (int iteration = 0; iteration < 50; ++iteration) {
+        TDigest left(100);
+        for (int i = 0; i < 500; ++i) {
+            left.add(10);
+        }
+        auto right = left;
+        std::latch start(2);
+        auto write = [&start](TDigest digest, Value value) {
+            start.arrive_and_wait();
+            digest.add(value);
+            EXPECT_EQ(501, digest.total_weight());
+            EXPECT_FLOAT_EQ(value, digest.quantile(1));
+        };
+        // No third handle keeps the original payload shared while writers detach.
+        std::thread first(write, std::move(left), 100.0F);
+        std::thread second(write, std::move(right), 200.0F);
+        first.join();
+        second.join();
+    }
+}
+
+TEST_F(TDigestTest, CentroidRangeAddPreservesWeightsAndSupportsAliasing) {
+    TDigest source(100);
+    source.add(10, 2);
+    source.add(20, 3);
+    auto copy = source;
+    copy.add(copy.unprocessed().cbegin(), copy.unprocessed().cend());
+    EXPECT_EQ(5, source.total_weight());
+    EXPECT_EQ(10, copy.total_weight());
+    EXPECT_FLOAT_EQ(20, copy.quantile(1));
+}
+
+TEST_F(TDigestTest, LegacyUnprocessedWireFormat) {
+    // Legacy layout: length, compression/min/max, two Index limits,
+    // processed/unprocessed weights, then three size-prefixed arrays.
+    std::string bytes;
+    auto append = [&bytes](auto value) {
+        bytes.append(reinterpret_cast<const char*>(&value), sizeof(value));
+    };
+    append(uint32_t(4 + 5 * 4 + 2 * sizeof(Index) + 3 * 4 + 4 * 4));
+    append(100.0F);
+    append(std::numeric_limits<Value>::max());
+    append(std::numeric_limits<Value>::lowest());
+    append(Index(200));
+    append(Index(800));
+    append(0.0F);
+    append(2.0F);
+    append(uint32_t(0));
+    append(uint32_t(2));
+    append(10.0F);
+    append(1.0F);
+    append(20.0F);
+    append(1.0F);
+    append(uint32_t(0));
+
+    TDigest digest(100);
+    digest.add(10);
+    digest.add(20);
+    EXPECT_EQ(bytes, serialize_digest(digest));
+    TDigest restored(0);
+    restored.unserialize(reinterpret_cast<const uint8_t*>(bytes.data()));
+    EXPECT_FLOAT_EQ(15, restored.quantile(0.5));
+    EXPECT_EQ(bytes, serialize_digest(restored));
 }
 
 TEST_F(TDigestTest, CrashAfterMerge) {

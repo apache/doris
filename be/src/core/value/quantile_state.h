@@ -47,10 +47,10 @@ public:
     QuantileState();
     explicit QuantileState(float compression);
     explicit QuantileState(const Slice& slice);
-    QuantileState& operator=(const QuantileState& other) noexcept = default;
-    QuantileState(const QuantileState& other) noexcept = default;
-    QuantileState& operator=(QuantileState&& other) noexcept = default;
-    QuantileState(QuantileState&& other) noexcept = default;
+    QuantileState& operator=(const QuantileState& other);
+    QuantileState(const QuantileState& other);
+    QuantileState& operator=(QuantileState&& other) noexcept;
+    QuantileState(QuantileState&& other) noexcept;
 
     void set_compression(float compression);
     bool deserialize(const Slice& slice);
@@ -67,12 +67,12 @@ public:
         throw Exception(Status::NotSupported("QuantileState::to_string() not implemented"));
     }
 #endif
-    ~QuantileState() = default;
+    ~QuantileState();
 
 private:
     QuantileStateType _type = EMPTY;
-    std::shared_ptr<TDigest> _tdigest_ptr;
-    double _single_data;
+    std::unique_ptr<TDigest> _tdigest_ptr;
+    double _single_data = 0;
     std::vector<double> _explicit_data;
     float _compression;
 };
