@@ -47,6 +47,7 @@ import java.util.function.Consumer;
 public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
 
     private static final Logger LOG = LogManager.getLogger(JdbcMySQLConnectorClient.class);
+    private static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
 
     private final boolean convertDateToNull;
     private boolean isDoris = false;
@@ -76,10 +77,15 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         try {
             conn = getConnection();
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'server_identity'");
             if (rs.next()) {
-                String versionComment = rs.getString("Value");
-                isDoris = isDorisCompatibleVersionComment(versionComment);
+                isDoris = isDorisServerIdentity(rs.getString("Value"));
+            } else {
+                closeResources(rs);
+                rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+                if (rs.next()) {
+                    isDoris = isDorisCompatibleVersionComment(rs.getString("Value"));
+                }
             }
         } catch (Exception e) {
             LOG.warn("Failed to detect if remote MySQL is Doris: {}", e.getMessage());
@@ -88,14 +94,20 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         }
     }
 
+    static boolean isDorisServerIdentity(String serverIdentity) {
+        return APACHE_DORIS_SERVER_IDENTITY.equalsIgnoreCase(serverIdentity);
+    }
+
     static boolean isDorisCompatibleVersionComment(String versionComment) {
         if (versionComment == null || versionComment.isEmpty()) {
             return false;
         }
         String lowerVersionComment = versionComment.toLowerCase(Locale.ROOT);
+        // Enterprise releases can omit the optional "(Cloud Mode)" suffix.
         return lowerVersionComment.contains("doris")
                 || lowerVersionComment.contains("selectdb")
                 || lowerVersionComment.contains("velodb")
+                || lowerVersionComment.contains("enterprise version enterprise-")
                 || (lowerVersionComment.contains("enterprise version")
                     && lowerVersionComment.contains("cloud mode"));
     }
