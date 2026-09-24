@@ -1734,12 +1734,6 @@ DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
 // a single block larger than it is still read whole. 0 reads the part footer exactly and
 // every block with its own GET.
 DECLARE_mInt64(spill_s3_read_coalesce_bytes);
-// Interval at which BE rewrites spill/{ip}_{port}/_heartbeat in the storage vault. The
-// meta-service recycler deletes a BE's spill directory only when nothing in it changed for
-// spill_objects_expire_time_second (7 days by default), so the heartbeat protects the objects of
-// long queries. Keep it far below that TTL. 0 disables the heartbeat: the directory is then
-// protected only by its newest spill object, so that TTL must exceed the longest query.
-DECLARE_mInt64(spill_s3_heartbeat_interval_second);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);

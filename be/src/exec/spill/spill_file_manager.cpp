@@ -19,25 +19,21 @@
 
 #include <bvar/bvar.h>
 #include <fmt/format.h>
-#include <fmt/ranges.h>
 #include <glog/logging.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <memory>
-#include <set>
 #include <string>
 #include <utility>
 
-#include "cloud/config.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
@@ -62,8 +58,9 @@ bvar::PerSecond<bvar::Adder<int64_t>> g_spill_remote_put_qps("spill_remote_put_q
 SpillFileManager::~SpillFileManager() {
     // QueryContext destruction can still queue failed deletions after stop(), for example while
     // VDataStreamMgr is being destroyed. Retry them once more before dropping the in-memory state.
-    // Any directory that still cannot be deleted remains under the active spill root and will be
-    // moved to the GC root by init() after restart.
+    // A local directory that still cannot be deleted remains under the active spill root and is
+    // moved to the GC root by init() after restart; remote objects that still cannot be deleted
+    // are left to the lifecycle rule of the bucket.
     _retry_pending_spill_directories();
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
@@ -102,11 +99,6 @@ Status SpillFileManager::init() {
     _remote_upload_budget =
             std::make_shared<SpillRemoteUploadBudget>(config::spill_s3_max_inflight_upload_bytes);
 
-    if (_remote_store != nullptr) {
-        // Query directories left behind by the previous process are deleted by the GC thread
-        // once the store is ready; the storage vault may not be known yet at this point.
-        _remote_startup_cleanup_pending.store(true, std::memory_order_release);
-    }
     for (auto* store : _local_stores) {
         auto gc_dir_root_dir = store->get_spill_data_gc_path();
         bool exists = true;
@@ -180,9 +172,6 @@ void SpillFileManager::_init_metrics() {
     _spill_remote_inflight_upload_bytes_gauge =
             register_gauge(_spill_remote_inflight_upload_bytes_metric, doris::MetricUnit::BYTES,
                            "spill_remote_inflight_upload_bytes");
-    _spill_remote_startup_cleanup_pending_gauge =
-            register_gauge(_spill_remote_startup_cleanup_pending_metric, doris::MetricUnit::NOUNIT,
-                           "spill_remote_startup_cleanup_pending");
 }
 
 void SpillFileManager::update_spill_remote_write(int64_t bytes, int64_t put_requests) {
@@ -231,8 +220,6 @@ void SpillFileManager::_spill_gc_thread_callback() {
             _spill_pending_delete_dir_count_gauge->set_value(pending_delete_dir_count());
             _spill_remote_inflight_upload_bytes_gauge->set_value(
                     _remote_upload_budget->inflight_bytes());
-            _spill_remote_startup_cleanup_pending_gauge->set_value(
-                    remote_startup_cleanup_pending() ? 1 : 0);
         }
     }
 }
@@ -301,16 +288,12 @@ void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
     spill_file->gc();
 }
 
-void SpillFileManager::register_remote_query_dir(const std::string& query_dir) {
-    std::lock_guard lock(_remote_query_dirs_mutex);
-    _remote_query_dirs.emplace(query_dir);
-}
-
 void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
                                                     SpillDataDir* data_dir) {
-    if (data_dir == _remote_store) {
-        std::lock_guard lock(_remote_query_dirs_mutex);
-        _remote_query_dirs.erase(query_id);
+    if (data_dir->is_remote()) {
+        // Remote spill is deleted per spill file, when the SpillFile is destroyed (retried by the
+        // GC thread when that failed); nothing is deleted by directory on object storage.
+        return;
     }
     PendingSpillDirectory pending_directory {
             .dir = data_dir->get_spill_data_path(query_id),
@@ -425,9 +408,6 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
         }
     }};
     _retry_pending_spill_directories();
-    if (_remote_store != nullptr) {
-        _remote_gc();
-    }
     for (auto* store_dir : _local_stores) {
         std::string gc_root_dir = store_dir->get_spill_data_gc_path();
 
@@ -476,110 +456,8 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
     }
 }
 
-void SpillFileManager::_remote_gc() {
-    if (!_remote_store->ready()) {
-        // Retry about once a minute at the default 2s GC interval. ensure_ready() reads what
-        // the vault refresh thread already brought in.
-        if (_remote_not_ready_rounds++ % 30 != 0) {
-            return;
-        }
-        auto st = _remote_store->ensure_ready();
-        if (!st.ok()) {
-            LOG(WARNING) << "remote spill store is not ready yet: " << st;
-            return;
-        }
-    }
-    _remote_heartbeat();
-    if (!remote_startup_cleanup_pending()) {
-        return;
-    }
-    bool done = false;
-    auto st = _remote_startup_cleanup(&done);
-    if (!st.ok()) {
-        LOG_EVERY_T(WARNING, 60)
-                << "failed to clean up spill objects of the previous process, will retry: " << st;
-    } else if (done) {
-        _remote_startup_cleanup_pending.store(false, std::memory_order_release);
-    }
-}
-
-void SpillFileManager::_remote_heartbeat() {
-    const int64_t interval_s = config::spill_s3_heartbeat_interval_second;
-    const int64_t now_s = MonotonicSeconds();
-    if (interval_s <= 0 || now_s < _next_remote_heartbeat_s) {
-        return;
-    }
-    auto write = [&]() -> Status {
-        io::FileWriterPtr writer;
-        RETURN_IF_ERROR(_remote_store->fs()->create_file(_remote_store->heartbeat_path(), &writer));
-        RETURN_IF_ERROR(writer->append(std::to_string(UnixSeconds())));
-        return writer->close();
-    };
-    auto st = write();
-    if (!st.ok()) {
-        // Retry in a minute; the TTL of the recycler leaves days for that.
-        LOG_EVERY_T(WARNING, 600) << "failed to write the spill heartbeat "
-                                  << _remote_store->heartbeat_path() << ": " << st;
-        _next_remote_heartbeat_s = now_s + std::min<int64_t>(interval_s, 60);
-        return;
-    }
-    _next_remote_heartbeat_s = now_s + interval_s;
-}
-
 int64_t SpillFileManager::remote_spill_data_bytes() {
     return _remote_store != nullptr ? _remote_store->get_spill_data_bytes() : 0;
-}
-
-Status SpillFileManager::_remote_startup_cleanup(bool* done) {
-    auto fs = _remote_store->fs();
-    const std::string root = _remote_store->get_spill_data_path();
-    if (!_remote_residue_dirs.has_value()) {
-        // One listing, the first after the store became ready: the residue is fixed then, so
-        // the cleanup never chases directories created later. Every part of a spill file is
-        // one object of up to spill_file_part_size_bytes, so the listing stays small.
-        std::vector<io::FileInfo> files;
-        bool exists = false;
-        RETURN_IF_ERROR(fs->list(root, true, &files, &exists));
-        std::set<std::string> dirs;
-        for (const auto& file : files) {
-            auto pos = file.file_name.find('/');
-            if (pos != std::string::npos && pos > 0) {
-                dirs.emplace(file.file_name.substr(0, pos));
-            }
-        }
-        // A query registers its directory before its first object is written, so a directory
-        // that already had objects and belongs to a query of this process is registered by now.
-        std::vector<std::string> residue;
-        {
-            std::lock_guard lock(_remote_query_dirs_mutex);
-            for (const auto& dir : dirs) {
-                if (!_remote_query_dirs.contains(dir)) {
-                    residue.emplace_back(dir);
-                }
-            }
-        }
-        LOG(INFO) << fmt::format(
-                "found {} spill query directories left behind by the previous process under {}",
-                residue.size(), root);
-        _remote_residue_dirs = std::move(residue);
-    }
-    auto& residue = *_remote_residue_dirs;
-    if (residue.empty()) {
-        *done = true;
-        return Status::OK();
-    }
-    // One directory per GC round keeps the GC thread responsive.
-    MonotonicStopWatch watch;
-    watch.start();
-    const std::string dir = residue.back();
-    RETURN_IF_ERROR(fs->delete_directory(fmt::format("{}/{}", root, dir)));
-    residue.pop_back();
-    *done = residue.empty();
-    LOG(INFO) << fmt::format(
-            "deleted spill query directory {}/{} left behind by the previous process, "
-            "remaining={}, cost={}",
-            root, dir, residue.size(), PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS));
-    return Status::OK();
 }
 
 } // namespace doris

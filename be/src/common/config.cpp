@@ -1619,9 +1619,9 @@ DEFINE_String(spill_storage_type, "local");
 // s3: cloud mode only; spill is written to the S3 storage vault under
 // spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
 // heartbeat_service_port.
-// Objects of finished queries are deleted by the BE, those of dead BEs by the meta-service
-// recycler (spill_objects_expire_time_second). Incomplete multipart uploads of a crashed BE
-// need an AbortIncompleteMultipartUpload lifecycle rule on the bucket.
+// The BE deletes the objects of a spill file when the query is done with it. What a BE that
+// crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
+// the keys under spill/ and aborts incomplete multipart uploads.
 DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
     return config == "local" || config == "s3";
 });
@@ -1633,9 +1633,6 @@ DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
                  [](int64_t config) -> bool { return config > 0; });
 DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
 DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
-DEFINE_mInt64(spill_s3_heartbeat_interval_second, "3600");
-DEFINE_Validator(spill_s3_heartbeat_interval_second,
-                 [](int64_t config) -> bool { return config >= 0; });
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
