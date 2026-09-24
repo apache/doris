@@ -41,6 +41,7 @@ set_target_properties(txn_kv_test PROPERTIES COMPILE_FLAGS "-fno-access-control"
 
 add_executable(recycler_test
     recycler_test.cpp
+    recycler_benchmark_test.cpp
     recycler_operation_log_test.cpp
     table_stream_recycler_test.cpp
     table_stream_checker_test.cpp
