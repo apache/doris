@@ -36,6 +36,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -45,6 +46,7 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #include "io/fs/local_file_system.h"
@@ -318,6 +320,45 @@ void print_row(std::string_view format, const BenchQuery& query, std::string_vie
               << std::setprecision(1) << ratio * 100 << "%" << std::setw(12) << std::setprecision(3)
               << full_ms << std::setw(14) << restricted_ms << std::setw(9) << std::setprecision(2)
               << full_ms / restricted_ms << "x" << std::setw(10) << matches << '\n';
+}
+
+TEST_F(PhraseCandidatePushdownBench, CluceneDisabledResultCacheDoesNotInsert) {
+    const auto docs = build_corpus(128);
+    const std::string prefix = write_index(docs, InvertedIndexStorageFormatPB::V2, "cache_option");
+    auto file_reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                         InvertedIndexStorageFormatPB::V2);
+    ASSERT_TRUE(file_reader->init().ok());
+
+    const std::array cases = {
+            std::tuple {std::static_pointer_cast<InvertedIndexReader>(
+                                FullTextIndexReader::create_shared(&_meta, file_reader)),
+                        InvertedIndexQueryType::MATCH_PHRASE_QUERY, "retry attempt"},
+            std::tuple {std::static_pointer_cast<InvertedIndexReader>(
+                                StringTypeInvertedIndexReader::create_shared(&_meta, file_reader)),
+                        InvertedIndexQueryType::EQUAL_QUERY, "retry"}};
+    for (const auto& [reader, query_type, text] : cases) {
+        SCOPED_TRACE(text);
+        const Field value = Field::create_field<TYPE_STRING>(std::string(text));
+
+        QueryRun disabled;
+        std::shared_ptr<roaring::Roaring> first;
+        ASSERT_TRUE(reader->query(disabled.context, kColumnName, value, query_type, first).ok());
+        ASSERT_NE(first, nullptr);
+        EXPECT_FALSE(first->isEmpty());
+        EXPECT_EQ(disabled.stats.inverted_index_query_cache_insert, 0);
+
+        QueryRun enabled;
+        TQueryOptions options = enabled.runtime_state.query_options();
+        options.enable_inverted_index_query_cache = true;
+        enabled.runtime_state.set_query_options(options);
+        std::shared_ptr<roaring::Roaring> second;
+        ASSERT_TRUE(reader->query(enabled.context, kColumnName, value, query_type, second).ok());
+        ASSERT_NE(second, nullptr);
+        EXPECT_EQ(*second, *first);
+        EXPECT_EQ(enabled.stats.inverted_index_query_cache_hit, 0);
+        EXPECT_EQ(enabled.stats.inverted_index_query_cache_miss, 1);
+        EXPECT_EQ(enabled.stats.inverted_index_query_cache_insert, 1);
+    }
 }
 
 TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {

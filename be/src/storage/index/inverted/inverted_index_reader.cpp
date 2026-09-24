@@ -486,7 +486,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
             // (MATCH_ANY/ALL, term, regexp, single-term phrase) computed the
             // full-segment result even while candidate_rows was published.
             if (!context->candidate_rows_consumed) {
-                cache->insert(cache_key, term_match_bitmap, &cache_handler);
+                insert_query_cache(context, cache, cache_key, term_match_bitmap, &cache_handler);
             }
             bit_map = term_match_bitmap;
         }
@@ -615,7 +615,7 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         // add to cache (unless a candidate-consuming query made it partial)
         result->runOptimize();
         if (!context->candidate_rows_consumed) {
-            cache->insert(cache_key, result, &cache_handler);
+            insert_query_cache(context, cache, cache_key, result, &cache_handler);
         }
 
         bit_map = result;
