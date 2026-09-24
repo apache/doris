@@ -138,7 +138,7 @@ public class DictGetManyTest {
         DictGetMany function = new DictGetMany(new StringLiteral("db.dict"),
                 new ArrayLiteral(ImmutableList.of(new StringLiteral("value"))),
                 new StructLiteral(ImmutableList.of(new Cast(new BigIntLiteral(0), TimeStampNsType.INSTANCE))));
-        Env env = Mockito.mock(Env.class);
+                new CreateStruct(new Cast(new BigIntLiteral(0), TimeStampNsType.INSTANCE)));
         DictionaryManager dictionaryManager = Mockito.mock(DictionaryManager.class);
         Dictionary dictionary = Mockito.mock(Dictionary.class);
         Column valueColumn = Mockito.mock(Column.class);
