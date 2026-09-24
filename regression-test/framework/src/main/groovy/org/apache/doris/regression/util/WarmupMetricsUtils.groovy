@@ -44,7 +44,7 @@ class WarmupMetricsUtils {
      */
     static long getBrpcMetric(String ip, String port, String metricName) {
         def url = "http://${ip}:${port}/brpc_metrics"
-        def text = new URL(url).text
+        def text = readText(url)
         def matcher = text =~ ~"${metricName}\\s+(\\d+)"
         if (matcher.find()) {
             return matcher[0][1] as long
@@ -53,7 +53,7 @@ class WarmupMetricsUtils {
     }
 
     static String getPrometheusMetrics(String ip, Object port) {
-        return new URL("http://${ip}:${port}/metrics").text
+        return readText("http://${ip}:${port}/metrics")
     }
 
     static BigDecimal findPrometheusMetricValue(String metricsText, String metricName, Map labels) {
@@ -101,7 +101,7 @@ class WarmupMetricsUtils {
     }
 
     static void clearFileCache(String ip, String httpPort) {
-        def response = new URL("http://${ip}:${httpPort}/api/file_cache?op=clear&sync=true").text
+        def response = readText("http://${ip}:${httpPort}/api/file_cache?op=clear&sync=true")
         def json = new JsonSlurper().parseText(response)
         if (json.status != "OK") {
             throw new RuntimeException("Clear cache on ${ip}:${httpPort} failed: ${json.status}")
@@ -125,6 +125,17 @@ class WarmupMetricsUtils {
 
     private static String backendBrpcPort(Object backend) {
         return backend instanceof Map ? backend.brpcPort.toString() : backend[5].toString()
+    }
+
+    private static String readText(String url) {
+        def connection = Http.openConnection(url)
+        connection.connectTimeout = 5000
+        connection.readTimeout = 60000
+        try {
+            return connection.inputStream.withCloseable { it.getText("UTF-8") }
+        } finally {
+            connection.disconnect()
+        }
     }
 
     static Map getBackendMetricValues(Collection backends, String metricName) {

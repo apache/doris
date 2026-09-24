@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Http
+
 suite("test_file_cache_info", "nonConcurrent") {
     def customBeConfig = [
         enable_evict_file_cache_in_advance: false,
@@ -131,7 +133,7 @@ suite("test_file_cache_info", "nonConcurrent") {
             long startedMs = System.currentTimeMillis()
             clearResponses[beId] = [url: url]
             logger.info("file_cache_info clear start: BE=${beId}, url=${url}")
-            def connection = new URL(url).openConnection()
+            def connection = Http.openConnection(url)
             connection.setConnectTimeout(5000)
             connection.setReadTimeout(60000)
             try {

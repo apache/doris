@@ -393,7 +393,8 @@ class Suite implements GroovyInterceptable {
                 }
                 tabletList.eachWithIndex { tablet, index ->
                     if (!ready.contains(index)) {
-                        def status = Http.GET(tablet.CompactionStatus.toString(), true, false)
+                        def status = Http.GET(tablet.CompactionStatus.toString(), true, false,
+                                context.config.feHttpUser, context.config.feHttpPassword)
                         lastStates["${tablet.TabletId}@${tablet.BackendId}"] = status
                         if (RowsetMetaUtils.coversVersion(status, version)) {
                             ready.add(index)
@@ -424,7 +425,8 @@ class Suite implements GroovyInterceptable {
         if (!isCloudMode()) {
             String metaUrl = tablet.MetaUrl.toString()
             metaUrl += (metaUrl.contains('?') ? '&' : '?') + 'byte_to_base64=true'
-            def header = Http.GET(metaUrl, true, false)
+            def header = Http.GET(metaUrl, true, false,
+                    context.config.feHttpUser, context.config.feHttpPassword)
             Assertions.assertTrue(header.rs_metas instanceof List, "tablet header is missing rs_metas")
             def meta = header.rs_metas.find { (it.end_version as long) == version }
             Assertions.assertNotNull(meta, "rowset not found: tablet=${tablet.TabletId}, version=${version}")
@@ -3806,6 +3808,14 @@ class Suite implements GroovyInterceptable {
         assertTrue(udf_file.isFile(), "UDF file does not exist: ${udf_file}")
         def fe_hosts = sql_return_maparray("SHOW FRONTENDS").collect { it.Host }.unique()
         assertTrue(!fe_hosts.isEmpty(), "No frontend found to copy UDF file to")
+        if (fe_hosts.size() == 1) {
+            def feAddress = java.net.InetAddress.getByName(fe_hosts[0].toString())
+            if (feAddress.isAnyLocalAddress() || feAddress.isLoopbackAddress() ||
+                    java.net.NetworkInterface.getByInetAddress(feAddress) != null) {
+                logger.info("Only one local frontend, skip scp udf file")
+                return
+            }
+        }
 
         fe_hosts.each { fe_host ->
             sshExec("root", fe_host, "mkdir -p ${udf_file.parent}")

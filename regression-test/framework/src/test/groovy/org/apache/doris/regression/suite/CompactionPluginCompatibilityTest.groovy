@@ -69,6 +69,8 @@ class CompactionPluginCompatibilityTest {
         config.dataPath = tempDir.resolve("data").toString()
         config.realDataPath = tempDir.resolve("real-data").toString()
         config.defaultDb = "regression_test"
+        config.feHttpUser = "http_user"
+        config.feHttpPassword = "http_password"
         ScriptContext scriptContext = new ScriptContext(
                 suiteFile, null, null, config, Collections.emptyList(), { true })
         SuiteCluster cluster = new SuiteCluster("compaction_plugin_compatibility", config)
@@ -82,15 +84,20 @@ class CompactionPluginCompatibilityTest {
         assertEquals([0, "{}", ""], suite.be_get_compaction_status("127.0.0.1", "8040", "42", 5, 1))
 
         assertEquals([
-                ["GET", "http://127.0.0.1:8040/api/compaction/show?tablet_id=42", null, 10, "", "", 10],
-                ["GET", "http://127.0.0.1:8040/api/compaction/show?tablet_id=42", null, 5, "", "", 1],
-                ["GET", "http://127.0.0.1:8040/api/compaction/run_status?tablet_id=42", null, 10, "", "", 10],
-                ["GET", "http://127.0.0.1:8040/api/compaction/run_status?tablet_id=42", null, 5, "", "", 1]
+                ["GET", "http://127.0.0.1:8040/api/compaction/show?tablet_id=42",
+                 null, 10, "http_user", "http_password", 10],
+                ["GET", "http://127.0.0.1:8040/api/compaction/show?tablet_id=42",
+                 null, 5, "http_user", "http_password", 1],
+                ["GET", "http://127.0.0.1:8040/api/compaction/run_status?tablet_id=42",
+                 null, 10, "http_user", "http_password", 10],
+                ["GET", "http://127.0.0.1:8040/api/compaction/run_status?tablet_id=42",
+                 null, 5, "http_user", "http_password", 1]
         ], requests)
 
         def defaultCalls = []
-        Suite.metaClass.curl = { String method, String url ->
-            defaultCalls.add([method, url])
+        Suite.metaClass.curl = { String method, String url, String body, Integer timeoutSec,
+                                 String user, String password, Integer maxRetries ->
+            defaultCalls.add([method, url, body, timeoutSec, user, password, maxRetries])
             return [0, "{}", ""]
         }
         assertEquals([0, "{}", ""], suite.be_get_overall_compaction_status("127.0.0.1", "8040"))
@@ -99,11 +106,16 @@ class CompactionPluginCompatibilityTest {
         assertEquals([0, "{}", ""], suite.be_run_full_compaction("127.0.0.1", "8040", "42"))
         assertEquals([0, "{}", ""], suite.be_run_full_compaction_by_table_id("127.0.0.1", "8040", "7"))
         assertEquals([
-                ["GET", "http://127.0.0.1:8040/api/compaction/run_status"],
-                ["POST", "http://127.0.0.1:8040/api/compaction/run?tablet_id=42&compact_type=base"],
-                ["POST", "http://127.0.0.1:8040/api/compaction/run?tablet_id=42&compact_type=cumulative"],
-                ["POST", "http://127.0.0.1:8040/api/compaction/run?tablet_id=42&compact_type=full"],
-                ["POST", "http://127.0.0.1:8040/api/compaction/run?table_id=7&compact_type=full"]
+                ["GET", "http://127.0.0.1:8040/api/compaction/run_status",
+                 null, 10, "http_user", "http_password", 10],
+                ["POST", "http://127.0.0.1:8040/api/compaction/run?tablet_id=42&compact_type=base",
+                 null, 10, "http_user", "http_password", 10],
+                ["POST", "http://127.0.0.1:8040/api/compaction/run?tablet_id=42&compact_type=cumulative",
+                 null, 10, "http_user", "http_password", 10],
+                ["POST", "http://127.0.0.1:8040/api/compaction/run?tablet_id=42&compact_type=full",
+                 null, 10, "http_user", "http_password", 10],
+                ["POST", "http://127.0.0.1:8040/api/compaction/run?table_id=7&compact_type=full",
+                 null, 10, "http_user", "http_password", 10]
         ], defaultCalls)
 
         // This reproduces the plugin-internal three-argument call that failed in TeamCity 212706.

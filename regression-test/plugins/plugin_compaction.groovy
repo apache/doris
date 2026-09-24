@@ -22,22 +22,26 @@ import org.awaitility.Awaitility;
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id,
                                           Integer timeout_sec = 10, Integer max_retries = 10  /* param */->
     return delegate.curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id),
-            null, timeout_sec, "", "", max_retries)
+            null, timeout_sec, delegate.context.config.feHttpUser,
+            delegate.context.config.feHttpPassword, max_retries)
 }
 
 Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return delegate.curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+    return delegate.curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port),
+            null, 10, delegate.context.config.feHttpUser, delegate.context.config.feHttpPassword, 10)
 }
 
 Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id,
                                       Integer timeout_sec = 10, Integer max_retries = 10  /* param */->
     return delegate.curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id),
-            null, timeout_sec, "", "", max_retries)
+            null, timeout_sec, delegate.context.config.feHttpUser,
+            delegate.context.config.feHttpPassword, max_retries)
 }
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
     return delegate.curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
-            ip, port, tablet_id, compact_type))
+            ip, port, tablet_id, compact_type), null, 10, delegate.context.config.feHttpUser,
+            delegate.context.config.feHttpPassword, 10)
 }
 
 Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
@@ -57,7 +61,9 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
 }
 
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
-    return delegate.curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+    return delegate.curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full",
+            ip, port, table_id), null, 10, delegate.context.config.feHttpUser,
+            delegate.context.config.feHttpPassword, 10)
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")

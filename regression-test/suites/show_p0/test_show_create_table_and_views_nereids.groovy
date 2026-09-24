@@ -50,10 +50,13 @@ suite("test_show_create_table_and_views_nereids", "show") {
     String rollupName = "${suiteName}_rollup"
     String likeName = "${suiteName}_like"
 
-    String expectedReplicaAllocation = getFeConfig('force_olap_table_replication_allocation')?.trim()
-    if (!expectedReplicaAllocation) {
-        def forcedReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
-        expectedReplicaAllocation = "tag.location.default: ${forcedReplicaNum > 0 ? forcedReplicaNum : 1}"
+    String expectedReplicaAllocation = null
+    if (!isCloudMode()) {
+        expectedReplicaAllocation = getFeConfig('force_olap_table_replication_allocation')?.trim()
+        if (!expectedReplicaAllocation) {
+            def forcedReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+            expectedReplicaAllocation = "tag.location.default: ${forcedReplicaNum > 0 ? forcedReplicaNum : 1}"
+        }
     }
     def replicaAllocationToMap = { String allocation ->
         allocation.split(',').collectEntries { String entry ->
@@ -91,10 +94,20 @@ suite("test_show_create_table_and_views_nereids", "show") {
         ].each {
             assertTrue(createTable.contains(it), "SHOW CREATE TABLE ${qualifiedName} should contain ${it}, actual: ${createTable}")
         }
-        def replicaAllocation = (createTable =~ /"replication_allocation" = "([^"]+)"/)
-        assertTrue(replicaAllocation.find(), "SHOW CREATE TABLE ${qualifiedName} has no replica allocation: ${createTable}")
-        assertEquals(replicaAllocationToMap(expectedReplicaAllocation), replicaAllocationToMap(replicaAllocation.group(1)),
-                "SHOW CREATE TABLE ${qualifiedName} has the wrong replica allocation")
+        if (isCloudMode()) {
+            def ttl = (createTable =~ /"file_cache_ttl_seconds"\s*=\s*"(\d+)"/)
+            assertTrue(ttl.find(),
+                    "SHOW CREATE TABLE ${qualifiedName} has no file cache TTL: ${createTable}")
+            assertEquals(0L, ttl.group(1).toLong(),
+                    "SHOW CREATE TABLE ${qualifiedName} has the wrong file cache TTL")
+        } else {
+            def replicaAllocation = (createTable =~ /"replication_allocation" = "([^"]+)"/)
+            assertTrue(replicaAllocation.find(),
+                    "SHOW CREATE TABLE ${qualifiedName} has no replica allocation: ${createTable}")
+            assertEquals(replicaAllocationToMap(expectedReplicaAllocation),
+                    replicaAllocationToMap(replicaAllocation.group(1)),
+                    "SHOW CREATE TABLE ${qualifiedName} has the wrong replica allocation")
+        }
 
         // The original golden checked the entire DDL at all four checkpoints. Compare the full
         // output after normalizing only the table name, so rollup and LIKE cannot silently drift.

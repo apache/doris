@@ -17,6 +17,7 @@
 
 suite("test_audit_log_queue_time", "nonConcurrent") {
     // Check admin privilege
+    def originalAuditPlugin = sql("show global variables like 'enable_audit_plugin'")[0][1]
     try {
         sql "set global enable_audit_plugin = true"
     } catch (Exception e) {
@@ -169,6 +170,6 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
         }
         sql "drop table if exists ${tableName}"
         sql "drop workload group if exists ${wgName}"
-        sql "set global enable_audit_plugin = false"
+        sql "set global enable_audit_plugin = ${originalAuditPlugin}"
     }
 }

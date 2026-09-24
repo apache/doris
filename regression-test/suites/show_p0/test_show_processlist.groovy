@@ -86,7 +86,7 @@ suite("test_show_processlist") {
             assertFalse(showRows.isEmpty())
             assertTrue(showRows.every { row -> row[2] == attackerUser })
 
-            connect('root', context.config.jdbcPassword, context.config.jdbcUrl) {
+            connect('root', context.config.getRootPassword(), context.config.jdbcUrl) {
                 def adminRows = sql """
                     SELECT User
                     FROM information_schema.processlist

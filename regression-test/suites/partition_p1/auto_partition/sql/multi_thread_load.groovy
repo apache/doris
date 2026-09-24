@@ -127,11 +127,8 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
     def cm_list = []
     def doris_dbgen_load_data = { db_name, tb_name, part_type ->
         def tableName = tb_name
-        String protocol = enableTls ? "https" : "http"
-        String tlsOptions = ""
-        if (enableTls) {
-            tlsOptions = " --cert ${context.config.otherConfigs.get('trustCert')} --key ${context.config.otherConfigs.get('trustCAKey')} --cacert ${context.config.otherConfigs.get('trustCACert')}"
-        }
+        String protocol = getDorisHttpScheme()
+        String tlsOptions = getDorisCurlTlsOptions()
 
         def jdbcUrl = context.config.jdbcUrl
         def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)

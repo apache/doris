@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Http
 import org.apache.doris.regression.util.WarmupMetricsUtils
 
 suite("test_warm_up_table", "nonConcurrent") {
@@ -174,11 +175,20 @@ suite("test_warm_up_table", "nonConcurrent") {
                     def be = targetBes[primary]
                     try {
                         // Metadata only: a business read here would populate the target cache.
-                        def meta = parseJson(new URL("http://${be.ip}:${be.httpPort}/api/meta/header/${id}")
-                                .getText(connectTimeout: 5000, readTimeout: 5000))
-                        if ((meta.tablet_id as Long) == id && (meta.ttl_seconds as Long) == 12000L &&
-                                meta.tablet_state == "PB_RUNNING" && meta.schema != null) {
-                            ready.add(id)
+                        def connection = Http.openConnection(
+                                "http://${be.ip}:${be.httpPort}/api/meta/header/${id}")
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        try {
+                            def meta = connection.inputStream.withCloseable {
+                                parseJson(it.getText("UTF-8"))
+                            }
+                            if ((meta.tablet_id as Long) == id && (meta.ttl_seconds as Long) == 12000L &&
+                                    meta.tablet_state == "PB_RUNNING" && meta.schema != null) {
+                                ready.add(id)
+                            }
+                        } finally {
+                            connection.disconnect()
                         }
                     } catch (Exception e) {
                         logger.info("Waiting for target tablet ${id} on BE ${primary}: ${e.message}")

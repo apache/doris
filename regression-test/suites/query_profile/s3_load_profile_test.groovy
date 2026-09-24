@@ -20,16 +20,13 @@ import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.util.Http
 
 def fetchProfile = { masterHTTPAddr, id ->
-    def user = context.config.isCloudMode() ? context.config.feCloudHttpUser : context.config.feHttpUser
-    def password = context.config.isCloudMode() ? context.config.feCloudHttpPassword : context.config.feHttpPassword
-    return Http.GET("http://${masterHTTPAddr}/api/profile/text/?query_id=$id", false, false, user, password)
+    return Http.GET("http://${masterHTTPAddr}/api/profile/text/?query_id=$id", false, false,
+            context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 def fetchProfileList = { masterHTTPAddr ->
-    def user = context.config.isCloudMode() ? context.config.feCloudHttpUser : context.config.feHttpUser
-    def password = context.config.isCloudMode() ? context.config.feCloudHttpPassword : context.config.feHttpPassword
     return new JsonSlurper().parseText(Http.GET("http://${masterHTTPAddr}/rest/v1/query_profile",
-            false, false, user, password)).data.rows
+            false, false, context.config.feHttpUser, context.config.feHttpPassword)).data.rows
 }
 
 def getProfileField = { row, name, index ->

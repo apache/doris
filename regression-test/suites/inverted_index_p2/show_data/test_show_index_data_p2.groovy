@@ -385,14 +385,15 @@ suite("test_show_index_data_p2", "p2") {
 
     // 1. load data
     def executor = Executors.newFixedThreadPool(5)
-    (1..110).each { i ->
+    def loadFutures = (1..110).collect { i ->
         executor.submit {
             def fileName = "documents-" + i + ".json"
             load_json_data.call(show_table_name, """${getS3Url()}/regression/inverted_index_cases/httplogs/${fileName}""")
         }
     }
     executor.shutdown()
-    executor.awaitTermination(60, TimeUnit.MINUTES)
+    assertTrue(executor.awaitTermination(60, TimeUnit.MINUTES), "Timed out loading inverted-index fixtures")
+    loadFutures.each { it.get() }
 
     // 2. check show data
     check_show_data.call(FileSizeChange.LARGER, FileSizeChange.LARGER)

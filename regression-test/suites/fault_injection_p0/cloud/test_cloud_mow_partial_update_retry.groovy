@@ -55,6 +55,7 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
         qt_sql "select * from ${table1} order by k1;"
 
         def t1 = null
+        def firstLoadException = new AtomicReference<Throwable>()
         try {
             def tablets = sql_return_maparray("show tablets from ${table1};")
             assert tablets.size() == 1
@@ -86,7 +87,6 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
                     [tablet_id: "${tabletId}", timeout: "90"])
 
             // the first load
-            def firstLoadException = new AtomicReference<Throwable>()
             t1 = Thread.start {
                 try {
                     sql "set enable_unique_key_partial_update=true;"
@@ -137,8 +137,12 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
             throw e
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()
-            if (t1 != null && t1.isAlive()) {
+            if (t1 != null) {
                 t1.join(60000)
+                assert !t1.isAlive() : "the first partial update did not finish after clearing debug points"
+                if (firstLoadException.get() != null) {
+                    throw firstLoadException.get()
+                }
             }
         }
     }

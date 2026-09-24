@@ -96,15 +96,16 @@ suite('test_stream_load_endpoint', 'docker') {
         def maxRetries = 60
         def retryCount = 0
         def allAlive = false
+        def finalBackends = []
         while (retryCount < maxRetries) {
-            def backends = sql """show backends"""
+            finalBackends = sql """show backends"""
             def aliveCount = 0
-            backends.each { backend ->
+            finalBackends.each { backend ->
                 if (backend[9] == true || backend[9] == "true") {  // Column 9 is the 'Alive' status
                     aliveCount++
                 }
             }
-            log.info("Retry ${retryCount}: ${aliveCount} BEs are alive out of ${backends.size()}")
+            log.info("Retry ${retryCount}: ${aliveCount} BEs are alive out of ${finalBackends.size()}")
             if (aliveCount >= 3) {
                 allAlive = true
                 log.info("All 3 BEs are now alive")
@@ -114,11 +115,8 @@ suite('test_stream_load_endpoint', 'docker') {
             retryCount++
         }
 
-        if (!allAlive) {
-            log.warn("Warning: Not all BEs became alive within timeout period")
-        }
-
-        log.info("Final backends configuration: ${sql """show backends""" }")
+        assertTrue(allAlive, "Not all BEs became alive within timeout; final SHOW BACKENDS: ${finalBackends}")
+        log.info("Final backends configuration: ${finalBackends}")
 
         // Test redirect locations - should use one of the available BEs
         def location = getRedirectLocation(feIp, fePort, "public")

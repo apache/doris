@@ -24,27 +24,28 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
   def backendId_to_backendHttpPort = [:]
   getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-
-  sql "DROP TABLE IF EXISTS ${tableName2}"
-  sql """
-    CREATE TABLE ${tableName2} (
-      `@timestamp` int(11) NULL COMMENT "",
-      `clientip` varchar(20) NULL COMMENT "",
-      `request` text NULL COMMENT "",
-      `status` int(11) NULL COMMENT "",
-      `size` int(11) NULL COMMENT "",
-      INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
-      INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`@timestamp`)
-    COMMENT "OLAP"
-    DISTRIBUTED BY RANDOM BUCKETS 1
-    PROPERTIES (
-      "replication_allocation" = "tag.location.default: 1",
-      "disable_auto_compaction" = "true",
-      "inverted_index_storage_format" = "V2"
-    );
-  """
+  def createTable = {
+    sql "DROP TABLE IF EXISTS ${tableName2}"
+    sql """
+      CREATE TABLE ${tableName2} (
+        `@timestamp` int(11) NULL COMMENT "",
+        `clientip` varchar(20) NULL COMMENT "",
+        `request` text NULL COMMENT "",
+        `status` int(11) NULL COMMENT "",
+        `size` int(11) NULL COMMENT "",
+        INDEX clientip_idx (`clientip`) USING INVERTED COMMENT '',
+        INDEX request_idx (`request`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true") COMMENT ''
+      ) ENGINE=OLAP
+      DUPLICATE KEY(`@timestamp`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY RANDOM BUCKETS 1
+      PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "true",
+        "inverted_index_storage_format" = "V2"
+      );
+    """
+  }
 
   boolean disableAutoCompaction = false
 
@@ -168,7 +169,9 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     has_update_be_config = true
     check_config.call("inverted_index_compaction_enable", "true");
 
-    run_test.call(tableName1, "Compaction::open_inverted_index_file_reader")
+    createTable.call()
+    run_test.call(tableName2, "Compaction::open_inverted_index_file_reader")
+    createTable.call()
     run_test.call(tableName2, "Compaction::open_inverted_index_file_writer")
   } finally {
     if (has_update_be_config) {

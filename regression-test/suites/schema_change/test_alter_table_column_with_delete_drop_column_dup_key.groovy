@@ -132,14 +132,7 @@ suite("test_alter_table_column_with_delete_drop_column_dup_key", "schema_change"
             ALTER TABLE ${tbName1}
             DROP COLUMN value3;
         """
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
+    waitForColumnState(tbName1, "value3", false)
     order_qt_project_other_after_delete_drop_readd_drop_again """
         SELECT value1
         FROM ${tbName1}

@@ -155,12 +155,40 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-3] 2G nooverlapping
         //      [4-4] 1G nooverlapping
         // cp: 5
+        def (beforeCode, beforeOut, beforeErr) = be_show_tablet_status(
+                backendId_to_backendIP[trigger_backend_id],
+                backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+        assertEquals(0, beforeCode,
+                "Get tablet status failed before base compaction: out=${beforeOut}, err=${beforeErr}")
+        def beforeBaseStatus = parseJson(beforeOut.trim())
         def (compactionCode, compactionOut, compactionErr) = be_run_base_compaction(
                 backendId_to_backendIP[trigger_backend_id],
                 backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
         logger.info("Run expected-to-fail base compaction: code=${compactionCode}, out=${compactionOut}, err=${compactionErr}")
         assertEquals(0, compactionCode)
-        assertTrue(compactionOut.contains("E-808"), "Expected E-808, actual response: ${compactionOut}")
+        String baseStatus = compactionOut
+        if (!baseStatus.contains("E-808")) {
+            // Cloud accepts the request before the compaction task reports the size-gate rejection.
+            // Poll the tablet status for this invocation instead of requiring E-808 in the POST response.
+            for (int retry = 0; retry < 60; retry++) {
+                def (statusCode, statusOut, statusErr) = be_show_tablet_status(
+                        backendId_to_backendIP[trigger_backend_id],
+                        backendId_to_backendHttpPort[trigger_backend_id], tablet_id, 5, 1)
+                assertEquals(0, statusCode,
+                        "Get tablet status failed after base compaction: out=${statusOut}, err=${statusErr}")
+                def currentStatus = parseJson(statusOut.trim())
+                baseStatus = currentStatus["last base status"].toString()
+                boolean statusChanged = ["last base schedule time", "last base failure time", "last base status"].any {
+                    beforeBaseStatus[it] != currentStatus[it]
+                }
+                if (statusChanged && baseStatus.contains("E-808")) {
+                    break
+                }
+                sleep(500)
+            }
+        }
+        assertTrue(baseStatus.contains("E-808"),
+                "Expected E-808 from base compaction, POST response=${compactionOut}, final status=${baseStatus}")
 
         def rowCount = sql "select count(*) from ${tableName}"
         assertEquals(expectedRows as long, rowCount[0][0] as long)

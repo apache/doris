@@ -333,7 +333,7 @@ suite("test_point_query") {
         }
         create_meta_change_table("${realDb}.tbl_point_query_meta_change")
         sql "INSERT INTO ${realDb}.tbl_point_query_meta_change VALUES (1, 'origin')"
-        connect(user, password, prepare_url) {
+        connectToDoris(user, password, prepare_url) {
             def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change where k = ?"
             assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
             assertEquals('origin', get_prepared_value(stmt, 1))
@@ -363,7 +363,7 @@ suite("test_point_query") {
 
         create_string_key_meta_change_table("${realDb}.tbl_point_query_meta_change_string_key")
         sql "INSERT INTO ${realDb}.tbl_point_query_meta_change_string_key VALUES ('key1', 'string_origin')"
-        connect(user, password, prepare_url) {
+        connectToDoris(user, password, prepare_url) {
             def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ v from ${realDb}.tbl_point_query_meta_change_string_key where k = ?"
             assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement)
             assertEquals('string_origin', get_prepared_string_key_value(stmt, 'key1'))

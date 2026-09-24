@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.Http
+
 suite("test_ttl", "nonConcurrent") {
     def customBeConfig = [
         enable_evict_file_cache_in_advance: false,
@@ -179,13 +181,22 @@ suite("test_ttl", "nonConcurrent") {
                     }
                     def be = backends[primary]
                     try {
-                        def meta = parseJson(new URL("http://${be.Host}:${be.HttpPort}/api/meta/header/${id}")
-                                .getText(connectTimeout: 5000, readTimeout: 5000))
-                        if ((meta.tablet_id as Long) == id && (meta.creation_time as Long) > 0L &&
-                                (meta.ttl_seconds as Long) == ttlSeconds &&
-                                meta.tablet_state == "PB_RUNNING" && meta.schema != null) {
-                            metadata[id] = [be_id: primary, creation_time: meta.creation_time as Long,
-                                            expires_at: (meta.creation_time as Long) + ttlSeconds]
+                        def connection = Http.openConnection(
+                                "http://${be.Host}:${be.HttpPort}/api/meta/header/${id}")
+                        connection.connectTimeout = 5000
+                        connection.readTimeout = 5000
+                        try {
+                            def meta = connection.inputStream.withCloseable {
+                                parseJson(it.getText("UTF-8"))
+                            }
+                            if ((meta.tablet_id as Long) == id && (meta.creation_time as Long) > 0L &&
+                                    (meta.ttl_seconds as Long) == ttlSeconds &&
+                                    meta.tablet_state == "PB_RUNNING" && meta.schema != null) {
+                                metadata[id] = [be_id: primary, creation_time: meta.creation_time as Long,
+                                                expires_at: (meta.creation_time as Long) + ttlSeconds]
+                            }
+                        } finally {
+                            connection.disconnect()
                         }
                     } catch (Exception e) {
                         logger.info("Waiting for loaded metadata: tablet=${id}, BE=${primary}, ${e.message}")

@@ -101,7 +101,8 @@ suite("test_apsarad_internal_stage_copy_into") {
         strBuilder.append(""" -H fileName:""" + remoteFilePath)
         strBuilder.append(""" -H host:""" + "private")
         strBuilder.append(""" -T """ + localFilePath)
-        strBuilder.append(""" -L http://""" + context.config.feHttpAddress + """/copy/upload""")
+        strBuilder.append(""" -L ${getDorisHttpScheme()}://""" + context.config.feHttpAddress +
+                """/copy/upload${getDorisCurlTlsOptions()}""")
 
         String command = strBuilder.toString()
         logger.info("upload command=" + command)

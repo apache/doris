@@ -18,17 +18,16 @@ import org.apache.doris.regression.util.MySqlClient
 
 suite("test_mysql_connection") { suite ->
     // NOTE: this suite needs mysql client 5.7+ to support --ssl-mode.
-    URI endpoint = new URI(context.config.jdbcUrl.substring('jdbc:'.length()))
-    def executeMySQLCommand = { List<String> tlsOptions ->
-        def options = ['-h', endpoint.host, '-P', endpoint.port.toString()] + tlsOptions
-        logger.info("Execute mysql with options: ${options}")
-        def result = MySqlClient.execute('root', context.config.getRootPassword(), options, 'show variables;')
-        assert result.stderr.isEmpty(): "error occurred!" + result.stderr
-        assert result.stdout.contains('version'): "error occurred!" + result.stderr
-        assert result.exitCode == 0: "mysql exited with ${result.exitCode}: ${result.stderr}"
-    }
-
     if (!((context.config.otherConfigs.get('enableTLS')?.toString()?.equalsIgnoreCase('true')) ?: false)) {
+        URI endpoint = new URI(context.config.jdbcUrl.substring('jdbc:'.length()))
+        def executeMySQLCommand = { List<String> tlsOptions ->
+            def options = ['-h', endpoint.host, '-P', endpoint.port.toString()] + tlsOptions
+            logger.info("Execute mysql with options: ${options}")
+            def result = MySqlClient.execute('root', context.config.getRootPassword(), options, 'show variables;')
+            assert result.stderr.isEmpty(): "error occurred!" + result.stderr
+            assert result.stdout.contains('version'): "error occurred!" + result.stderr
+            assert result.exitCode == 0: "mysql exited with ${result.exitCode}: ${result.stderr}"
+        }
         String certPath = context.config.sslCertificatePath
         executeMySQLCommand([])
         executeMySQLCommand(['--ssl-mode=DISABLED'])
