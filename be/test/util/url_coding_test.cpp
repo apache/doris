@@ -75,16 +75,74 @@ TEST(UrlCodingTest, Spaces) {
 
 TEST(UrlCodingTest, MalformedEscapeIsRejected) {
     std::string output;
-    // A '%' must be followed by exactly two hexadecimal digits.
+
+    // Neither character after the '%' is a hexadecimal digit.
     EXPECT_FALSE(url_decode("prod%zzbackup", &output));
-    EXPECT_FALSE(url_decode("a%1gb", &output));
     EXPECT_FALSE(url_decode("a%%20b", &output));
+
+    // Only one of the two is. A stream parse accepts these and silently swallows the
+    // character that follows, which is what this check exists to stop.
+    EXPECT_FALSE(url_decode("a%1gb", &output));
+    EXPECT_FALSE(url_decode("%z1", &output));
+    EXPECT_FALSE(url_decode("%1z", &output));
+
+    // Signs and spaces are what a stream parse is most willing to accept.
+    EXPECT_FALSE(url_decode("%+1", &output));
+    EXPECT_FALSE(url_decode("%-1", &output));
+    EXPECT_FALSE(url_decode("% 1", &output));
+    EXPECT_FALSE(url_decode("%1 ", &output));
+
     // A '%' at, or one character from, the end of the input.
     EXPECT_FALSE(url_decode("mydb%", &output));
     EXPECT_FALSE(url_decode("mydb%2", &output));
-    // Both digit cases are accepted.
+    EXPECT_FALSE(url_decode("100%", &output));
+}
+
+TEST(UrlCodingTest, WellFormedEscapesAreAccepted) {
+    std::string output;
+
+    // Both digit cases.
     EXPECT_TRUE(url_decode("%2d%2D", &output));
     EXPECT_EQ(output, "--");
+
+    // The whole hexadecimal alphabet, upper and lower.
+    EXPECT_TRUE(url_decode("%0a%0A%bf%BF%7e%7E", &output));
+    EXPECT_EQ(output, "\n\n\xbf\xbf~~");
+
+    // A NUL is a legal escape and must not end the string early.
+    EXPECT_TRUE(url_decode("a%00b", &output));
+    EXPECT_EQ(output, std::string("a\0b", 3));
+
+    // Multi byte UTF-8, one escape per byte.
+    EXPECT_TRUE(url_decode("%E4%B8%AD", &output));
+    EXPECT_EQ(output, "\xe4\xb8\xad");
+
+    // '+' still means a space, and an escaped space still means a space.
+    EXPECT_TRUE(url_decode("my+db", &output));
+    EXPECT_EQ(output, "my db");
+    EXPECT_TRUE(url_decode("my%20db", &output));
+    EXPECT_EQ(output, "my db");
+
+    // Nothing to decode.
+    EXPECT_TRUE(url_decode("mydb", &output));
+    EXPECT_EQ(output, "mydb");
+    EXPECT_TRUE(url_decode("", &output));
+    EXPECT_EQ(output, "");
+}
+
+TEST(UrlCodingTest, EncodeDecodeRoundTrip) {
+    // Every byte value survives a round trip through url_encode.
+    std::string all;
+    for (int i = 1; i < 256; ++i) {
+        all.push_back(static_cast<char>(i));
+    }
+
+    std::string encoded;
+    url_encode(all, &encoded);
+
+    std::string decoded;
+    EXPECT_TRUE(url_decode(encoded, &decoded));
+    EXPECT_EQ(all, decoded);
 }
 
 TEST(Base64Test, Basic) {

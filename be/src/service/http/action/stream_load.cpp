@@ -255,6 +255,11 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     Status st = Status::OK();
     if (!url_decode(req->param(HTTP_DB_KEY), &ctx->db) ||
         !url_decode(req->param(HTTP_TABLE_KEY), &ctx->table)) {
+        // url_decode clears its output and then appends until it fails, so whatever it
+        // managed to decode is still sitting in ctx. Drop it, or the log line below and
+        // the failed load record both attribute the request to a truncated name.
+        ctx->db.clear();
+        ctx->table.clear();
         st = Status::InvalidArgument(
                 "Invalid percent-encoding in the database or table name of the request path");
     }
