@@ -35,6 +35,10 @@ import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
+import org.apache.doris.regression.suite.client.BackendClientImpl
+import org.apache.doris.regression.util.RowsetMetaUtils
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TSyncLoadForTabletsRequest
 import org.apache.doris.regression.RegressionTest
 import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
@@ -132,6 +136,30 @@ class Suite implements GroovyInterceptable {
 
     String getSuiteConf(String key, String defaultValue = null) {
         return getConf("suites." + name + "." + key, defaultValue)
+    }
+
+    boolean isDorisTlsEnabled() {
+        return Boolean.parseBoolean(getConf("enableTLS", "false"))
+    }
+
+    String getDorisHttpScheme() {
+        return isDorisTlsEnabled() ? "https" : "http"
+    }
+
+    String getDorisCurlTlsOptions() {
+        if (!isDorisTlsEnabled()) {
+            return ""
+        }
+        return " --cert ${quoteShellArgument(getConf('trustCert'))}" +
+                " --key ${quoteShellArgument(getConf('trustCAKey'))}" +
+                " --cacert ${quoteShellArgument(getConf('trustCACert'))}"
+    }
+
+    private static String quoteShellArgument(String value) {
+        if (!value) {
+            throw new IllegalArgumentException("Missing TLS certificate path for curl")
+        }
+        return "'" + value.replace("'", "'\"'\"'") + "'"
     }
 
     List<String> getDorisConnectorTlsArgs() {
@@ -299,6 +327,11 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    public <T> T connectToDoris(String user = context.config.jdbcUser, String password = context.config.jdbcPassword,
+                                String url = context.getJdbcUrl(), Closure<T> actionSupplier) {
+        return context.connectToDoris(user, password, url, actionSupplier)
+    }
+
     public <T> T connectWithDockerCluster(
             SuiteCluster cluster,
             Boolean connectToFollower = false,
@@ -324,6 +357,119 @@ class Suite implements GroovyInterceptable {
     //         }
     //     )
     // }
+    /** Wait for continuous version coverage on each tablet's serving BE, with lazy commit enabled. */
+    void syncAndWaitTabletVersion(Collection<Map> tablets, long version, int timeoutSeconds = 60) {
+        Assertions.assertFalse(tablets.isEmpty(), "no tablets to synchronize")
+        List<Map> tabletList = tablets.toList()
+        Map<String, List<Map>> tabletGroups = tabletList.groupBy { it.BackendId.toString() }
+        Map<String, BackendClientImpl> backendClients = [:]
+        Set<Integer> ready = [] as Set
+        Map<String, Object> lastStates = [:]
+        int pollCount = 0
+        try {
+            if (isCloudMode()) {
+                def backendById = sql_return_maparray("SHOW BACKENDS").collectEntries {
+                    [(it.BackendId.toString()): it]
+                }
+                tabletGroups.keySet().each { backendId ->
+                    def backend = backendById[backendId]
+                    Assertions.assertNotNull(backend,
+                            "backend ${backendId} for tablets ${tabletGroups[backendId]*.TabletId} was not found")
+                    backendClients[backendId] = new BackendClientImpl(
+                            new TNetworkAddress(backend.Host.toString(), backend.BePort as int),
+                            backend.HttpPort as int)
+                }
+            }
+
+            awaitUntil(timeoutSeconds, 0.5) {
+                // The BE RPC is asynchronous. Retry it periodically in case an earlier queued
+                // task observed no advancement while Meta Service was finalizing lazy commit.
+                if (!backendClients.isEmpty() && pollCount++ % 10 == 0) {
+                    tabletGroups.each { backendId, backendTablets ->
+                        backendClients[backendId].client.syncLoadForTablets(
+                                new TSyncLoadForTabletsRequest(
+                                        backendTablets.collect { it.TabletId as long }))
+                    }
+                }
+                tabletList.eachWithIndex { tablet, index ->
+                    if (!ready.contains(index)) {
+                        def status = Http.GET(tablet.CompactionStatus.toString(), true, false,
+                                context.config.feHttpUser, context.config.feHttpPassword)
+                        lastStates["${tablet.TabletId}@${tablet.BackendId}"] = status
+                        if (RowsetMetaUtils.coversVersion(status, version)) {
+                            ready.add(index)
+                        }
+                    }
+                }
+                return ready.size() == tabletList.size()
+            }
+        } catch (org.awaitility.core.ConditionTimeoutException e) {
+            throw new IllegalStateException(
+                    "Waiting for tablet version ${version} timed out; last BE states: ${lastStates}", e)
+        } finally {
+            backendClients.values().each { it.close() }
+        }
+    }
+
+    /** Fetch an exact physical rowset after the serving BE has caught up. */
+    Map syncAndWaitCloudRowsetMeta(Map tablet, long version, int timeoutSeconds = 60) {
+        syncAndWaitTabletVersion([tablet], version, timeoutSeconds)
+        return getRowsetMetaAtVersion(tablet, version)
+    }
+
+    /**
+     * Call after syncAndWaitTabletVersion. Cloud headers omit rs_metas, so read the committed
+     * MS rowset key instead. The caller must prevent compaction from removing the exact version.
+     */
+    Map getRowsetMetaAtVersion(Map tablet, long version) {
+        if (!isCloudMode()) {
+            String metaUrl = tablet.MetaUrl.toString()
+            metaUrl += (metaUrl.contains('?') ? '&' : '?') + 'byte_to_base64=true'
+            def header = Http.GET(metaUrl, true, false,
+                    context.config.feHttpUser, context.config.feHttpPassword)
+            Assertions.assertTrue(header.rs_metas instanceof List, "tablet header is missing rs_metas")
+            def meta = header.rs_metas.find { (it.end_version as long) == version }
+            Assertions.assertNotNull(meta, "rowset not found: tablet=${tablet.TabletId}, version=${version}")
+            return RowsetMetaUtils.decodeKeyBounds(meta)
+        }
+        def endpoint = context.config.metaServiceHttpAddress
+        def token = context.config.metaServiceToken
+        // CI deployment writes multiClusterInstanceId as a custom property; the legacy
+        // multiClusterInstance can still contain the template's default_instance_id.
+        def instanceId = context.config.otherConfigs.get("multiClusterInstanceId")?.toString()?.trim() ?:
+                context.config.multiClusterInstance?.trim()
+        Assertions.assertTrue(endpoint?.trim() && token?.trim() && instanceId?.trim(),
+                "metaServiceHttpAddress, metaServiceToken and multiClusterInstanceId (or multiClusterInstance) must be configured")
+        def params = [token: token, key_type: "MetaRowsetKey", instance_id: instanceId,
+                      tablet_id: tablet.TabletId, version: version]
+        def query = params.collect { key, value ->
+            "${key}=${java.net.URLEncoder.encode(value.toString(), 'UTF-8')}"
+        }.join('&')
+        // Do not use Http.GET here: it logs the URL, including the MS token.
+        def baseUrl = endpoint.contains('://') ? endpoint : "http://${endpoint}"
+        HttpURLConnection conn = new URL("${baseUrl}/MetaService/http/get_value?${query}").openConnection()
+        conn.connectTimeout = 5000
+        conn.readTimeout = 10000
+        conn.instanceFollowRedirects = false
+        try {
+            int code = conn.responseCode
+            Assertions.assertEquals(200, code,
+                    "MS rowset read failed: instance=${instanceId}, tablet=${tablet.TabletId}, version=${version}")
+            def meta = new JsonSlurper().parseText(conn.inputStream.getText('UTF-8'))
+            Assertions.assertNotNull(meta.end_version,
+                    "MS response is not rowset metadata: tablet=${tablet.TabletId}, version=${version}, code=${meta.code}")
+            Assertions.assertEquals(version, meta.end_version as long)
+            Assertions.assertEquals(tablet.TabletId as long, meta.tablet_id as long)
+            return RowsetMetaUtils.decodeKeyBounds(meta)
+        } catch (IOException e) {
+            // Network exception messages may contain the credential-bearing URL.
+            throw new IOException("MS rowset read failed: tablet=${tablet.TabletId}, version=${version}, " +
+                    "error=${e.class.simpleName}")
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     public void awaitUntil(int atMostSeconds, double intervalSecond = 1, Closure actionSupplier) {
         Awaitility
             .with().pollInSameThread()
@@ -1474,8 +1620,12 @@ class Suite implements GroovyInterceptable {
         return outBuf.toString()
     }
 
+    static String buildSshCommand(String username, String host, String cmd) {
+        return "ssh -o StrictHostKeyChecking=no ${username}@${host} '${cmd}'"
+    }
+
     void sshExec(String username, String host, String cmd, boolean alert=true) {
-        String command = "ssh ${username}@${host} '${cmd}'"
+        String command = buildSshCommand(username, host, cmd)
         def cmds = ["/bin/bash", "-c", command]
         logger.info("Execute: ${cmds}".toString())
         Process p = cmds.execute()
@@ -2007,27 +2157,34 @@ class Suite implements GroovyInterceptable {
     }
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database, boolean useMasterIp) {
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = useMasterIp ? getMasterIp() : urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+        String scheme = "jdbc:mysql://"
+        if (!jdbcUrl.startsWith(scheme)) {
+            throw new IllegalArgumentException("Expected a MySQL JDBC URL")
         }
-        String tlsUrl = ""
-        // set server side prepared statement url
+        String endpointAndPath = jdbcUrl.substring(scheme.length())
+        int pathStart = endpointAndPath.indexOf("/")
+        int queryStart = endpointAndPath.indexOf("?")
+        int endpointEnd = pathStart >= 0 && (queryStart < 0 || pathStart < queryStart)
+                ? pathStart : (queryStart >= 0 ? queryStart : endpointAndPath.length())
+        String endpoint = endpointAndPath.substring(0, endpointEnd)
+        int portStart = endpoint.lastIndexOf(":")
+        if (portStart < 0) {
+            throw new IllegalArgumentException("MySQL JDBC URL has no port")
+        }
+        String host = useMasterIp ? getMasterIp() : endpoint.substring(0, portStart)
+        String suffix = endpointAndPath.substring(endpointEnd)
+        if (!suffix.startsWith("/")) {
+            suffix = "/" + suffix
+        }
+        String url = Config.buildUrlWithDbImpl(scheme + host + endpoint.substring(portStart) + suffix, database)
         if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
-            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
-            String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
-            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
-            String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
-            tlsUrl = "&" + useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+            url = Config.buildTlsJdbcUrl(url,
+                    context.config.otherConfigs.get("keyStorePath")?.toString(),
+                    context.config.otherConfigs.get("keyStorePassword")?.toString(),
+                    context.config.otherConfigs.get("trustStorePath")?.toString(),
+                    context.config.otherConfigs.get("trustStorePassword")?.toString())
         }
-        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true" + tlsUrl
+        return url + (url.contains("?") ? "&" : "?") + "useServerPrepStmts=true"
     }
 
     DebugPoint GetDebugPoint() {
@@ -3414,7 +3571,7 @@ class Suite implements GroovyInterceptable {
                 endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
-                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+                basicAuthorization "${context.config.feHttpUser}","${context.config.feHttpPassword}"
             }
         }
 
@@ -3437,7 +3594,7 @@ class Suite implements GroovyInterceptable {
                 endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
-                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+                basicAuthorization "${context.config.feHttpUser}","${context.config.feHttpPassword}"
             }
         }
 
@@ -3643,6 +3800,26 @@ class Suite implements GroovyInterceptable {
             sshExec("root", be_ip, "ssh-keygen -f '/root/.ssh/known_hosts' -R \"${be_ip}\"", false)
             sshExec("root", be_ip, "mkdir -p ${udf_file_dir}", false)
             scpFiles("root", be_ip, udf_file_path, udf_file_path, false)
+        }
+    }
+
+    def scp_udf_file_to_all_fe = { udf_file_path ->
+        def udf_file = new File(udf_file_path).absoluteFile
+        assertTrue(udf_file.isFile(), "UDF file does not exist: ${udf_file}")
+        def fe_hosts = sql_return_maparray("SHOW FRONTENDS").collect { it.Host }.unique()
+        assertTrue(!fe_hosts.isEmpty(), "No frontend found to copy UDF file to")
+        if (fe_hosts.size() == 1) {
+            def feAddress = java.net.InetAddress.getByName(fe_hosts[0].toString())
+            if (feAddress.isAnyLocalAddress() || feAddress.isLoopbackAddress() ||
+                    java.net.NetworkInterface.getByInetAddress(feAddress) != null) {
+                logger.info("Only one local frontend, skip scp udf file")
+                return
+            }
+        }
+
+        fe_hosts.each { fe_host ->
+            sshExec("root", fe_host, "mkdir -p ${udf_file.parent}")
+            scpFiles("root", fe_host, udf_file.path, udf_file.path, false)
         }
     }
 

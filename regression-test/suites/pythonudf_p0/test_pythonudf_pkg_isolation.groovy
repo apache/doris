@@ -21,7 +21,9 @@ suite("test_pythonudf_pkg_isolation") {
     def zipB = """${context.file.parent}/udf_scripts/python_udf_pkg_b/python_udf_pkg_test.zip"""
 
     scp_udf_file_to_all_be(zipA)
+    scp_udf_file_to_all_fe(zipA)
     scp_udf_file_to_all_be(zipB)
+    scp_udf_file_to_all_fe(zipB)
 
     try {
         // Case 1: Same package, same module, different zip paths

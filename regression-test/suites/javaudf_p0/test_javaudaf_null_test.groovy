@@ -25,6 +25,7 @@ suite("test_javaudaf_null_test") {
     def tableName = "test_javaudaf_null_test"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
 
     log.info("Jar path: ${jarPath}".toString())
     try {

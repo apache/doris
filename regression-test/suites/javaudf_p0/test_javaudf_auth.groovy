@@ -24,6 +24,7 @@ import java.nio.file.Paths
 suite("test_javaudf_auth") {
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
+    scp_udf_file_to_all_fe(jarPath)
     log.info("Jar path: ${jarPath}".toString())
     File path = new File(jarPath)
     if (!path.exists()) {
@@ -58,7 +59,7 @@ suite("test_javaudf_auth") {
         "symbol"="org.apache.doris.udf.IntTest",
         "type"="JAVA_UDF"
     ); """
-    connect(user, "${pwd}", url) {
+    connectToDoris(user, "${pwd}", url) {
         try {
             sql "select ${dbName}.java_udf_auth_test(1)"
             fail()
@@ -68,7 +69,7 @@ suite("test_javaudf_auth") {
     }
 
     sql """GRANT SELECT_PRIV ON ${dbName}.* TO ${user}"""
-    connect(user, "${pwd}", url) {
+    connectToDoris(user, "${pwd}", url) {
         try {
             sql "select ${dbName}.java_udf_auth_test(1)"
         } catch (Exception e) {

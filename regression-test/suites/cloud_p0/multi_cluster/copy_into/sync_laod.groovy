@@ -16,8 +16,25 @@
 // under the License.
 
 import groovy.json.JsonOutput
+import org.apache.doris.regression.action.ProfileAction
 
 suite("sync_load") {
+    withRestoredMultiClusterState(false) {
+
+    def queryFrontend = sql_return_maparray('SHOW FRONTENDS').find {
+        it.CurrentConnected?.toString()?.equalsIgnoreCase('Yes')
+    }
+    assertNotNull(queryFrontend, 'Cannot locate the FE executing profile queries')
+    def profileAction = new ProfileAction(context,
+            new InetSocketAddress(queryFrontend.Host.toString(), queryFrontend.HttpPort.toString().toInteger()))
+    def checkQueryProfile = { query, pattern ->
+        // Match this execution, even when the profile list normalizes or truncates the SQL text.
+        def marker = "multi_cluster_${UUID.randomUUID().toString().replace('-', '')}"
+        sql 'sync'
+        sql "/* ${marker} */ ${query}"
+        profileAction.getProfileBySql(marker, [pattern.toString()], 60000L, 500L)
+    }
+
     def externalStageName = "regression_test_tpch"
     def prefix = "tpch/sf1"
 
@@ -25,7 +42,6 @@ suite("sync_load") {
     List<String> hbPortList = new ArrayList<>()
     List<String> httpPortList = new ArrayList<>()
     List<String> beUniqueIdList = new ArrayList<>()
-    List<String> bePortList = new ArrayList<>()
 
     String[] bes = context.config.multiClusterBes.split(',');
     println("the value is " + context.config.multiClusterBes);
@@ -51,7 +67,7 @@ suite("sync_load") {
             }
         }
     }
-    wait_cluster_change()
+    sleep(20000)
 
     List<List<Object>> result  = sql "show clusters"
     assertTrue(result.size() == 0);
@@ -60,7 +76,7 @@ suite("sync_load") {
                      "regression_cluster_name0", "regression_cluster_id0");
     add_cluster.call(beUniqueIdList[1], ipList[1], hbPortList[1],
                      "regression_cluster_name1", "regression_cluster_id1");
-    wait_cluster_change()
+    sleep(20000)
 
     result  = sql "show clusters"
     assertEquals(result.size(), 2);
@@ -98,7 +114,7 @@ suite("sync_load") {
         'prefix' = 'regression' ,
         'ak' = '${getS3AK()}' ,
         'sk' = '${getS3SK()}' ,
-        'provider' = '${getProvider()}',
+        'provider' = '${getS3Provider()}',
         'access_type' = 'aksk',
         'default.file.column_separator' = "|" 
         );
@@ -205,21 +221,18 @@ suite("sync_load") {
     //    sql new File("""${context.file.parent}/ddl/${sql}.sql""").text
     //}
 
-    // fill bePortList
-    for (int i = 0; i < ipList.size(); ++i) {
-        result = sql """show backends"""
-        for (row : result) {
-            println row
-            println row[2]
-            if (ipList[i] == row[1] && hbPortList[i] == row[2]) {
-                bePortList.add(row[3]);
-            }
+    // QeProcessorImpl attaches execution profiles using Backend.getHeartbeatAddress().
+    def profileBackends = sql_return_maparray('SHOW BACKENDS')
+    def profileHeartbeatPorts = (0..1).collect { index ->
+        def backend = profileBackends.find {
+            it.Host == ipList[index] && it.HeartbeatPort.toString() == hbPortList[index]
         }
+        assertNotNull(backend, "Missing profile backend ${ipList[index]}:${hbPortList[index]}")
+        backend.HeartbeatPort.toString()
     }
-    assertEquals(bePortList.size(), 2);
 
     // q01
-    sql """
+    def q01 = """
         SELECT
           l_returnflag,
           l_linestatus,
@@ -243,11 +256,10 @@ suite("sync_load") {
         l_linestatus
     """
 
-    def set = [ipList[0] + ":" +bePortList[0]] as Set
-    checkProfile.call(set)
+    checkQueryProfile(q01, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     // q02
-    sql """
+    def q02 = """
         SELECT
           s_acctbal,
           s_name,
@@ -290,10 +302,10 @@ suite("sync_load") {
           p_partkey
         LIMIT 100
     """
-    checkProfile.call(set)
+    checkQueryProfile(q02, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     // q03
-    sql """
+    def q03 = """
         SELECT
           l_orderkey,
           sum(l_extendedprice * (1 - l_discount)) AS revenue,
@@ -318,10 +330,10 @@ suite("sync_load") {
           o_orderdate
         LIMIT 10
     """
-    checkProfile.call(set)
+    checkQueryProfile(q03, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     // q04
-    sql """
+    def q04 = """
         SELECT
           o_orderpriority,
           count(*) AS order_count
@@ -341,10 +353,10 @@ suite("sync_load") {
         ORDER BY
         o_orderpriority
     """
-    checkProfile.call(set)
+    checkQueryProfile(q04, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     // q05
-    sql """
+    def q05 = """
         SELECT
           n_name,
           sum(l_extendedprice * (1 - l_discount)) AS revenue
@@ -370,10 +382,10 @@ suite("sync_load") {
         ORDER BY
         revenue DESC
     """
-    checkProfile.call(set)
+    checkQueryProfile(q05, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     // q06
-    sql """
+    def q06 = """
         SELECT sum(l_extendedprice * l_discount) AS revenue
         FROM
           lineitem
@@ -383,10 +395,10 @@ suite("sync_load") {
         AND l_discount BETWEEN 0.06 - 0.01 AND .06 + 0.01
         AND l_quantity < 24
     """
-    checkProfile.call(set)
+    checkQueryProfile(q06, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     // q07
-    sql """
+    def q07 = """
         SELECT
           supp_nation,
           cust_nation,
@@ -426,13 +438,12 @@ suite("sync_load") {
           cust_nation,
           l_year
     """
-    checkProfile.call(set)
+    checkQueryProfile(q07, "hostname:${ipList[0]}, port:${profileHeartbeatPorts[0]}")
 
     sql "use @regression_cluster_name1"
-    set = [ipList[1] + ":" +bePortList[1]] as Set
 
     // q08
-    sql """
+    def q08 = """
         SELECT
           o_year,
           sum(CASE
@@ -471,10 +482,10 @@ suite("sync_load") {
         ORDER BY
           o_year
     """
-    checkProfile.call(set)
+    checkQueryProfile(q08, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q09
-    sql """
+    def q09 = """
         SELECT
           nation,
           o_year,
@@ -507,10 +518,10 @@ suite("sync_load") {
           nation,
           o_year DESC
     """
-    checkProfile.call(set)
+    checkQueryProfile(q09, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q10
-    sql """
+    def q10 = """
         SELECT
           c_custkey,
           c_name,
@@ -544,10 +555,10 @@ suite("sync_load") {
           revenue DESC
         LIMIT 20
     """
-    checkProfile.call(set)
+    checkQueryProfile(q10, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q11
-    sql """
+    def q11 = """
         SELECT
           ps_partkey,
           sum(ps_supplycost * ps_availqty) AS value
@@ -576,10 +587,10 @@ suite("sync_load") {
         ORDER BY
           value DESC
     """
-    checkProfile.call(set)
+    checkQueryProfile(q11, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q12
-    sql """
+    def q12 = """
         SELECT
           l_shipmode,
           sum(CASE
@@ -609,10 +620,10 @@ suite("sync_load") {
         ORDER BY
           l_shipmode
     """
-    checkProfile.call(set)
+    checkQueryProfile(q12, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q13
-    sql """
+    def q13 = """
         SELECT
           c_count,
           count(*) AS custdist
@@ -634,10 +645,10 @@ suite("sync_load") {
           custdist DESC,
           c_count DESC
     """
-    checkProfile.call(set)
+    checkQueryProfile(q13, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q14
-    sql """
+    def q14 = """
         SELECT 100.00 * sum(CASE
                             WHEN p_type LIKE 'PROMO%'
                               THEN l_extendedprice * (1 - l_discount)
@@ -651,10 +662,10 @@ suite("sync_load") {
           AND l_shipdate >= DATE '1995-09-01'
           AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH
     """
-    checkProfile.call(set)
+    checkQueryProfile(q14, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q15
-    sql """
+    def q15 = """
         SELECT
           s_suppkey,
           s_name,
@@ -674,10 +685,10 @@ suite("sync_load") {
         ORDER BY
           s_suppkey;
     """
-    checkProfile.call(set)
+    checkQueryProfile(q15, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q16
-    sql """
+    def q16 = """
         SELECT
           p_brand,
           p_type,
@@ -708,10 +719,10 @@ suite("sync_load") {
           p_type,
           p_size
     """
-    checkProfile.call(set)
+    checkQueryProfile(q16, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q17
-    sql """
+    def q17 = """
         SELECT sum(l_extendedprice) / 7.0 AS avg_yearly
         FROM
           lineitem,
@@ -728,10 +739,10 @@ suite("sync_load") {
               l_partkey = p_partkey
           )
     """
-    checkProfile.call(set)
+    checkQueryProfile(q17, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q18
-    sql """
+    def q18 = """
         SELECT
           c_name,
           c_custkey,
@@ -766,10 +777,10 @@ suite("sync_load") {
           o_orderdate
         LIMIT 100
     """
-    checkProfile.call(set)
+    checkQueryProfile(q18, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q19
-    sql """
+    def q19 = """
         SELECT sum(l_extendedprice * (1 - l_discount)) AS revenue
         FROM
           lineitem,
@@ -805,10 +816,10 @@ suite("sync_load") {
             AND l_shipinstruct = 'DELIVER IN PERSON'
           )
     """
-    checkProfile.call(set)
+    checkQueryProfile(q19, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
 
     // q20
-    sql """
+    def q20 = """
         SELECT
           s_name,
           s_address
@@ -842,5 +853,6 @@ suite("sync_load") {
         AND n_name = 'CANADA'
         ORDER BY s_name
     """
-    checkProfile.call(set)
+    checkQueryProfile(q20, "hostname:${ipList[1]}, port:${profileHeartbeatPorts[1]}")
+    }
 }

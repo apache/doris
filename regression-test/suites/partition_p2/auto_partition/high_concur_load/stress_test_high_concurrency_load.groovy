@@ -20,6 +20,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.net.URL
 import java.io.File
+import java.time.LocalDate
 
 suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
 
@@ -32,7 +33,8 @@ suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
     def fileName = "doris-dbgen"
     def fileUrl = "${getS3Url()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
-    if (!Files.exists(filePath)) {
+    boolean enableTls = context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true") ?: false
+    if (!enableTls && !Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
             Files.copy(inputStream, filePath)
         }
@@ -48,6 +50,21 @@ suite("stress_test_high_concurrency_load", "p2,nonConcurrent") {
         def rows = cur_rows  // total rows to load
         def bulkSize = rows
         def tableName = tb_name
+
+        if (enableTls) {
+            // Keep all concurrent load tasks and row counts without the non-TLS dbgen binary.
+            for (int i = 0; i < data_count; i++) {
+                File outputDir = new File("${dirPath}/${part_type}/${part_type}_${i}")
+                assertTrue(outputDir.mkdirs() || outputDir.isDirectory())
+                new File(outputDir, "data.csv").withWriter("UTF-8") { writer ->
+                    for (int n = 0; n < rows; n++) {
+                        LocalDate date = LocalDate.of(2020, 1, 1).plusDays((i * rows + n) % 1461)
+                        writer.write("${date} 00:00:00|value_${i}_${n}|1.000|${date}\n")
+                    }
+                }
+            }
+            return
+        }
 
         def jdbcUrl = context.config.jdbcUrl
         def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)

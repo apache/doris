@@ -38,20 +38,8 @@ suite("test_point_query_ck", "nonConcurrent") {
         def tableName = realDb + ".tbl_point_query_ck"
         sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
 
-        // Parse url
         String jdbcUrl = context.config.jdbcUrl
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
-        }
-        // set server side prepared statement url
-        def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
+        def prepare_url = getServerPrepareJdbcUrl(jdbcUrl, realDb, false)
 
         def generateString = {len ->
             def str = ""
@@ -62,7 +50,7 @@ suite("test_point_query_ck", "nonConcurrent") {
         }
 
         def nprep_sql = { sql_str ->
-            def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
+            def url_without_prep = prepare_url.replace("&useServerPrepStmts=true", "")
             connect(user, password, url_without_prep) {
                 // set to false to invalid cache correcly
                 sql "set enable_memtable_on_sink_node = false"
@@ -283,4 +271,3 @@ suite("test_point_query_ck", "nonConcurrent") {
         set_be_config.call("disable_storage_row_cache", "true")
     }
 }
-

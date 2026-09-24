@@ -253,14 +253,17 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
                 checkProfileNew.call(cluster.getMasterFe(), addrSet)
             }
 
-            sleep(16000)
-            // show cluster
-            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
-            log.info("show compute group {}", showComputeGroup)
-            vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
-            assertNotNull(vcgInShow)
-            log.info("policy {}", vcgInShow.Policy)
-            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
+            // Routing to the standby can happen before the failover threshold swaps the
+            // active/standby policy. Keep exercising the VCG until the swap is visible,
+            // otherwise restoring cluster1 can send the next load back to it.
+            awaitUntil(120, 3) {
+                sql "SELECT count(*) FROM ${tableName}"
+                showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+                vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
+                vcgInShow != null && vcgInShow.Policy.contains(
+                        '"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"')
+            }
+            log.info("policy after failover {}", vcgInShow.Policy)
 
             cluster.startBackends(cluster1BeIndexes[0], cluster1BeIndexes[1])
 
