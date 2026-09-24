@@ -45,6 +45,8 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/channel/load_stream.h"
+#include "load/channel/load_stream_mgr.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -58,6 +60,7 @@
 #include "storage/olap_define.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_writer.h"
 #include "storage/rowset_builder.h"
 #include "storage/schema.h"
 #include "storage/segment/segment.h"
@@ -861,11 +864,17 @@ TEST_F(TestDeltaWriter, LocalPublishRetainsWorkloadGroup) {
     const auto old_segcompaction = config::enable_segcompaction;
     config::enable_segcompaction = false;
     Defer restore_config {[&] { config::enable_segcompaction = old_segcompaction; }};
+    enum class CommitPath { CHANNEL, STREAM_PRE_CLOSE, STREAM_CLOSE };
     int64_t case_id = 0;
-    for (bool async_publish : {false, true}) {
+    for (const auto& [path, async_publish] :
+         {std::pair {CommitPath::CHANNEL, false}, std::pair {CommitPath::CHANNEL, true},
+          std::pair {CommitPath::STREAM_PRE_CLOSE, false},
+          std::pair {CommitPath::STREAM_PRE_CLOSE, true},
+          std::pair {CommitPath::STREAM_CLOSE, false},
+          std::pair {CommitPath::STREAM_CLOSE, true}}) {
         for (bool drop_group : {false, true}) {
-            SCOPED_TRACE(testing::Message()
-                         << "async=" << async_publish << ", dropped=" << drop_group);
+            SCOPED_TRACE(testing::Message() << "path=" << static_cast<int>(path) << ", async="
+                                            << async_publish << ", dropped=" << drop_group);
             ++case_id;
             RuntimeProfile profile("local_publish_workload_group");
             TCreateTabletReq request;
@@ -924,7 +933,50 @@ TEST_F(TestDeltaWriter, LocalPublishRetainsWorkloadGroup) {
                 return writer.commit_txn();
             };
             ASSERT_TRUE(write_and_commit(seed_txn, 1).ok());
-            ASSERT_TRUE(write_and_commit(txn_id, 2).ok());
+            auto stream_write_and_commit = [&]() -> Status {
+                FifoThreadPool heavy_work_pool(1, 16, "publish_stream_close");
+                LoadStreamMgr stream_mgr(1);
+                stream_mgr.set_heavy_work_pool(&heavy_work_pool);
+                PUniqueId load_id;
+                load_id.set_hi(0);
+                load_id.set_lo(txn_id);
+                TabletStream stream(load_id, request.tablet_id, txn_id, &stream_mgr, &profile);
+                {
+                    SCOPED_ATTACH_TASK(ctx);
+                    RETURN_IF_ERROR(stream.init(std::make_shared<OlapTableSchemaParam>(), 0,
+                                                request.partition_id));
+                    // Generate real segment files directly; the regression under test
+                    // starts at the stream's close-to-commit worker handoff.
+                    auto rowset_writer =
+                            stream._load_stream_writer->_rowset_builder->rowset_writer();
+                    for (int i = 0; i < 2; ++i) {
+                        Block block;
+                        for (const auto* slot : tuple_desc->slots()) {
+                            block.insert(ColumnWithTypeAndName(slot->get_empty_mutable_column(),
+                                                               slot->type(), slot->col_name()));
+                        }
+                        generate_data(&block, static_cast<int8_t>(10 + i), 123, 100);
+                        RETURN_IF_ERROR(rowset_writer->add_block(&block));
+                        RETURN_IF_ERROR(rowset_writer->flush());
+                    }
+                }
+                // The input files bypassed stream append counters. Both close paths
+                // must preserve the saved owner after _pre_close() detaches it.
+                stream.disable_num_segments_check();
+                if (path == CommitPath::STREAM_PRE_CLOSE) {
+                    stream.pre_close();
+                }
+                RETURN_IF_ERROR(stream.close());
+                // Reuse the same worker to verify close did not leave its context attached.
+                return stream._run_in_heavy_work_pool([]() {
+                    SCOPED_INIT_THREAD_CONTEXT();
+                    EXPECT_FALSE(thread_context()->is_attach_task());
+                    return Status::OK();
+                });
+            };
+            auto commit_status = path == CommitPath::CHANNEL ? write_and_commit(txn_id, 2)
+                                                             : stream_write_and_commit();
+            ASSERT_TRUE(commit_status.ok()) << commit_status;
             ctx.reset();
 
             // Publish another rowset after the target committed, so publishing the
