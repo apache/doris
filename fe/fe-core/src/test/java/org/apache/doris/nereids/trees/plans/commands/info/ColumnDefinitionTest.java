@@ -138,11 +138,13 @@ public class ColumnDefinitionTest {
         column.validate(true, ImmutableSet.of("k"), ImmutableSet.of(), true, keysType, true);
     }
 
+    @Test
     public void testAddColumnRejectsUuidDynamicDefaults() {
         for (String function : new String[] {"uuid_v4", "uuid_v7", "generateUUIDv4", "generate_uuid_v7"}) {
             ColumnDefinition column = new ColumnDefinition("u", UuidType.INSTANCE, false, null, false,
                     Optional.of(DefaultValue.uuidDefaultValue(function)), "");
-            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+            org.apache.doris.common.AnalysisException error = Assertions.assertThrows(
+                    org.apache.doris.common.AnalysisException.class,
                     () -> AddColumnOp.validateColumnDef(null, column, null, null));
             Assertions.assertEquals("ADD COLUMN does not support UUID dynamic default values", error.getDetailMessage());
         }
