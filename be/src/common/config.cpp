@@ -2385,13 +2385,17 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        if (PERSIST) {                                                                             \
+            Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
+            if (!persist_status.ok()) {                                                            \
+                ref_conf_value = old_value;                                                        \
+                return persist_status;                                                             \
+            }                                                                                      \
+        }                                                                                          \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
         if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
             auto callback_it =                                                                     \
@@ -2410,7 +2414,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
+    const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {

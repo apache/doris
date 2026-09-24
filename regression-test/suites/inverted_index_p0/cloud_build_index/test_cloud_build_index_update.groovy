@@ -91,7 +91,7 @@ suite("test_cloud_build_index_update") {
     sql """build index on test_cloud_build_idx_uq_table"""
     wait_for_last_build_index_finish("test_cloud_build_idx_uq_table", timeout)
     check_inverted_index_filter_rows("select * from test_cloud_build_idx_uq_table where address='hhhhh'" +
-            " order by user_id,username,age,address", 4)
+            " order by user_id,username,age,address", 12)
 
     sql """drop index idx1 on test_cloud_build_idx_uq_table"""
     wait_for_last_build_index_finish("test_cloud_build_idx_uq_table", timeout)

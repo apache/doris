@@ -26,10 +26,12 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -674,6 +676,22 @@ TEST_F(SegmentIteratorCandidatePushdownTest, non_finite_runtime_ratio_is_not_pub
     ASSERT_TRUE(_expr->captured());
     EXPECT_EQ(_expr->captured_candidate(), nullptr);
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, failed_persistent_ratio_update_is_not_published) {
+    set_ratio("0.2");
+    const std::string field = "inverted_index_candidate_pushdown_ratio";
+    std::map<std::string, std::string> conf_map {{field, "0.2"}};
+    auto* saved_conf_map = std::exchange(config::full_conf_map, &conf_map);
+    std::string saved_conf_dir = std::exchange(config::custom_config_dir, "/dev/null");
+    const Status status = config::set_config(field, "0.4", true);
+    config::custom_config_dir = std::move(saved_conf_dir);
+    config::full_conf_map = saved_conf_map;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_DOUBLE_EQ(config::inverted_index_candidate_pushdown_ratio, 0.2);
+    EXPECT_DOUBLE_EQ(config::get_inverted_index_candidate_pushdown_ratio(), 0.2);
+    EXPECT_EQ(conf_map.at(field), "0.2");
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, concurrent_updates_reject_non_finite_ratio) {

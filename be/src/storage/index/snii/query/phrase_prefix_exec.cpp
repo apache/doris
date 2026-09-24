@@ -494,11 +494,8 @@ Status collect_merged_tail_matches(const LogicalIndexReader& idx,
     return Status::OK();
 }
 
-// Picks how the leading phrase of a multi-tail prefix query is restricted. A tail union much
-// smaller than the leading candidate set prefilters it; otherwise scan candidates, when present,
-// restrict it directly. The union is kept whenever the unrestricted query would use it, so scan
-// candidates never make the leading phrase costlier; they can also enable it, since they bound
-// the leading positions to decode.
+// Use the tail union only when its postings are much smaller than the leading
+// phrase's scan domain.
 Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
                                       const internal::ResolvedPhrasePlan& exact_plan,
                                       const std::vector<ResolvedQueryTerm>& tail_terms,
@@ -521,7 +518,9 @@ Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
             candidates == nullptr ? 0 : std::min<uint64_t>(min_lead_df, candidates->cardinality());
     const bool union_pays_off_restricted = lead_bound >= kMinPrefixLeadingPrefilterMinDf &&
                                            tail_df_sum <= lead_bound / kPrefixLeadingToTailDfRatio;
-    if (!union_pays_off_unrestricted && !union_pays_off_restricted) {
+    const bool union_pays_off =
+            candidates == nullptr ? union_pays_off_unrestricted : union_pays_off_restricted;
+    if (!union_pays_off) {
         *restriction = restrict_to_candidates(candidates, min_lead_df, storage);
         return Status::OK();
     }
