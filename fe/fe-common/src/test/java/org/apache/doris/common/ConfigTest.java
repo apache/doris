@@ -166,6 +166,32 @@ public class ConfigTest {
     }
 
     @Test
+    public void testMtmvCacheManageNumRejectsNegative() throws Exception {
+        int original = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 100;
+            // ADMIN SET FRONTEND CONFIG runs the annotation callback before the cache-reload handler,
+            // so a negative maximum must be refused there and leave the field untouched.
+            ConfigException negative = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("mtmv_cache_manage_num", "-1"));
+            Assertions.assertTrue(negative.getMessage().contains("must not be negative"));
+            Assertions.assertEquals(100, Config.mtmv_cache_manage_num);
+
+            // 0 is the documented way to disable the cache.
+            new Config.NonNegativeMtmvCacheNumConfHandler()
+                    .handle(ConfigBase.getField("mtmv_cache_manage_num"), " 0 ");
+            Assertions.assertEquals(0, Config.mtmv_cache_manage_num);
+            Assertions.assertDoesNotThrow(Config::validateMtmvCacheConfig);
+
+            // fe.conf assigns the field without running any callback, so startup validates it too.
+            Config.mtmv_cache_manage_num = -1;
+            Assertions.assertThrows(ConfigException.class, Config::validateMtmvCacheConfig);
+        } finally {
+            Config.mtmv_cache_manage_num = original;
+        }
+    }
+
+    @Test
     public void testValidateWebSqlStartupConfig() throws ConfigException {
         int originalIdleTimeout = Config.web_sql_session_idle_timeout_seconds;
         int originalMaxSessions = Config.web_sql_max_sessions;

@@ -152,6 +152,9 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         stmtCtx.setIvmRewriteContext(Optional.of(IvmRewriteContext.incrementalDryRun(mtmv, dryRunLimit)));
         // Excluded trigger tables must not be validated for binlog / key-type support.
         stmtCtx.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+        // The MV query is parsed before the internal executor is created. SET_VAR hints
+        // need this context already installed on the internal session during parsing.
+        internalCtx.setStatementContext(stmtCtx);
         return stmtCtx;
     }
 
