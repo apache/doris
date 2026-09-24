@@ -132,8 +132,9 @@ public:
     // from an old segment returns NOT_FOUND; a present root returns a VariantColumnReader. For
     // example, metadata collection for an ALTER-added `v` skips old segments on NOT_FOUND, while
     // value reads through new_column_iterator() still produce v's NULL/default rows. An extracted
-    // path resolves through parent_unique_id; a root whose parent uid is -1 uses its own uid. On
-    // success, column_reader is always non-null.
+    // path resolves through parent_unique_id; a root whose parent uid is -1 uses its own uid.
+    // A root uid absent from the segment schema returns NOT_FOUND regardless of the caller's
+    // column type or nullability. On success, column_reader is non-null.
     Status get_variant_root_reader(const TabletColumn& col, const StorageReadOptions& read_options,
                                    std::shared_ptr<VariantColumnReader>* column_reader);
 

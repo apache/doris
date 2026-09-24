@@ -160,15 +160,16 @@ public:
     void SetUp() override { function_search = std::make_shared<FunctionSearch>(); }
 
 protected:
-    Status evaluate_nested_query(
-            const TSearchParam& search_param, const TSearchClause& nested_clause,
-            const std::shared_ptr<IndexQueryContext>& context, FieldReaderResolver& resolver,
-            uint32_t num_rows, const IndexExecContext* index_exec_ctx,
-            const std::unordered_map<std::string, int>& field_name_to_column_id,
-            std::shared_ptr<roaring::Roaring>& result_bitmap) {
+    Status evaluate_nested_query(const TSearchParam& search_param,
+                                 const TSearchClause& nested_clause,
+                                 const std::shared_ptr<IndexQueryContext>& context,
+                                 FieldReaderResolver& resolver, uint32_t num_rows,
+                                 const IndexExecContext* index_exec_ctx,
+                                 const TabletColumn* nested_column,
+                                 std::shared_ptr<roaring::Roaring>& result_bitmap) {
         VariantNestedSearchEvaluator evaluator(*function_search);
         return evaluator.evaluate(search_param, nested_clause, context, resolver, num_rows,
-                                  index_exec_ctx, field_name_to_column_id, result_bitmap);
+                                  index_exec_ctx, nested_column, result_bitmap);
     }
 
     std::shared_ptr<FunctionSearch> function_search;
@@ -465,10 +466,10 @@ TEST_F(FunctionSearchNestedTest, MissingNestedPath) {
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_NE(status.to_string().find("missing nested_path"), std::string::npos);
@@ -491,10 +492,10 @@ TEST_F(FunctionSearchNestedTest, MissingChildren) {
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_NE(status.to_string().find("missing inner query"), std::string::npos);
@@ -517,10 +518,10 @@ TEST_F(FunctionSearchNestedTest, EmptyChildrenList) {
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_NE(status.to_string().find("missing inner query"), std::string::npos);
@@ -548,10 +549,10 @@ TEST_F(FunctionSearchNestedTest, NullExecContext) {
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_NE(status.to_string().find("IndexExecContext"), std::string::npos);
@@ -573,10 +574,10 @@ TEST_F(FunctionSearchNestedTest, InitializesNullResultBitmap) {
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap; // nullptr
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     // Should fail (nested_path not set), but no crash on null bitmap
     EXPECT_FALSE(status.ok());
 }
@@ -613,10 +614,10 @@ TEST_F(FunctionSearchNestedTest, BitmapClearedAfterPassingValidation) {
     result_bitmap->add(10);
     ASSERT_EQ(3U, result_bitmap->cardinality());
 
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     // Will fail later (null context), but bitmap should be cleared
     EXPECT_FALSE(status.ok());
     ASSERT_NE(nullptr, result_bitmap);
@@ -645,11 +646,11 @@ TEST_F(FunctionSearchNestedTest, DottedNestedPath) {
     std::unordered_map<std::string, IndexIterator*> iterators;
     FieldReaderResolver resolver(data_types, iterators, context);
     std::shared_ptr<roaring::Roaring> result_bitmap;
-    std::unordered_map<std::string, int> field_to_col_id;
+    const TabletColumn* nested_column = nullptr;
 
     // null context → InvalidArgument about segment
     auto status = evaluate_nested_query(search_param, nested_clause, context, resolver, 100,
-                                        nullptr, field_to_col_id, result_bitmap);
+                                        nullptr, nested_column, result_bitmap);
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_NE(status.to_string().find("IndexExecContext"), std::string::npos);

@@ -46,6 +46,12 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "exprs/function/function_search.h"
+#include "exprs/function/variant_inverted_index_search.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vsearch.h"
+#include "exprs/vslot_ref.h"
 #include "gtest/gtest.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -8385,6 +8391,165 @@ TEST_F(VariantColumnWriterReaderTest,
     EXPECT_EQ(plan.regular_subcolumns[2].path, "tags");
     ASSERT_NE(plan.regular_subcolumns[2].data_type, nullptr);
     EXPECT_NE(plan.regular_subcolumns[2].data_type->get_name().find("Array"), std::string::npos);
+}
+
+TEST_F(VariantColumnWriterReaderTest, test_nested_search_uses_current_parent_uid) {
+    init_variant_tablet(41003);
+    auto rowset = create_variant_rowset({{R"({"items":[{"msg":"old"}]})"}}, 1);
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(rowset)->load_segments(&segments).ok());
+    ASSERT_EQ(segments.size(), 1);
+    auto& segment = segments.front();
+    ASSERT_EQ(segment->tablet_schema()->column(0).unique_id(), 1);
+    ASSERT_FALSE(segment->tablet_schema()->has_column_unique_id(2));
+
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    segment_v2::ColumnIteratorOptions iter_options;
+    iter_options.stats = &stats;
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    std::vector<IndexFieldNameAndTypePair> storage_types;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
+    IndexExecContext index_context(index_iterators, storage_types, status_map, nullptr,
+                                   segment.get(), iter_options,
+                                   std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
+    auto query_context = std::make_shared<segment_v2::IndexQueryContext>();
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> field_types;
+    std::unordered_map<std::string, segment_v2::IndexIterator*> iterators;
+    FieldReaderResolver resolver(field_types, iterators, query_context);
+    FunctionSearch function_search;
+    VariantNestedSearchEvaluator evaluator(function_search);
+    TSearchParam search_param;
+
+    // ADD added(uid=2), or DROP V1(uid=1) / ADD V1(uid=2). Neither may read the old uid=1.
+    // Include scalar and VARIANT scan leaves, and a leaf with its own uid colliding with old uid=1.
+    for (const std::string root_name : {"added", "V1"}) {
+        for (const auto type :
+             {FieldType::OLAP_FIELD_TYPE_VARIANT, FieldType::OLAP_FIELD_TYPE_STRING}) {
+            for (const int leaf_uid : {-1, 1}) {
+                SCOPED_TRACE(testing::Message() << root_name << " leaf_uid=" << leaf_uid
+                                                << " type=" << static_cast<int>(type));
+                TabletColumn leaf;
+                leaf.set_name(root_name + ".items.msg");
+                leaf.set_type(type);
+                leaf.set_unique_id(leaf_uid);
+                leaf.set_parent_unique_id(2);
+                leaf.set_path_info(PathInData(root_name + ".items.msg"));
+                // The leaf's nullability must not be mistaken for the absent root's nullability.
+                leaf.set_is_nullable(false);
+                std::shared_ptr<VariantColumnReader> reader;
+                auto st = segment->get_variant_root_reader(leaf, read_options, &reader);
+                ASSERT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
+                EXPECT_EQ(reader, nullptr);
+
+                TSearchClause inner;
+                inner.clause_type = "TERM";
+                inner.__set_field_name(root_name + ".items.msg");
+                inner.__set_value("old");
+                TSearchClause nested;
+                nested.clause_type = "NESTED";
+                nested.__set_nested_path(root_name + ".items");
+                nested.__set_children({inner});
+                auto bitmap = std::make_shared<roaring::Roaring>();
+                bitmap->add(0);
+                st = evaluator.evaluate(search_param, nested, query_context, resolver, 1,
+                                        &index_context, &leaf, bitmap);
+                ASSERT_TRUE(st.ok()) << st;
+                EXPECT_TRUE(bitmap->isEmpty());
+                // This catches same-name rebinding even with CE's disabled NestedGroup provider:
+                // opening the old reader could also return an empty bitmap, but is still wrong.
+                EXPECT_TRUE(segment->_column_reader_cache->get_available_readers(false).empty());
+
+                // Exercise the slot -> ReadSchema -> FunctionSearch parameter chain as well.
+                // CE stops at its capability gate; EE continues into the same evaluator above.
+                for (const bool use_element_at : {false, true}) {
+                    SCOPED_TRACE(use_element_at ? "root ElementAt" : "projected leaf");
+                    auto scan_column = std::make_shared<TabletColumn>(leaf);
+                    if (use_element_at) {
+                        *scan_column = segment->tablet_schema()->column(0);
+                        scan_column->set_name(root_name);
+                        scan_column->set_unique_id(2);
+                        scan_column->set_is_nullable(true);
+                    }
+                    auto schema = std::make_shared<ReadSchema>(
+                            std::vector<TabletColumnPtr> {scan_column});
+                    std::vector<std::unique_ptr<segment_v2::IndexIterator>> no_indexes(1);
+                    std::vector<IndexFieldNameAndTypePair> scan_types(1);
+                    auto scan_context = std::make_shared<IndexExecContext>(
+                            no_indexes, scan_types, status_map, nullptr, segment.get(),
+                            iter_options, schema);
+
+                    TSearchFieldBinding binding;
+                    binding.field_name = leaf.name();
+                    binding.slot_index = 0;
+                    binding.__set_is_variant_subcolumn(true);
+                    binding.__set_parent_field_name(root_name);
+                    binding.__set_subcolumn_path("items.msg");
+                    TExprNode node;
+                    node.node_type = TExprNodeType::SEARCH_EXPR;
+                    node.__set_type(TSlotDescriptorBuilder().type(TYPE_BOOLEAN).build().slotType);
+                    TSearchParam param;
+                    param.original_dsl = "NESTED(" + root_name + ".items, msg:old)";
+                    param.root = nested;
+                    param.field_bindings = {binding};
+                    node.__set_search_param(param);
+                    auto expr = VSearchExpr::create_shared(node);
+                    auto slot = std::make_shared<VSlotRef>();
+                    slot->set_node_type(TExprNodeType::SLOT_REF);
+                    slot->set_column_id(0);
+                    slot->_column_name = &scan_column->name();
+                    if (use_element_at) {
+                        auto element_at = std::make_shared<VectorizedFnCall>();
+                        element_at->set_node_type(TExprNodeType::FUNCTION_CALL);
+                        element_at->_fn.name.function_name = "element_at";
+                        // prepare() uses a diagnostic expression name, not the function name.
+                        element_at->_expr_name = "VectorizedFnCall[element_at](...)";
+                        element_at->add_child(slot);
+                        expr->add_child(element_at);
+                    } else {
+                        expr->add_child(slot);
+                    }
+                    VExprContext expr_context(expr);
+                    expr_context.set_index_context(scan_context);
+                    st = expr->evaluate_inverted_index(&expr_context, 1);
+                    if (segment_v2::create_nested_group_read_provider()
+                                ->should_enable_nested_group_read_path()) {
+                        ASSERT_TRUE(st.ok()) << st;
+                        const auto* result = scan_context->get_index_result_for_expr(expr.get());
+                        ASSERT_NE(result, nullptr);
+                        EXPECT_TRUE(result->get_data_bitmap()->isEmpty());
+                    } else {
+                        EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << st;
+                    }
+                    EXPECT_TRUE(
+                            segment->_column_reader_cache->get_available_readers(false).empty());
+                }
+            }
+        }
+    }
+
+    // An absent root UID returns NOT_FOUND for root descriptors too, regardless of nullability.
+    TabletColumn root = segment->tablet_schema()->column(0);
+    root.set_unique_id(2);
+    root.set_is_nullable(false);
+    std::shared_ptr<VariantColumnReader> reader;
+    auto st = segment->get_variant_root_reader(root, read_options, &reader);
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
+    EXPECT_EQ(reader, nullptr);
+    root.set_is_nullable(true);
+    st = segment->get_variant_root_reader(root, read_options, &reader);
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
+    EXPECT_EQ(reader, nullptr);
+
+    // A present parent still resolves by UID even if the caller's logical name differs.
+    TabletColumn present_leaf;
+    present_leaf.set_name("renamed.items.msg");
+    present_leaf.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    present_leaf.set_parent_unique_id(1);
+    present_leaf.set_path_info(PathInData("renamed.items.msg"));
+    ASSERT_TRUE(segment->get_variant_root_reader(present_leaf, read_options, &reader).ok());
+    ASSERT_NE(reader, nullptr);
+    EXPECT_TRUE(segment->_column_reader_cache->get_available_readers(false).contains(1));
 }
 
 TEST_F(VariantColumnWriterReaderTest,

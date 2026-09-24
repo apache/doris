@@ -1111,13 +1111,14 @@ Status Segment::get_variant_root_reader(const TabletColumn& col,
     DORIS_CHECK_GE(root_uid, 0) << "VARIANT column does not have a resolvable root uid: "
                                 << col.debug_string();
 
-    // Validate the root rather than an extracted path's leaf type. For example, `v.user.id` may be
-    // BIGINT while its root uid=7 still identifies a physical VARIANT reader.
-    const TabletColumn* root_column = &col;
-    if (_tablet_schema->has_column_unique_id(root_uid)) {
-        root_column = &_tablet_schema->column_by_uid(root_uid);
+    // A scan column can belong to a VARIANT root added after this segment was written.
+    // For example, an old segment with v(uid=1) cannot supply a re-added v(uid=2).
+    if (!_tablet_schema->has_column_unique_id(root_uid)) {
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "VARIANT root column not found in segment schema, column_uid={}", root_uid);
     }
-    if (!root_column->is_variant_type()) {
+    const auto& root_column = _tablet_schema->column_by_uid(root_uid);
+    if (!root_column.is_variant_type()) {
         return Status::InvalidArgument("column {} does not resolve to a VARIANT root", col.name());
     }
 
@@ -1128,15 +1129,15 @@ Status Segment::get_variant_root_reader(const TabletColumn& col,
         // Missing nullable/defaulted roots are valid after schema evolution and have no physical
         // metadata. A required root without a default cannot be reconstructed; for example, an old
         // segment cannot supply values for a newly injected non-nullable `v`.
-        if (!root_column->has_default_value() && !root_column->is_nullable()) {
+        if (!root_column.has_default_value() && !root_column.is_nullable()) {
             return Status::InternalError(
                     "column not found in segment and has no default value, column_uid={}, "
                     "column_name={}",
-                    root_uid, root_column->name());
+                    root_uid, root_column.name());
         }
         return Status::Error<ErrorCode::NOT_FOUND, false>(
                 "VARIANT root column not found in segment, column_uid={}, column_name={}", root_uid,
-                root_column->name());
+                root_column.name());
     }
 
     std::shared_ptr<ColumnReader> physical_reader;

@@ -638,10 +638,8 @@ Status VariantNestedSearchEvaluator::evaluate(
         const TSearchParam& search_param, const TSearchClause& nested_clause,
         const std::shared_ptr<segment_v2::IndexQueryContext>& context,
         FieldReaderResolver& resolver, uint32_t num_rows, const IndexExecContext* index_exec_ctx,
-        const std::unordered_map<std::string, int>& field_name_to_column_id,
-        std::shared_ptr<roaring::Roaring>& result_bitmap) const {
+        const TabletColumn* nested_column, std::shared_ptr<roaring::Roaring>& result_bitmap) const {
     (void)num_rows;
-    (void)field_name_to_column_id;
     if (!(nested_clause.__isset.nested_path)) {
         return Status::InvalidArgument("NESTED clause missing nested_path");
     }
@@ -663,19 +661,18 @@ Status VariantNestedSearchEvaluator::evaluate(
         return Status::InvalidArgument("NESTED query requires IndexExecContext with valid segment");
     }
     auto* segment = index_exec_ctx->segment();
-    const int32_t ordinal = segment->tablet_schema()->field_index(root_field);
-    if (ordinal < 0) {
-        return Status::InvalidArgument("Column '{}' not found in tablet schema for nested query",
-                                       root_field);
+    // A caller without a bound scan column cannot identify the current root. In particular,
+    // looking up its name in the segment could select a dropped column after same-name ADD.
+    if (nested_column == nullptr) {
+        return Status::InvalidArgument(
+                "Column '{}' not bound to current read schema for nested query", root_field);
     }
-    const ColumnId column_id = static_cast<ColumnId>(ordinal);
 
     std::shared_ptr<segment_v2::VariantColumnReader> variant_reader;
     DORIS_CHECK(index_exec_ctx->column_iter_opts().stats != nullptr);
     StorageReadOptions read_options(*index_exec_ctx->column_iter_opts().stats);
     read_options.io_ctx = index_exec_ctx->column_iter_opts().io_ctx;
-    Status st = segment->get_variant_root_reader(segment->tablet_schema()->column(column_id),
-                                                 read_options, &variant_reader);
+    Status st = segment->get_variant_root_reader(*nested_column, read_options, &variant_reader);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // A segment written before nullable/defaulted VARIANT root `v` was added contains no
         // nested documents, so NESTED(v.items, ...) cannot match any row in this segment.

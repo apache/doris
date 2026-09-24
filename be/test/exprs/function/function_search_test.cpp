@@ -3151,10 +3151,10 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {
     auto scoring_context = std::make_shared<IndexQueryContext>();
     scoring_context->collection_similarity = std::make_shared<CollectionSimilarity>();
     InvertedIndexResultBitmap result;
-    std::unordered_map<std::string, int> field_name_to_column_id;
+    const TabletColumn* nested_column = nullptr;
     auto status = function_search->evaluate_inverted_index_with_search_param(
-            search_param, data_type_with_names, iterators, 4, result, true, nullptr,
-            field_name_to_column_id, scoring_context);
+            search_param, data_type_with_names, iterators, 4, result, true, nullptr, nested_column,
+            scoring_context);
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(1, index_file_reader->init_calls);
