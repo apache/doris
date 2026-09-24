@@ -188,6 +188,8 @@ suite("test_adbc_type_mapping", "p0,external") {
         CREATE CATALOG ${catalogName} PROPERTIES (
             "type" = "adbc",
             "driver_url" = "${driverPath}",
+            -- The loopback source is Doris even when vendor detection is unavailable.
+            "sql_dialect" = "doris",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
@@ -229,16 +231,8 @@ suite("test_adbc_type_mapping", "p0,external") {
         qt_desc_float """DESC ${catalogName}.${dbName}.t_float"""
         qt_select_float """SELECT id, c_float, c_double FROM ${catalogName}.${dbName}.t_float ORDER BY id"""
 
-        // Compared INSIDE Doris rather than through sameAsSource, and not because ADBC needs the
-        // help: the fixture's DBL_MAX cannot make the trip to the test client at all. Doris renders a
-        // double with 16 significant digits, so 1.7976931348623157E308 comes back as the text
-        // 1.797693134862316e+308 -- a value ABOVE DBL_MAX, which parses to infinity and makes the
-        // JDBC driver throw "Value '∞' is outside of valid range" before any comparison happens. The
-        // native read of the source table prints exactly the same text, so this is Doris's own
-        // double-to-text rounding, not an ADBC fault, and swapping the fixture for a rounder number
-        // would drop the one row that proves a double is not narrowed to a float somewhere in the
-        // Arrow round trip. <=> is null-safe, so row 5's nulls have to match as nulls, and the join
-        // makes every value a bit-for-bit comparison the client never sees.
+        // Compare boundary values inside Doris as well: the golden output must not round DBL_MAX
+        // above the finite range, and the null-safe join checks exact values independently of formatting.
         def floatRowsMatched = sql("""
             SELECT count(*) FROM ${catalogName}.${dbName}.t_float a
             JOIN internal.${dbName}.t_float s ON a.id = s.id
@@ -285,15 +279,8 @@ suite("test_adbc_type_mapping", "p0,external") {
             SELECT id, c_date, c_dt0, c_dt3, c_dt6
             FROM ${catalogName}.${dbName}.t_datetime ORDER BY id
         """
-        // Cast back to the source's own type before comparing, and only for the datetime columns: a
-        // Doris source stamps the session's zone onto every DATETIMEV2 it writes to Arrow (the Arrow
-        // timestamp type carries a zone), so this connector maps them to TIMESTAMPTZ and the values
-        // come back rendered with a +hh:mm offset that the native read does not print. The cast is a
-        // no-op on the source side, so what remains under comparison is the instant -- which is the
-        // thing that must survive. The rendered form is pinned by qt_select_datetime above. c_date is
-        // left alone: DATEV2 has no zone to stamp and comes back a plain date.
-        sameAsSource("t_datetime", "id, c_date, CAST(c_dt0 AS DATETIME(0)), "
-                + "CAST(c_dt3 AS DATETIME(3)), CAST(c_dt6 AS DATETIME(6))")
+        // DATETIME must keep its precision and timezone-free type through the Arrow round trip.
+        sameAsSource("t_datetime", "id, c_date, c_dt0, c_dt3, c_dt6")
 
         // The sub-second digits on their own. A scale collapsed to seconds still prints a plausible
         // timestamp, and the microsecond column is where a nanosecond source would be truncated.

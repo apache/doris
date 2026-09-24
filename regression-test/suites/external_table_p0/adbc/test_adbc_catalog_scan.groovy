@@ -104,6 +104,8 @@ suite("test_adbc_catalog_scan", "p0,external") {
         CREATE CATALOG ${catalogName} PROPERTIES (
             "type" = "adbc",
             "driver_url" = "${driverPath}",
+            -- The loopback source is Doris even when vendor detection is unavailable.
+            "sql_dialect" = "doris",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
@@ -182,6 +184,8 @@ suite("test_adbc_catalog_scan", "p0,external") {
         CREATE CATALOG ${singleRangeCatalog} PROPERTIES (
             "type" = "adbc",
             "driver_url" = "${driverPath}",
+            -- The loopback source is Doris even when vendor detection is unavailable.
+            "sql_dialect" = "doris",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
