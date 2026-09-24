@@ -119,7 +119,7 @@ struct JsonbParser {
                     return Status::InvalidArgument(
                             "simdjson get_number failed: trailing content after root number "
                             "{}",
-                            token);
+                            quote_token(token));
                 }
                 RETURN_IF_ERROR(write_number(res, num, token, writer));
                 break;
@@ -233,6 +233,30 @@ private:
         return Status::OK();
     }
 
+    // raw_json_token() spans up to the start of the next token, so it may end with JSON
+    // whitespace that is not part of the number.
+    static std::string_view trim_trailing_whitespace(std::string_view token) {
+        while (!token.empty() && (token.back() == ' ' || token.back() == '\t' ||
+                                  token.back() == '\n' || token.back() == '\r')) {
+            token.remove_suffix(1);
+        }
+        return token;
+    }
+
+    // Error messages quote the offending token so that the bad value can be located, but
+    // the token is as long as the input (a malformed row may be a multi-megabyte digit run)
+    // and tolerant callers such as json_valid or the error-to-null variants discard the
+    // message right away. Keep the quoted part bounded and report the full length instead.
+    static std::string quote_token(std::string_view token) {
+        constexpr size_t kMaxQuotedTokenLen = 64;
+        token = trim_trailing_whitespace(token);
+        if (token.size() <= kMaxQuotedTokenLen) {
+            return std::string(token);
+        }
+        return fmt::format("{}... (truncated, {} bytes)", token.substr(0, kMaxQuotedTokenLen),
+                           token.size());
+    }
+
     // Matches the JSON number grammar exactly:
     //   -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
     static bool is_json_number(std::string_view token) {
@@ -282,16 +306,10 @@ private:
     // or double.
     static Status write_number_from_token(simdjson::error_code res, std::string_view raw_string,
                                           JsonbWriter& writer) {
-        // raw_json_token() spans up to the start of the next token, so it may end with
-        // JSON whitespace.
-        std::string_view token = raw_string;
-        while (!token.empty() && (token.back() == ' ' || token.back() == '\t' ||
-                                  token.back() == '\n' || token.back() == '\r')) {
-            token.remove_suffix(1);
-        }
+        std::string_view token = trim_trailing_whitespace(raw_string);
         if (!is_json_number(token)) {
             return Status::InvalidArgument("simdjson get_number failed: {}, raw string is: {}",
-                                           simdjson::error_message(res), token);
+                                           simdjson::error_message(res), quote_token(token));
         }
 
         // StringParser::string_to_int silently truncates a fraction, so only a token made of
@@ -314,7 +332,7 @@ private:
         double double_val =
                 StringParser::string_to_float<double>(token.data(), token.size(), &result);
         if (result != StringParser::PARSE_SUCCESS || !std::isfinite(double_val)) {
-            return Status::InvalidArgument("invalid number, raw string is: {}", token);
+            return Status::InvalidArgument("invalid number, raw string is: {}", quote_token(token));
         }
         if (!writer.writeDouble(double_val)) {
             return Status::InvalidArgument("writeDouble failed");
@@ -335,7 +353,7 @@ private:
             // another token is already rejected by the end-of-document check in parse()), so
             // anything else is reported as is.
             return Status::InvalidArgument("simdjson get_number failed: {}, raw string is: {}",
-                                           simdjson::error_message(res), raw_string);
+                                           simdjson::error_message(res), quote_token(raw_string));
         }
 
         // On success simdjson yields one of three number types:

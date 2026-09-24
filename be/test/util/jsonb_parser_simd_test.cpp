@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <string>
+#include <vector>
+
 #include "common/status.h"
 #include "core/value/jsonb_value.h"
 #include "gtest/gtest.h"
@@ -535,6 +538,38 @@ TEST_F(JsonbParserTest, ParseJsonLongRootNumber) {
     std::string long_int = "1" + std::string(400, '0');
     expect_parse_rejected(long_int);
     expect_parse_rejected("[" + long_int + "]");
+}
+
+TEST_F(JsonbParserTest, ParseJsonMalformedNumberErrorMessageIsBounded) {
+    // A malformed number token may be as long as the input; the error message must quote
+    // only a bounded prefix of it so that rejecting bad data does not allocate another
+    // input-sized string.
+    const std::string digits(1 << 20, '0');
+    struct Case {
+        std::string json;
+        // the number token quoted by the error message
+        std::string token;
+    };
+    const std::vector<Case> cases = {
+            // grammar failure
+            {"1." + digits + "x", "1." + digits + "x"},
+            // trailing content after a root number: the token ends at the next token
+            {"1" + digits + " x", "1" + digits},
+            // integer beyond the double range
+            {"1" + digits, "1" + digits},
+            // grammar failure inside an array
+            {"[1." + digits + "x]", "1." + digits + "x"},
+    };
+    for (const auto& c : cases) {
+        JsonBinaryValue jsonb_val;
+        Status st = jsonb_val.from_json_string(c.json.data(), c.json.length());
+        EXPECT_FALSE(st.ok()) << c.json.substr(0, 16);
+        EXPECT_LT(st.msg().size(), 256) << st.msg().substr(0, 256);
+        EXPECT_NE(st.msg().find(fmt::format("{}... (truncated, {} bytes)", c.token.substr(0, 64),
+                                            c.token.size())),
+                  std::string::npos)
+                << st.msg();
+    }
 }
 
 TEST_F(JsonbParserTest, ParseJsonNumberUnderflowToZero) {
