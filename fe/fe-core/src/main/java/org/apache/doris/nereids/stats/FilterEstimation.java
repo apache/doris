@@ -52,9 +52,11 @@ import org.apache.doris.nereids.types.coercion.RangeScalable;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
+import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.statistics.model.StatisticRange;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -63,11 +65,13 @@ import org.apache.commons.math3.util.Precision;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Calculate selectivity of expression that produces boolean value.
@@ -175,6 +179,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     colBuilder.setMinValue(union.getLow()).setMinExpr(union.getLowExpr())
                             .setMaxValue(union.getHigh()).setMaxExpr(union.getHighExpr())
                             .setNdv(union.getDistinctValues());
+                    colBuilder.setHistogram(null);
                     double maxNumNulls = Math.max(leftColStats.numNulls, rightColStats.numNulls);
                     colBuilder.setNumNulls(Math.min(colBuilder.getCount(), maxNumNulls));
                     orStats.addColumnStats(slot, colBuilder.build());
@@ -257,6 +262,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 }
             }
         }
+        if (leftStats.histogram != null) {
+            filterKeyColStatsBuilder.setHistogram(
+                    leftStats.histogram.intersectRange(Double.NEGATIVE_INFINITY, rightStats.maxValue, false));
+            selectivity = leftStats.histogram.getRangeSelectivity(Double.NEGATIVE_INFINITY, rightStats.maxValue, false);
+        }
         return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
                 filterKeyColStatsBuilder, matchedHotValues,
                 missMatchedHotValues);
@@ -309,6 +319,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 }
             }
         }
+        if (leftStats.histogram != null) {
+            filterKeyColStatsBuilder.setHistogram(
+                    leftStats.histogram.intersectRange(Double.NEGATIVE_INFINITY, rightStats.maxValue, true));
+            selectivity = leftStats.histogram.getRangeSelectivity(Double.NEGATIVE_INFINITY, rightStats.maxValue, true);
+        }
         return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
                 filterKeyColStatsBuilder, matchedHotValues,
                 missMatchedHotValues);
@@ -359,7 +374,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 }
             }
         }
-
+        if (leftStats.histogram != null) {
+            filterKeyColStatsBuilder.setHistogram(
+                    leftStats.histogram.intersectRange(rightStats.maxValue, Double.POSITIVE_INFINITY, false));
+            selectivity = leftStats.histogram.getRangeSelectivity(rightStats.maxValue, Double.POSITIVE_INFINITY, false);
+        }
         return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
                 filterKeyColStatsBuilder, matchedHotValues,
                 missMatchedHotValues);
@@ -415,6 +434,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             }
         }
 
+        if (leftStats.histogram != null) {
+            filterKeyColStatsBuilder.setHistogram(
+                    leftStats.histogram.intersectRange(rightStats.maxValue, Double.POSITIVE_INFINITY, true));
+            selectivity = leftStats.histogram.getRangeSelectivity(rightStats.maxValue, Double.POSITIVE_INFINITY, true);
+        }
         return computeRangeFilterStatistics(cp, leftStats, context, selectivity,
                 filterKeyColStatsBuilder, matchedHotValues,
                 missMatchedHotValues);
@@ -428,6 +452,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         // compute ndv
         int hotValueCount = leftStats.getHotValues() == null ? 0 : leftStats.getHotValues().size();
         double ndv = (leftStats.ndv - hotValueCount) * selectivity + matchedHotValues.size();
+        if (leftStats.histogram != null) {
+            Histogram filteredHistogram = filterKeyColStatsBuilder.getHistogram();
+            ndv = filteredHistogram == null ? 0 : filteredHistogram.getNdv();
+        }
         filterKeyColStatsBuilder.setNdv(ndv);
 
         // compute selectivity
@@ -435,7 +463,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double nonHotValueRatio = 1.0 - matchedHotValueRatio
                 - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum();
 
-        if (matchedHotValues.isEmpty()) {
+        if (leftStats.histogram != null) {
+            filterKeyColStatsBuilder.setHotValues(matchedHotValues.isEmpty() ? null : matchedHotValues);
+        } else if (matchedHotValues.isEmpty()) {
             selectivity = nonHotValueRatio * selectivity;
             filterKeyColStatsBuilder.setHotValues(null);
         } else {
@@ -448,6 +478,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
         if (selectivity > 0.0) {
             selectivity = Math.max(selectivity, RANGE_SELECTIVITY_THRESHOLD);
+        }
+        if (selectivity > 0.0) {
+            double keptRatio = selectivity;
+            matchedHotValues.replaceAll((value, ratio) -> (float) (ratio / keptRatio));
         }
 
         selectivity = getNotNullSelectivity(leftStats.numNulls,
@@ -669,12 +703,21 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 } else {
                     selectivity = DEFAULT_INEQUALITY_COEFFICIENT;
                 }
+                if (statsForLeft.histogram != null && cp.child(1) instanceof Literal && selectivity > 0) {
+                    selectivity = statsForLeft.histogram.getValuesSelectivity(
+                            Collections.singletonList((Literal) cp.child(1)));
+                }
                 selectivity = getNotNullSelectivity(numNulls, rowCount, ndv, selectivity);
             }
         }
+        ColumnStatistic equalColStats = statsForRight;
+        if (statsForLeft.histogram != null && cp.child(1) instanceof Literal) {
+            equalColStats = new ColumnStatisticBuilder(statsForRight).setHistogram(
+                    statsForLeft.histogram.retainValues(Collections.singletonList((Literal) cp.child(1)))).build();
+        }
         Statistics equalStats = context.statistics.withSel(selectivity);
         Expression left = cp.left();
-        equalStats.addColumnStats(left, statsForRight);
+        equalStats.addColumnStats(left, equalColStats);
         context.addKeyIfSlot(left);
         if (!(left instanceof SlotReference)) {
             left.accept(new ColumnStatsAdjustVisitor(), equalStats);
@@ -785,6 +828,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         computeHotValuesForInPredicates(compareExprStats, literalOptions);
                 compareExprStatsBuilder.setHotValues(matchedHotValues);
             }
+            if (compareExprStats.histogram != null) {
+                compareExprStatsBuilder.setHistogram(nonLiteralOptionCount > 0 ? null
+                        : compareExprStats.histogram.retainValues(literalOptions));
+            }
             if (nonLiteralOptionCount > 0) {
                 // A in (x+1, ...)
                 // "x+1" is not literal, and if const-fold can not handle it, it blocks estimation of min/max value.
@@ -808,6 +855,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             // other types, such as string type, using option's size to estimate
             // min/max will not be updated
             compareExprStatsBuilder.setNdv(Math.min(options.size(), compareExprStats.getOriginalNdv()));
+            compareExprStatsBuilder.setHistogram(null);
         }
         compareExprStatsBuilder.setNumNulls(0);
         return compareExprStatsBuilder.build();
@@ -840,6 +888,17 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 } else {
                     selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                 }
+            }
+            if (compareExprStats.histogram != null && options.stream().allMatch(Literal.class::isInstance)) {
+                selectivity = compareExprStats.histogram.getValuesSelectivity(
+                        options.stream().map(Literal.class::cast).collect(Collectors.toList()));
+            }
+                if (newCompareExprStats.getHotValues() != null && selectivity > 0) {
+                Map<Literal, Float> keptHotValues = new HashMap<>(newCompareExprStats.getHotValues());
+                double keptRatio = selectivity;
+                keptHotValues.replaceAll((value, ratio) -> (float) (ratio / keptRatio));
+                newCompareExprStats = new ColumnStatisticBuilder(newCompareExprStats)
+                        .setHotValues(keptHotValues).build();
             }
         } else {
             selectivity = Statistics.getValidSelectivity(
@@ -893,6 +952,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 4. not A like XXX
                 // 5. not array_contains([xx, xx], xx)
                 colBuilder.setNumNulls(0);
+                colBuilder.setHistogram(originColStats.histogram);
 
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
@@ -922,6 +982,11 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
                     colBuilder.setIsUnknown(true);
                 }
+                if ((child instanceof InPredicate || child instanceof EqualPredicate)
+                        && originColStats.histogram != null && childColStats.histogram != null) {
+                    colBuilder.setHistogram(
+                            originColStats.histogram.removeValues(childColStats.histogram.mcv.keySet()));
+                }
                 if (not.child().getInputSlots().size() == 1 && !(child instanceof IsNull)) {
                     // only consider the single column numNull, otherwise, ignore
                     rowCount = Math.max(rowCount - originColStats.numNulls, 1);
@@ -934,13 +999,18 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     Map<Literal, Float> newHotValues = new HashMap<>();
                     if (childHots != null) {
                         for (Literal hot : origHots.keySet()) {
-                            if (!childHots.containsKey(hot)) {
+                            if (StatisticsUtil.findHotValueKey(childHots, hot) == null) {
                                 newHotValues.put(hot, origHots.get(hot));
                             }
                         }
                         colBuilder.setHotValues(newHotValues);
                     } else {
                         newHotValues.putAll(origHots);
+                    }
+                    if (child instanceof InPredicate || child instanceof EqualPredicate) {
+                        double keptRatio = Math.max(newHotValues.values().stream().mapToDouble(x -> x).sum(),
+                                rowCount / Math.max(1.0, context.statistics.getRowCount() - originColStats.numNulls));
+                        newHotValues.replaceAll((value, ratio) -> (float) (ratio / keptRatio));
                     }
                     colBuilder.setHotValues(newHotValues);
                 }
@@ -989,7 +1059,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setMaxValue(Double.POSITIVE_INFINITY)
                 .setMinValue(Double.NEGATIVE_INFINITY)
                 .setNdv(0)
-                .setHotValues(null);
+                .setHotValues(null).setHistogram(null);
         StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
         builder.setRowCount(outputRowCount);
         builder.putColumnStatistics(isNull.child(), colBuilder.build());
@@ -1023,6 +1093,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     private Statistics estimateColumnEqualToColumn(Expression leftExpr, ColumnStatistic leftStats,
             Expression rightExpr, ColumnStatistic rightStats, boolean keepNull, EstimationContext context) {
         ColumnStatisticBuilder intersectBuilder = new ColumnStatisticBuilder(leftStats);
+        intersectBuilder.setHistogram(null);
         StatisticRange leftRange = StatisticRange.from(leftStats, leftExpr.getDataType());
         StatisticRange rightRange = StatisticRange.from(rightStats, rightExpr.getDataType());
         StatisticRange intersect = leftRange.intersect(rightRange);
@@ -1113,6 +1184,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMinValue(leftRange.getLow())
                     .setNdv(leftStats.ndv * (leftAlwaysLessThanRightPercent + leftOverlapPercent))
                     .setNumNulls(0)
+                    .setHistogram(null)
                     .build();
             double rightOverlappingRangeFraction = rightRange.overlapPercentWith(leftRange);
             double rightAlwaysGreaterRangeFraction = 0;
@@ -1127,6 +1199,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMaxValue(rightRange.getHigh())
                     .setNdv(rightStats.ndv * (rightAlwaysGreaterRangeFraction + rightOverlappingRangeFraction))
                     .setNumNulls(0)
+                    .setHistogram(null)
                     .build();
             double sel;
             if (leftExpr.getDataType() instanceof RangeScalable) {
@@ -1148,12 +1221,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     .setMaxValue(intersect.getHigh())
                     .setMinValue(intersect.getLow())
                     .setNumNulls(0)
+                    .setHistogram(null)
                     .setNdv(Math.max(leftStats.ndv * DEFAULT_INEQUALITY_COEFFICIENT, 1))
                     .build();
             ColumnStatistic rightColumnStatistic = new ColumnStatisticBuilder(rightStats)
                     .setMaxValue(intersect.getHigh())
                     .setMinValue(intersect.getLow())
                     .setNumNulls(0)
+                    .setHistogram(null)
                     .setNdv(Math.max(rightStats.ndv * DEFAULT_INEQUALITY_COEFFICIENT, 1))
                     .build();
             context.addKeyIfSlot(leftExpr);
@@ -1176,7 +1251,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
-            colBuilder.setHotValues(null);
+            colBuilder.setHotValues(null).setHistogram(null);
             statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
             context.addKeyIfSlot(like.left());
         }

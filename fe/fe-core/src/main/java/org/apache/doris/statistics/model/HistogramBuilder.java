@@ -18,8 +18,10 @@
 package org.apache.doris.statistics.model;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Builder for histogram
@@ -34,6 +36,10 @@ public class HistogramBuilder {
 
     private List<Bucket> buckets;
 
+    private Map<Literal, Float> mcv;
+
+    private List<Bucket> mcvBuckets;
+
     public HistogramBuilder() {
     }
 
@@ -41,6 +47,8 @@ public class HistogramBuilder {
         this.dataType = histogram.dataType;
         this.sampleRate = histogram.sampleRate;
         this.buckets = histogram.buckets;
+        this.mcv = histogram.mcv;
+        this.mcvBuckets = histogram.mcvBuckets;
     }
 
     public HistogramBuilder setDataType(Type dataType) {
@@ -63,7 +71,17 @@ public class HistogramBuilder {
         return this;
     }
 
+    public HistogramBuilder setMcv(Map<Literal, Float> mcv) {
+        this.mcv = mcv;
+        return this;
+    }
+
+    public HistogramBuilder setMcvBuckets(List<Bucket> mcvBuckets) {
+        this.mcvBuckets = mcvBuckets;
+        return this;
+    }
+
     public Histogram build() {
-        return new Histogram(dataType, sampleRate, numBuckets, buckets);
+        return new Histogram(dataType, sampleRate, numBuckets, buckets, mcv, mcvBuckets);
     }
 }

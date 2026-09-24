@@ -36,7 +36,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.repository.ColStatsData;
@@ -124,7 +123,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         Map<String, String> params = buildSqlParams();
         params.put("min", StatisticsUtil.quote(min));
         params.put("max", StatisticsUtil.quote(max));
-        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+        params.put("hotValueCollectCount", String.valueOf(getHotValueCollectCount(info)));
         long tableRowCount = info.indexId == -1
                 ? tbl.getRowCount()
                 : ((OlapTable) tbl).getRowCountForIndex(info.indexId, false);
@@ -386,7 +385,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             Map<String, String> params = buildSqlParams();
             StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
             if (shouldCollectHotValue()) {
-                params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+                params.put("hotValueCollectCount", String.valueOf(getHotValueCollectCount(info)));
                 params.put("subStringColName", getStringTypeColName(col));
                 params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
                 runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));

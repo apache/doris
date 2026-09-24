@@ -19,7 +19,6 @@ package org.apache.doris.statistics.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.commons.text.StringSubstitutor;
@@ -63,7 +62,7 @@ public class PluginDrivenSampleAnalysisTask extends ExternalAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         Pair<Double, Long> sampleInfo = getSampleInfo();
         params.put("scaleFactor", String.valueOf(sampleInfo.first));
-        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
+        params.put("hotValueCollectCount", String.valueOf(getHotValueCollectCount(info)));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }

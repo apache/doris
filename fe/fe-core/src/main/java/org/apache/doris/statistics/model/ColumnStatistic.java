@@ -51,8 +51,6 @@ public class ColumnStatistic {
     public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
-    // TODO: remove this when hotValues.second becomes ratio
-    public static final float ONE_HUNDRED = 100.0f;
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
@@ -104,14 +102,28 @@ public class ColumnStatistic {
      * hotValues == null: not collected (e.g. full analyze). Do NOT use for optimization.
      * hotValues != null && hotValues.isEmpty(): collected but no hot values (not skewed).
      * hotValues != null && !hotValues.isEmpty(): collected with hot values.
+     * The ratios are shares of the non-null rows of the current node: a filter on the column drops
+     * the values it excludes and rescales the rest.
      */
     @SerializedName("hotValues")
     public final Map<Literal, Float> hotValues;
+
+    // Histogram of the column when enable_histogram_join_estimation is on, rewritten by the
+    // filters so that it describes the rows of the current node. Null if absent.
+    public final Histogram histogram;
 
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
             String updatedTime, Map<Literal, Float> hotValues) {
+        this(count, ndv, original, avgSizeByte, numNulls, dataSize, minValue, maxValue,
+                minExpr, maxExpr, isUnKnown, updatedTime, hotValues, null);
+    }
+
+    public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
+            double numNulls, double dataSize, double minValue, double maxValue,
+            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
+            String updatedTime, Map<Literal, Float> hotValues, Histogram histogram) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -125,6 +137,7 @@ public class ColumnStatistic {
         this.isUnKnown = isUnKnown;
         this.updatedTime = updatedTime;
         this.hotValues = hotValues;
+        this.histogram = histogram;
     }
 
     public static ColumnStatistic fromResultRowList(List<ResultRow> resultRows) {
