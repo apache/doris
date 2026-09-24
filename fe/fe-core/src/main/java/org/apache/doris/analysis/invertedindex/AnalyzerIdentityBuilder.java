@@ -45,10 +45,17 @@ public final class AnalyzerIdentityBuilder {
     private static final String KEYWORD_TOKENIZER = "keyword";
     private static final String LOWERCASE_TOKEN_FILTER = "lowercase";
     private static final String CHAR_REPLACE_FILTER = "char_replace";
+    // The only stopwords value BE reads; anything else leaves the built-in stop word list on.
+    private static final String STOPWORDS_NONE = "none";
     // Built-in analyzers BE builds as their tokenizer plus a LowerCaseFilter that lower_case drops.
     private static final Set<String> LOWERCASE_FILTER_BUILTIN_ANALYZERS = ImmutableSet.of(
             InvertedIndexProperties.INVERTED_INDEX_PARSER_BASIC,
             InvertedIndexProperties.INVERTED_INDEX_PARSER_ICU);
+    // Built-in analyzers whose tokenizer lower-cases its own terms when lower_case is on.
+    private static final Set<String> LOWERCASE_ONLY_BUILTIN_ANALYZERS = ImmutableSet.of(
+            InvertedIndexProperties.INVERTED_INDEX_PARSER_ENGLISH,
+            InvertedIndexProperties.INVERTED_INDEX_PARSER_CHINESE,
+            InvertedIndexProperties.INVERTED_INDEX_PARSER_KUROMOJI);
     private static final String PROP_PATTERN = "pattern";
     private static final String PROP_REPLACEMENT = "replacement";
     // Defaults CharReplaceCharFilterFactory applies to a bare built-in reference.
@@ -121,7 +128,7 @@ public final class AnalyzerIdentityBuilder {
             String builtinIkIdentity = resolveBuiltinIkAnalyzerIdentity(properties, preferredAnalyzer);
             if (builtinIkIdentity != null) {
                 return appendOuterCharFilterIdentity(
-                        builtinIkIdentity, properties, builtinIkFoldContext(builtinIkIdentity));
+                        builtinIkIdentity, properties, builtinIkFoldContext());
             }
             // BE dispatches a canonical lowercase built-in before any custom policy of that name.
             String builtinIdentity = builtinAnalyzerIdentity(preferredAnalyzer.trim(), properties);
@@ -140,7 +147,7 @@ public final class AnalyzerIdentityBuilder {
         String legacyIkIdentity = resolveLegacyIkIdentity(properties, parser);
         if (legacyIkIdentity != null) {
             return appendOuterCharFilterIdentity(
-                    legacyIkIdentity, properties, builtinIkFoldContext(legacyIkIdentity));
+                    legacyIkIdentity, properties, builtinIkFoldContext());
         }
         // A parser name reaches BE's built-in dispatch after case folding and without a policy lookup.
         String canonicalParser = parser.trim().toLowerCase(Locale.ROOT);
@@ -157,15 +164,17 @@ public final class AnalyzerIdentityBuilder {
      * the identity of that custom pipeline, and unicode is another spelling of standard.
      */
     private static String builtinAnalyzerIdentity(String name, Map<String, String> properties) {
-        if (InvertedIndexProperties.INVERTED_INDEX_PARSER_UNICODE.equals(name)) {
-            return appendOuterCharFilterIdentity(
-                    InvertedIndexProperties.INVERTED_INDEX_PARSER_STANDARD, properties, null);
+        if (InvertedIndexProperties.INVERTED_INDEX_PARSER_STANDARD.equals(name)
+                || InvertedIndexProperties.INVERTED_INDEX_PARSER_UNICODE.equals(name)) {
+            return builtinStandardAnalyzerIdentity(properties);
+        }
+        if (LOWERCASE_ONLY_BUILTIN_ANALYZERS.contains(name)) {
+            return builtinLowercaseSettingIdentity(name, properties);
         }
         if (!LOWERCASE_FILTER_BUILTIN_ANALYZERS.contains(name)) {
             return null;
         }
-        boolean lowercase = !Boolean.FALSE.toString().equalsIgnoreCase(
-                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY));
+        boolean lowercase = isLowercaseEnabled(properties);
         // Spell out the pipeline rather than resolving components, because the built-in keeps its
         // own tokenizer even when a named policy shadows that name.
         String identity = IndexPolicyTypeEnum.ANALYZER.name() + ":"
@@ -173,6 +182,47 @@ public final class AnalyzerIdentityBuilder {
                 + IndexPolicy.PROP_TOKENIZER + "=" + name + ";";
         return appendOuterCharFilterIdentity(
                 identity, properties, lowercase ? FoldContext.unfiltered() : null);
+    }
+
+    /**
+     * Identity of the standard and unicode built-ins, which are the same StandardAnalyzer. Its
+     * tokenizer lower-cases every word and drops the stop words unless the settings turn those
+     * off, so both settings belong to the identity.
+     */
+    private static String builtinStandardAnalyzerIdentity(Map<String, String> properties) {
+        boolean lowercase = isLowercaseEnabled(properties);
+        StringBuilder identity =
+                new StringBuilder(InvertedIndexProperties.INVERTED_INDEX_PARSER_STANDARD);
+        if (!lowercase) {
+            identity.append(";").append(
+                    InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY).append("=false");
+        }
+        if (STOPWORDS_NONE.equals(
+                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_STOPWORDS_KEY))) {
+            identity.append(";").append(
+                    InvertedIndexProperties.INVERTED_INDEX_PARSER_STOPWORDS_KEY).append("=none");
+        }
+        return appendOuterCharFilterIdentity(
+                identity.toString(), properties, lowercase ? FoldContext.unfiltered() : null);
+    }
+
+    /**
+     * Identity of a built-in analyzer whose tokenizer lower-cases its terms unless lower_case turns
+     * that off, and that reads no other setting.
+     */
+    private static String builtinLowercaseSettingIdentity(
+            String name, Map<String, String> properties) {
+        boolean lowercase = isLowercaseEnabled(properties);
+        String identity = lowercase ? name
+                : name + ";" + InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY + "=false";
+        return appendOuterCharFilterIdentity(
+                identity, properties, lowercase ? FoldContext.unfiltered() : null);
+    }
+
+    /** Whether BE lower-cases the terms of a built-in analyzer, which only lower_case=false stops. */
+    private static boolean isLowercaseEnabled(Map<String, String> properties) {
+        return !Boolean.FALSE.toString().equalsIgnoreCase(
+                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY));
     }
 
     private static String resolveBuiltinIkAnalyzerIdentity(
@@ -203,8 +253,7 @@ public final class AnalyzerIdentityBuilder {
 
     private static String buildBuiltinIkIdentity(String tokenizer, Map<String, String> properties) {
         String identity = IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=" + tokenizer + ";";
-        if (Boolean.FALSE.toString().equalsIgnoreCase(
-                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY))) {
+        if (!isLowercaseEnabled(properties)) {
             identity += "lower_case=false;";
         }
         return identity;
@@ -827,6 +876,8 @@ public final class AnalyzerIdentityBuilder {
         Boolean noneChinesePinyinTokenize = effectiveBoolean(properties, "none_chinese_pinyin_tokenize", true);
         Boolean ignorePinyinOffset = effectiveBoolean(properties, "ignore_pinyin_offset", true);
         Boolean keepJoinedFullPinyin = effectiveBoolean(properties, "keep_joined_full_pinyin", false);
+        // Read before the settings that gate the case-bearing outputs are dropped below.
+        boolean tokenizerEmitsSourceCase = pinyinTokenizerEmitsSourceCase(properties);
         // Only the pinyin tokenizer also consults keep_none_chinese_in_joined_full_pinyin, when no
         // other setting settles whether it emits an untokenized ASCII buffer.
         boolean tokenizerReadsJoinedSetting = expectedType == IndexPolicyTypeEnum.TOKENIZER
@@ -877,18 +928,50 @@ public final class AnalyzerIdentityBuilder {
             properties.remove("keep_none_chinese_in_joined_full_pinyin");
         }
 
-        // The ASCII alphabet tokenizer and pinyin dictionary already emit lowercase candidates.
         // The token filter keeps this setting because its fallback can carry the source case.
-        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                && Boolean.FALSE.equals(keepFirstLetter)
-                && Boolean.FALSE.equals(keepOriginal)
-                && Boolean.FALSE.equals(keepJoinedFullPinyin)
-                && (Boolean.FALSE.equals(keepNoneChinese)
-                        || (Boolean.TRUE.equals(keepNoneChinese)
-                                && Boolean.TRUE.equals(keepNoneChineseTogether)
-                                && Boolean.TRUE.equals(noneChinesePinyinTokenize)))) {
+        if (expectedType == IndexPolicyTypeEnum.TOKENIZER && !tokenizerEmitsSourceCase) {
             properties.remove("lowercase");
         }
+    }
+
+    /**
+     * Whether any candidate of the pinyin tokenizer copies an ASCII letter from the source. The
+     * other candidates come from the pinyin dictionary or the ASCII alphabet tokenizer, which both
+     * emit lower-case text, so without one of these the lowercase setting cannot change a term.
+     * Settings that cannot be read as booleans count as possibly enabled.
+     */
+    private static boolean pinyinTokenizerEmitsSourceCase(TreeMap<String, String> properties) {
+        Boolean keepFirstLetter = effectiveBoolean(properties, "keep_first_letter", true);
+        Boolean keepFullPinyin = effectiveBoolean(properties, "keep_full_pinyin", true);
+        Boolean keepSeparateFirstLetter = effectiveBoolean(properties, "keep_separate_first_letter", false);
+        Boolean keepOriginal = effectiveBoolean(properties, "keep_original", false);
+        Boolean keepNoneChinese = effectiveBoolean(properties, "keep_none_chinese", true);
+        Boolean keepNoneChineseTogether = effectiveBoolean(properties, "keep_none_chinese_together", true);
+        Boolean noneChinesePinyinTokenize = effectiveBoolean(properties, "none_chinese_pinyin_tokenize", true);
+        Boolean keepJoinedFullPinyin = effectiveBoolean(properties, "keep_joined_full_pinyin", false);
+        Boolean keepNoneChineseInFirstLetter =
+                effectiveBoolean(properties, "keep_none_chinese_in_first_letter", true);
+        Boolean keepNoneChineseInJoinedFullPinyin =
+                effectiveBoolean(properties, "keep_none_chinese_in_joined_full_pinyin", false);
+
+        // The buffered ASCII run is emitted whole unless it is split into dictionary syllables, and
+        // then only when some output other than the joined string asks for it.
+        boolean emitsAsciiBuffer = !Boolean.FALSE.equals(keepNoneChinese)
+                && !Boolean.FALSE.equals(keepNoneChineseTogether)
+                && !Boolean.TRUE.equals(noneChinesePinyinTokenize)
+                && (!Boolean.FALSE.equals(keepFirstLetter)
+                        || !Boolean.FALSE.equals(keepSeparateFirstLetter)
+                        || !Boolean.FALSE.equals(keepFullPinyin)
+                        || !Boolean.TRUE.equals(keepNoneChineseInJoinedFullPinyin));
+        // The aggregated first-letter and joined strings only collect ASCII behind their own gate.
+        return !Boolean.FALSE.equals(keepOriginal)
+                || emitsAsciiBuffer
+                || (!Boolean.FALSE.equals(keepNoneChinese)
+                        && !Boolean.TRUE.equals(keepNoneChineseTogether))
+                || (!Boolean.FALSE.equals(keepFirstLetter)
+                        && !Boolean.FALSE.equals(keepNoneChineseInFirstLetter))
+                || (!Boolean.FALSE.equals(keepJoinedFullPinyin)
+                        && !Boolean.FALSE.equals(keepNoneChineseInJoinedFullPinyin));
     }
 
     private static Boolean effectiveBoolean(
@@ -1206,13 +1289,12 @@ public final class AnalyzerIdentityBuilder {
         return canonical.toString();
     }
 
-    private static FoldContext builtinIkFoldContext(String analyzerIdentity) {
-        return isDefaultLowercaseBuiltinIkIdentity(analyzerIdentity) ? FoldContext.unfiltered() : null;
-    }
-
-    private static boolean isDefaultLowercaseBuiltinIkIdentity(String analyzerIdentity) {
-        return (IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_smart;").equals(analyzerIdentity)
-                || (IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_max_word;").equals(analyzerIdentity);
+    /**
+     * Fold context of a built-in IK analyzer. IK lower-cases single-byte ASCII in the buffer its
+     * lexeme text is copied from, which lower_case=false does not reach.
+     */
+    private static FoldContext builtinIkFoldContext() {
+        return FoldContext.unfiltered();
     }
 
     /**

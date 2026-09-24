@@ -1184,7 +1184,15 @@ public class AnalyzerIdentityBuilderTest {
             String lowerCaseDisabledPlain = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("parser", "ik", "parser_mode", "ik_smart", "lower_case", "false"),
                     "", "ik", "__default__", "none", null);
-            Assertions.assertNotEquals(lowerCaseDisabledPlain, lowerCaseDisabled);
+            // IK folds single-byte ASCII in its own buffer whatever lower_case says.
+            Assertions.assertEquals(lowerCaseDisabledPlain, lowerCaseDisabled);
+
+            String lowerCaseDisabledRewritten = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("parser", "ik", "parser_mode", "ik_smart", "lower_case", "false",
+                            "char_filter_type", "char_replace", "char_filter_pattern", "-",
+                            "char_filter_replacement", " "),
+                    "", "ik", "__default__", "none", null);
+            Assertions.assertNotEquals(lowerCaseDisabledPlain, lowerCaseDisabledRewritten);
 
             String shadowed = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
                     Map.of("analyzer", "shadowed", "char_filter_type", "char_replace",
@@ -2091,6 +2099,15 @@ public class AnalyzerIdentityBuilderTest {
                 "keep_none_chinese", "false", "keep_original", "false", "keep_joined_full_pinyin", "true");
         replayPinyinPair(policyMgr, 9, "pinyin_joined", withJoined);
         replayPinyinPair(policyMgr, 10, "pinyin_joined_cased", casedPinyin(withJoined));
+        Map<String, String> joinedWithAscii = new HashMap<>(withJoined);
+        joinedWithAscii.put("keep_none_chinese_in_joined_full_pinyin", "true");
+        replayPinyinPair(policyMgr, 15, "pinyin_joined_ascii", joinedWithAscii);
+        replayPinyinPair(policyMgr, 16, "pinyin_joined_ascii_cased", casedPinyin(joinedWithAscii));
+        Map<String, String> firstLetterWithoutAscii = Map.of("keep_none_chinese", "false",
+                "keep_original", "false", "keep_none_chinese_in_first_letter", "false");
+        replayPinyinPair(policyMgr, 17, "pinyin_first_letter_dict_only", firstLetterWithoutAscii);
+        replayPinyinPair(policyMgr, 18, "pinyin_first_letter_dict_only_cased",
+                casedPinyin(firstLetterWithoutAscii));
         Map<String, String> untokenizedAscii = Map.of("keep_first_letter", "false",
                 "keep_original", "false", "none_chinese_pinyin_tokenize", "false");
         replayPinyinPair(policyMgr, 11, "pinyin_untokenized_ascii", untokenizedAscii);
@@ -2125,9 +2142,18 @@ public class AnalyzerIdentityBuilderTest {
                     () -> Assertions.assertNotEquals(
                             pinyinIdentity(resolve, "pinyin_first_letter", IndexPolicyTypeEnum.TOKENIZER),
                             pinyinIdentity(resolve, "pinyin_first_letter_cased", IndexPolicyTypeEnum.TOKENIZER)),
-                    () -> Assertions.assertNotEquals(
+                    // The aggregated outputs only carry the source case when their own ASCII gate is on.
+                    () -> Assertions.assertEquals(
                             pinyinIdentity(resolve, "pinyin_joined", IndexPolicyTypeEnum.TOKENIZER),
                             pinyinIdentity(resolve, "pinyin_joined_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertNotEquals(
+                            pinyinIdentity(resolve, "pinyin_joined_ascii", IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_joined_ascii_cased", IndexPolicyTypeEnum.TOKENIZER)),
+                    () -> Assertions.assertEquals(
+                            pinyinIdentity(resolve, "pinyin_first_letter_dict_only",
+                                    IndexPolicyTypeEnum.TOKENIZER),
+                            pinyinIdentity(resolve, "pinyin_first_letter_dict_only_cased",
+                                    IndexPolicyTypeEnum.TOKENIZER)),
                     // The token filter has its own candidate sources, so it keeps the setting.
                     () -> Assertions.assertNotEquals(
                             pinyinIdentity(resolve, "pinyin_only", IndexPolicyTypeEnum.TOKEN_FILTER),
@@ -2281,5 +2307,61 @@ public class AnalyzerIdentityBuilderTest {
                         parserIdentity("unicode", Map.of()), parserIdentity("chinese", Map.of())),
                 () -> Assertions.assertNotEquals(
                         parserIdentity("unicode", Map.of()), parserIdentity("basic", Map.of())));
+    }
+
+    @Test
+    public void testBuiltinStandardIdentityKeepsEffectiveSettings() {
+        Map<String, String> noLowercase = Map.of("lower_case", "false");
+        Map<String, String> noStopwords = Map.of("stopwords", "none");
+        Map<String, String> neitherSetting = Map.of("lower_case", "false", "stopwords", "none");
+        Map<String, String> noLowercaseWithOuter = new HashMap<>(outerLowerA());
+        noLowercaseWithOuter.put("lower_case", "false");
+        Map<String, String> noStopwordsWithOuter = new HashMap<>(outerLowerA());
+        noStopwordsWithOuter.put("stopwords", "none");
+        Assertions.assertAll(
+                // Either spelling hands the same settings to the same StandardAnalyzer.
+                () -> Assertions.assertEquals(parserIdentity("standard", neitherSetting),
+                        builtinAnalyzerIdentity("unicode", neitherSetting)),
+                // The tokenizer reads both settings, so each one keeps the terms apart.
+                () -> Assertions.assertNotEquals(parserIdentity("standard", Map.of()),
+                        parserIdentity("unicode", noLowercase)),
+                () -> Assertions.assertNotEquals(parserIdentity("standard", Map.of()),
+                        parserIdentity("unicode", noStopwords)),
+                () -> Assertions.assertNotEquals(parserIdentity("standard", noLowercase),
+                        parserIdentity("standard", noStopwords)),
+                () -> Assertions.assertNotEquals(parserIdentity("standard", neitherSetting),
+                        parserIdentity("standard", noLowercase)),
+                () -> Assertions.assertNotEquals(parserIdentity("standard", neitherSetting),
+                        parserIdentity("standard", noStopwords)),
+                // Lower-casing every word absorbs an outer rewrite of one letter to its lower form.
+                () -> Assertions.assertEquals(parserIdentity("standard", Map.of()),
+                        parserIdentity("standard", outerLowerA())),
+                () -> Assertions.assertEquals(parserIdentity("standard", noStopwords),
+                        parserIdentity("unicode", noStopwordsWithOuter)),
+                // Without that fold the outer rewrite still changes the terms.
+                () -> Assertions.assertNotEquals(parserIdentity("standard", noLowercase),
+                        parserIdentity("standard", noLowercaseWithOuter)));
+    }
+
+    @Test
+    public void testBuiltinAnalyzersReadingOnlyLowerCaseKeepThatSetting() {
+        Map<String, String> noLowercase = Map.of("lower_case", "false");
+        Map<String, String> noLowercaseWithOuter = new HashMap<>(outerLowerA());
+        noLowercaseWithOuter.put("lower_case", "false");
+        Assertions.assertAll(() -> {
+            // Each of these tokenizers lower-cases its own terms, so the setting changes the terms.
+            for (String parser : new String[] {"english", "chinese", "kuromoji"}) {
+                Assertions.assertNotEquals(parserIdentity(parser, Map.of()),
+                        parserIdentity(parser, noLowercase), parser);
+                // That fold absorbs an outer rewrite of one letter to its lower form.
+                Assertions.assertEquals(parserIdentity(parser, Map.of()),
+                        parserIdentity(parser, outerLowerA()), parser);
+                Assertions.assertNotEquals(parserIdentity(parser, noLowercase),
+                        parserIdentity(parser, noLowercaseWithOuter), parser);
+                // The built-ins stay distinct from each other.
+                Assertions.assertNotEquals(parserIdentity(parser, Map.of()),
+                        parserIdentity("standard", Map.of()), parser);
+            }
+        });
     }
 }
