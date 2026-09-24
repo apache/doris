@@ -405,6 +405,7 @@ public class InternalSchemaInitializer extends Thread {
          * )
          */
         createTable(getAuditLogCreateSql());
+        createTable(getSpmBaselinesCreateSql());
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
@@ -477,6 +478,31 @@ public class InternalSchemaInitializer extends Thread {
                         + ")\n"
                         + "DISTRIBUTED BY HASH(`query_id`)\n"
                         + "BUCKETS 2\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    private static String getSpmBaselinesCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM baselines table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 10\n"
                         + "PROPERTIES (%s)";
         return String.format(template, catalogName, dbName, tableName,
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
