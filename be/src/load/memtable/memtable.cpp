@@ -51,6 +51,26 @@ bvar::Adder<uint64_t> g_flush_cuz_memtable_full("flush_cuz_memtable_full");
 
 using namespace ErrorCode;
 
+namespace {
+
+// Share one tracked allocation across a batch. Allocating each row separately also
+// retains an address record and a stack trace per row when memory diagnostics are enabled.
+template <typename RowFactory>
+std::shared_ptr<RowInBlock[]> make_row_batch(size_t num_rows, RowFactory&& make_row) {
+    if (num_rows == 1) {
+        // Keep single-row writes as compact as a scalar allocation.
+        auto row = std::allocate_shared<RowInBlock>(CustomStdAllocator<RowInBlock>(), make_row(0));
+        return {row, row.get()};
+    }
+    auto rows = std::allocate_shared<RowInBlock[]>(CustomStdAllocator<RowInBlock>(), num_rows);
+    for (size_t i = 0; i < num_rows; ++i) {
+        rows[i] = make_row(i);
+    }
+    return rows;
+}
+
+} // namespace
+
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
@@ -274,11 +294,11 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
         _input_mutable_block.get_column_by_position(_row_lsn_col_pos)
                 ->replace_column_data_range(*lsn_column, 0, num_rows, cursor_in_mutableblock);
     }
-    for (int i = 0; i < num_rows; i++) {
-        // Track both the row and the shared_ptr control block in the memtable tracker.
-        _row_in_blocks->emplace_back(std::allocate_shared<RowInBlock>(
-                CustomStdAllocator<RowInBlock>(), cursor_in_mutableblock + i,
-                _need_lsn ? allocated_lsns[i] : 0));
+    auto row_batch = make_row_batch(num_rows, [&](size_t i) {
+        return RowInBlock(cursor_in_mutableblock + i, _need_lsn ? allocated_lsns[i] : 0);
+    });
+    for (size_t i = 0; i < num_rows; ++i) {
+        _row_in_blocks->emplace_back(row_batch, &row_batch[i]);
     }
 
     _stat.raw_rows += num_rows;
@@ -455,9 +475,11 @@ Status MemTable::_sort_by_cluster_keys() {
     if (_need_lsn) {
         DCHECK_EQ(_output_allocated_lsns->size(), mutable_block.rows());
     }
-    for (size_t i = 0; i < mutable_block.rows(); i++) {
-        row_in_blocks.emplace_back(std::allocate_shared<RowInBlock>(
-                CustomStdAllocator<RowInBlock>(), i, _need_lsn ? (*_output_allocated_lsns)[i] : 0));
+    auto rows = make_row_batch(mutable_block.rows(), [&](size_t i) {
+        return RowInBlock(i, _need_lsn ? (*_output_allocated_lsns)[i] : 0);
+    });
+    for (size_t i = 0; i < mutable_block.rows(); ++i) {
+        row_in_blocks.emplace_back(rows, &rows[i]);
     }
     if (_need_lsn) {
         _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
@@ -651,6 +673,13 @@ void MemTable::_aggregate() {
         _output_mutable_block = MutableBlock::build_mutable_block(std::move(*empty_input_block));
         _output_mutable_block.clear_column_data();
         _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
+        // Repack surviving rows so they do not retain batches of merged-away rows.
+        // Aggregation states belong to the memtable; preserve their pointers and flags.
+        auto rows = make_row_batch(temp_row_in_blocks.size(),
+                                   [&](size_t i) { return *temp_row_in_blocks[i]; });
+        for (size_t i = 0; i < temp_row_in_blocks.size(); ++i) {
+            temp_row_in_blocks[i] = {rows, &rows[i]};
+        }
         *_row_in_blocks = temp_row_in_blocks;
         _last_sorted_pos = _row_in_blocks->size();
     }

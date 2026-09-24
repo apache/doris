@@ -58,7 +58,7 @@ struct RowInBlock {
     size_t* _agg_state_offset = nullptr;
     bool _has_init_agg;
 
-    RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
+    RowInBlock(size_t row = 0) : _row_pos(row), _has_init_agg(false) {}
     RowInBlock(size_t row, int64_t allocated_lsn)
             : _row_pos(row), _allocated_lsn(allocated_lsn), _has_init_agg(false) {}
 
