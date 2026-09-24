@@ -101,6 +101,9 @@ public class DateTimeCheckerTest {
         literal = "2024-01-01 01:02:03  +08:00";
         Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
         Assertions.assertTrue(DateTimeChecker.hasTimeZone(literal));
+        literal = "2024-01-01:01:02:03+08:00";
+        Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
+        Assertions.assertTrue(DateTimeChecker.hasTimeZone(literal));
         literal = "2024-01-01 01:02:03+08";
         Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
         Assertions.assertTrue(DateTimeChecker.hasTimeZone(literal));
@@ -108,6 +111,9 @@ public class DateTimeCheckerTest {
         Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
         Assertions.assertFalse(DateTimeChecker.hasTimeZone(literal));
         literal = "2024-01-01 01:02:03";
+        Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
+        Assertions.assertFalse(DateTimeChecker.hasTimeZone(literal));
+        literal = "2024-01-01:01:02:03";
         Assertions.assertTrue(DateTimeChecker.isValidDateTime(literal));
         Assertions.assertFalse(DateTimeChecker.hasTimeZone(literal));
     }
