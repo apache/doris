@@ -302,6 +302,46 @@ public class PolicyValidatorTests {
     }
 
     @Test
+    public void testNormalizerNamedAfterBuiltinAnalyzerIsUnreachable() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                45, "ik", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                46, "none", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                47, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        for (String name : List.of("ik", "IK", "none", " NONE ")) {
+            DdlException error = Assertions.assertThrows(
+                    DdlException.class, () -> manager.validateNormalizerExists(name));
+            Assertions.assertTrue(error.getMessage().contains("built-in analyzer"), error.getMessage());
+        }
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("norm_ascii"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("lowercase"));
+    }
+
+    @Test
+    public void testExactCaseDistinctNormalizerPolicyRemainsReachable() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                48, "IK", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("IK"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("ik"));
+    }
+
+    @Test
+    public void testCreateNormalizerPolicyRejectsBuiltinAnalyzerName() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        for (String name : List.of("ik", "IK", "none", "standard")) {
+            DdlException error = Assertions.assertThrows(DdlException.class,
+                    () -> manager.createIndexPolicy(false, name, IndexPolicyTypeEnum.NORMALIZER,
+                            new HashMap<>(Map.of("token_filter", "asciifolding"))));
+            Assertions.assertTrue(error.getMessage().contains("conflicts with built-in"), error.getMessage());
+        }
+    }
+
+    @Test
     public void testReplayedAnalyzerUsesExactTokenizerBinding() throws Exception {
         Map<String, String> invalidNgram = Map.of(
                 "type", "ngram", "min_gram", "1", "max_gram", "3", "max_ngram_diff", "1");

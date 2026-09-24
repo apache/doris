@@ -845,6 +845,53 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
+    public void testCreateTableRejectsNormalizerNamedAfterBuiltinAnalyzer() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                100, "ik", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                101, "standard", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                102, "none", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                103, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        withIndexPolicyManager(policyMgr, () -> {
+            for (String normalizer : List.of("ik", "IK", " Standard ", "none")) {
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARCHAR,
+                                new HashMap<>(Map.of("normalizer", normalizer)),
+                                TInvertedIndexFileStorageFormat.V3));
+                Assertions.assertTrue(error.getMessage().contains("built-in analyzer"), error.getMessage());
+            }
+            for (String normalizer : List.of("norm_ascii", "lowercase", "LowerCase")) {
+                Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
+                        PrimitiveType.VARCHAR, new HashMap<>(Map.of("normalizer", normalizer)),
+                        TInvertedIndexFileStorageFormat.V3));
+            }
+        });
+    }
+
+    @Test
+    public void testCreateTableKeepsNormalizerWhoseExactNameEscapesBuiltinAnalyzers() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                105, "IK", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        Map<String, String> exactSpelling = new HashMap<>(Map.of("normalizer", " IK "));
+        Map<String, String> normalizedSpelling = new HashMap<>(Map.of("normalizer", "ik"));
+
+        withIndexPolicyManager(policyMgr, () -> {
+            for (Map<String, String> properties : List.of(exactSpelling, normalizedSpelling)) {
+                Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
+                        PrimitiveType.VARCHAR, properties, TInvertedIndexFileStorageFormat.V3));
+            }
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals("IK", exactSpelling.get("normalizer")),
+                    () -> Assertions.assertEquals("IK", normalizedSpelling.get("normalizer")));
+        });
+    }
+
+    @Test
     public void testCreateTableRejectsRedundantTokenCharAndReverseCaseAliases() {
         IndexPolicyMgr policyMgr = new IndexPolicyMgr();
         policyMgr.replayCreateIndexPolicy(new IndexPolicy(70, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,

@@ -21,6 +21,7 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -76,6 +77,13 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     if (UNLIKELY(reader == nullptr)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
+    }
+    // Check the reader that runs the query, not the first candidate of its type, because the
+    // analyzer decides which index is selected and the two can disagree on support_phrase.
+    if (is_phrase_query(i_param->query_type) &&
+        !IndexReaderHelper::is_support_phrase(std::static_pointer_cast<IndexReader>(reader))) {
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                "phrase queries require setting support_phrase = true");
     }
     auto* runtime_state = _context->runtime_state;
     if (!i_param->skip_try && reader->type() == InvertedIndexReaderType::BKD) {

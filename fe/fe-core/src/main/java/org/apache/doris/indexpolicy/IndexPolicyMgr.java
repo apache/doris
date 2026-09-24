@@ -282,6 +282,13 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policy.getType() != IndexPolicyTypeEnum.NORMALIZER) {
                 throw new DdlException("Policy '" + normalizerName + "' is not a normalizer");
             }
+            // BE merges the normalizer property into the analyzer name and builds a built-in analyzer
+            // for these names before it looks up any policy, so such a binding never runs the policy.
+            if (IndexPolicy.BUILTIN_ANALYZERS.contains(policy.getName())) {
+                throw new DdlException("Normalizer '" + normalizerName + "' binds policy '" + policy.getName()
+                        + "', whose name is a built-in analyzer name and is therefore never used;"
+                        + " rename the policy or use the built-in analyzer instead");
+            }
             if (policy.isInvalid()) {
                 throw new DdlException("Normalizer '" + normalizerName + "' is invalid");
             }

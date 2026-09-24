@@ -1608,6 +1608,47 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testNormalizerNamedAfterBuiltinAnalyzerIsRejectedInDdl() throws Exception {
+        createAnalyzerAliasTable("sc_unreachable_normalizer");
+        IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();
+        List<IndexPolicy> replayed = List.of(
+                replayAliasPolicy(policyMgr, "ik", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")),
+                replayAliasPolicy(policyMgr, "alter_unreachable_norm_ascii", IndexPolicyTypeEnum.NORMALIZER,
+                        Map.of("token_filter", "asciifolding")));
+        try {
+            expectException("alter table test.sc_unreachable_normalizer add index idx_ik(c1) using inverted "
+                    + "properties(\"normalizer\"=\"ik\")", "built-in analyzer");
+            Exception createError = Assertions.assertThrows(Exception.class,
+                    () -> executeNereidsSql("CREATE TABLE test.sc_unreachable_normalizer_create "
+                            + "(k INT, c1 VARCHAR(100),\n"
+                            + "INDEX idx_ik(c1) USING INVERTED PROPERTIES('normalizer' = 'ik'))\n"
+                            + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                            + "PROPERTIES ('replication_num' = '1')"));
+            Assertions.assertTrue(createError.getMessage().contains("built-in analyzer"), createError.getMessage());
+
+            alterTable("alter table test.sc_unreachable_normalizer add index idx_ascii(c1) using inverted "
+                    + "properties(\"normalizer\"=\"alter_unreachable_norm_ascii\")", connectContext);
+            jobSize++;
+            waitAlterJobDone(Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2());
+            Assertions.assertEquals("alter_unreachable_norm_ascii",
+                    storedIndexProperty("sc_unreachable_normalizer", "idx_ascii", "normalizer"));
+
+            executeNereidsSql("CREATE TABLE test.sc_unreachable_normalizer_create (k INT, c1 VARCHAR(100),\n"
+                    + "INDEX idx_ascii(c1) USING INVERTED "
+                    + "PROPERTIES('normalizer' = 'alter_unreachable_norm_ascii'))\n"
+                    + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')");
+            Assertions.assertEquals("alter_unreachable_norm_ascii",
+                    storedIndexProperty("sc_unreachable_normalizer_create", "idx_ascii", "normalizer"));
+        } finally {
+            for (IndexPolicy policy : replayed) {
+                policyMgr.replayDropIndexPolicy(new DropIndexPolicyLog(policy.getId()));
+            }
+        }
+    }
+
+    @Test
     public void testAddInvertedIndexRejectsRedundantTokenCharAndReverseCaseAliases() throws Exception {
         createAnalyzerAliasTable("sc_fold4_alias");
         IndexPolicyMgr policyMgr = Env.getCurrentEnv().getIndexPolicyMgr();

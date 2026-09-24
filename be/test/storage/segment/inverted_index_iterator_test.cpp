@@ -33,6 +33,7 @@
 #include "exprs/vmatch_predicate.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/ik/dic/Dictionary.h"
 #include "storage/index/inverted/inverted_index_parser.h"
@@ -876,6 +877,43 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
                 iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(result.value()->get_index_id(), 50);
+    }
+}
+
+TEST_F(InvertedIndexIteratorTest, PhraseSupportIsCheckedOnTheSelectedReader) {
+    // Two full-text indexes on one column, told apart by their analyzer and disagreeing about
+    // support_phrase. Index order must not decide whether a phrase query is allowed.
+    auto with_positions = MockInvertedIndexReader::create(
+            {{"analyzer", "phrase_analyzer"}, {"support_phrase", "true"}}, 1);
+    auto without_positions = MockInvertedIndexReader::create(
+            {{"analyzer", "plain_analyzer"}, {"support_phrase", "false"}}, 2);
+    auto column_type = std::make_shared<DataTypeString>();
+
+    for (const bool positions_first : {true, false}) {
+        SCOPED_TRACE(positions_first);
+        InvertedIndexIterator iterator;
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT,
+                            positions_first ? with_positions : without_positions);
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT,
+                            positions_first ? without_positions : with_positions);
+
+        const auto selected_with = iterator.select_best_reader(
+                column_type, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "phrase_analyzer");
+        ASSERT_TRUE(selected_with.has_value()) << selected_with.error();
+        EXPECT_EQ(*selected_with, with_positions);
+        EXPECT_TRUE(IndexReaderHelper::is_support_phrase(*selected_with));
+
+        const auto selected_without = iterator.select_best_reader(
+                column_type, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "plain_analyzer");
+        ASSERT_TRUE(selected_without.has_value()) << selected_without.error();
+        EXPECT_EQ(*selected_without, without_positions);
+        EXPECT_FALSE(IndexReaderHelper::is_support_phrase(*selected_without));
+
+        // The first candidate of the type is what the old preflight looked at, and it disagrees
+        // with the selected reader in one of the two orderings.
+        EXPECT_EQ(IndexReaderHelper::is_support_phrase(
+                          iterator.get_reader(InvertedIndexReaderType::FULLTEXT)),
+                  positions_first);
     }
 }
 
