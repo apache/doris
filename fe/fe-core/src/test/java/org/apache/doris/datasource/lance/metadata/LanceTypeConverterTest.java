@@ -331,6 +331,34 @@ public class LanceTypeConverterTest {
     }
 
     @Test
+    public void testTemporalScalesRejectPrecisionLoss() {
+        for (int scale : Arrays.asList(1, 2, 4, 5)) {
+            IllegalArgumentException datetime = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceTypeConverter.toArrowSchema(Collections.singletonList(
+                            new Column("dt", ScalarType.createDatetimeV2Type(scale), true))));
+            Assertions.assertTrue(datetime.getMessage().contains("0, 3, or 6"));
+
+            IllegalArgumentException time = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceTypeConverter.toArrowSchema(Collections.singletonList(
+                            new Column("tm", ScalarType.createTimeV2Type(scale), true))));
+            Assertions.assertTrue(time.getMessage().contains("0, 3, or 6"));
+
+            IllegalArgumentException addColumn = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceTypeConverter.toAddColumnExpression(
+                            ScalarType.createDatetimeV2Type(scale)));
+            Assertions.assertTrue(addColumn.getMessage().contains("0, 3, or 6"));
+        }
+
+        Assertions.assertDoesNotThrow(() -> LanceTypeConverter.toArrowSchema(Arrays.asList(
+                new Column("dt0", ScalarType.createDatetimeV2Type(0), true),
+                new Column("dt3", ScalarType.createDatetimeV2Type(3), true),
+                new Column("dt6", ScalarType.createDatetimeV2Type(6), true),
+                new Column("tm0", ScalarType.createTimeV2Type(0), true),
+                new Column("tm3", ScalarType.createTimeV2Type(3), true),
+                new Column("tm6", ScalarType.createTimeV2Type(6), true))));
+    }
+
+    @Test
     public void testAlterColumnTypeUsesNamespaceScalarNames() {
         Assertions.assertEquals("int64",
                 LanceTypeConverter.toAlterColumnType(Type.BIGINT));
