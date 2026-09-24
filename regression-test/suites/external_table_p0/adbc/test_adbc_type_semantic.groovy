@@ -251,10 +251,14 @@ suite("test_adbc_type_semantic", "p0,external") {
             ) DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
+        // Variant V2 deliberately does not implicitly parse a VARCHAR assigned to VARIANT: without the
+        // explicit conversion these fixtures are JSON-looking strings, so Arrow correctly serializes them
+        // with another layer of quotes and escapes. Build actual object values so this test continues to
+        // cover VARIANT object semantics rather than the representation of a string scalar.
         sql """
             INSERT INTO internal.${dbName}.t_variant VALUES
-              (1, '{"a": 1, "b": "two"}'),
-              (2, '{"nested": {"deep": 3}}'),
+              (1, parse_to_variant('{"a": 1, "b": "two"}')),
+              (2, parse_to_variant('{"nested": {"deep": 3}}')),
               (3, NULL)
         """
 

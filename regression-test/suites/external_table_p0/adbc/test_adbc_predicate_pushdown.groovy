@@ -208,13 +208,11 @@ suite("test_adbc_predicate_pushdown", "p0,external") {
         pushes("amount > 20.50", "`amount` >")
         pushes("big = 9223372036854775807", "9223372036854775807")
         pushes("d = '2024-01-01'", "DATE '2024-01-01'")
-        // The one comparison family this connector will not push, and the reason is that this source's
-        // datetime column arrives as TIMESTAMPTZ: an instant. By the time the literal reaches the
-        // dialect it has been converted to UTC, and standard SQL's TIMESTAMP '...' spelling carries no
-        // zone, so the source would read that UTC wall clock as its own local time. East of UTC that
-        // merely widens the match; west of UTC it drops rows the query wanted, and a scan cannot get
-        // back rows the source never sent. sameAsSource below is what says the ANSWER is still right.
-        pushesNothing("ts > '2024-01-01 00:00:00'")
+        // Doris DATETIME is exposed by Flight SQL as a timezone-naive Arrow timestamp. It therefore maps
+        // back to DATETIMEV2, not TIMESTAMPTZ, and the ANSI TIMESTAMP literal preserves the same wall-clock
+        // value at the source. This became deliberately pushable when Flight SQL stopped attaching the
+        // session timezone to DATETIME; sameAsSource below still verifies the returned rows independently.
+        pushes("ts > '2024-01-01 00:00:00'", "TIMESTAMP '2024-01-01 00:00:00'")
         ["name = 'alice'", "name = 'O''Brien'", "score > 2.5", "amount > 20.50",
          "big = 9223372036854775807", "d = '2024-01-01'",
          "ts > '2024-01-01 00:00:00'"].each { sameAsSource(it) }

@@ -124,7 +124,19 @@ suite("test_adbc_metadata_ops", "p0,external") {
         assertTrue(catalogNames.contains(catalogName),
                 "the catalog is missing from SHOW CATALOGS: ${catalogNames}")
 
-        qt_show_create_catalog """SHOW CREATE CATALOG ${catalogName}"""
+        // driver_url is intentionally an absolute local path and therefore differs on every checkout.
+        // Validate the dynamic value and the other persisted properties directly instead of baking one
+        // developer's workspace into a golden file.
+        def createCatalogRows = sql("SHOW CREATE CATALOG ${catalogName}")
+        assertEquals(1, createCatalogRows.size(),
+                "SHOW CREATE CATALOG should return exactly one row for ${catalogName}")
+        assertEquals(catalogName, createCatalogRows[0][0].toString())
+        String createCatalogSql = createCatalogRows[0][1].toString()
+        assertTrue(createCatalogSql.contains("\"type\" = \"adbc\""), createCatalogSql)
+        assertTrue(createCatalogSql.contains("\"driver_url\" = \"${sqliteDriverPath}\""),
+                createCatalogSql)
+        assertTrue(createCatalogSql.contains("\"uri\" = \"file:${dbFile.absolutePath}\""),
+                createCatalogSql)
 
         qt_show_databases """SHOW DATABASES FROM ${catalogName}"""
         qt_show_tables """SHOW TABLES FROM ${catalogName}.${sqliteDb}"""

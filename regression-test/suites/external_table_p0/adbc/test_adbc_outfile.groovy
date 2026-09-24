@@ -344,8 +344,12 @@ suite("test_adbc_outfile", "p0,external") {
                     "the data exported from the ADBC catalog and loaded back does not match the source")
         }
 
+        // Flight SQL exposes Doris DATETIME as a timezone-naive Arrow timestamp. Format it in SQL so the
+        // golden checks the wall-clock value instead of pinning a driver's Java timestamp rendering
+        // (for example, `2024-01-01T10:00` versus an older offset-bearing spelling).
         qt_source_for_export """
-            SELECT id, name, amount, d, ts FROM ${adbcTable} ORDER BY id
+            SELECT id, name, amount, d, date_format(ts, '%Y-%m-%d %H:%i:%s.%f')
+            FROM ${adbcTable} ORDER BY id
         """
     } finally {
         sql """DROP CATALOG IF EXISTS ${catalogName}"""

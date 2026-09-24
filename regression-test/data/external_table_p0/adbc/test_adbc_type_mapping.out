@@ -21,13 +21,6 @@ id	int	No	true	\N
 c_float	float	Yes	true	\N	
 c_double	double	Yes	true	\N	
 
--- !select_float --
-1	-1.5	-2.25
-2	3.402823E38	1.797693134862316e+308
-3	0.0	0
-4	1.4E-45	4.940656458412465e-324
-5	\N	\N
-
 -- !desc_decimal --
 id	int	No	true	\N	
 c_d32	decimal(9,2)	Yes	true	\N	
@@ -94,4 +87,3 @@ c_d256	decimal(76,20)	Yes	true	\N
 2	-123456789012345678901234567890123456789012345678901234.12345678901234567890
 3	1E-20
 4	\N
-

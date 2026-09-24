@@ -227,18 +227,13 @@ suite("test_adbc_type_mapping", "p0,external") {
         // ---- floating point ----
 
         qt_desc_float """DESC ${catalogName}.${dbName}.t_float"""
-        qt_select_float """SELECT id, c_float, c_double FROM ${catalogName}.${dbName}.t_float ORDER BY id"""
 
-        // Compared INSIDE Doris rather than through sameAsSource, and not because ADBC needs the
-        // help: the fixture's DBL_MAX cannot make the trip to the test client at all. Doris renders a
-        // double with 16 significant digits, so 1.7976931348623157E308 comes back as the text
-        // 1.797693134862316e+308 -- a value ABOVE DBL_MAX, which parses to infinity and makes the
-        // JDBC driver throw "Value '∞' is outside of valid range" before any comparison happens. The
-        // native read of the source table prints exactly the same text, so this is Doris's own
-        // double-to-text rounding, not an ADBC fault, and swapping the fixture for a rounder number
-        // would drop the one row that proves a double is not narrowed to a float somewhere in the
-        // Arrow round trip. <=> is null-safe, so row 5's nulls have to match as nulls, and the join
-        // makes every value a bit-for-bit comparison the client never sees.
+        // Do not put the raw extrema in a golden file. DBL_MAX and the smallest subnormal have several
+        // equivalent shortest decimal spellings, and Arrow/JDBC upgrades may choose a different one. One
+        // previous spelling even rounded above DBL_MAX when the regression framework parsed the expected
+        // cell, producing infinity before ADBC was compared at all. Compare inside Doris instead: this is
+        // representation-independent and proves that ADBC did not narrow or otherwise change a bit. <=> is
+        // null-safe, so row 5's nulls also have to match.
         def floatRowsMatched = sql("""
             SELECT count(*) FROM ${catalogName}.${dbName}.t_float a
             JOIN internal.${dbName}.t_float s ON a.id = s.id
