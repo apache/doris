@@ -189,7 +189,10 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      * client it is answering, as {@link #fillForwardRequest} put them in the request. A request
      * from an old frontend carries neither the capability flags nor the cursor flag; it gets the
      * default capabilities without CLIENT_DEPRECATE_EOF, plus that flag when set separately, and
-     * its ordinary prepared statements are not rejected.
+     * its ordinary prepared statements are not rejected. The defaults carry the multi-statement
+     * flags, which an old frontend did not advertise; that is of no consequence here, because the
+     * master answers one forwarded statement at a time and the channel's multi-statement flag is
+     * set only by the handshake on the frontend the client is connected to.
      */
     public void restoreFromForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
         int flags = request.isSetMysqlCapability() ? request.getMysqlCapability()

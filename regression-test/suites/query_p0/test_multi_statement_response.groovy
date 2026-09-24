@@ -33,10 +33,10 @@ import java.sql.Statement
 // statement's OK alone; it used to answer with the packets of the preceding query followed by the
 // OK, a stream no client can parse.
 //
-// Connector/J exercises the second case only: it asks for CLIENT_MULTI_STATEMENTS only when the
-// server advertises it, which Doris does not, and it always asks for CLIENT_DEPRECATE_EOF. The
-// other combinations are driven through a bare protocol client below, which also sees the response
-// packet by packet.
+// Connector/J asks for CLIENT_MULTI_STATEMENTS only with allowMultiQueries=true, and 8.x and 9.x
+// only when the server advertises it too, which Doris does like MySQL; it always asks for
+// CLIENT_DEPRECATE_EOF. The other combinations are driven through a bare protocol client below,
+// which also sees the response packet by packet.
 suite("test_multi_statement_response") {
     def tableName = "multi_statement_response"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -158,6 +158,30 @@ suite("test_multi_statement_response") {
             assertEquals([[kind: "rows", rows: [["1"], ["3"]], more: false]],
                     client.query("SELECT k FROM ${tableName} ORDER BY k"))
             sql "DELETE FROM ${tableName} WHERE k = 3"
+        }
+    }
+
+    // 3. Connector/J with allowMultiQueries=true, CLIENT_MULTI_STATEMENTS negotiated: every
+    //    statement's response reaches the client. Before the server advertised the flag, 8.x and
+    //    9.x drivers dropped it from their request and got only the last response, as in 1.
+    connect(context.config.jdbcUser, context.config.jdbcPassword, url + "&allowMultiQueries=true") {
+        context.getConnection().createStatement().withCloseable { statement ->
+            statement.execute("USE ${context.dbName}")
+
+            assertTrue(statement.execute("SELECT 1; SELECT 2"))
+            assertEquals([1], readRows(statement))
+            assertTrue(statement.getMoreResults())
+            assertEquals([2], readRows(statement))
+            assertFalse(statement.getMoreResults())
+            assertEquals(-1, statement.getUpdateCount())
+
+            // The query's result set, then the SET's OK as an update count of 0.
+            assertTrue(statement.execute("SELECT 1; SET @multi_stmt_var = 12"))
+            assertEquals([1], readRows(statement))
+            assertFalse(statement.getMoreResults())
+            assertEquals(0, statement.getUpdateCount())
+            assertTrue(statement.execute("SELECT @multi_stmt_var"))
+            assertEquals([12], readRows(statement))
         }
     }
 
