@@ -36,7 +36,6 @@
 namespace doris {
 SpillFile::SpillFile(SpillDataDir* data_dir, std::string relative_path)
         : _data_dir(data_dir),
-          _query_dir(relative_path.substr(0, relative_path.find('/'))),
           _spill_dir(data_dir->get_spill_data_path() + "/" + std::move(relative_path)) {}
 
 SpillFile::~SpillFile() {

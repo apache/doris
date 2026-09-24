@@ -29,16 +29,14 @@ namespace doris {
 ///
 /// Object layout, relative to the vault prefix:
 ///   spill/{ip}_{port}/{query_id}/{spill file}/{part}
-///   spill/{ip}_{port}/_heartbeat   rewritten every spill_s3_heartbeat_interval_second
 /// {ip}_{port} is the address this BE advertises (BackendOptions::get_localhost(), normally its
 /// IP) and its heartbeat_service_port, the pair FE identifies a BE by, so several BEs on one
 /// host get different directories and a key tells which BE wrote it and which query it belongs
-/// to. A query's directory is deleted as a whole when the query ends on this BE, and at startup
-/// every query directory under spill/{ip}_{port}/ that no query of this process is using is
-/// taken for residue of the previous process and deleted; both assume that no other live BE
-/// writing to the vault has the same address and port (a vault shared by clusters whose
-/// addresses overlap would break that). The meta-service recycler deletes a BE directory only
-/// when nothing in it, the heartbeat included, changed for spill_objects_expire_time_second.
+/// to. The objects of a spill file are deleted when its SpillFile is destroyed, which happens
+/// when the query is done with it; a deletion that failed is retried by the GC thread. Nothing
+/// else deletes spill objects: what a BE that crashed left behind stays until an object
+/// lifecycle rule of the bucket (expiring keys under spill/ and aborting incomplete multipart
+/// uploads) removes it.
 ///
 /// The file system is resolved lazily by ensure_ready(): the storage vault may not be known
 /// yet when BE starts.
@@ -69,8 +67,6 @@ public:
     /// "{ip}_{port}" in the object keys; empty until ready.
     const std::string& endpoint() const { return _endpoint; }
 
-    /// spill/{ip}_{port}/_heartbeat; valid once ready.
-    std::string heartbeat_path() const { return get_spill_data_path() + "/_heartbeat"; }
     const std::string& vault_id() const { return _vault_id; }
 
 protected:
