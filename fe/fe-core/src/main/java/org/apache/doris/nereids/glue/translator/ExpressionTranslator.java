@@ -36,6 +36,7 @@ import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SearchPredicate;
+import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TryCastExpr;
@@ -84,7 +85,7 @@ import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysShortCircuit;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -745,12 +746,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
-        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
-                catalogFunction, new FunctionParams(false, arguments), function.nullable());
-        if (function instanceof AlwaysShortCircuit) {
-            functionCallExpr.setForceShortCircuitEvaluation(true);
-        }
-        return functionCallExpr;
+        FunctionParams functionParams = new FunctionParams(false, arguments);
+        return function instanceof RequiresShortCircuitEvaluation
+                ? new ShortCircuitFunctionCallExpr(catalogFunction, functionParams, function.nullable())
+                : new FunctionCallExpr(catalogFunction, functionParams, function.nullable());
     }
 
     @Override

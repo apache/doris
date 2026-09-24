@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysShortCircuit;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -72,11 +72,11 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
 
     private boolean checkBooleanType(Expression expression) {
         return expression.getDataType().isBooleanType()
-                && !containsAlwaysShortCircuit(expression);
+                && !requiresShortCircuitEvaluation(expression);
     }
 
-    private static boolean containsAlwaysShortCircuit(Expression expression) {
-        return expression.anyMatch(node -> node instanceof AlwaysShortCircuit);
+    private static boolean requiresShortCircuitEvaluation(Expression expression) {
+        return expression.anyMatch(node -> node instanceof RequiresShortCircuitEvaluation);
     }
 
     private Expression rewriteCaseWhen(CaseWhen caseWhen) {
@@ -133,12 +133,12 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
         protected boolean needRewrite(Expression expression, boolean isInsideCondition) {
             return expression.containsType(If.class)
                     && expression.containsType(BooleanLiteral.class, NullLiteral.class)
-                    && !containsAlwaysShortCircuit(expression);
+                    && !requiresShortCircuitEvaluation(expression);
         }
 
         @Override
         public Expression visitIf(If ifExpr, Boolean isInsideCondition) {
-            if (ifExpr instanceof AlwaysShortCircuit) {
+            if (ifExpr instanceof RequiresShortCircuitEvaluation) {
                 return ifExpr;
             }
             If newIf = (If) super.visitIf(ifExpr, isInsideCondition);

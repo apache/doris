@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -46,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.ConnectorWriteSchemaUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.ConnectorChangelogRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -233,8 +233,8 @@ public final class ConnectorChangelogPlanBuilder {
                 for (int index = branches.size() - 1; index >= 0; index--) {
                     Expression branchValue = TypeCoercionUtils.castIfNotSameType(
                             branches.get(index).get(column), type);
-                    value = new ShortCircuitIf(new EqualTo(branchSlot, new IntegerLiteral(index)),
-                            branchValue, value);
+                    value = MergeUtils.selectBranch(
+                            new EqualTo(branchSlot, new IntegerLiteral(index)), branchValue, value);
                 }
                 output.add(new Alias(value, name));
             }
@@ -380,7 +380,7 @@ public final class ConnectorChangelogPlanBuilder {
                 }
                 Expression label = new IntegerLiteral(i);
                 matched = clause.getCasePredicate().isPresent()
-                        ? new ShortCircuitIf(clause.getCasePredicate().get(), label, matched) : label;
+                        ? MergeUtils.selectBranch(clause.getCasePredicate().get(), label, matched) : label;
             }
             Expression notMatched = new NullLiteral(IntegerType.INSTANCE);
             for (int i = merge.getNotMatchedClauses().size() - 1; i >= 0; i--) {
@@ -391,10 +391,10 @@ public final class ConnectorChangelogPlanBuilder {
                 }
                 Expression label = new IntegerLiteral(i + merge.getMatchedClauses().size());
                 notMatched = clause.getCasePredicate().isPresent()
-                        ? new ShortCircuitIf(clause.getCasePredicate().get(), label, notMatched) : label;
+                        ? MergeUtils.selectBranch(clause.getCasePredicate().get(), label, notMatched) : label;
             }
             return new Alias(analyzer.analyze(
-                    new ShortCircuitIf(targetPresent, matched, notMatched)), BRANCH_LABEL);
+                    MergeUtils.selectBranch(targetPresent, matched, notMatched)), BRANCH_LABEL);
         }
 
         private List<List<Expression>> buildBranchProjections() {
@@ -534,7 +534,7 @@ public final class ConnectorChangelogPlanBuilder {
             }
 
             private static CardinalityCheck matched(Expression isInsert, List<Expression> partitionKeys) {
-                return new CardinalityCheck(new Alias(new ShortCircuitIf(isInsert,
+                return new CardinalityCheck(new Alias(MergeUtils.selectBranch(isInsert,
                         new NullLiteral(BigIntType.INSTANCE), new BigIntLiteral(1)),
                         "__DORIS_CHANGELOG_MATCH_MARKER__"), partitionKeys,
                         "__DORIS_CHANGELOG_MATCH_COUNT__",
@@ -542,7 +542,7 @@ public final class ConnectorChangelogPlanBuilder {
             }
 
             private static CardinalityCheck inserted(Expression isInsert, List<Expression> partitionKeys) {
-                return new CardinalityCheck(new Alias(new ShortCircuitIf(isInsert,
+                return new CardinalityCheck(new Alias(MergeUtils.selectBranch(isInsert,
                         new BigIntLiteral(1), new NullLiteral(BigIntType.INSTANCE)),
                         "__DORIS_CHANGELOG_INSERT_MARKER__"), partitionKeys,
                         "__DORIS_CHANGELOG_INSERT_COUNT__",

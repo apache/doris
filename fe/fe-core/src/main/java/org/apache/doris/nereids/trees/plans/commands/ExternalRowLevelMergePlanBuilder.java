@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -135,7 +134,8 @@ public class ExternalRowLevelMergePlanBuilder {
             }
             Expression currentResult = new IntegerLiteral(i);
             if (clause.getCasePredicate().isPresent()) {
-                matchedLabel = new If(clause.getCasePredicate().get(), currentResult, matchedLabel);
+                matchedLabel = MergeUtils.selectBranch(
+                        clause.getCasePredicate().get(), currentResult, matchedLabel);
             } else {
                 matchedLabel = currentResult;
             }
@@ -149,13 +149,15 @@ public class ExternalRowLevelMergePlanBuilder {
             }
             Expression currentResult = new IntegerLiteral(i + matchedClauses.size());
             if (clause.getCasePredicate().isPresent()) {
-                notMatchedLabel = new If(clause.getCasePredicate().get(), currentResult, notMatchedLabel);
+                notMatchedLabel = MergeUtils.selectBranch(
+                        clause.getCasePredicate().get(), currentResult, notMatchedLabel);
             } else {
                 notMatchedLabel = currentResult;
             }
         }
 
-        return new UnboundAlias(new If(new Not(new IsNull(rowIdExpr)), matchedLabel, notMatchedLabel),
+        return new UnboundAlias(MergeUtils.selectBranch(
+                new Not(new IsNull(rowIdExpr)), matchedLabel, notMatchedLabel),
                 BRANCH_LABEL);
     }
 
@@ -308,7 +310,8 @@ public class ExternalRowLevelMergePlanBuilder {
             for (int j = 0; j < finalProjections.size(); j++) {
                 Expression branch = TypeCoercionUtils.castUnbound(
                         finalProjections.get(j).get(i), outputType);
-                project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
+                project = MergeUtils.selectBranch(
+                        new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
                         branch, project);
             }
             output.add(new UnboundAlias(project, colNames.get(i)));

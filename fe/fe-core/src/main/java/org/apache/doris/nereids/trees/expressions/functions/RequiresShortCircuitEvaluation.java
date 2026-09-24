@@ -17,6 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-/** Marks a function whose branches must be evaluated with short-circuit semantics. */
-public interface AlwaysShortCircuit {
+/** Marks control-flow expressions whose unselected branches must not be evaluated. */
+public interface RequiresShortCircuitEvaluation {
 }

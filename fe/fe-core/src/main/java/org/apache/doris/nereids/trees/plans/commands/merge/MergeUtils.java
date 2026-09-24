@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.merge;
 
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -33,6 +34,16 @@ import com.google.common.collect.ImmutableList;
 public class MergeUtils {
 
     private MergeUtils() {
+    }
+
+    /**
+     * Select a MERGE branch without evaluating expressions from branches that were not chosen.
+     * MERGE clauses are ordered control flow, so their conditions and assignments must not depend
+     * on the session-wide short_circuit_evaluation setting.
+     */
+    public static Expression selectBranch(Expression condition,
+            Expression selected, Expression otherwise) {
+        return new ShortCircuitIf(condition, selected, otherwise);
     }
 
     /**

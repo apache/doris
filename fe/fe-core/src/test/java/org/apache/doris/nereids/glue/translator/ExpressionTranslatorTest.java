@@ -20,7 +20,10 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
@@ -29,10 +32,13 @@ import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -71,5 +77,19 @@ public class ExpressionTranslatorTest {
 
         Expr actual = translator.visitOr(or, context);
         Assertions.assertTrue(actual.isNullable());
+    }
+
+    @Test
+    void testRequiredShortCircuitEvaluationSurvivesTranslation() {
+        ShortCircuitIf expression = new ShortCircuitIf(
+                BooleanLiteral.TRUE, new IntegerLiteral(1), new IntegerLiteral(2));
+
+        FunctionCallExpr translated = (FunctionCallExpr) ExpressionTranslator.translate(
+                expression, new PlanTranslatorContext());
+        TExprNode thriftNode = ExprToThriftVisitor.treeToThrift(translated).getNodes().get(0);
+
+        Assertions.assertInstanceOf(ShortCircuitFunctionCallExpr.class, translated);
+        Assertions.assertTrue(thriftNode.isSetShortCircuitEvaluation());
+        Assertions.assertTrue(thriftNode.isShortCircuitEvaluation());
     }
 }
