@@ -153,6 +153,13 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             ExternalTable localTable = db.getTableNullable(tableName);
             if (localTable != null) {
                 resetTableNameCache(dbName);
+                localTable = db.getTableNullable(tableName);
+                if (localTable != null) {
+                    if (createTableInfo.isIfNotExists()) {
+                        return true;
+                    }
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+                }
             }
             try {
                 client.createTable(db.getRemoteName(), tableName, schema, properties);
