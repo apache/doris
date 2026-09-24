@@ -149,6 +149,58 @@ TEST_F(BlockCompressionTest, multi) {
     test_multi_slices(segment_v2::CompressionTypePB::ZSTD);
 }
 
+// Parquet GZIP pages are decoded by libdeflate on every architecture, so check it
+// against the zlib gzip codec and on the malformed inputs a data file can contain.
+TEST_F(BlockCompressionTest, parquet_gzip) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(tparquet::CompressionCodec::GZIP, &codec).ok());
+    BlockCompressionCodec* zlib_codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(TFileCompressType::GZ, &zlib_codec).ok());
+
+    std::string empty_output;
+    Slice empty_slice(empty_output);
+    EXPECT_TRUE(codec->decompress(Slice(), &empty_slice).ok());
+    EXPECT_EQ(0, empty_slice.size);
+
+    for (size_t size : {1, 10, 1000, 65536, 1000000, 8 * 1024 * 1024}) {
+        SCOPED_TRACE(size);
+        // Repeat a short random string so that both literals and matches are exercised.
+        std::string orig = generate_str(std::min<size_t>(size, 4096));
+        while (orig.size() < size) {
+            orig.append(orig, 0, std::min(orig.size(), size - orig.size()));
+        }
+        faststring compressed;
+        ASSERT_TRUE(zlib_codec->compress(orig, &compressed).ok());
+
+        std::string restored(size, '\0');
+        Slice output(restored);
+        ASSERT_TRUE(codec->decompress(Slice(compressed), &output).ok());
+        EXPECT_EQ(orig, restored);
+
+        Slice short_output(restored.data(), size - 1);
+        EXPECT_FALSE(codec->decompress(Slice(compressed), &short_output).ok());
+
+        for (size_t len : {size_t {1}, size_t {10}, compressed.size() / 2, compressed.size() - 4,
+                           compressed.size() - 1}) {
+            output = Slice(restored);
+            EXPECT_FALSE(codec->decompress(Slice(compressed.data(), len), &output).ok());
+        }
+
+        // Corrupt the gzip magic, a deflate byte and the CRC32 in the trailer.
+        for (size_t pos : {size_t {0}, compressed.size() / 2, compressed.size() - 8}) {
+            faststring corrupted;
+            corrupted.assign_copy(compressed.data(), compressed.size());
+            corrupted.data()[pos] ^= 0x55;
+            output = Slice(restored);
+            EXPECT_FALSE(codec->decompress(Slice(corrupted), &output).ok());
+        }
+    }
+
+    std::string restored(16, '\0');
+    Slice output(restored);
+    EXPECT_FALSE(codec->decompress(Slice("not a gzip stream"), &output).ok());
+}
+
 static void check_snappy_decompression(BlockCompressionCodec* codec, const faststring& compressed,
                                        const std::string& original) {
     std::string restored(original.size(), '\0');
