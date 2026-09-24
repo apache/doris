@@ -117,4 +117,51 @@ suite("test_iceberg_delete_unpartitioned_evolution",
     """
     sql """update mixed_partition_specs set metric = metric + 100"""
     checkRows("mixed_partition_specs", expectedAfterUpdate)
+
+    // Historical binary partitions must retain their bytes, not become NULL delete partitions.
+    spark_iceberg """drop table if exists demo.${dbName}.historical_binary"""
+    spark_iceberg """
+        create table demo.${dbName}.historical_binary (record_key int, partition_key binary, metric int)
+        using iceberg partitioned by (partition_key)
+        tblproperties ('format-version' = '2', 'write.delete.mode' = 'merge-on-read')
+    """
+    spark_iceberg """insert into demo.${dbName}.historical_binary values
+        (1, unhex('00ff802f'), 10), (2, unhex('00ff802f'), 20), (3, null, 30), (4, unhex(''), 40)"""
+    spark_iceberg """alter table demo.${dbName}.historical_binary drop partition field partition_key"""
+    spark_iceberg """insert into demo.${dbName}.historical_binary values (5, unhex('ff'), 50)"""
+    sql """refresh database ${dbName}"""
+    def expectedAfterBinaryDelete = spark_iceberg """
+        select record_key, metric from demo.${dbName}.historical_binary
+        where record_key not in (1, 3, 4, 5) order by record_key
+    """
+    sql """delete from historical_binary where record_key in (1, 3, 4, 5)"""
+    checkRows("historical_binary", expectedAfterBinaryDelete)
+
+    // Negative fractional epochs require floor-based splitting into seconds and nanoseconds.
+    spark_iceberg """drop table if exists demo.${dbName}.historical_timestamp"""
+    spark_iceberg """
+        create table demo.${dbName}.historical_timestamp
+            (record_key int, partition_key timestamp_ntz, metric int)
+        using iceberg partitioned by (partition_key)
+        tblproperties ('format-version' = '2', 'write.delete.mode' = 'merge-on-read',
+                       'write.update.mode' = 'merge-on-read')
+    """
+    spark_iceberg """insert into demo.${dbName}.historical_timestamp values
+        (1, cast('1969-12-31 23:59:59.999999' as timestamp_ntz), 10),
+        (2, cast('1969-12-31 23:59:58.999999' as timestamp_ntz), 20), (3, null, 30)"""
+    spark_iceberg """alter table demo.${dbName}.historical_timestamp drop partition field partition_key"""
+    spark_iceberg """insert into demo.${dbName}.historical_timestamp values
+        (4, cast('1970-01-01 00:00:00.000001' as timestamp_ntz), 40)"""
+    sql """refresh database ${dbName}"""
+    def expectedAfterTimestampDelete = spark_iceberg """
+        select record_key, metric from demo.${dbName}.historical_timestamp
+        where record_key not in (1, 4) order by record_key
+    """
+    sql """delete from historical_timestamp where record_key in (1, 4)"""
+    checkRows("historical_timestamp", expectedAfterTimestampDelete)
+    def expectedAfterTimestampUpdate = spark_iceberg """
+        select record_key, metric + 100 from demo.${dbName}.historical_timestamp order by record_key
+    """
+    sql """update historical_timestamp set metric = metric + 100"""
+    checkRows("historical_timestamp", expectedAfterTimestampUpdate)
 }
