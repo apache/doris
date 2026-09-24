@@ -441,7 +441,11 @@ public class PluginDrivenExternalTableTest {
         ConnectorSession session = noneScopedSession();
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
-        Mockito.when(connector.getWritePlanProvider(handle)).thenReturn(provider);
+        AtomicReference<ClassLoader> providerResolutionLoader = new AtomicReference<>();
+        Mockito.when(connector.getWritePlanProvider(handle)).thenAnswer(invocation -> {
+            providerResolutionLoader.set(Thread.currentThread().getContextClassLoader());
+            return provider;
+        });
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
         Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
@@ -458,6 +462,7 @@ public class PluginDrivenExternalTableTest {
         Thread.currentThread().setContextClassLoader(previous);
         try {
             Assertions.assertTrue(table.resolveWriteColumns(Optional.empty()).isPresent());
+            Assertions.assertSame(connector.getClass().getClassLoader(), providerResolutionLoader.get());
             Assertions.assertSame(provider.getClass().getClassLoader(), observed.get());
             Assertions.assertEquals("pinned-generation", ctx.getStatementContext()
                     .getConnectorWriteMetadataIdentity(99L).orElse(null));

@@ -81,6 +81,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -179,7 +180,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorWritePlanProvider provider = writePlanProvider();
         // requiresParallelWrite is byte-inert for a heterogeneous gateway (hive and iceberg both true), so the
         // connector-level answer needs no per-handle resolution here.
-        return provider != null && provider.requiresParallelWrite();
+        return provider != null && withPluginContextClassLoader(provider, provider::requiresParallelWrite);
     }
 
     /**
@@ -191,12 +192,35 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     private ConnectorWritePlanProvider writePlanProvider() {
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector == null ? null : connector.getWritePlanProvider();
+        return connector == null ? null
+                : withPluginContextClassLoader(connector, connector::getWritePlanProvider);
     }
 
     private Optional<ConnectorTableHandle> resolveWriteCapabilityHandle(Connector connector) {
-        ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
-        return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = ((PluginDrivenExternalCatalog) catalog).buildConnectorSession();
+            return resolveConnectorTableHandle(session, PluginDrivenMetadata.get(session, connector));
+        });
+    }
+
+    private ConnectorWritePlanProvider writePlanProvider(
+            Connector connector, ConnectorTableHandle handle) {
+        return withPluginContextClassLoader(connector, () -> connector.getWritePlanProvider(handle));
+    }
+
+    private Optional<ConnectorWritePlanProvider> resolveWritePlanProvider(Connector connector) {
+        return resolveWriteCapabilityHandle(connector)
+                .map(handle -> writePlanProvider(connector, handle));
+    }
+
+    private static <T> T withPluginContextClassLoader(Object plugin, Supplier<T> callback) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(plugin.getClass().getClassLoader());
+            return callback.get();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /**
@@ -212,9 +236,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return EnumSet.noneOf(WriteOperation.class);
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::supportedOperations)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::supportedOperations))
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
     }
 
@@ -227,9 +250,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return ConnectorRowChangeStyle.NONE;
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::getRowChangeStyle)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::getRowChangeStyle))
                 .orElse(ConnectorRowChangeStyle.NONE);
     }
 
@@ -242,35 +264,44 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return Optional.empty();
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .flatMap(ConnectorWritePlanProvider::getChangelogMode);
+        return resolveWritePlanProvider(connector)
+                .flatMap(provider -> withPluginContextClassLoader(provider, provider::getChangelogMode));
     }
 
     /** Returns the primary-key columns used by this table's changelog row-level plan. */
     public List<String> getConnectorRowLevelPrimaryKeyColumns() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
-                .orElseThrow(() -> new DorisConnectorException(
-                        "Cannot resolve row-level DML target " + getName()));
-        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
-        return provider.getRowLevelPrimaryKeyColumns(session, handle);
+        return withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve row-level DML target " + getName()));
+            ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
+            return withPluginContextClassLoader(provider,
+                    () -> provider.getRowLevelPrimaryKeyColumns(session, handle));
+        });
     }
 
     /** Runs the engine-neutral mode check and connector-specific row-level validation. */
     public void validateConnectorRowLevelDml(ConnectorRowLevelDmlRequest request) {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
-        ConnectorSession session = pluginCatalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
-                .orElseThrow(() -> new DorisConnectorException(
-                        "Cannot resolve row-level DML target " + getName()));
-        metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
-        connector.getWritePlanProvider(handle).validateRowLevelDml(session, handle, request);
+        withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException(
+                            "Cannot resolve row-level DML target " + getName()));
+            metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
+            ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
+            withPluginContextClassLoader(provider, () -> {
+                provider.validateRowLevelDml(session, handle, request);
+                return null;
+            });
+            return null;
+        });
     }
 
     /** Returns connector-declared synthetic columns excluded from row-level write constraints. */
@@ -282,9 +313,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return Collections.emptySet();
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::getRowLevelWriteConstraintExcludedColumns)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        provider::getRowLevelWriteConstraintExcludedColumns))
                 .orElseGet(Collections::emptySet);
     }
 
@@ -297,9 +328,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             throw new DorisConnectorException("Connector is unavailable for row-level DML");
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(provider -> provider.getRowLevelDmlLabelPrefix(operation))
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        () -> provider.getRowLevelDmlLabelPrefix(operation)))
                 .orElseThrow(() -> new DorisConnectorException(
                         "Cannot resolve the connector write provider for row-level DML"));
     }
@@ -316,9 +347,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (connector == null) {
             return false;
         }
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::supportsWriteBranch)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider, provider::supportsWriteBranch))
                 .orElse(false);
     }
 
@@ -481,7 +511,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         ConnectorWritePlanProvider provider = writePlanProvider();
-        return provider != null && provider.requiresPartitionLocalSort();
+        return provider != null
+                && withPluginContextClassLoader(provider, provider::requiresPartitionLocalSort);
     }
 
     /**
@@ -501,9 +532,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         // Per-table: hive requires partition-hash writes but iceberg does not, so resolve the handle.
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::requiresPartitionHashWrite)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        provider::requiresPartitionHashWrite))
                 .orElse(false);
     }
 
@@ -523,11 +554,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handle.isPresent()) {
             return Optional.empty();
         }
-        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        ConnectorWritePlanProvider provider = writePlanProvider(connector, handle.get());
         if (provider == null) {
             return Optional.empty();
         }
-        return Optional.ofNullable(provider.getWriteDistribution(session, handle.get()));
+        return Optional.ofNullable(withPluginContextClassLoader(provider,
+                () -> provider.getWriteDistribution(session, handle.get())));
     }
 
     /**
@@ -541,7 +573,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         ConnectorWritePlanProvider provider = writePlanProvider();
-        return provider != null && provider.requiresFullSchemaWriteOrder();
+        return provider != null
+                && withPluginContextClassLoader(provider, provider::requiresFullSchemaWriteOrder);
     }
 
     /**
@@ -561,9 +594,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         // Per-table: iceberg retains partition columns and hive derives the partition directory from the row
         // (both materialize the PARTITION literal); maxcompute refills from the static spec instead.
-        return resolveWriteCapabilityHandle(connector)
-                .map(connector::getWritePlanProvider)
-                .map(ConnectorWritePlanProvider::requiresMaterializeStaticPartitionValues)
+        return resolveWritePlanProvider(connector)
+                .map(provider -> withPluginContextClassLoader(provider,
+                        provider::requiresMaterializeStaticPartitionValues))
                 .orElse(false);
     }
 
@@ -932,11 +965,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handleOpt.isPresent()) {
             return Collections.emptyList();
         }
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(handleOpt.get());
+        ConnectorWritePlanProvider writePlanProvider = writePlanProvider(connector, handleOpt.get());
         if (writePlanProvider == null) {
             return Collections.emptyList();
         }
-        return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
+        return withPluginContextClassLoader(writePlanProvider,
+                () -> writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get()));
     }
 
     /**
@@ -966,13 +1000,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!handle.isPresent()) {
             return Optional.empty();
         }
-        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        ConnectorWritePlanProvider provider = writePlanProvider(connector, handle.get());
         if (provider == null) {
             return Optional.empty();
         }
-        ClassLoader previous = Thread.currentThread().getContextClassLoader();
-        try {
-            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+        return withPluginContextClassLoader(provider, () -> {
             Optional<List<ConnectorColumn>> connectorColumns =
                     provider.getWriteColumns(session, handle.get(), branchName);
             if (!connectorColumns.isPresent()) {
@@ -984,9 +1016,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
             }
             return connectorColumns.map(ConnectorColumnConverter::convertColumns);
-        } finally {
-            Thread.currentThread().setContextClassLoader(previous);
-        }
+        });
     }
 
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
