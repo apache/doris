@@ -29,9 +29,39 @@
 -- !values_foldable_level_state --
 1	7
 
+-- !empty_string_level --
+\N
+
+-- !empty_string_cast_level --
+\N
+
+-- !decimalv2_divide --
+0	\N
+
+-- !decimalv2_zero_dividend_level --
+0
+
+-- !decimalv2_zero_divisor_level --
+\N
+
 -- !skip_fold_literal_level --
 4.5
 
 -- !skip_fold_foldable_level --
 4.5
+
+-- !skip_fold_empty_string_level --
+\N
+
+-- !skip_fold_empty_string_cast_level --
+\N
+
+-- !skip_fold_decimalv2_divide --
+0	\N
+
+-- !skip_fold_decimalv2_zero_dividend_level --
+0
+
+-- !skip_fold_decimalv2_zero_divisor_level --
+\N
 

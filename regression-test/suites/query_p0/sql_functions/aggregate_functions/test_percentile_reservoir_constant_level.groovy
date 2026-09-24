@@ -101,6 +101,39 @@ suite("test_percentile_reservoir_constant_level") {
         exception "percentile_reservoir level must be in [0, 1]"
     }
 
+    // a string level takes the same implicit cast as signature coercion, so '' and
+    // cast('' as double) agree: NULL under the default non-strict cast, an error under strict cast
+    qt_empty_string_level """
+        SELECT percentile_reservoir(number, '') FROM numbers('number' = '10')
+    """
+    qt_empty_string_cast_level """
+        SELECT percentile_reservoir(number, cast('' as double)) FROM numbers('number' = '10')
+    """
+    sql "SET enable_strict_cast = true"
+    test {
+        sql "SELECT percentile_reservoir(number, '') FROM numbers('number' = '10')"
+        exception "can't cast to double in strict mode"
+    }
+    test {
+        sql "SELECT percentile_reservoir(number, cast('' as double)) FROM numbers('number' = '10')"
+        exception "can't cast to double in strict mode"
+    }
+    sql "SET enable_strict_cast = false"
+
+    // DECIMALV2 division folds on FE the way BE executes it: NULL only for a zero divisor
+    qt_decimalv2_divide """
+        SELECT cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)),
+               cast(1 as decimalv2(27, 9)) / cast(0 as decimalv2(27, 9))
+    """
+    qt_decimalv2_zero_dividend_level """
+        SELECT percentile_reservoir(number, cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+    qt_decimalv2_zero_divisor_level """
+        SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(0 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+
     // a constant that FE cannot fold is rejected instead of being clamped by BE
     test {
         sql "SELECT percentile_reservoir(number, pow(0.5, 1)) FROM numbers('number' = '10')"
@@ -125,5 +158,29 @@ suite("test_percentile_reservoir_constant_level") {
         sql "SELECT percentile_reservoir(number, 0.5 + 1) FROM numbers('number' = '10')"
         exception "percentile_reservoir level must be in [0, 1]"
     }
+    qt_skip_fold_empty_string_level """
+        SELECT percentile_reservoir(number, '') FROM numbers('number' = '10')
+    """
+    qt_skip_fold_empty_string_cast_level """
+        SELECT percentile_reservoir(number, cast('' as double)) FROM numbers('number' = '10')
+    """
+    sql "SET enable_strict_cast = true"
+    test {
+        sql "SELECT percentile_reservoir(number, '') FROM numbers('number' = '10')"
+        exception "can't cast to double in strict mode"
+    }
+    sql "SET enable_strict_cast = false"
+    qt_skip_fold_decimalv2_divide """
+        SELECT cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)),
+               cast(1 as decimalv2(27, 9)) / cast(0 as decimalv2(27, 9))
+    """
+    qt_skip_fold_decimalv2_zero_dividend_level """
+        SELECT percentile_reservoir(number, cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
+    qt_skip_fold_decimalv2_zero_divisor_level """
+        SELECT percentile_reservoir(number, cast(1 as decimalv2(27, 9)) / cast(0 as decimalv2(27, 9)))
+        FROM numbers('number' = '10')
+    """
     sql "SET debug_skip_fold_constant = false"
 }

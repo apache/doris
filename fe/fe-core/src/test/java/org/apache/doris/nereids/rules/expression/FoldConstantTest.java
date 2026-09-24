@@ -1160,6 +1160,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         divide = new Divide(new DoubleLiteral(Double.NEGATIVE_INFINITY), new DoubleLiteral(Double.NEGATIVE_INFINITY));
         rewritten = executor.rewrite(divide, context);
         Assertions.assertEquals(new DoubleLiteral(Double.NaN), rewritten);
+        // DECIMALV2 division is NULL only for a zero divisor, as BE executes it
+        divide = new Divide(new DecimalLiteral(new BigDecimal("0")), new DecimalLiteral(new BigDecimal("2")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(new BigDecimal("0")), rewritten);
+        divide = new Divide(new DecimalLiteral(new BigDecimal("1")), new DecimalLiteral(new BigDecimal("0")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertInstanceOf(NullLiteral.class, rewritten);
 
         Fmod fmod = new Fmod(new DoubleLiteral(Double.POSITIVE_INFINITY), new DoubleLiteral(1));
         rewritten = executor.rewrite(fmod, context);

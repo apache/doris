@@ -20,16 +20,20 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -96,11 +100,63 @@ public class PercentileReservoirParameterTest {
         for (Expression expression : variants(new VarcharLiteral("5"))) {
             assertRejected(expression, "level must be in [0, 1]");
         }
-        for (Expression expression : variants(new VarcharLiteral("abc"))) {
-            assertRejected(expression, "can't cast to double");
-        }
         for (Expression expression : variants(new NullLiteral(DoubleType.INSTANCE))) {
             assertAccepted(expression);
+        }
+    }
+
+    @Test
+    void testInvalidStringLevelFollowsImplicitCastMode() {
+        // the level takes the same VARCHAR to DOUBLE cast as signature coercion, so the implicit
+        // and the explicit form agree: NULL under non-strict cast, an error under strict cast
+        List<Expression> levels = Arrays.asList(new VarcharLiteral(""), new VarcharLiteral("abc"),
+                new Cast(new VarcharLiteral(""), DoubleType.INSTANCE));
+        withStrictCast(false, () -> {
+            for (Expression level : levels) {
+                for (Expression expression : variants(level)) {
+                    assertAccepted(expression);
+                }
+            }
+        });
+        withStrictCast(true, () -> {
+            for (Expression level : levels) {
+                for (Expression expression : variants(level)) {
+                    assertRejected(expression, "can't cast to double in strict mode");
+                }
+            }
+        });
+    }
+
+    @Test
+    void testDecimalV2DivisionLevelFoldsLikeBe() {
+        DecimalV2Type type = DecimalV2Type.createDecimalV2Type(27, 9);
+        // 0 / 2 is the valid level 0; FoldConstantTest pins that it folds to 0 rather than NULL
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ZERO), new DecimalLiteral(type, new BigDecimal("2"))))) {
+            assertAccepted(expression);
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, new BigDecimal("3")), new DecimalLiteral(type, new BigDecimal("2"))))) {
+            assertRejected(expression, "level must be in [0, 1], but got 1.5");
+        }
+        for (Expression expression : variants(new Divide(
+                new DecimalLiteral(type, BigDecimal.ONE), new DecimalLiteral(type, BigDecimal.ZERO)))) {
+            assertAccepted(expression);
+        }
+    }
+
+    private void withStrictCast(boolean strictCast, Runnable check) {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getSessionVariable().enableStrictCast = strictCast;
+        connectContext.setThreadLocalInfo();
+        try {
+            check.run();
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 
