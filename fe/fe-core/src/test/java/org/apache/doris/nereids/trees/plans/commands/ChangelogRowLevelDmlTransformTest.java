@@ -26,7 +26,17 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -37,6 +47,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.Optional;
 
 public class ChangelogRowLevelDmlTransformTest {
 
@@ -101,5 +112,33 @@ public class ChangelogRowLevelDmlTransformTest {
         Mockito.when(user.isRootUser()).thenReturn(true);
         Assertions.assertDoesNotThrow(() -> ChangelogRowLevelDmlTransform.requireNoDataMask(
                 context, table, RowLevelDmlOp.MERGE));
+    }
+
+    @Test
+    public void mergeKeepsTargetOnProbeSide() {
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        UserIdentity user = Mockito.mock(UserIdentity.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(context.getCurrentUserIdentity()).thenReturn(user);
+        Mockito.when(user.isRootUser()).thenReturn(true);
+
+        SlotReference sourceId = new SlotReference("id", IntegerType.INSTANCE, false,
+                ImmutableList.of("source"));
+        LogicalPlan source = new LogicalEmptyRelation(new RelationId(2), ImmutableList.of(sourceId));
+        RowLevelDmlArgs args = RowLevelDmlArgs.forMerge(table, ImmutableList.of("catalog", "db", "target"),
+                Optional.empty(), Optional.empty(), source,
+                new EqualTo(new org.apache.doris.nereids.analyzer.UnboundSlot(
+                        ImmutableList.of("target", "id")), sourceId),
+                ImmutableList.of(), ImmutableList.of(new MergeNotMatchedClause(
+                        Optional.empty(), ImmutableList.of("id"), ImmutableList.of(sourceId))));
+
+        LogicalPlan result = new ChangelogRowLevelDmlTransform().synthesize(context, args, RowLevelDmlOp.MERGE);
+
+        Assertions.assertInstanceOf(UnboundConnectorTableSink.class, result);
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) result.child(0);
+        Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
+        Assertions.assertFalse(join.left() instanceof LogicalEmptyRelation,
+                "the target must stay on the probe/left side");
+        Assertions.assertSame(source, join.right());
     }
 }

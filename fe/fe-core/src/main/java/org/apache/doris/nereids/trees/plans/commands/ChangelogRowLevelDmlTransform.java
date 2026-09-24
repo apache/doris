@@ -35,16 +35,14 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ConnectorChangelogRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
@@ -144,10 +142,8 @@ public class ChangelogRowLevelDmlTransform implements RowLevelDmlTransform {
         if (args.getTargetAlias().isPresent()) {
             target = new LogicalSubQueryAlias<>(args.getTargetAlias().get(), target);
         }
-        JoinType joinType = args.getNotMatchedClauses().isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
-        LogicalPlan join = new LogicalJoin<>(joinType, ImmutableList.of(),
-                ImmutableList.of(args.getOnClause()), args.getSource(), target, JoinReorderContext.EMPTY);
+        LogicalPlan join = MergeUtils.buildMergeJoin(target, args.getSource(), args.getOnClause(),
+                !args.getNotMatchedClauses().isEmpty());
         LogicalPlan sink = new UnboundConnectorTableSink<>(args.getTargetNameParts(), join, spec);
         return args.getCte().isPresent() ? (LogicalPlan) args.getCte().get().withChildren(sink) : sink;
     }

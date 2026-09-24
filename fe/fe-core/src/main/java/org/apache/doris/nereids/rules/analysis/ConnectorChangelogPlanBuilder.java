@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.commands.ConnectorWriteSchemaUtils;
 import org.apache.doris.nereids.trees.plans.commands.info.ConnectorChangelogRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
@@ -237,7 +238,14 @@ public final class ConnectorChangelogPlanBuilder {
                 }
                 output.add(new Alias(value, name));
             }
-            return addCardinalityChecks(new LogicalProject<>(output, selected));
+            int visibleOutputCount = output.size();
+            if (!merge.getMatchedClauses().isEmpty()) {
+                for (String key : primaryKeys) {
+                    output.add(new Alias(findTargetSlot(key),
+                            "__DORIS_CHANGELOG_TARGET_KEY_" + key + "__"));
+                }
+            }
+            return addCardinalityChecks(new LogicalProject<>(output, selected), visibleOutputCount);
         }
 
         private void validateNotMatchedPrimaryKeys(List<List<Expression>> branches) {
@@ -289,29 +297,32 @@ public final class ConnectorChangelogPlanBuilder {
             }
         }
 
-        private LogicalPlan addCardinalityChecks(LogicalProject<?> rowChanges) {
-            List<Slot> outputs = rowChanges.getOutput();
+        private LogicalPlan addCardinalityChecks(LogicalProject<?> rowChanges, int visibleOutputCount) {
+            List<Slot> allOutputs = rowChanges.getOutput();
+            List<Slot> outputs = allOutputs.subList(0, visibleOutputCount);
             Slot operation = outputs.get(0);
-            List<Expression> partitionKeys = new ArrayList<>();
+            List<Expression> insertedKeys = new ArrayList<>();
             for (String key : primaryKeys) {
-                partitionKeys.add(outputs.get(schemaIndex(key) + 1));
+                insertedKeys.add(outputs.get(schemaIndex(key) + 1));
             }
+            List<Expression> matchedKeys = new ArrayList<>(
+                    allOutputs.subList(visibleOutputCount, allOutputs.size()));
             Expression isInsert = new EqualTo(operation, new TinyIntLiteral(mode.getInsertValue()));
             List<CardinalityCheck> checks = new ArrayList<>();
             if (!merge.getMatchedClauses().isEmpty()) {
-                checks.add(CardinalityCheck.matched(isInsert));
+                checks.add(CardinalityCheck.matched(isInsert, matchedKeys));
             }
             if (!merge.getNotMatchedClauses().isEmpty()) {
-                checks.add(CardinalityCheck.inserted(isInsert));
+                checks.add(CardinalityCheck.inserted(isInsert, insertedKeys));
             }
-            List<NamedExpression> markerOutputs = new ArrayList<>(outputs);
+            List<NamedExpression> markerOutputs = new ArrayList<>(allOutputs);
             for (CardinalityCheck check : checks) {
                 markerOutputs.add(check.marker);
             }
             LogicalPlan plan = new LogicalProject<>(markerOutputs, rowChanges);
             List<Alias> counts = new ArrayList<>();
             for (CardinalityCheck check : checks) {
-                counts.add(check.count(partitionKeys));
+                counts.add(check.count());
             }
             plan = new LogicalWindow<>(new ArrayList<>(counts), plan);
             ImmutableSet.Builder<Expression> assertions = ImmutableSet.builder();
@@ -437,13 +448,10 @@ public final class ConnectorChangelogPlanBuilder {
         }
 
         private List<Expression> insertProjection(MergeNotMatchedClause clause) {
-            if (clause.getRow().size() != schema.size()) {
-                throw new AnalysisException("Connector MERGE INSERT requires values for every table column");
-            }
             Map<String, Expression> values = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             if (!clause.getColNames().isEmpty()) {
-                if (clause.getColNames().size() != schema.size()) {
-                    throw new AnalysisException("Connector MERGE INSERT requires every table column");
+                if (clause.getColNames().size() != clause.getRow().size()) {
+                    throw new AnalysisException("Column count doesn't match value count");
                 }
                 for (int i = 0; i < clause.getColNames().size(); i++) {
                     String column = clause.getColNames().get(i);
@@ -452,6 +460,8 @@ public final class ConnectorChangelogPlanBuilder {
                                 + column);
                     }
                 }
+            } else if (clause.getRow().size() != schema.size()) {
+                throw new AnalysisException("Column count doesn't match value count");
             }
             List<Expression> output = new ArrayList<>();
             output.add(new TinyIntLiteral(mode.getInsertValue()));
@@ -460,8 +470,9 @@ public final class ConnectorChangelogPlanBuilder {
                 Expression value = clause.getColNames().isEmpty()
                         ? unwrap(clause.getRow().get(i)) : values.remove(column.getName());
                 if (value == null) {
-                    throw new AnalysisException("Missing column in connector MERGE INSERT: "
-                            + column.getName());
+                    value = ConnectorWriteSchemaUtils.resolveDefault(column);
+                } else {
+                    value = ConnectorWriteSchemaUtils.resolveExplicitDefault(value, column);
                 }
                 output.add(value);
             }
@@ -510,32 +521,37 @@ public final class ConnectorChangelogPlanBuilder {
 
         private static final class CardinalityCheck {
             private final Alias marker;
+            private final List<Expression> partitionKeys;
             private final String countName;
             private final String errorMessage;
 
-            private CardinalityCheck(Alias marker, String countName, String errorMessage) {
+            private CardinalityCheck(Alias marker, List<Expression> partitionKeys,
+                    String countName, String errorMessage) {
                 this.marker = marker;
+                this.partitionKeys = partitionKeys;
                 this.countName = countName;
                 this.errorMessage = errorMessage;
             }
 
-            private static CardinalityCheck matched(Expression isInsert) {
+            private static CardinalityCheck matched(Expression isInsert, List<Expression> partitionKeys) {
                 return new CardinalityCheck(new Alias(new ShortCircuitIf(isInsert,
                         new NullLiteral(BigIntType.INSTANCE), new BigIntLiteral(1)),
-                        "__DORIS_CHANGELOG_MATCH_MARKER__"), "__DORIS_CHANGELOG_MATCH_COUNT__",
+                        "__DORIS_CHANGELOG_MATCH_MARKER__"), partitionKeys,
+                        "__DORIS_CHANGELOG_MATCH_COUNT__",
                         "Connector MERGE matched one target row with multiple source rows");
             }
 
-            private static CardinalityCheck inserted(Expression isInsert) {
+            private static CardinalityCheck inserted(Expression isInsert, List<Expression> partitionKeys) {
                 return new CardinalityCheck(new Alias(new ShortCircuitIf(isInsert,
                         new BigIntLiteral(1), new NullLiteral(BigIntType.INSTANCE)),
-                        "__DORIS_CHANGELOG_INSERT_MARKER__"), "__DORIS_CHANGELOG_INSERT_COUNT__",
+                        "__DORIS_CHANGELOG_INSERT_MARKER__"), partitionKeys,
+                        "__DORIS_CHANGELOG_INSERT_COUNT__",
                         "Connector MERGE attempted to insert multiple rows with the same primary key");
             }
 
-            private Alias count(List<Expression> keys) {
+            private Alias count() {
                 return new Alias(new WindowExpression(
-                        new Count(marker.toSlot()), keys, ImmutableList.of()), countName);
+                        new Count(marker.toSlot()), partitionKeys, ImmutableList.of()), countName);
             }
 
             private Expression assertion(Alias count) {
