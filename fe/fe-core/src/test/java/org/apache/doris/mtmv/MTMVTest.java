@@ -63,6 +63,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -382,6 +383,48 @@ public class MTMVTest {
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
         Assertions.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+    }
+
+    /**
+     * The generic base-table change puts every MV that reads the table into SCHEMA_CHANGE, and it has to do
+     * it the way the invalidation above does: applied and enqueued in one MV-lock critical section. A task
+     * result enqueued in between is replayed on a follower after this record rather than before it, which
+     * leaves the follower in SCHEMA_CHANGE where this FE ended NORMAL -- a whole-MV rebuild the next
+     * refresh does not need.
+     */
+    @Test
+    public void testWholeMvInvalidationSubmitsJournalWhileHoldingMvLock() {
+        MTMV mtmv = buildSerializableMTMV();
+        // A journaling path names the MV, and this fixture is built through the constructor that leaves the
+        // name unset; setName() cannot be used because it rekeys the index map by the current (null) name.
+        Deencapsulation.setField(mtmv, "name", "mv1");
+        ReentrantReadWriteLock mvRwLock = Deencapsulation.getField(mtmv, "mvRwLock");
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
+                .thenAnswer(invocation -> {
+                    Assertions.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
+                    return editLogItem;
+                });
+        Mockito.when(editLogItem.await()).thenAnswer(invocation -> {
+            Assertions.assertFalse(mvRwLock.isWriteLockedByCurrentThread());
+            return 1L;
+        });
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mtmv.invalidateWholeMv("The base table has been updated: db.t1").await();
+        }
+
+        // The record carries the status the insert above applied, so the two are one change.
+        ArgumentCaptor<AlterMTMV> captor = ArgumentCaptor.forClass(AlterMTMV.class);
+        Mockito.verify(editLog).submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), captor.capture());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, captor.getValue().getStatus().getState());
+        Assertions.assertEquals("The base table has been updated: db.t1",
+                captor.getValue().getStatus().getSchemaChangeDetail());
+        Mockito.verify(editLogItem).await();
     }
 
     @Test

@@ -489,13 +489,15 @@ public class MTMVTask extends AbstractTask {
 
     private List<RefreshAttemptType> buildAttempts(RefreshRequest request, boolean containsOneRowRelation)
             throws JobException {
-        if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
-            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
-        }
         // A schema-level invalidation is not a set of dirty partitions: it means every partition, including
         // the ones partition sync has not created yet, and no per-partition requirement can express that.
         // IVM only -- a non-IVM MV reaches the same effect through its cleared snapshot, which its own
         // refresh already depends on.
+        //
+        // Judged before the initial-refresh shortcut below, which also answers COMPLETE: an MV that has
+        // never been refreshed and reads an excluded trigger table (or a one-row relation) has to be built
+        // by a whole-MV refresh, and a request that may not fall back has to hear that rather than have it
+        // decided for it -- otherwise the refusal here would be unreachable in exactly the state it names.
         if (mtmv.isIvm() && !request.explicitPartitions
                 && mtmv.getStatus().getState() == MTMVState.SCHEMA_CHANGE) {
             if (request.refreshMode == RefreshMode.PARTITIONS && !request.allowFallback) {
@@ -510,6 +512,9 @@ public class MTMVTask extends AbstractTask {
             }
             LOG.info("IVM MV is in SCHEMA_CHANGE, rebuilding the whole MV, mv={}, taskId={}",
                     mtmv.getName(), getTaskId());
+            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
+        }
+        if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
         List<RefreshAttemptType> attempts = Lists.newArrayList();

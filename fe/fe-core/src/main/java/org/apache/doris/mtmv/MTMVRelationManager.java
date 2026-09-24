@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -28,7 +27,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
-import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
@@ -497,24 +495,27 @@ public class MTMVRelationManager implements MTMVHookService {
             return;
         }
         for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
-            Table mtmv = null;
+            Table mvTable = null;
             try {
-                mtmv = (Table) MTMVUtil.getTable(mtmvInfo);
+                mvTable = (Table) MTMVUtil.getTable(mtmvInfo);
             } catch (AnalysisException e) {
                 LOG.warn(e);
                 continue;
             }
-            if (checkQueryUsable && invalidateMvIfQueryUnusable(baseTableInfo, mtmv)) {
+            if (checkQueryUsable && invalidateMvIfQueryUnusable(baseTableInfo, mvTable)) {
                 // Invalidated with the reason, which is the more specific of the two messages and the one
                 // this change is worth recording: the state is the same one the generic record below
                 // would set, so writing it too would only bury the reason.
                 continue;
             }
-            TableNameInfo tableNameInfo = new TableNameInfo(mtmv.getQualifiedDbName(),
-                    mtmv.getName());
-            MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE,
-                    msgPrefix + baseTableInfo);
-            Env.getCurrentEnv().alterMTMVStatus(tableNameInfo, status);
+            if (!(mvTable instanceof MTMV)) {
+                continue;
+            }
+            // Applied and enqueued in one MV-lock critical section, like the invalidation above: they are
+            // one change, and a task result enqueued between them would be replayed on a follower after
+            // this record rather than before it -- leaving the follower in SCHEMA_CHANGE where this FE
+            // ended NORMAL, which is a whole-MV rebuild the next refresh does not need.
+            ((MTMV) mvTable).invalidateWholeMv(msgPrefix + baseTableInfo).await();
         }
     }
 }

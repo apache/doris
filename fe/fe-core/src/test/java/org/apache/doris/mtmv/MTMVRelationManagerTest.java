@@ -18,17 +18,21 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.persist.EditLog.EditLogItem;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVRelationManagerTest {
@@ -176,5 +180,35 @@ public class MTMVRelationManagerTest {
         }
 
         Mockito.verify(mtmv, Mockito.never()).invalidateWholeMv(Mockito.anyString());
+    }
+
+    /**
+     * The generic base-table change is an invalidation, and it is recorded the way the invalidation above
+     * is: applied and enqueued in one MV-lock critical section, awaited where no MV lock is held. A record
+     * enqueued while the state is still being applied would be replayed on a follower on the other side of
+     * a concurrent task result, leaving the follower in SCHEMA_CHANGE where this FE ended NORMAL.
+     *
+     * <p>A rename is the shortest way into this path: it skips the query check, so what the hook does is
+     * exactly the record under test.
+     */
+    @Test
+    public void testABaseTableRenameIsRecordedThroughTheInvalidation() {
+        MTMVRelationManager manager = new MTMVRelationManager();
+        manager.refreshMTMVCache(new MTMVRelation(Sets.newHashSet(t3), Sets.newHashSet(t3),
+                Sets.newHashSet(t3), Sets.newHashSet(), Sets.newHashSet()), mv1);
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        Mockito.when(mtmv.invalidateWholeMv(Mockito.anyString())).thenReturn(editLogItem);
+        try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
+            util.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+            manager.alterTable(t3, Optional.of(t4), false);
+        }
+
+        ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
+        Mockito.verify(mtmv).invalidateWholeMv(detail.capture());
+        Assertions.assertTrue(detail.getValue().startsWith("The base table has been updated:"),
+                detail.getValue());
+        Mockito.verify(editLogItem).await();
     }
 }

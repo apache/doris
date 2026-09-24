@@ -622,6 +622,37 @@ public class MTMVTaskTest {
         Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
     }
 
+    /**
+     * The initial-refresh shortcut also answers COMPLETE, and it is judged after the schema-change
+     * refusal: an MV that has never been refreshed and reads an excluded trigger table needs a whole-MV
+     * rebuild, so a strict `PARTITIONS` request must hear that rather than have that shortcut widen it
+     * silently. Judging the shortcut first is what makes the refusal unreachable in exactly the state it
+     * names.
+     */
+    @Test
+    public void testABuildInitialRefreshDoesNotWidenAStrictPartitionsRequest() {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Sets.newHashSet(
+                new TableNameInfo("internal", "test_db", "excluded_agg")));
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(
+                MTMVState.SCHEMA_CHANGE, "the base table has been updated"));
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        // The shortcut is what this state would take without the refusal, so this is the ordering under
+        // test rather than a request that would never have reached it.
+        Assertions.assertTrue(
+                (Boolean) Deencapsulation.invoke(task, "shouldUseCompleteForInitialIvmRefresh", false));
+
+        JobException refusal = Assertions.assertThrows(JobException.class,
+                () -> Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Assertions.assertTrue(refusal.getMessage().contains("Use COMPLETE, AUTO, or PARTITIONS FALLBACK"),
+                refusal.getMessage());
+    }
+
     @Test
     public void testBuildAttemptsLeavesANonIvmMvInSchemaChangeOnItsOwnChain() throws Exception {
         // setUp stubs a non-IVM MV. Its state is not what its attempt chain is built from: the cleared
