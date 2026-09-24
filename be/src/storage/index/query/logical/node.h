@@ -76,7 +76,8 @@ struct Prefix {
 
 enum class ExpandKind : uint8_t { kWildcard, kRegexp };
 
-// Every dictionary term matching `pattern`.
+// Every dictionary term matching `pattern`. A glob matches whole terms; a regular expression
+// matches anywhere in a term unless the pattern anchors it.
 struct Expand {
     FieldRef field;
     ExpandKind kind = ExpandKind::kWildcard;

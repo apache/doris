@@ -2143,6 +2143,41 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixRoutesToWildcardQuery) {
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
 
+TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    auto index_meta = make_test_inverted_index(23);
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
+
+    auto clause = make_leaf_clause("REGEXP", "alpha");
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(clause, context, resolver, &query,
+                                                         &binding_key, "OR", 0, 4);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(InvertedIndexQueryType::MATCH_REGEXP_QUERY, reader->last_query_type);
+    // The reader's MATCH_REGEXP matches inside a term, so SEARCH hands it an anchored pattern.
+    EXPECT_EQ("^(alpha)$", reader->last_query_value);
+}
+
 TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsDslSuffixBeforeAnalysis) {
     auto* exec_env = ExecEnv::GetInstance();
     auto* previous_policy_mgr = exec_env->index_policy_mgr();

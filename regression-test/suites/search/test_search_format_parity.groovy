@@ -78,6 +78,10 @@ suite("test_search_format_parity") {
     same("prefix on an analyzed field", "search('body:qui*')", [1, 2, 3, 6])
     same("prefix on a keyword field", "search('tag:alp*')", [1, 2, 6, 7])
 
+    // REGEXP matches whole terms on every format: "alphabet" contains "alpha" but
+    // is not it.
+    same("regexp on a keyword field", "search('tag:/alpha/')", [1, 6])
+
     // A multi-token TERM value follows default_operator on every format.
     same("multi-token term, or",
          "search('quick dog', '{\"default_field\":\"body\",\"default_operator\":\"or\"}')",

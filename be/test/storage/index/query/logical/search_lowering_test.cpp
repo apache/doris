@@ -405,12 +405,14 @@ TEST(SearchLoweringTest, WildcardLowercasesOnlyWhenTheIndexDoes) {
     EXPECT_TRUE(catalog.analyzed_values.empty());
 }
 
-TEST(SearchLoweringTest, RegexpIsNeverNormalized) {
+TEST(SearchLoweringTest, RegexpIsAnchoredButNeverNormalized) {
     FakeCatalog catalog;
     auto node = lower(leaf("REGEXP", kText, "^Qu.*"), catalog);
     ASSERT_NE(node->as<Expand>(), nullptr);
     EXPECT_EQ(node->as<Expand>()->kind, ExpandKind::kRegexp);
-    EXPECT_EQ(node->as<Expand>()->pattern, "^Qu.*");
+    // SEARCH matches a regular expression against whole terms on every format.
+    EXPECT_EQ(node->as<Expand>()->pattern, "^(^Qu.*)$");
+    EXPECT_EQ(lower(leaf("REGEXP", kText, "a|b"), catalog)->as<Expand>()->pattern, "^(a|b)$");
     EXPECT_TRUE(catalog.analyzed_values.empty());
 }
 

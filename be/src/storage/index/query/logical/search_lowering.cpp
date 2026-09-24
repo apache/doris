@@ -114,8 +114,10 @@ Status lower_pattern_leaf(const std::string& clause_type, const FieldProps& prop
                           FieldCatalog& catalog, FieldRef field, const std::string& value,
                           NodePtr* out) {
     if (clause_type == "REGEXP") {
-        *out = make_node(
-                Expand {.field = std::move(field), .kind = ExpandKind::kRegexp, .pattern = value});
+        // SEARCH matches a regular expression against whole terms on every format.
+        *out = make_node(Expand {.field = std::move(field),
+                                 .kind = ExpandKind::kRegexp,
+                                 .pattern = "^(" + value + ")$"});
         return Status::OK();
     }
     if (clause_type == "WILDCARD" && value == "*") {
