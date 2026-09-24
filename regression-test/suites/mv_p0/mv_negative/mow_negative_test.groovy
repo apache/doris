@@ -16,6 +16,8 @@
 // under the License.
 
 suite("mow_negative_mv_test", "mv_negative") {
+    withGlobalLock("enable_non_aggregate_table_state_types") {
+    setFeConfigTemporary([enable_non_aggregate_table_state_types: true]) {
 
     String db = context.config.getDbNameByFile(context.file)
     def prefix_str = "mv_mow_negative"
@@ -158,4 +160,6 @@ suite("mow_negative_mv_test", "mv_negative") {
     }
 
 
+    }
+    }
 }
