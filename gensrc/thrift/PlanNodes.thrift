@@ -710,6 +710,8 @@ struct TFileScanRangeParams {
     // If both this marker and the timezone are absent, preserve legacy session-timezone decoding.
     // Version 1 makes an absent/empty hive_parquet_time_zone explicitly disable INT96 conversion.
     39: optional i32 parquet_timestamp_semantics_version
+    // Hybrid Paimon/Hudi scans keep FORMAT_JNI while individual ranges can be native Parquet.
+    40: optional bool contains_native_parquet
 }
 
 struct TFileRangeDesc {

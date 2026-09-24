@@ -1897,29 +1897,32 @@ static Status build_complex_projection(const ColumnMapping& mapping, LocalColumn
     return Status::OK();
 }
 
-static bool has_timestamp_semantics(const ColumnMapping& mapping) {
-    return mapping.timestamp_is_adjusted_to_utc.has_value() ||
-           std::ranges::any_of(mapping.child_mappings, has_timestamp_semantics);
+static bool has_timestamp_semantics(const ColumnDefinition& column) {
+    return column.timestamp_is_adjusted_to_utc.has_value() ||
+           std::ranges::any_of(column.children, has_timestamp_semantics);
 }
 
-static void attach_timestamp_semantics(const ColumnMapping& mapping, LocalColumnIndex* projection) {
+static void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                       const std::vector<ColumnDefinition>& file_children,
+                                       LocalColumnIndex* projection) {
     DORIS_CHECK(projection != nullptr);
-    projection->timestamp_is_adjusted_to_utc = mapping.timestamp_is_adjusted_to_utc;
-    for (const auto& child_mapping : mapping.child_mappings) {
-        // A full projection represents ordinary children implicitly; materialize only paths that
-        // carry an override so existing readers still observe an empty children list.
-        if (!child_mapping.file_local_id.has_value() || !has_timestamp_semantics(child_mapping)) {
-            continue;
-        }
+    projection->timestamp_is_adjusted_to_utc = timestamp_is_adjusted_to_utc;
+    for (const auto& file_child : file_children) {
         auto child_it =
                 std::ranges::find_if(projection->children, [&](const LocalColumnIndex& child) {
-                    return child.local_id() == *child_mapping.file_local_id;
+                    return child.local_id() == file_child.local_id;
                 });
         if (child_it == projection->children.end()) {
-            projection->children.push_back(LocalColumnIndex::local(*child_mapping.file_local_id));
+            // Full/hidden mappings can omit child_mappings when their types already match.
+            // Recover overrides from the annotated file schema without widening partial reads.
+            if (!projection->project_all_children || !has_timestamp_semantics(file_child)) {
+                continue;
+            }
+            projection->children.push_back(LocalColumnIndex::local(file_child.local_id));
             child_it = std::prev(projection->children.end());
         }
-        attach_timestamp_semantics(child_mapping, &*child_it);
+        attach_timestamp_semantics(file_child.timestamp_is_adjusted_to_utc, file_child.children,
+                                   &*child_it);
     }
 }
 
@@ -2089,7 +2092,8 @@ static Status build_scan_projection(ColumnMapping* mapping, bool force_full_comp
         RETURN_IF_ERROR(
                 build_complex_projection(*mapping, projection, enable_variant_leaf_projection));
     }
-    attach_timestamp_semantics(*mapping, projection);
+    attach_timestamp_semantics(mapping->timestamp_is_adjusted_to_utc,
+                               mapping->original_file_children, projection);
     return Status::OK();
 }
 

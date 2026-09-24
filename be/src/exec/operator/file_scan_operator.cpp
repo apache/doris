@@ -148,10 +148,15 @@ bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_o
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
+    // Hybrid scans advertise native Parquet at scan level because ranges can arrive after the
+    // scanner is selected; FORMAT_JNI alone does not imply that every range uses JNI.
+    const bool is_hybrid_native_parquet = scan_params.format_type == TFileFormatType::FORMAT_JNI &&
+                                          scan_params.__isset.contains_native_parquet &&
+                                          scan_params.contains_native_parquet;
     // Version 1 introduces the explicit wall-clock/instant contract that scanner V1 cannot honor.
     const bool requires_parquet_timestamp_contract =
             (scan_params.format_type == TFileFormatType::FORMAT_PARQUET ||
-             supports_iceberg_scan_semantics_v1(&scan_params)) &&
+             is_hybrid_native_parquet || supports_iceberg_scan_semantics_v1(&scan_params)) &&
             (scan_params.__isset.hive_parquet_time_zone ||
              (scan_params.__isset.parquet_timestamp_semantics_version &&
               scan_params.parquet_timestamp_semantics_version >= 1));
