@@ -428,6 +428,11 @@ TEST_F(TxnManagerTest, PublishTsoEnabledRowsetRequiresCommitTSO) {
     commit_tso_column.set_index_length(8);
     _schema->append_column(std::move(commit_tso_column));
     ASSERT_TRUE(_rowset->tablet_schema()->is_tso_enabled());
+    // The shared JSON fixture starts VISIBLE; this test needs an unpublished committed rowset.
+    // commit_txn() persists the supplied metadata without changing its rowset state.
+    _rowset->rowset_meta()->set_rowset_state(RowsetStatePB::COMMITTED);
+    const auto original_version = _rowset->version();
+    const auto original_tso = _rowset->commit_tso();
 
     auto guard = k_engine->pending_local_rowsets().add(_rowset->rowset_id());
     auto st = k_engine->txn_manager()->commit_txn(_meta.get(), partition_id, transaction_id,
@@ -443,6 +448,8 @@ TEST_F(TxnManagerTest, PublishTsoEnabledRowsetRequiresCommitTSO) {
     ASSERT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
     EXPECT_NE(st.to_string().find("requires a valid commit tso"), std::string::npos) << st;
     EXPECT_EQ(_rowset->rowset_meta_state(), RowsetStatePB::COMMITTED);
+    EXPECT_EQ(_rowset->version(), original_version);
+    EXPECT_EQ(_rowset->commit_tso(), original_tso);
 
     constexpr int64_t kCommitTso = 123456;
     st = k_engine->txn_manager()->publish_txn(_meta.get(), partition_id, transaction_id, tablet_id,
@@ -451,6 +458,7 @@ TEST_F(TxnManagerTest, PublishTsoEnabledRowsetRequiresCommitTSO) {
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(_rowset->version(), new_version);
     EXPECT_EQ(_rowset->commit_tso(), TsoRange(kCommitTso, kCommitTso));
+    EXPECT_EQ(_rowset->rowset_meta_state(), RowsetStatePB::VISIBLE);
 }
 
 TEST_F(TxnManagerTest, TxnWithRowBinlog) {
