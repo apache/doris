@@ -461,6 +461,21 @@ TEST(VTimestampFunctionsTest, date_test) {
     static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
 }
 
+TEST(VTimestampFunctionsTest, date_floor_null_period_validation_test) {
+    const InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_DATEV2},
+                                      Consted {PrimitiveType::TYPE_INT}};
+
+    // NULL input rows must be returned as NULL before validating a constant period.
+    const DataSet null_date_data_set = {{{Null(), int32_t {0}}, Null()}};
+    static_cast<void>(
+            check_function<DataTypeDateV2, true>("month_floor", input_types, null_date_data_set));
+
+    // A non-NULL input row must still reject an invalid constant period.
+    const DataSet non_null_date_data_set = {{{std::string("2023-01-01"), int32_t {0}}, Null()}};
+    static_cast<void>(check_function<DataTypeDateV2, true>("month_floor", input_types,
+                                                           non_null_date_data_set, -1, -1, true));
+}
+
 TEST(VTimestampFunctionsTest, week_test) {
     std::string func_name = "week";
 
