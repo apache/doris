@@ -52,6 +52,21 @@ suite("test_paimon_decimal_scale_evolution", "p0,external,paimon") {
                 alter column amount type decimal(6,3);
         """
 
+        sql "set force_jni_scanner=false"
+        sql "set enable_file_scanner_v2=false"
+        order_qt_decimal_scale_evolution_v1 """
+            select id, amount
+            from test_paimon_decimal_scale_evolution.paimon_decimal_scale_evolution_db.decimal_scale_evolution
+            order by id
+        """
+
+        sql "set enable_file_scanner_v2=true"
+        order_qt_decimal_scale_evolution_v2 """
+            select id, amount
+            from test_paimon_decimal_scale_evolution.paimon_decimal_scale_evolution_db.decimal_scale_evolution
+            order by id
+        """
+
         sql "set force_jni_scanner=true"
         order_qt_decimal_scale_evolution_jni """
             select id, amount
@@ -60,6 +75,7 @@ suite("test_paimon_decimal_scale_evolution", "p0,external,paimon") {
         """
     } finally {
         sql "set force_jni_scanner=false"
+        sql "set enable_file_scanner_v2=false"
         sql "drop catalog if exists test_paimon_decimal_scale_evolution"
     }
 }
