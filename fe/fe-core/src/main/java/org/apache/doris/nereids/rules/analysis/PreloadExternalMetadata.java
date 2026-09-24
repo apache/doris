@@ -110,7 +110,7 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
             table.getBaseSchema();
         }
         if (preloadPartition) {
-            table.initSelectedPartitions(statementContext.getSnapshot(table));
+            table.preloadPartitionView(statementContext.getSnapshot(table));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} preloaded external metadata for table {} "

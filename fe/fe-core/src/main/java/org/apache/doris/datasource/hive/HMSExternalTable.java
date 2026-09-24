@@ -479,6 +479,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return super.initSelectedPartitions(snapshot);
     }
 
+    @Override
+    public SelectedPartitions preloadPartitionView(Optional<MvccSnapshot> snapshot) {
+        if (getDlaType() == DLAType.HIVE && !getPartitionColumns(snapshot).isEmpty()) {
+            Map<String, PartitionItem> partitionItems = getNameToPartitionItems(snapshot);
+            return new SelectedPartitions(partitionItems.size(), partitionItems, false);
+        }
+        return super.preloadPartitionView(snapshot);
+    }
+
     /**
      * Materializes only the partitions admitted by a safe HMS partition filter. An empty result means
      * the predicate or metastore does not support the filter grammar and local pruning remains intact.
@@ -492,7 +501,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (partitionColumns.isEmpty()) {
             return Optional.empty();
         }
-        String filter = HivePartitionFilterBuilder.build(predicate, partitionColumns);
+        String filter = HivePartitionFilterBuilder.build(
+                predicate, partitionColumns, partitionKeyHiveTypes(getRemoteTable()));
         if (filter == null) {
             return Optional.empty();
         }
@@ -505,6 +515,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     getDbName(), getName());
             return Optional.empty();
         }
+    }
+
+    static Map<String, String> partitionKeyHiveTypes(Table table) {
+        return table.getPartitionKeys().stream().collect(Collectors.toMap(
+                field -> field.getName().toLowerCase(Locale.ROOT), FieldSchema::getType));
     }
 
     public SelectedPartitions initHudiSelectedPartitions(Optional<TableSnapshot> tableSnapshot) {

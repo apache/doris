@@ -40,9 +40,11 @@ import org.junit.Test;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -213,6 +215,40 @@ public class ThriftHMSCachedClientTest {
     }
 
     @Test
+    public void testFilteredPartitionThresholdUsesCatalogBatchSizeAndClampsToThriftLimit() {
+        Assert.assertEquals(1, ThriftHMSCachedClient.filteredPartitionThreshold(1));
+        Assert.assertEquals(500, ThriftHMSCachedClient.filteredPartitionThreshold(500));
+        Assert.assertEquals(Short.MAX_VALUE - 1,
+                ThriftHMSCachedClient.filteredPartitionThreshold(Integer.MAX_VALUE));
+        Assert.assertFalse(ThriftHMSCachedClient.isFilteredPartitionResponseSaturated(500, 500));
+        Assert.assertTrue(ThriftHMSCachedClient.isFilteredPartitionResponseSaturated(501, 500));
+    }
+
+    @Test
+    public void testRawSaturatedFilteredPageKeepsHealthyPooledClient() throws Exception {
+        HiveConf hiveConf = new HiveConf();
+        hiveConf.set(ThriftHMSCachedClient.PARTITION_BATCH_SIZE_KEY, "2");
+        provider.rawPageSource = true;
+        provider.filteredPartitions = new ArrayList<>(Collections.nCopies(2, new Partition()));
+        provider.rawFilteredPartitionCount = 3;
+        ThriftHMSCachedClient cachedClient = newClient(hiveConf, 1);
+
+        HMSClientException exception = Assert.assertThrows(HMSClientException.class,
+                () -> cachedClient.listPartitionsByFilter("db1", "tbl1", "day = 1"));
+
+        Assert.assertTrue(exception.getMessage().contains("more than 2 partitions"));
+        Assert.assertEquals(3, provider.requestedMaxPartitions.get());
+        Assert.assertEquals(1, getPool(cachedClient).getNumIdle());
+        Assert.assertEquals(0, getPool(cachedClient).getNumActive());
+        Assert.assertEquals(1, provider.createdClients.get());
+        Assert.assertEquals(0, provider.closedClients.get());
+
+        Object borrowed = borrowClient(cachedClient);
+        Assert.assertEquals(1, provider.createdClients.get());
+        closeBorrowed(borrowed);
+    }
+
+    @Test
     public void testUpdatePartitionStatisticsInvalidatesFailedClient() throws Exception {
         provider.alterPartitionFailure = new RuntimeException("alter partition failed");
         ThriftHMSCachedClient cachedClient = newClient(1);
@@ -299,18 +335,25 @@ public class ThriftHMSCachedClientTest {
         private final AtomicInteger createdClients = new AtomicInteger();
         private final AtomicInteger closedClients = new AtomicInteger();
         private final AtomicInteger checkLockCalls = new AtomicInteger();
+        private final AtomicInteger requestedMaxPartitions = new AtomicInteger();
         private final Deque<LockState> lockStates = new ArrayDeque<>();
 
         private volatile RuntimeException alterPartitionFailure;
         private volatile RuntimeException addPartitionsFailure;
         private volatile RuntimeException dropPartitionFailure;
+        private volatile boolean rawPageSource;
+        private volatile List<Partition> filteredPartitions = Collections.emptyList();
+        private volatile int rawFilteredPartitionCount;
 
         @Override
         public IMetaStoreClient create(HiveConf hiveConf) {
             createdClients.incrementAndGet();
+            Class<?>[] interfaces = rawPageSource
+                    ? new Class<?>[] {IMetaStoreClient.class, HmsRawPartitionFilterPageSource.class}
+                    : new Class<?>[] {IMetaStoreClient.class};
             return (IMetaStoreClient) Proxy.newProxyInstance(
                     IMetaStoreClient.class.getClassLoader(),
-                    new Class[] {IMetaStoreClient.class},
+                    interfaces,
                     (proxy, method, args) -> handleMethod(proxy, method.getName(), args, method.getReturnType()));
         }
 
@@ -337,6 +380,14 @@ public class ThriftHMSCachedClientTest {
                 Partition partition = new Partition();
                 partition.setParameters(new HashMap<>());
                 return Collections.singletonList(partition);
+            }
+            if ("listPartitionsByFilterRawPage".equals(methodName)) {
+                requestedMaxPartitions.set(((Number) args[3]).intValue());
+                return new HmsRawPartitionFilterPage(filteredPartitions, rawFilteredPartitionCount);
+            }
+            if ("listPartitionsByFilter".equals(methodName)) {
+                requestedMaxPartitions.set(((Number) args[3]).intValue());
+                return filteredPartitions;
             }
             if ("alter_partition".equals(methodName)) {
                 if (alterPartitionFailure != null) {

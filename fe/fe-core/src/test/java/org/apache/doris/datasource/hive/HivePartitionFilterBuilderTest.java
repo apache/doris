@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +47,8 @@ public class HivePartitionFilterBuilderTest {
                 new InPredicate(daySlot, Arrays.asList(new IntegerLiteral(1), new IntegerLiteral(2))));
 
         Assertions.assertEquals("(city = 'shanghai') AND (day = 1 OR day = 2)",
-                HivePartitionFilterBuilder.build(new And(predicates), Arrays.asList(city, day)));
+                HivePartitionFilterBuilder.build(new And(predicates), Arrays.asList(city, day),
+                        ImmutableMap.of("city", "string", "day", "int")));
     }
 
     @Test
@@ -57,12 +59,14 @@ public class HivePartitionFilterBuilderTest {
         SlotReference daySlot = new SlotReference("day", IntegerType.INSTANCE);
 
         Assertions.assertNull(HivePartitionFilterBuilder.build(
-                new EqualTo(citySlot, new StringLiteral("can't")), Arrays.asList(city)));
+                new EqualTo(citySlot, new StringLiteral("can't")), Arrays.asList(city),
+                ImmutableMap.of("city", "string")));
         Assertions.assertNull(HivePartitionFilterBuilder.build(
-                new EqualTo(daySlot, new StringLiteral("1")), Arrays.asList(day)));
+                new EqualTo(daySlot, new StringLiteral("1")), Arrays.asList(day),
+                ImmutableMap.of("day", "int")));
         Assertions.assertNull(HivePartitionFilterBuilder.build(
                 new EqualTo(citySlot, daySlot),
-                Arrays.asList(city)));
+                Arrays.asList(city), ImmutableMap.of("city", "string")));
     }
 
     @Test
@@ -73,8 +77,24 @@ public class HivePartitionFilterBuilderTest {
         SlotReference digitsSlot = new SlotReference("123", StringType.INSTANCE);
 
         Assertions.assertNull(HivePartitionFilterBuilder.build(
-                new EqualTo(dateSlot, new StringLiteral("20260101")), Arrays.asList(date)));
+                new EqualTo(dateSlot, new StringLiteral("20260101")), Arrays.asList(date),
+                ImmutableMap.of("date", "string")));
         Assertions.assertNull(HivePartitionFilterBuilder.build(
-                new EqualTo(digitsSlot, new StringLiteral("x")), Arrays.asList(digits)));
+                new EqualTo(digitsSlot, new StringLiteral("x")), Arrays.asList(digits),
+                ImmutableMap.of("123", "string")));
+    }
+
+    @Test
+    public void testRejectsNormalizedStringTypesThatHmsFilterDoesNotSupport() {
+        Column value = new Column("value", Type.STRING, true);
+        SlotReference valueSlot = new SlotReference("value", StringType.INSTANCE);
+        EqualTo predicate = new EqualTo(valueSlot, new StringLiteral("x"));
+
+        Assertions.assertNull(HivePartitionFilterBuilder.build(
+                predicate, Arrays.asList(value), ImmutableMap.of("value", "char(10)")));
+        Assertions.assertNull(HivePartitionFilterBuilder.build(
+                predicate, Arrays.asList(value), ImmutableMap.of("value", "varchar(10)")));
+        Assertions.assertNull(HivePartitionFilterBuilder.build(
+                predicate, Arrays.asList(value), ImmutableMap.of("value", "binary")));
     }
 }

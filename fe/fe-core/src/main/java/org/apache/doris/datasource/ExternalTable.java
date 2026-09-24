@@ -460,6 +460,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
+    /** Materialize the partition view used by planning before internal table locks are acquired. */
+    public SelectedPartitions preloadPartitionView(Optional<MvccSnapshot> snapshot) {
+        return initSelectedPartitions(snapshot);
+    }
+
     /**
      * get partition map
      * If partition related operations are supported, this method needs to be implemented in the subclass

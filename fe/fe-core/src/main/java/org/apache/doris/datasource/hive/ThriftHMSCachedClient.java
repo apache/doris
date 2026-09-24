@@ -334,23 +334,55 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     @Override
     public List<Partition> listPartitionsByFilter(String dbName, String tblName, String filter) {
-        short maxPartitions = (short) (DEFAULT_PARTITION_BATCH_SIZE + 1);
+        int threshold = filteredPartitionThreshold(partitionBatchSize);
+        FilteredPartitionPage page;
         try (ThriftHMSClient client = getClient()) {
             try {
-                List<Partition> partitions = ugiDoAs(() -> client.client.listPartitionsByFilter(
-                        dbName, tblName, filter, maxPartitions));
-                if (partitions.size() > DEFAULT_PARTITION_BATCH_SIZE) {
-                    throw new HMSClientException(
-                            "HMS partition filter matched more than %d partitions in table '%s.%s'.",
-                            DEFAULT_PARTITION_BATCH_SIZE, dbName, tblName);
-                }
-                return partitions;
+                page = ugiDoAs(() -> fetchFilteredPartitionPage(
+                        client.client, dbName, tblName, filter, threshold));
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to filter partitions in table '%s.%s'.", e, dbName, tblName);
+        }
+        if (isFilteredPartitionResponseSaturated(page.rawCount, threshold)) {
+            throw new HMSClientException(
+                    "HMS partition filter matched more than %d partitions in table '%s.%s'.",
+                    threshold, dbName, tblName);
+        }
+        return page.partitions;
+    }
+
+    private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
+            String tableName, String filter, int threshold) throws Exception {
+        int pageLimit = threshold + 1;
+        if (client instanceof HmsRawPartitionFilterPageSource) {
+            HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
+                    .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
+            return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
+        }
+        List<Partition> partitions = client.listPartitionsByFilter(
+                dbName, tableName, filter, (short) pageLimit);
+        return new FilteredPartitionPage(partitions, partitions.size());
+    }
+
+    static int filteredPartitionThreshold(int configured) {
+        return Math.max(1, Math.min(configured, Short.MAX_VALUE - 1));
+    }
+
+    static boolean isFilteredPartitionResponseSaturated(int partitionCount, int threshold) {
+        return partitionCount > threshold;
+    }
+
+    private static final class FilteredPartitionPage {
+        private final List<Partition> partitions;
+        private final int rawCount;
+
+        private FilteredPartitionPage(List<Partition> partitions, int rawCount) {
+            this.partitions = partitions;
+            this.rawCount = rawCount;
         }
     }
 

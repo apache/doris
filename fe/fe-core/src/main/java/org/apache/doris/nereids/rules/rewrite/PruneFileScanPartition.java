@@ -127,7 +127,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             selectedPartitionItems.put(name, partitionItems.get(name));
         }
         return new SelectedPartitions(
-                connectorFilteredPartitions ? -1L : partitionItems.size(),
+                connectorFilteredPartitions ? SelectedPartitions.UNKNOWN_TOTAL_PARTITION_NUM : partitionItems.size(),
                 selectedPartitionItems, true, connectorFilteredPartitions || result.hasPartitionPredicate);
     }
 

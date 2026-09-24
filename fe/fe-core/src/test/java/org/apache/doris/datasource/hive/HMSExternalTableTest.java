@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +44,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 
 /**
@@ -108,6 +110,41 @@ public class HMSExternalTableTest {
         table.setViewOriginalText(TEST_VIEW_TEXT);
         table.setViewExpandedText("");
         Assertions.assertEquals(TEST_VIEW_TEXT, table.getViewText());
+    }
+
+    @Test
+    public void testHiveScanSelectionStaysDeferredWhilePreloadMaterializesFullView() {
+        HMSExternalTable hiveTable = Mockito.mock(HMSExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Column partitionColumn = new Column("day", Type.INT, true);
+        Map<String, PartitionItem> partitionItems = ImmutableMap.of(
+                "day=1", Mockito.mock(PartitionItem.class));
+        Mockito.doReturn(HMSExternalTable.DLAType.HIVE).when(hiveTable).getDlaType();
+        Mockito.doReturn(Collections.singletonList(partitionColumn))
+                .when(hiveTable).getPartitionColumns(Mockito.any());
+        Mockito.doReturn(partitionItems).when(hiveTable).getNameToPartitionItems(Mockito.any());
+
+        Assertions.assertSame(SelectedPartitions.DEFERRED_PARTITION_PRUNING,
+                hiveTable.initSelectedPartitions(Optional.empty()));
+        Mockito.verify(hiveTable, Mockito.never()).getNameToPartitionItems(Mockito.any());
+
+        SelectedPartitions preloaded = hiveTable.preloadPartitionView(Optional.empty());
+        Assertions.assertEquals(1, preloaded.totalPartitionNum);
+        Assertions.assertEquals(partitionItems, preloaded.selectedPartitions);
+        Mockito.verify(hiveTable).getNameToPartitionItems(Optional.empty());
+    }
+
+    @Test
+    public void testPartitionKeyHiveTypesRetainNativeMetastoreTypes() {
+        Table remoteTable = new Table();
+        remoteTable.setPartitionKeys(Lists.newArrayList(
+                new org.apache.hadoop.hive.metastore.api.FieldSchema("s", "string", ""),
+                new org.apache.hadoop.hive.metastore.api.FieldSchema("c", "char(10)", ""),
+                new org.apache.hadoop.hive.metastore.api.FieldSchema("v", "varchar(10)", ""),
+                new org.apache.hadoop.hive.metastore.api.FieldSchema("b", "binary", "")));
+
+        Assertions.assertEquals(ImmutableMap.of(
+                        "s", "string", "c", "char(10)", "v", "varchar(10)", "b", "binary"),
+                HMSExternalTable.partitionKeyHiveTypes(remoteTable));
     }
 
     private Table buildRemoteTableWithInputFormat(String inputFormatName) {

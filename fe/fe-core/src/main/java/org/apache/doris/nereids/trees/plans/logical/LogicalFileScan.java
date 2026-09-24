@@ -383,6 +383,8 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
      * Mainly for hive table partition pruning.
      */
     public static class SelectedPartitions {
+        public static final long UNKNOWN_TOTAL_PARTITION_NUM = -1L;
+
         /** Materialization state for a partition selection. */
         public enum State {
             NOT_PRUNED,
