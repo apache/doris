@@ -162,6 +162,9 @@ struct BasicKeyInfo : Base {
              std::enable_if_t<(!is_basic_key_info_v<Args> && ...), int> = 0>
     BasicKeyInfo(Args&&... args) : Base(std::forward<Args>(args)...) {}
 
+    // KeyInfo wrappers with different semantics may share the same tuple Base. Require
+    // cross-wrapper conversions to be explicit, and keep the forwarding constructor from
+    // silently providing another conversion path.
     template<size_t M>
     explicit BasicKeyInfo(const BasicKeyInfo<M, Base>& other) : Base(other) {}
 
