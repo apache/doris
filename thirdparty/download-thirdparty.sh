@@ -770,6 +770,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
             -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-pr-83.patch"
         touch "${PATCHED_MARK}_pr83"
     fi
+    # Cached sources already have the base patches; pin the prefilter fix exactly once.
+    if [[ ! -f "${PATCHED_MARK}_prefilter" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-prefilter.patch"
+        touch "${PATCHED_MARK}_prefilter"
+    fi
+    # Cached sources may carry the earlier prefilter pin; upgrade FTS metrics independently.
+    if [[ ! -f "${PATCHED_MARK}_prefilter_fts" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-prefilter-fts.patch"
+        touch "${PATCHED_MARK}_prefilter_fts"
+    fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
