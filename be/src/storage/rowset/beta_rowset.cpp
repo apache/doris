@@ -255,8 +255,8 @@ Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segm
 Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
                                 segment_v2::SegmentSharedPtr* segment,
                                 const io::IOContext* io_ctx) {
-    return load_segment(_rowset_meta->segment_ref(_rowset_meta->position_of(seg_id)), stats,
-                        segment, io_ctx);
+    auto pos = DORIS_TRY(_rowset_meta->position_of(seg_id));
+    return load_segment(_rowset_meta->segment_ref(pos), stats, segment, io_ctx);
 }
 
 Status BetaRowset::load_segment(RowsetSegmentRef seg, OlapReaderStatistics* stats,

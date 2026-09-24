@@ -617,7 +617,11 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto seg_pos = rowset->rowset_meta()->position_of(segment_id);
+    if (!seg_pos.has_value()) {
+        return ResultError(seg_pos.error());
+    }
+    auto seg = rowset->segment(seg_pos.value());
     auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
