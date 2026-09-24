@@ -192,6 +192,9 @@ TEST(FunctionUrlTEST, ParseUrlAuthorityTest) {
             {{STRING("http://[2001:db8::1]:8080/a?x=1#r"), STRING("PORT")}, STRING("8080")},
             {{STRING("http://h/p#frag?x=1"), STRING("PATH")}, STRING("/p")},
             {{STRING("http://h/p#frag?x=1"), STRING("QUERY")}, Null()},
+            // FILE includes a query even when the URL has no path, while PATH remains empty.
+            {{STRING("http://h?k=/v#frag"), STRING("FILE")}, STRING("?k=/v")},
+            {{STRING("http://h?k=/v#frag"), STRING("PATH")}, STRING("")},
             // A real port and a real userinfo are still returned.
             {{STRING("http://user:pass@example.com:80/a:b"), STRING("HOST")},
              STRING("example.com")},

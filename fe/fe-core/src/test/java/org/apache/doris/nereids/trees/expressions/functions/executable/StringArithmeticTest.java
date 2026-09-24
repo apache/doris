@@ -138,6 +138,9 @@ class StringArithmeticTest {
         assertParseUrl("http://[2001:db8::1]:8080/a?x=1#r", "PORT", "8080");
         assertParseUrl("http://h/p#frag?x=1", "PATH", "/p");
         assertParseUrlIsNull("http://h/p#frag?x=1", "QUERY");
+        // FILE includes a query even when the URL has no path, while PATH remains empty.
+        assertParseUrl("http://h?k=/v#frag", "FILE", "?k=/v");
+        assertParseUrl("http://h?k=/v#frag", "PATH", "");
         // A real port and a real userinfo are still returned.
         assertParseUrl("http://user:pass@example.com:80/a:b", "HOST", "example.com");
         assertParseUrl("http://user:pass@example.com:80/a:b", "PORT", "80");

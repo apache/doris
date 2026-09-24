@@ -1032,8 +1032,13 @@ public class StringArithmetic {
     }
 
     private static String parseUrlFile(String protocolEnd) {
-        int startPos = firstIndexOf(protocolEnd, '/', '?', '#');
-        if (startPos < 0 || protocolEnd.charAt(startPos) != '/') {
+        int startPos = protocolEnd.indexOf('/');
+        int queryPos = protocolEnd.indexOf('?');
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (startPos < 0 || (queryPos >= 0 && queryPos < startPos)) {
+            startPos = queryPos;
+        }
+        if (startPos < 0 || (fragmentPos >= 0 && fragmentPos < startPos)) {
             return "";
         }
         String pathStart = protocolEnd.substring(startPos);

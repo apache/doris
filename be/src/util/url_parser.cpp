@@ -111,12 +111,14 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     case FILE:
     case PATH: {
-        int32_t start_pos = _s_slash_search.search(&protocol_end);
-
+        int32_t slash_pos = _s_slash_search.search(&protocol_end);
         int32_t question_pos = _s_question_search.search(&protocol_end);
         int32_t hash_pos = _s_hash_search.search(&protocol_end);
-        if (start_pos < 0 || (question_pos >= 0 && question_pos < start_pos) ||
-            (hash_pos >= 0 && hash_pos < start_pos)) {
+        int32_t start_pos = slash_pos;
+        if (part == FILE && (start_pos < 0 || (question_pos >= 0 && question_pos < start_pos))) {
+            start_pos = question_pos;
+        }
+        if (start_pos < 0 || (hash_pos >= 0 && hash_pos < start_pos)) {
             // Return empty string. This is what Hive does.
             return true;
         }
