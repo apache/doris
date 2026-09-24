@@ -172,6 +172,7 @@ protected:
         EXPECT_TRUE(PartialBlockWritebackManager::create(
                             {.block_size = kBlockSize,
                              .worker_count = 2,
+                             .merge_delay_ms = 0,
                              .max_pending_bytes = 8 * kBlockSize,
                              .hole_fill_coalesce = {.max_gap_bytes = 128,
                                                     .max_range_bytes = kBlockSize,

@@ -56,7 +56,7 @@ struct PartialBlockWritebackOptions {
     /// Maximum pool threads for multi-range blocks; single-range reads run on block workers.
     int remote_read_thread_count {1};
     /// Minimum queued time for merging fragments, measured from first admission; zero disables it.
-    int32_t merge_delay_ms {0};
+    int32_t merge_delay_ms {2000};
     /// BE-wide byte limit for queued and active full-block buffers.
     size_t max_pending_bytes {1};
     /// Limits used to combine uncovered intervals within one block into source reads.
