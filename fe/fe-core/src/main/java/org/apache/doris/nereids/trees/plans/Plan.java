@@ -194,6 +194,20 @@ public interface Plan extends TreeNode<Plan> {
 
     String treeString(boolean printStates, Object specialPlan);
 
+    /**
+     * SPM-specific full-query digest (design doc 6.1 / 6.14): the parameterized full
+     * SQL of this plan with literal values normalized to "?" (value-independent),
+     * including table names. Used for the SPM Level 2 exact digest matching and shown in
+     * SHOW BASELINE PLANS as bind_sql_digest.
+     *
+     * This is a dedicated entry point for SPM, decoupled from toDigest()
+     * (Doris's query fingerprint used by audit / blocking rules); toDigest() is
+     * intentionally left unmodified and toSpmDigest() may evolve independently.
+     */
+    default String toSpmDigest() {
+        return toDigest();
+    }
+
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,

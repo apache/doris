@@ -1,0 +1,787 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.spm;
+
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
+import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
+import org.apache.doris.nereids.spm.builder.SQLRelation;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.List;
+
+/**
+ * M1 milestone test: SPMPlan2SQLBuilder (physical plan decompiler).
+ *
+ * Verifies three levels:
+ *
+ * 1. The data structure behavior of SQLRelation (inline / subquery wrap / toSQL)
+ * 2. The expression printing of SPMExprSqlBuilder (column mapping, predicates, functions)
+ * 3. The whole-tree decompilation of SPMPlan2SQLBuilder over a physical plan
+ */
+public class SPMPlan2SQLBuilderTest {
+
+    /** SQLRelation's table-alias sequence is per-thread and reset at each decompile;
+     * reset it before each test so alias assertions (t_0 ...) are deterministic
+     * regardless of test execution order. */
+    @BeforeEach
+    public void resetAliasCounter() {
+        SQLRelation.resetAliasCounter();
+    }
+
+    // ==================== SQLRelation tests ====================
+
+    @Test
+    public void testRelationInline() {
+        SQLRelation relation = new SQLRelation();
+        relation.setFrom("t1");
+        // no newAlias -> inline, toRelationSQL returns the table name directly
+        Assertions.assertEquals("t1", relation.toRelationSQL());
+    }
+
+    @Test
+    public void testRelationWrap() {
+        SQLRelation relation = new SQLRelation();
+        relation.setFrom("t1");
+        relation.setWhere("c_3 > 100");
+        relation.newAlias();
+        // after newAlias -> wrapped as (SELECT * FROM t1 WHERE c_3 > 100) t_0
+        Assertions.assertEquals(
+                "(SELECT * FROM t1 WHERE c_3 > 100) t_0",
+                relation.toRelationSQL());
+    }
+
+    @Test
+    public void testRelationToSqlFields() {
+        SQLRelation relation = new SQLRelation();
+        relation.setFrom("t1");
+        relation.setWhere("a > 100");
+        relation.setGroupBy("a");
+        relation.setHaving("sum(b) > 0");
+        relation.setOrderBy("a ASC");
+        relation.setLimit("10");
+        Assertions.assertEquals(
+                "SELECT * FROM t1 WHERE a > 100 GROUP BY a HAVING sum(b) > 0 ORDER BY a ASC LIMIT 10",
+                relation.toSQL());
+    }
+
+    // ==================== SPMExprSqlBuilder tests ====================
+
+    @Test
+    public void testExprSlotRename() {
+        // After registering the column mapping, SlotReference prints the mapped name
+        SQLRelation relation = new SQLRelation();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        relation.registerRef(a.getExprId(), "c_5");
+        Assertions.assertEquals("c_5", new SPMExprSqlBuilder().print(a, relation));
+    }
+
+    @Test
+    public void testExprComparison() {
+        SQLRelation relation = new SQLRelation();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        relation.registerRef(a.getExprId(), "c_5");
+        // a > 100 -> (c_5 > 100)
+        Expression pred = new GreaterThan(a, new IntegerLiteral(100));
+        Assertions.assertEquals("(c_5 > 100)", new SPMExprSqlBuilder().print(pred, relation));
+    }
+
+    @Test
+    public void testExprJoinPredicate() {
+        SQLRelation relation = new SQLRelation();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        relation.registerRef(a.getExprId(), "a");
+        relation.registerRef(b.getExprId(), "b");
+        // a = b -> (a = b)
+        Expression pred = new EqualTo(a, b);
+        Assertions.assertEquals("(a = b)", new SPMExprSqlBuilder().print(pred, relation));
+    }
+
+    // ==================== SPMPlan2SQLBuilder decompile tests ====================
+
+    @Test
+    public void testDecompileScanFilterProject() {
+        // Build the physical plan tree (Mockito mocks):
+        //   PhysicalProject [a, b]
+        //     - PhysicalFilter [a > 100]
+        //         - PhysicalOlapScan [t1]
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan scan = mockScan("t1", List.of(a, b));
+        PhysicalFilter filter = mockFilter(new GreaterThan(a, new IntegerLiteral(100)), scan);
+        PhysicalProject project = mockProject(List.of(a, b), filter);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(project);
+        // expected: SELECT a, b FROM (SELECT * FROM t1 WHERE (a > 100)) t_N
+        Assertions.assertTrue(sql.contains("SELECT a, b FROM (SELECT * FROM t1 WHERE (a > 100))"));
+    }
+
+    @Test
+    public void testDecompileJoin() {
+        // Build a two-table JOIN physical plan:
+        //   PhysicalHashJoin(INNER) [t1.a = t2.b]
+        //     - PhysicalOlapScan [t1]
+        //     - PhysicalOlapScan [t2]
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t2", List.of(b));
+        PhysicalHashJoin join = mockJoin(left, right, new EqualTo(a, b));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        // expected to contain INNER JOIN and the ON condition
+        Assertions.assertTrue(sql.contains("INNER JOIN"));
+        Assertions.assertTrue(sql.contains("ON (a = b)"));
+    }
+
+    @Test
+    public void testDecompileSelfJoinForcesWrap() {
+        // Both sides scan the same table (t1) -> same relation alias -> the decompiler
+        // forces both sides to wrap as subqueries so the FROM clause stays unambiguous
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t1", List.of(b));
+        PhysicalHashJoin join = mockJoin(left, right, new EqualTo(a, b));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        // no inline "t1 INNER JOIN t1"
+        Assertions.assertFalse(sql.contains("t1 INNER JOIN t1"),
+                "self join must not inline both sides: " + sql);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM t1) t_0"), sql);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM t1) t_1"), sql);
+    }
+
+    @Test
+    public void testDecompileColumnNameConflictQualifies() {
+        // Both sides register a column under the same SQL name ("a") -> the join
+        // relation qualifies the references with the side alias
+        SlotReference a1 = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a2 = new SlotReference("a", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a1));
+        PhysicalOlapScan right = mockScan("t2", List.of(a2));
+        PhysicalHashJoin join = mockJoin(left, right, new EqualTo(a1, a2));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("t1.a") && sql.contains("t2.a"),
+                "conflicting column references must be qualified: " + sql);
+    }
+
+    // ==================== MARK / NULL_AWARE join decompile ====================
+    // 2-valued EXISTS / NOT EXISTS MARK joins (empty mark conjuncts) decompile to the
+    // native SEMI/ANTI MARK JOIN keyword so the shape is pinned and replayed; the
+    // ==================== MARK / NULL_AWARE join decompile ====================
+    // A MARK join is any SEMI/ANTI join carrying a mark slot; the MARK /
+    // MARK_CONDITION / MARK_SLOT keywords are the SQL surface that passes (markSlot,
+    // markConjuncts) back into the same SEMI/ANTI join, so EVERY MARK join decompiles
+    // natively (comments2):
+    //  1. correlation in ON, no mark key : SEMI/ANTI MARK JOIN ... MARK_SLOT m ON <conds>
+    //  2. only a mark key                : SEMI/ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m ON true
+    //  3. correlation in ON + mark key   : SEMI/ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m ON <conds>
+    // ASOF is LEFT-direction only. The non-mark NULL_AWARE_LEFT_ANTI (WHERE NOT IN
+    // filter) with residual conjuncts / no key equality stays on the NOT IN rewrite
+    // (decompileNullAwareAnti).
+
+    @Test
+    public void testDecompileNativeSemiMarkJoin() {
+        //   PhysicalHashJoin LEFT_SEMI isMarkJoin=true, mark slot m, hash [t1.a = t2.b]
+        //     - PhysicalOlapScan [t1]
+        //     - PhysicalOlapScan [t2]
+        //   source query: SELECT * FROM t1 LEFT SEMI MARK JOIN t2 MARK_SLOT m ON t1.a = t2.b
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        MarkJoinSlotReference markSlot = new MarkJoinSlotReference("m");
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t2", List.of(b));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(new EqualTo(a, b)));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.of(markSlot));
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.LEFT_SEMI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(true);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("LEFT SEMI MARK JOIN"),
+                "native mark join keyword expected: " + sql);
+        Assertions.assertTrue(sql.contains("MARK_SLOT c_"),
+                "mark slot must be decompiled natively: " + sql);
+        Assertions.assertTrue(sql.contains("ON (a = b)"), sql);
+        Assertions.assertFalse(sql.contains("EXISTS"), "no EXISTS rewrite expected: " + sql);
+    }
+
+    @Test
+    public void testDecompileAntiMarkJoinMarkKeyOnTrue() {
+        // Shape 2: a mark join with NO correlation and only the (three-valued) NOT IN
+        // key in its mark conjuncts (a standalone "x NOT IN (sub)" boolean output). It
+        // decompiles natively as LEFT ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT
+        // m ON true - the literal-true ON keeps the SEMI/ANTI join parseable while hash /
+        // other stay empty, so the translator derives the null-aware operator for BE.
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        MarkJoinSlotReference markSlot = new MarkJoinSlotReference("m");
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t2", List.of(b));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of(new EqualTo(a, b)));
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.of(markSlot));
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.LEFT_ANTI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(true);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("LEFT ANTI MARK JOIN"), sql);
+        Assertions.assertTrue(sql.contains("MARK_CONDITION((a = b))"),
+                "mark key must be carried by MARK_CONDITION: " + sql);
+        Assertions.assertTrue(sql.contains("MARK_SLOT c_"), sql);
+        Assertions.assertTrue(sql.contains("ON true"),
+                "mark-key-only join needs ON true to stay parseable: " + sql);
+        Assertions.assertFalse(sql.contains("NOT IN (SELECT"), "no NOT IN rewrite expected: " + sql);
+    }
+
+    @Test
+    public void testDecompileSemiMarkJoinMarkKeyAndOn() {
+        // Shape 3: correlated IN mark - the hash conjunct carries the correlation
+        // (t1.a = t2.c), the mark conjunct the (three-valued) IN key (t1.b = t2.d). It
+        // decompiles natively as SEMI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m
+        // ON <correlation>.
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE); // t1.a correlation key
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE); // t1.b IN probe
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE); // t2.c correlation build
+        SlotReference d = new SlotReference("d", IntegerType.INSTANCE); // t2.d IN build
+        MarkJoinSlotReference markSlot = new MarkJoinSlotReference("m");
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a, b));
+        PhysicalOlapScan right = mockScan("t2", List.of(c, d));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(new EqualTo(a, c)));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of(new EqualTo(b, d)));
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.of(markSlot));
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.LEFT_SEMI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(true);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("LEFT SEMI MARK JOIN"), sql);
+        Assertions.assertTrue(sql.contains("MARK_CONDITION((b = d))"), sql);
+        Assertions.assertTrue(sql.contains("MARK_SLOT c_"), sql);
+        Assertions.assertTrue(sql.contains("ON (a = c)"),
+                "correlation must be the ON clause: " + sql);
+        Assertions.assertFalse(sql.contains(" IN (SELECT"), "no IN rewrite expected: " + sql);
+    }
+
+    @Test
+    public void testDecompileNativeNullAwareAnti() {
+        // Clean equi-key NULL-AWARE anti (no residual conjuncts, one hash key): native
+        // LEFT NULL_AWARE ANTI JOIN keyword. A standard ANTI JOIN is not three-valued,
+        // so the keyword is what keeps the NOT IN semantics during a replay.
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t2", List.of(b));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(new EqualTo(a, b)));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.empty());
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(false);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("LEFT NULL_AWARE ANTI JOIN"),
+                "native NULL_AWARE keyword expected: " + sql);
+        Assertions.assertTrue(sql.contains("ON (a = b)"), sql);
+        Assertions.assertFalse(sql.contains("NOT IN"), "no NOT IN rewrite expected: " + sql);
+    }
+
+    @Test
+    public void testDecompileNullAwareAntiResidualStaysInSubquery() {
+        // NULL-AWARE anti whose build side carries a residual conjunct: the conjunct
+        // must stay INSIDE the NOT IN subquery (three-valued), so this corner case
+        // still uses the subquery rewrite instead of the native keyword.
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t2", List.of(a, b));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(new EqualTo(a, b)));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of(new GreaterThan(b, new IntegerLiteral(1))));
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.empty());
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(false);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("NOT IN (SELECT"),
+                "residual conjunct forces the NOT IN subquery rewrite: " + sql);
+        Assertions.assertFalse(sql.contains("NULL_AWARE"), sql);
+    }
+
+    @Test
+    public void testDecompileNullAwareTypedMarkJoinUnsupported() {
+        // The optimizer never produces a NULL_AWARE-typed MARK join (SELECT-list IN /
+        // NOT IN marks keep the LEFT/RIGHT SEMI/ANTI types); if one ever reached the
+        // decompiler it has no SQL keyword, so it must fail loudly instead of silently
+        // freezing an unrepresentable shape.
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        MarkJoinSlotReference markSlot = new MarkJoinSlotReference("m");
+
+        PhysicalOlapScan left = mockScan("t1", List.of(a));
+        PhysicalOlapScan right = mockScan("t2", List.of(b));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of(new EqualTo(a, b)));
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.of(markSlot));
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(true);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().toSQL(join));
+    }
+
+    // ==================== GROUPING SETS (PhysicalRepeat) ====================
+
+    @Test
+    public void testDecompileGroupingSets() {
+        // PhysicalHashAggregate(GLOBAL) over PhysicalRepeat over scan:
+        // GROUP BY GROUPING SETS((a), (a, b))
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan scan = mockScan("t1", List.of(a, b));
+
+        PhysicalRepeat<?> repeat = Mockito.mock(PhysicalRepeat.class);
+        Mockito.when(repeat.child(0)).thenReturn(scan);
+        Mockito.when(repeat.getGroupingSets())
+                .thenReturn(List.of(List.of(a), List.of(a, b)));
+        stubAccept(repeat);
+
+        PhysicalHashAggregate<?> agg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(agg.child(0)).thenReturn(repeat);
+        Mockito.when(agg.getAggPhase()).thenReturn(org.apache.doris.nereids.trees.plans.AggPhase.GLOBAL);
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(agg.getOutputExpressions()).thenReturn(List.of());
+        stubAccept(agg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(agg);
+        Assertions.assertTrue(sql.contains("GROUPING SETS((a), (a, b))"),
+                "GROUPING SETS must be reconstructed: " + sql);
+    }
+
+    // ==================== ASSERT_ROWS (PhysicalAssertNumRows) ====================
+
+    @Test
+    public void testDecompileAssertNumRows() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+
+        PhysicalAssertNumRows<?> assertNumRows = Mockito.mock(PhysicalAssertNumRows.class);
+        Mockito.when(assertNumRows.child(0)).thenReturn(scan);
+        stubAccept(assertNumRows);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(assertNumRows);
+        Assertions.assertTrue(sql.startsWith("ASSERT_ROWS ("),
+                "assert-num-rows must be decompiled as ASSERT_ROWS: " + sql);
+    }
+
+    // ==================== test helpers ====================
+
+    /**
+     * Builds a PhysicalOlapScan mock and stubs accept() to route to
+     * SPMPlan2SQLBuilder.visitPhysicalOlapScan.
+     */
+    private PhysicalOlapScan mockScan(String tableName, List<SlotReference> outputs) {
+        PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getOutput()).thenReturn(List.copyOf(outputs));
+        stubAccept(scan);
+        return scan;
+    }
+
+    /**
+     * Builds a PhysicalFilter mock.
+     */
+    private PhysicalFilter<?> mockFilter(Expression predicate, Plan child) {
+        PhysicalFilter<?> filter = Mockito.mock(PhysicalFilter.class);
+        Mockito.when(filter.getPredicate()).thenReturn(predicate);
+        Mockito.when(filter.child(0)).thenReturn(child);
+        stubAccept(filter);
+        return filter;
+    }
+
+    /**
+     * Builds a PhysicalProject mock.
+     */
+    private PhysicalProject<?> mockProject(List<SlotReference> projects, Plan child) {
+        PhysicalProject<?> project = Mockito.mock(PhysicalProject.class);
+        Mockito.when(project.getProjects()).thenReturn(List.copyOf(projects));
+        Mockito.when(project.child(0)).thenReturn(child);
+        stubAccept(project);
+        return project;
+    }
+
+    /**
+     * Builds a PhysicalHashJoin mock.
+     */
+    private PhysicalHashJoin<?, ?> mockJoin(Plan left, Plan right, Expression onPredicate) {
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(onPredicate));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.INNER_JOIN);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+        return join;
+    }
+
+    /**
+     * Routes the accept() of a mock to the matching visit method of SPMPlan2SQLBuilder so
+     * the test walks the real dispatch + recursion logic instead of hand-written traversal.
+     */
+    private static void stubAccept(Plan mock) {
+        Mockito.doAnswer(invocation -> {
+            PlanVisitor<?, ?> visitor = invocation.getArgument(0);
+            Plan self = (Plan) invocation.getMock();
+            if (visitor instanceof SPMPlan2SQLBuilder) {
+                SPMPlan2SQLBuilder builder = (SPMPlan2SQLBuilder) visitor;
+                return dispatch(builder, self);
+            }
+            return visitor.visit(self, null);
+        }).when(mock).accept(Mockito.any(), Mockito.any());
+    }
+
+    /**
+     * Dispatches to the matching visit method of SPMPlan2SQLBuilder by physical node type.
+     */
+    private static Object dispatch(SPMPlan2SQLBuilder builder, Plan plan) {
+        if (plan instanceof PhysicalHashJoin) {
+            return builder.visitPhysicalHashJoin((PhysicalHashJoin<?, ?>) plan, null);
+        }
+        if (plan instanceof PhysicalFilter) {
+            return builder.visitPhysicalFilter((PhysicalFilter<?>) plan, null);
+        }
+        if (plan instanceof PhysicalProject) {
+            return builder.visitPhysicalProject((PhysicalProject<?>) plan, null);
+        }
+        if (plan instanceof PhysicalOlapScan) {
+            return builder.visitPhysicalRelation((PhysicalOlapScan) plan, null);
+        }
+        if (plan instanceof PhysicalHashAggregate) {
+            return builder.visitPhysicalHashAggregate((PhysicalHashAggregate<?>) plan, null);
+        }
+        if (plan instanceof PhysicalRepeat) {
+            return builder.visitPhysicalRepeat((PhysicalRepeat<?>) plan, null);
+        }
+        if (plan instanceof PhysicalAssertNumRows) {
+            return builder.visitPhysicalAssertNumRows((PhysicalAssertNumRows<?>) plan, null);
+        }
+        if (plan instanceof PhysicalCTEAnchor) {
+            return builder.visitPhysicalCTEAnchor(
+                    (PhysicalCTEAnchor<? extends Plan, ? extends Plan>) plan, null);
+        }
+        if (plan instanceof PhysicalCTEProducer) {
+            return builder.visitPhysicalCTEProducer((PhysicalCTEProducer<? extends Plan>) plan, null);
+        }
+        if (plan instanceof PhysicalCTEConsumer) {
+            return builder.visitPhysicalCTEConsumer((PhysicalCTEConsumer) plan, null);
+        }
+        if (plan instanceof PhysicalRecursiveUnion) {
+            return builder.visitPhysicalRecursiveUnion((PhysicalRecursiveUnion<?, ?>) plan, null);
+        }
+        if (plan instanceof PhysicalRecursiveUnionAnchor) {
+            return builder.visitPhysicalRecursiveUnionAnchor((PhysicalRecursiveUnionAnchor<?>) plan, null);
+        }
+        if (plan instanceof PhysicalRecursiveUnionProducer) {
+            return builder.visitPhysicalRecursiveUnionProducer((PhysicalRecursiveUnionProducer<?>) plan, null);
+        }
+        if (plan instanceof PhysicalWorkTableReference) {
+            return builder.visitPhysicalWorkTableReference((PhysicalWorkTableReference) plan, null);
+        }
+        if (plan instanceof PhysicalOneRowRelation) {
+            return builder.visitPhysicalOneRowRelation((PhysicalOneRowRelation) plan, null);
+        }
+        return builder.visit(plan, null);
+    }
+
+    // ==================== Recursive CTE decompile (M4) ====================
+
+    /**
+     * Decompiles a recursive-CTE physical plan:
+     *
+     *     PhysicalRecursiveUnion(cte, UNION ALL)
+     *     ├── anchor: PhysicalRecursiveUnionAnchor -> OneRowRelation
+     *     │     SELECT CAST(_spm_const_var(2) AS BIGINT)
+     *     └── recursive: PhysicalRecursiveUnionProducer
+     *           └── Project (n + CAST(_spm_const_var(4) ...))
+     *                 └── Filter (n < CAST(_spm_const_var(3) ...))
+     *                       └── WorkTableReference(cte)
+     *
+     * The decompiled SQL must be a self-contained WITH RECURSIVE subquery with the
+     * placeholder ids preserved (anchor 2, recursive filter 3, recursive projection 4)
+     * and the recursive member referencing the CTE by name.
+     */
+    @Test
+    public void testRecursiveCteDecompile() {
+        SlotReference nAnchor = new SlotReference("n", BigIntType.INSTANCE);
+        SlotReference nOut = new SlotReference("n", BigIntType.INSTANCE);
+        SlotReference nRec = new SlotReference("n", BigIntType.INSTANCE);
+
+        // anchor branch: OneRowRelation SELECT CAST(_spm_const_var(2) AS BIGINT) AS n
+        Expression anchorProj = new Alias(
+                new Cast(new SpmConstVar(2L, new IntegerLiteral(1)), BigIntType.INSTANCE), "n");
+        PhysicalOneRowRelation oneRow = Mockito.mock(PhysicalOneRowRelation.class);
+        Mockito.when(oneRow.getProjects()).thenReturn(List.of((NamedExpression) anchorProj));
+        stubAccept(oneRow);
+        PhysicalRecursiveUnionAnchor<?> anchorSentinel = Mockito.mock(PhysicalRecursiveUnionAnchor.class);
+        Mockito.when(anchorSentinel.child()).thenReturn(oneRow);
+        stubAccept(anchorSentinel);
+
+        // recursive branch: WorkTableReference -> Filter(n < _spm_const_var(3)) ->
+        // Project(n + _spm_const_var(4))
+        PhysicalWorkTableReference workTable = Mockito.mock(PhysicalWorkTableReference.class);
+        Mockito.when(workTable.getOutput()).thenReturn(List.of((Slot) nRec));
+        Mockito.when(workTable.getTableName()).thenReturn("cte");
+        Mockito.when(workTable.getNameParts()).thenReturn(List.of("cte"));
+        stubAccept(workTable);
+        PhysicalFilter<?> recFilter = Mockito.mock(PhysicalFilter.class);
+        Mockito.when(recFilter.getPredicate()).thenReturn(new LessThan(nRec,
+                new Cast(new SpmConstVar(3L, new IntegerLiteral(5)), BigIntType.INSTANCE)));
+        Mockito.when(recFilter.child(0)).thenReturn(workTable);
+        stubAccept(recFilter);
+        Expression recProj = new Alias(new Nullable(new Add(nRec,
+                new Cast(new SpmConstVar(4L, new IntegerLiteral(1)), BigIntType.INSTANCE))), "n1");
+        PhysicalProject<?> recProject = Mockito.mock(PhysicalProject.class);
+        Mockito.when(recProject.getProjects()).thenReturn(List.of((NamedExpression) recProj));
+        Mockito.when(recProject.child(0)).thenReturn(recFilter);
+        stubAccept(recProject);
+        PhysicalRecursiveUnionProducer<?> recSentinel = Mockito.mock(PhysicalRecursiveUnionProducer.class);
+        Mockito.when(recSentinel.child()).thenReturn(recProject);
+        stubAccept(recSentinel);
+
+        // the recursive CTE node
+        PhysicalRecursiveUnion<?, ?> recUnion = Mockito.mock(PhysicalRecursiveUnion.class);
+        Mockito.when(recUnion.getCteName()).thenReturn("cte");
+        Mockito.when(recUnion.isUnionAll()).thenReturn(true);
+        Mockito.when(recUnion.getRegularChildOutput(0)).thenReturn(List.of((SlotReference) nAnchor));
+        Mockito.when(recUnion.getOutput()).thenReturn(List.of((Slot) nOut));
+        Mockito.when(recUnion.child(0)).thenReturn(anchorSentinel);
+        Mockito.when(recUnion.child(1)).thenReturn(recSentinel);
+        stubAccept(recUnion);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(recUnion);
+        Assertions.assertTrue(sql.contains("WITH RECURSIVE cte(n)"),
+                "frozen SQL must carry WITH RECURSIVE + column list: " + sql);
+        Assertions.assertTrue(sql.contains("UNION ALL"), "anchor and recursive must be unioned: " + sql);
+        Assertions.assertTrue(sql.contains("_spm_const_var(2)"),
+                "anchor placeholder id must survive decompile: " + sql);
+        Assertions.assertTrue(sql.contains("_spm_const_var(3)"),
+                "recursive filter placeholder id must survive decompile: " + sql);
+        Assertions.assertTrue(sql.contains("_spm_const_var(4)"),
+                "recursive projection placeholder id must survive decompile: " + sql);
+        Assertions.assertTrue(sql.contains("FROM cte"),
+                "recursive member must reference the CTE by name: " + sql);
+        Assertions.assertTrue(sql.contains("SELECT n FROM cte"),
+                "the outer reference must select the CTE columns: " + sql);
+        Assertions.assertFalse(sql.contains("_spm_const_var(2, "),
+                "no placeholder value may leak into the frozen SQL: " + sql);
+    }
+
+    // ==================== non-recursive CTE decompile (WITH) ====================
+
+    /**
+     * A single-consumer CTE must be decompiled as a shared WITH definition plus a
+     * reference, not inlined:
+     *
+     *     PhysicalCTEAnchor
+     *     ├── PhysicalCTEProducer(cteId) -> PhysicalOlapScan(t1) [a, b]
+     *     └── PhysicalProject [a]
+     *           └── PhysicalCTEConsumer(cteId) [a]
+     *
+     * The CTE body must appear exactly once (in the WITH clause) and every consumer
+     * must reference the definition by its generated alias.
+     */
+    @Test
+    public void testDecompileNonRecursiveCte() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference consumerA = new SlotReference("a", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(1);
+
+        PhysicalOlapScan body = mockScan("t1", List.of(a, b));
+        PhysicalCTEProducer<?> producer = Mockito.mock(PhysicalCTEProducer.class);
+        Mockito.when(producer.getCteId()).thenReturn(cteId);
+        Mockito.when(producer.child(0)).thenReturn(body);
+        stubAccept(producer);
+
+        PhysicalCTEConsumer consumer = Mockito.mock(PhysicalCTEConsumer.class);
+        Mockito.when(consumer.getCteId()).thenReturn(cteId);
+        Mockito.when(consumer.getOutput()).thenReturn(List.of((Slot) consumerA));
+        Mockito.when(consumer.getProducerSlot(Mockito.any(Slot.class))).thenReturn(a);
+        stubAccept(consumer);
+
+        PhysicalProject<?> project = mockProject(List.of(consumerA), consumer);
+        PhysicalCTEAnchor<?, ?> anchor = Mockito.mock(PhysicalCTEAnchor.class);
+        Mockito.when(anchor.child(0)).thenReturn(producer);
+        Mockito.when(anchor.child(1)).thenReturn(project);
+        Mockito.when(anchor.getOutput()).thenReturn(List.of((Slot) consumerA));
+        stubAccept(anchor);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(anchor);
+        Assertions.assertTrue(sql.startsWith("WITH t_0 AS ("),
+                "the CTE must lead the statement as a WITH definition: " + sql);
+        Assertions.assertTrue(sql.contains("FROM t_0"),
+                "consumers must reference the CTE alias: " + sql);
+        Assertions.assertEquals(1, countOccurrences(sql, "FROM t1"),
+                "the CTE body must appear exactly once (no inline copy): " + sql);
+    }
+
+    /**
+     * A CTE with two consumers must still be emitted once: a single WITH definition
+     * referenced by both consumers (each reference keeps its own relation alias, so a
+     * self join of the CTE stays unambiguous):
+     *
+     *     PhysicalCTEAnchor
+     *     ├── PhysicalCTEProducer(cteId) -> PhysicalOlapScan(t1) [a, b]
+     *     └── PhysicalHashJoin [a = b]
+     *           ├── PhysicalCTEConsumer(cteId) [a]
+     *           └── PhysicalCTEConsumer(cteId) [b]
+     */
+    @Test
+    public void testDecompileMultiConsumerCte() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        SlotReference consumerLeft = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference consumerRight = new SlotReference("b", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(2);
+
+        PhysicalOlapScan body = mockScan("t1", List.of(a, b));
+        PhysicalCTEProducer<?> producer = Mockito.mock(PhysicalCTEProducer.class);
+        Mockito.when(producer.getCteId()).thenReturn(cteId);
+        Mockito.when(producer.child(0)).thenReturn(body);
+        stubAccept(producer);
+
+        PhysicalCTEConsumer consumer1 = Mockito.mock(PhysicalCTEConsumer.class);
+        Mockito.when(consumer1.getCteId()).thenReturn(cteId);
+        Mockito.when(consumer1.getOutput()).thenReturn(List.of((Slot) consumerLeft));
+        Mockito.when(consumer1.getProducerSlot(Mockito.any(Slot.class))).thenReturn(a);
+        stubAccept(consumer1);
+
+        PhysicalCTEConsumer consumer2 = Mockito.mock(PhysicalCTEConsumer.class);
+        Mockito.when(consumer2.getCteId()).thenReturn(cteId);
+        Mockito.when(consumer2.getOutput()).thenReturn(List.of((Slot) consumerRight));
+        Mockito.when(consumer2.getProducerSlot(Mockito.any(Slot.class))).thenReturn(b);
+        stubAccept(consumer2);
+
+        PhysicalHashJoin<?, ?> join = mockJoin(consumer1, consumer2, new EqualTo(consumerLeft, consumerRight));
+        PhysicalCTEAnchor<?, ?> anchor = Mockito.mock(PhysicalCTEAnchor.class);
+        Mockito.when(anchor.child(0)).thenReturn(producer);
+        Mockito.when(anchor.child(1)).thenReturn(join);
+        Mockito.when(anchor.getOutput()).thenReturn(List.of((Slot) consumerLeft, (Slot) consumerRight));
+        stubAccept(anchor);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(anchor);
+        Assertions.assertEquals(1, countOccurrences(sql, "t_0 AS ("),
+                "the CTE body must be defined exactly once: " + sql);
+        Assertions.assertEquals(1, countOccurrences(sql, "FROM t1"),
+                "the CTE body must appear exactly once (no inline copy): " + sql);
+        Assertions.assertEquals(2, countOccurrences(sql, "FROM t_0"),
+                "both consumers must reference the shared definition: " + sql);
+    }
+
+    /** Counts the occurrences of a literal fragment in a string. */
+    private static int countOccurrences(String sql, String fragment) {
+        int count = 0;
+        int index = sql.indexOf(fragment);
+        while (index >= 0) {
+            count++;
+            index = sql.indexOf(fragment, index + fragment.length());
+        }
+        return count;
+    }
+}

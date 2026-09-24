@@ -69,7 +69,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -479,7 +479,11 @@ public class CascadesContext implements ScheduleContext {
                 () -> variableSupplier.apply(connectContext.getSessionVariable()));
     }
 
-    /** getAndCacheDisableRules */
+    /**
+     * The rules forbidden in this statement: disable_nereids_rules plus - when the
+     * session carries a non-empty enable_nereids_rules whitelist - every rule outside
+     * that whitelist (see StatementContext#getOrCacheDisableRules).
+     */
     public final BitSet getAndCacheDisableRules() {
         ConnectContext connectContext = getConnectContext();
         StatementContext statementContext = getStatementContext();
@@ -497,7 +501,7 @@ public class CascadesContext implements ScheduleContext {
 
     public void putCTEIdToConsumer(LogicalCTEConsumer cteConsumer) {
         Set<LogicalCTEConsumer> consumers = this.statementContext.getCteIdToConsumers()
-                .computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
+                .computeIfAbsent(cteConsumer.getCteId(), k -> new LinkedHashSet<>());
         consumers.add(cteConsumer);
     }
 
@@ -506,7 +510,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void putConsumerIdToFilter(RelationId id, Expression filter) {
-        Set<Expression> filters = this.getConsumerIdToFilters().computeIfAbsent(id, k -> new HashSet<>());
+        Set<Expression> filters = this.getConsumerIdToFilters().computeIfAbsent(id, k -> new LinkedHashSet<>());
         filters.add(filter);
     }
 
