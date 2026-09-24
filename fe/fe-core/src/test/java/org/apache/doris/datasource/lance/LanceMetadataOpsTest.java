@@ -221,8 +221,7 @@ public class LanceMetadataOpsTest {
         Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
         Mockito.when(database.getRemoteName()).thenReturn("analytics");
         ExternalTable conflictingTable = table("local_db", "events", "analytics", "Events");
-        Mockito.when(database.getTableNullable("events"))
-                .thenReturn(conflictingTable, conflictingTable, conflictingTable, conflictingTable);
+        Mockito.when(database.getTableNullable("events")).thenReturn(conflictingTable);
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
         try {
