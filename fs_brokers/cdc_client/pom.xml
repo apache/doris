@@ -70,7 +70,7 @@ under the License.
         <checkstyle.version>8.14</checkstyle.version>
         <maven-checkstyle-plugin.version>2.17</maven-checkstyle-plugin.version>
         <httpcomponents.version>4.5.13</httpcomponents.version>
-        <lombok.version>1.18.24</lombok.version>
+        <lombok.version>1.18.34</lombok.version>
         <commons-codec.version>1.15</commons-codec.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <assertj.version>3.27.7</assertj.version>
