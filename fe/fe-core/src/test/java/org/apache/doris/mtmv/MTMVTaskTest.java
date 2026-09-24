@@ -583,6 +583,40 @@ public class MTMVTaskTest {
         Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
     }
 
+    /**
+     * The all-dirty shortcut answers a whole-MV refresh, which a request that may not fall back has not
+     * authorized -- and COMPLETE is not merely more work: it reconciles the IVM streams and resets their
+     * baselines, the same reset the unusable-stream shortcut above permits only when a fallback is allowed.
+     * The routing those partitions would take is the incremental attempt, which rebuilds every one of them,
+     * finds nothing left to catch up, and fails on an unusable stream instead of resetting it. So the
+     * shortcut is gated on that permission, and a strict request keeps the chain that reaches the attempt.
+     */
+    @Test
+    public void testTheAllDirtyShortcutNeedsARequestThatMayFallBack() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.allPartitionsNeedRebuild()).thenReturn(true);
+
+        MTMVTask strictTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, false, null));
+        Object strictRequest = Deencapsulation.invoke(strictTask, "resolveRefreshRequest");
+
+        List<?> strictAttempts = (List<?>) Deencapsulation.invoke(strictTask, "buildAttempts", strictRequest,
+                false);
+
+        Assertions.assertEquals(Lists.newArrayList("IVM"), toNames(strictAttempts));
+
+        // Same MV, same verdict, a request that may fall back: the shortcut still applies.
+        MTMVTask fallbackTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object fallbackRequest = Deencapsulation.invoke(fallbackTask, "resolveRefreshRequest");
+
+        List<?> fallbackAttempts = (List<?>) Deencapsulation.invoke(fallbackTask, "buildAttempts",
+                fallbackRequest, false);
+
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(fallbackAttempts));
+    }
+
     @Test
     public void testBuildAttemptsDoesNotEscalateWithoutAnInvalidatedPartition() throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);

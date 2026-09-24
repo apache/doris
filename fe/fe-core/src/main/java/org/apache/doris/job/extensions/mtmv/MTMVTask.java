@@ -581,7 +581,21 @@ public class MTMVTask extends AbstractTask {
         }
         // Every partition either needs a rebuild or was never filled, and at least one needs a rebuild:
         // COMPLETE then does nothing the per-partition routing would not, in one read of the MV.
-        if (!request.explicitPartitions && attempts.contains(RefreshAttemptType.IVM)
+        //
+        // Only for a request that may fall back, like the stream shortcut above. The routing those
+        // partitions would take is the incremental attempt, which rebuilds every one of them and then finds
+        // no scope left to catch up -- and it reads the streams, so a request that may not fall back still
+        // fails there when one is unusable. Answering COMPLETE instead does what such a request forbids: it
+        // reconciles the streams and resets their baselines, which is the same reset the shortcut above
+        // gates on allowing a fallback. A strict request reaches the incremental attempt, as its intent is
+        // stated there.
+        //
+        // No clause for an explicit partition list: the attempt list says it already. Such a list is
+        // rejected for an IVM MV when the statement is analyzed, and it becomes a PARTITIONS request here,
+        // which never reaches the incremental attempt -- so an attempt list that holds one cannot hold the
+        // other. The schema-change shortcut above needs its own clause because it is judged for requests
+        // that do name partitions.
+        if (request.allowFallback && attempts.contains(RefreshAttemptType.IVM)
                 && mtmv.allPartitionsNeedRebuild()) {
             LOG.info("Every MV partition needs a rebuild or has no data yet, mv={}, taskId={}. "
                     + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());

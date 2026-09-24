@@ -18,7 +18,6 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog.EditLogItem;
