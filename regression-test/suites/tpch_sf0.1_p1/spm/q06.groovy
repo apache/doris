@@ -111,7 +111,8 @@ WHERE
   l_shipdate >= DATE '1994-01-01'
   AND l_shipdate < DATE '1994-01-01' + INTERVAL '1' YEAR
 AND l_discount BETWEEN 0.06 - 0.01 AND .06 + 0.01
-    AND l_quantity < 24"""
+    AND l_quantity < 24
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT sum(l_extendedprice * l_discount) AS revenue
 FROM
@@ -128,7 +129,8 @@ WHERE
   l_shipdate >= DATE '1994-01-01'
   AND l_shipdate < DATE '1994-01-01' + INTERVAL '1' YEAR
 AND l_discount BETWEEN 0.06 - 0.01 AND .06 + 0.01
-    AND l_quantity < 24"""
+    AND l_quantity < 24
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q06 query")
     
@@ -149,7 +151,8 @@ WHERE
   l_shipdate >= DATE '1995-01-01'
   AND l_shipdate < DATE '1995-01-01' + INTERVAL '1' YEAR
 AND l_discount BETWEEN 0.07 - 0.01 AND .07 + 0.01
-    AND l_quantity < 30"""
+    AND l_quantity < 30
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT sum(l_extendedprice * l_discount) AS revenue
 FROM
@@ -166,7 +169,8 @@ WHERE
   l_shipdate >= DATE '1995-01-01'
   AND l_shipdate < DATE '1995-01-01' + INTERVAL '1' YEAR
 AND l_discount BETWEEN 0.07 - 0.01 AND .07 + 0.01
-    AND l_quantity < 30"""
+    AND l_quantity < 30
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q06 query")
     

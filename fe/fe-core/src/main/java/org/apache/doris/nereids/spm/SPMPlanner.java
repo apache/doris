@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -122,8 +123,16 @@ public class SPMPlanner {
             return null;
         }
         // Level 1/2 use the FULL-QUERY value-free digest (Plan.toSpmDigest() renders every
-        // literal as "?", so the digest is value-independent).
-        String queryDigest = userPlan.toSpmDigest();
+        // literal as "?", so the digest is value-independent). The digest is computed on a
+        // namespace-qualified COPY: "FROM t" is keyed as the CURRENT catalog/db's t, so a
+        // baseline captured under db1 can never match the same text executed under db2
+        // (the frozen planSql is fully qualified and would silently keep running against
+        // db1.t). Explicitly qualified references stay verbatim on both sides, and so do
+        // references to a CTE alias: those bind inside the query's own WITH clause and are
+        // therefore namespace-independent.
+        LogicalPlan matchPlan = SPMPlanTreeSupport.namespaceQualified(userPlan,
+                captureCatalogName(ctx), captureDatabaseName(ctx));
+        String queryDigest = matchPlan.toSpmDigest();
         long queryHash = SPMUtils.hashOf(queryDigest);
         // SESSION-scope baselines of the current connection are consulted BEFORE the
         // global ones, so a session baseline can override a global baseline for this
@@ -149,7 +158,7 @@ public class SPMPlanner {
             }
             // Level 3: whole-tree structural match + value extraction
             Map<Long, Expression> placeholderValues = new HashMap<>();
-            if (!SPMPlanTreeSupport.check(bindTree, userPlan, placeholderValues)) {
+            if (!SPMPlanTreeSupport.check(bindTree, matchPlan, placeholderValues)) {
                 continue;
             }
             LOG.info("SPM tryRewritePlan: baseline {} matched, extracted {} placeholder values",
@@ -172,11 +181,11 @@ public class SPMPlanner {
                 // placeholders; adopt the user's values so a structurally identical query
                 // with a different limit is rewritten with the USER limit
                 usedBaselineId = candidate.getId();
-                return SPMPlanTreeSupport.mergeLimits(rewritten, userPlan);
+                return SPMPlanTreeSupport.mergeLimits(rewritten, matchPlan);
             }
             LOG.info("SPM tryRewritePlan: baseline {} frozen planSql replay unavailable, "
                     + "falling back to parameterized plan tree", candidate.getId());
-            LogicalPlan planTree = candidate.getParameterizedPlanPlan();
+            LogicalPlan planTree = stripSelectHints(candidate.getParameterizedPlanPlan());
             if (planTree == null) {
                 continue;
             }
@@ -193,7 +202,7 @@ public class SPMPlanner {
                 continue;
             }
             usedBaselineId = candidate.getId();
-            return SPMPlanTreeSupport.mergeLimits(rewritten, userPlan);
+            return SPMPlanTreeSupport.mergeLimits(rewritten, matchPlan);
         }
         return null;
     }
@@ -254,6 +263,41 @@ public class SPMPlanner {
         }
     }
 
+    /**
+     * The effective catalog name of the creation / matching context (null when unknown);
+     * part of the namespace-qualified matching key.
+     */
+    private static String captureCatalogName(ConnectContext ctx) {
+        return ctx == null || ctx.getCurrentCatalog() == null
+                ? null : ctx.getCurrentCatalog().getName();
+    }
+
+    /** The effective database of the creation / matching context (null when unknown). */
+    private static String captureDatabaseName(ConnectContext ctx) {
+        return ctx == null ? null : ctx.getDatabase();
+    }
+
+    /**
+     * Removes the root LogicalSelectHint (its SET_VAR payload) from the FALLBACK
+     * parameterized plan tree. The primary frozen-text path re-parses planSql including
+     * its hints deliberately; the in-memory fallback must not re-apply the BASELINE's
+     * captured SET_VAR on top of a user query that came with different session
+     * variables (a time_zone='+08:00' baseline would override the user's -08:00
+     * from_unixtime and return wrong values - the user's own SET_VAR was already applied
+     * during parsing).
+     */
+    private static LogicalPlan stripSelectHints(LogicalPlan plan) {
+        LogicalPlan current = plan;
+        while (current instanceof LogicalSelectHint) {
+            Plan child = current.child(0);
+            if (!(child instanceof LogicalPlan)) {
+                break;
+            }
+            current = (LogicalPlan) child;
+        }
+        return current;
+    }
+
     // ==================== baseline creation ====================
 
     /**
@@ -301,7 +345,11 @@ public class SPMPlanner {
     BaselinePlan buildBaseline(LogicalPlan bindPlan, LogicalPlan planPlan,
             String bindSql, String planSql, double cost) {
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan);
-        return assembleBaseline(bindPlan, trees.first, trees.second, bindSql, planSql, cost);
+        // the matching key is namespace-qualified like tryRewritePlan's user side, so the
+        // in-memory (UT) create / rewrite pair stays consistent in any context
+        ConnectContext ctx = ConnectContext.get();
+        return assembleBaseline(bindPlan, trees.first, trees.second, bindSql, planSql, cost,
+                captureCatalogName(ctx), captureDatabaseName(ctx));
     }
 
     /**
@@ -375,7 +423,8 @@ public class SPMPlanner {
             }
         }
         return assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
-                frozenPlanSql, optimizeResult.getCost());
+                frozenPlanSql, optimizeResult.getCost(),
+                captureCatalogName(ctx), captureDatabaseName(ctx));
     }
 
     /**
@@ -417,10 +466,15 @@ public class SPMPlanner {
      * place.
      */
     private static BaselinePlan assembleBaseline(LogicalPlan bindPlan, LogicalPlan parameterizedBind,
-            LogicalPlan parameterizedPlan, String bindSql, String planSql, double cost) {
+            LogicalPlan parameterizedPlan, String bindSql, String planSql, double cost,
+            String catalog, String db) {
         BaselinePlan baseline = new BaselinePlan();
         baseline.setBindSql(bindSql);
-        // value-free full-query digest of the bind tree (Level 1/2 matching key).
+        // value-free full-query digest of the bind tree (Level 1/2 matching key). The
+        // digest is computed on a namespace-qualified copy of the bind tree so unqualified
+        // relations are keyed by the CREATION catalog/db: the same text under a different
+        // namespace must not match (see SPMPlanTreeSupport.namespaceQualified; CTE-alias
+        // references are exempt because they bind inside the query itself).
         // Consistency with the placeholder parameterization: toSpmDigest() renders every
         // Expression-leaf Literal as "?" through the generic digest machinery, while
         // SPMPlaceholderBuilder walks the same whole tree - both normalize exactly the
@@ -429,7 +483,7 @@ public class SPMPlanner {
         // so even a future divergence between the two mechanisms (e.g. a node whose
         // toDigest leaks a literal value) can only cause a missed rewrite (safe), never
         // a wrong rewrite.
-        String digest = bindPlan.toSpmDigest();
+        String digest = SPMPlanTreeSupport.namespaceQualified(bindPlan, catalog, db).toSpmDigest();
         baseline.setBindSqlDigest(digest);
         baseline.setBindSqlHash(SPMUtils.hashOf(digest));
         baseline.setPlanSql(planSql);

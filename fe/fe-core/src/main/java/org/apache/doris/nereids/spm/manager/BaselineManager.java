@@ -127,6 +127,10 @@ public class BaselineManager {
     private static final String DELETE_BY_KEY_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
             + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
 
+    /** Removes one baseline row by id + its previous status (status UPDATE support). */
+    private static final String DELETE_BY_ID_AND_STATUS_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
+            + " WHERE `id` = ${id} AND `status` = '${status}'";
+
     /** DATETIME column format (internal table create_time / update_time). */
     private static final DateTimeFormatter TS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -136,22 +140,31 @@ public class BaselineManager {
     /**
      * Candidate baseline priority ordering:
      *
-     * 1. both have queryMs -> the one with shorter time wins
+     * 1. both have queryMs (>= 0) -> the one with shorter time wins
      * 2. neither has queryMs (-1) -> the one with lower cost wins
      * 3. only one has queryMs -> the one without time wins (manual baselines win over
      *    auto-captured ones)
      *
-     * queryMs = -1 means no actual execution time (manually created), > 0 means the
-     * baseline has actual execution stats (auto captured).
+     * queryMs = -1 means no actual execution time (manually created); >= 0 means known
+     * execution stats (0 is a valid measured sub-millisecond time). The comparison is a
+     * total order: equal known times compare equal and a known time never compares -1 in
+     * both directions.
      */
     private static final Comparator<BaselinePlan> comparator = (o1, o2) -> {
-        if (o1.getQueryTimeMs() > 0 && o2.getQueryTimeMs() > 0) {
-            return Long.compare(o1.getQueryTimeMs(), o2.getQueryTimeMs());
-        } else if (o1.getQueryTimeMs() < 0 && o2.getQueryTimeMs() < 0) {
+        // -1 is "unknown" (manual create); 0 is a VALID measured time, so "known" is
+        // >= 0. compare(0, 0) must be 0 and 0 vs -1 must be ordered consistently, or
+        // stream sorting can misorder candidates / throw a comparator-contract error.
+        long time1 = o1.getQueryTimeMs();
+        long time2 = o2.getQueryTimeMs();
+        boolean known1 = time1 >= 0;
+        boolean known2 = time2 >= 0;
+        if (known1 && known2) {
+            return Long.compare(time1, time2);
+        } else if (!known1 && !known2) {
             return Double.compare(o1.getCost(), o2.getCost());
         } else {
             // the one with time is ordered last (the one without time wins)
-            return o1.getQueryTimeMs() > 0 ? 1 : -1;
+            return known1 ? 1 : -1;
         }
     };
 
@@ -201,12 +214,13 @@ public class BaselineManager {
     /**
      * Candidate baseline ordering shared with the SESSION-scope store: it applies the
      * exact same priority rules as this manager (see the comparator field).
+     * Public so tests can verify the total-order contract directly.
      *
      * @param o1 first baseline
      * @param o2 second baseline
      * @return the comparison result
      */
-    static int compareCandidates(BaselinePlan o1, BaselinePlan o2) {
+    public static int compareCandidates(BaselinePlan o1, BaselinePlan o2) {
         return comparator.compare(o1, o2);
     }
 
@@ -223,7 +237,7 @@ public class BaselineManager {
      * @return the id of the created baseline (or the existing id when duplicated)
      */
     public long createBaseline(BaselinePlan plan) {
-        ensureLoaded();
+        ensureLoadedOrThrow();
         // Id watermark first (see the class javadoc "Id source"): the generator must be
         // advanced past the persistence layer BEFORE an id is handed out. The read runs
         // OUTSIDE the write lock (an internal query must not run under it) and before the
@@ -282,7 +296,7 @@ public class BaselineManager {
      * @return whether the drop succeeded
      */
     public boolean dropBaseline(long id) {
-        ensureLoaded();
+        ensureLoadedOrThrow();
         stateLock.writeLock().lock();
         try {
             BaselinePlan removed = baselines.get(id);
@@ -310,27 +324,43 @@ public class BaselineManager {
      * @return whether the update succeeded
      */
     public boolean updateStatus(long id, BaselineStatus status) {
-        ensureLoaded();
+        ensureLoadedOrThrow();
         stateLock.writeLock().lock();
         try {
             BaselinePlan plan = baselines.get(id);
             if (plan == null) {
                 return false;
             }
-            // The internal table is a DUPLICATE-key table on which UPDATE is not supported, so a
-            // status change is persisted as delete-by-id + re-insert of the updated row (the same
-            // delete+insert pattern createBaseline uses for a re-created baseline). The in-memory
-            // state is reverted when the persist fails so a failed ALTER leaves it unchanged.
             BaselineStatus previousStatus = plan.getStatus();
+            if (previousStatus == status) {
+                // ALTER to the already-set status: nothing to persist. (Inserting + "deleting
+                // the old row by its status" would delete the freshly inserted row as well,
+                // because both rows carry the same status.)
+                return true;
+            }
+            // The internal table is a DUPLICATE-key table on which UPDATE is not supported, so a
+            // status change is persisted as INSERT (new status) + DELETE (old status). The INSERT
+            // runs FIRST so the durable new row exists before any delete: a failure can never
+            // leave the in-memory state "old" while the only table row was already removed (the
+            // delete-then-insert gap, where the next refresh / restart silently dropped the
+            // baseline). Deleting by the PREVIOUS status can never touch the freshly inserted
+            // row (the statuses differ).
             long previousUpdateTime = plan.getUpdateTime();
             plan.setStatus(status);
             plan.setUpdateTime(System.currentTimeMillis());
             try {
-                // id + content key (the status flip does not change digest / planSql), so a
-                // stale id can never delete an unrelated row
-                persistDeleteByIdentity(plan);
                 persistInsert(plan);
+                persistDeleteByIdAndStatus(id, previousStatus);
             } catch (RuntimeException e) {
+                // repair: delete the freshly inserted row by its (new) status - the old row
+                // was not touched yet, so the durable state is the old row again - then
+                // revert memory so memory and the table agree
+                try {
+                    persistDeleteByIdAndStatus(id, status);
+                } catch (RuntimeException repairFailure) {
+                    LOG.error("SPM failed to roll back baseline {} after a failed status update",
+                            id, repairFailure);
+                }
                 plan.setStatus(previousStatus);
                 plan.setUpdateTime(previousUpdateTime);
                 throw e;
@@ -562,6 +592,22 @@ public class BaselineManager {
             return;
         }
         loadFromInternalTable();
+    }
+
+    /**
+     * Strict variant for management operations (CREATE / ALTER / DROP): when the first
+     * load has not succeeded (internal table / BE unavailable), fail with a retryable
+     * error instead of silently operating on an empty map - DROP ... IF EXISTS would
+     * otherwise report success without deleting the durable row, which then reappears on
+     * the next refresh. Query-side callers keep ensureLoaded()'s degradation (no match
+     * while the store is unavailable).
+     */
+    private void ensureLoadedOrThrow() {
+        ensureLoaded();
+        if (!loaded) {
+            throw new IllegalStateException("SPM baseline store is not ready yet"
+                    + " (the baseline table has not been loaded); please retry later");
+        }
     }
 
     /** Replaces the in-memory store with the read snapshot (caller holds the write lock). */
@@ -873,6 +919,21 @@ public class BaselineManager {
             StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params);
         } catch (Exception e) {
             throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** Removes the row(s) with the given id whose status matches the previous status. */
+    private static void persistDeleteByIdAndStatus(long id, BaselineStatus status) {
+        if (!persistenceEnabled()) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        params.put("status", status.name());
+        try {
+            StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params);
+        } catch (Exception e) {
+            throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
         }
     }
 

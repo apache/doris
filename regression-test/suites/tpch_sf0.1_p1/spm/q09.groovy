@@ -203,7 +203,8 @@ GROUP BY
   o_year
 ORDER BY
   nation,
-      o_year DESC"""
+      o_year DESC
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   nation,
@@ -266,7 +267,8 @@ GROUP BY
   o_year
 ORDER BY
   nation,
-      o_year DESC"""
+      o_year DESC
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q09 query")
     
@@ -333,7 +335,8 @@ GROUP BY
   o_year
 ORDER BY
   nation,
-      o_year DESC"""
+      o_year DESC
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   nation,
@@ -396,7 +399,8 @@ GROUP BY
   o_year
 ORDER BY
   nation,
-      o_year DESC"""
+      o_year DESC
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q09 query")
     

@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -867,6 +869,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPMPlan2SQLBuilder does not support relation: " + relation.getClass().getSimpleName());
         }
         PhysicalCatalogRelation catalogRelation = (PhysicalCatalogRelation) relation;
+        rejectRestrictedOlapScan(relation);
         SQLRelation sqlRelation = new SQLRelation();
         // Emit the fully qualified name (catalog.db.table) so the frozen planSql resolves
         // the same table when it is replayed from a session whose current database (or
@@ -911,6 +914,35 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     public SQLRelation visitPhysicalLazyMaterializeTVFScan(
             PhysicalLazyMaterializeTVFScan scan, Void context) {
         return visitPhysicalTVFRelation(scan, context);
+    }
+
+    /**
+     * A scan carrying execution modifiers the decompiler cannot express in plain SQL must
+     * never be frozen as an unrestricted catalog.db.table scan: replay would silently run
+     * over all eligible partitions (e.g. FROM t PARTITION(p1) freezes and later executes
+     * over every partition), use the wrong index, or drop the sampling. Fail the decompile
+     * so CREATE falls back to the user-supplied planSql text instead.
+     *
+     * Note: selectedTabletIds is deliberately NOT a rejection criterion - bucket pruning
+     * is derived from the query's own predicates (rule PruneOlapScanTablet), so the
+     * replayed SQL re-derives the same selection; only sample / partition / index
+     * selections are not reconstructible from the frozen text.
+     */
+    private static void rejectRestrictedOlapScan(PhysicalRelation relation) {
+        if (!(relation instanceof org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan)) {
+            return;
+        }
+        org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan scan =
+                (org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan) relation;
+        boolean partitionSubset = !scan.getSelectedPartitionIds().isEmpty()
+                && scan.getSelectedPartitionIds().size()
+                        != scan.getTable().getPartitions().size();
+        if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId() || partitionSubset
+                || scan.getTableSample().isPresent()) {
+            throw new UnsupportedOperationException(
+                    "SPM decompile: restricted olap scan (index/partition/sample selection)"
+                            + " is not supported yet");
+        }
     }
 
     // ==================== Generate (LATERAL VIEW) ====================
@@ -2004,6 +2036,31 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         } else if (inner instanceof AggregateExpression) {
             AggregateExpression aggExpr = (AggregateExpression) inner;
             AggregateFunction fn = aggExpr.getFunction();
+            if (fn instanceof GroupConcat || fn instanceof MultiDistinctGroupConcat) {
+                // Dedicated GROUP_CONCAT grammar: resolve the physical buffer slots first,
+                // then render ([DISTINCT] value [ORDER BY ...] [SEPARATOR ...]) - a
+                // comma-joined form would print the order keys as extra arguments
+                // (group_concat(v, ',', k DESC)) and break after a reload.
+                List<Expression> resolvedChildren = new ArrayList<>(fn.children().size());
+                for (Expression arg : fn.children()) {
+                    resolvedChildren.add(resolveBufferSlots(arg));
+                }
+                if (!resolvedChildren.equals(fn.children())) {
+                    fn = (AggregateFunction) fn.withChildren(resolvedChildren);
+                }
+                String rendered = exprSqlBuilder.renderGroupConcat(fn, child);
+                if (rendered == null) {
+                    throw new UnsupportedOperationException(
+                            "SPM decompile: group_concat shape is not supported yet");
+                }
+                String groupConcatRef = stableRef(output);
+                if (groupConcatRef.equalsIgnoreCase(fn.getName())) {
+                    groupConcatRef = generatedColumnName(output.getExprId());
+                }
+                relation.registerRef(output.getExprId(), groupConcatRef);
+                selects.add(Pair.of(output.getExprId(), rendered + " AS " + groupConcatRef));
+                return;
+            }
             List<Expression> args = fn.children().isEmpty()
                     ? new ArrayList<>(aggExpr.children()) : fn.children();
             // the aggregate expression's own children are the physical buffer slots it
@@ -2122,7 +2179,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (skipPassThrough(childNode) instanceof PhysicalTopN) {
             String orderBySql = topN.getOrderKeys().stream()
                     .map(k -> exprSqlBuilder.print(k.getExpr(), child)
-                            + (k.isAsc() ? " ASC" : " DESC"))
+                            + (k.isAsc() ? " ASC" : " DESC")
+                            + (k.isNullFirst() ? " NULLS FIRST" : " NULLS LAST"))
                     .collect(Collectors.joining(", "));
             child.setOrderBy(orderBySql);
             child.setLimit(topN.getOffset() > 0 ? topN.getOffset() + ", " : "");
@@ -2145,7 +2203,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // ORDER BY
         String orderBySql = topN.getOrderKeys().stream()
                 .map(k -> exprSqlBuilder.print(k.getExpr(), relation)
-                        + (k.isAsc() ? " ASC" : " DESC"))
+                        + (k.isAsc() ? " ASC" : " DESC")
+                        + (k.isNullFirst() ? " NULLS FIRST" : " NULLS LAST"))
                 .collect(Collectors.joining(", "));
         relation.setOrderBy(orderBySql);
         // LIMIT
@@ -2191,7 +2250,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // ORDER BY
         String orderBySql = sort.getOrderKeys().stream()
                 .map(k -> exprSqlBuilder.print(k.getExpr(), relation)
-                        + (k.isAsc() ? " ASC" : " DESC"))
+                        + (k.isAsc() ? " ASC" : " DESC")
+                        + (k.isNullFirst() ? " NULLS FIRST" : " NULLS LAST"))
                 .collect(Collectors.joining(", "));
         relation.setOrderBy(orderBySql);
         return relation;
@@ -2438,14 +2498,39 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     private SQLRelation visitPhysicalSet(PhysicalSetOperation set, String op, Void context) {
-        List<String> childrenSql = Lists.newArrayList();
-        for (Plan child : set.children()) {
-            SQLRelation childRelation = process(child);
-            childrenSql.add(childRelation.toRelationSQL());
+        List<List<SlotReference>> childrenOutputs = set.getRegularChildrenOutputs();
+        List<? extends Slot> outputs = set.getOutput();
+        List<String> branchSqls = Lists.newArrayList();
+        for (int i = 0; i < set.children().size(); i++) {
+            SQLRelation childRelation = process(set.children().get(i));
+            List<SlotReference> childOutputs = childrenOutputs.get(i);
+            // Project EXACTLY the positional output of this branch (regularChildrenOutputs)
+            // under the set's output names: blindly concatenating the child relation where it
+            // stands would emit whatever columns that branch happened to produce (e.g. all 36
+            // sales columns), so the names the outer SQL references after the set node would
+            // never exist in the frozen planSql.
+            SQLRelation branch = new SQLRelation();
+            branch.setFrom(childRelation.toRelationSQL());
+            branch.newAlias();
+            List<Pair<ExprId, String>> selects = new ArrayList<>();
+            for (int j = 0; j < childOutputs.size(); j++) {
+                SlotReference slot = childOutputs.get(j);
+                String columnRef = exprSqlBuilder.print(slot, childRelation);
+                String outputName = j < outputs.size() ? outputs.get(j).getName() : slot.getName();
+                String item = columnRef.equals(outputName)
+                        ? columnRef : columnRef + " AS " + quoteIdentifier(outputName);
+                selects.add(Pair.of(slot.getExprId(), item));
+            }
+            branch.setSelects(selects);
+            branchSqls.add(branch.toRelationSQL());
         }
         SQLRelation setRelation = new SQLRelation();
-        setRelation.setFrom("(" + String.join(" " + op + " ", childrenSql) + ")");
+        setRelation.setFrom("(" + String.join(" " + op + " ", branchSqls) + ")");
         setRelation.newAlias();
+        // register the set outputs so upper nodes reference the produced column names
+        for (int j = 0; j < outputs.size(); j++) {
+            setRelation.registerRef(outputs.get(j).getExprId(), outputs.get(j).getName());
+        }
         return setRelation;
     }
 

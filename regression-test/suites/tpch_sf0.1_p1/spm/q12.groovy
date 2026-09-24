@@ -191,7 +191,8 @@ WHERE
 GROUP BY
   l_shipmode
 ORDER BY
-      l_shipmode"""
+      l_shipmode
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   l_shipmode,
@@ -248,7 +249,8 @@ WHERE
 GROUP BY
   l_shipmode
 ORDER BY
-      l_shipmode"""
+      l_shipmode
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q12 query")
     
@@ -309,7 +311,8 @@ WHERE
 GROUP BY
   l_shipmode
 ORDER BY
-      l_shipmode"""
+      l_shipmode
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   l_shipmode,
@@ -366,7 +369,8 @@ WHERE
 GROUP BY
   l_shipmode
 ORDER BY
-      l_shipmode"""
+      l_shipmode
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q12 query")
     

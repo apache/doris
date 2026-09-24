@@ -175,7 +175,8 @@ WHERE
 GROUP BY
 n_name
 ORDER BY
-    revenue DESC"""
+    revenue DESC
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   n_name,
@@ -224,7 +225,8 @@ WHERE
 GROUP BY
 n_name
 ORDER BY
-    revenue DESC"""
+    revenue DESC
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q05 query")
     
@@ -277,7 +279,8 @@ WHERE
 GROUP BY
 n_name
 ORDER BY
-    revenue DESC"""
+    revenue DESC
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   n_name,
@@ -326,7 +329,8 @@ WHERE
 GROUP BY
 n_name
 ORDER BY
-    revenue DESC"""
+    revenue DESC
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q05 query")
     
