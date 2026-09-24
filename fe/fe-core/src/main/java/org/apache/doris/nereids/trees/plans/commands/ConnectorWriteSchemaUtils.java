@@ -104,6 +104,7 @@ public final class ConnectorWriteSchemaUtils {
         });
     }
 
+    /** Parse the catalog default expression for a connector write column. */
     public static Expression resolveDefault(Column column) {
         String defaultSql = column.getDefaultValueSql();
         if (defaultSql == null) {
@@ -114,6 +115,7 @@ public final class ConnectorWriteSchemaUtils {
         return expression instanceof UnboundAlias ? expression.child(0) : expression;
     }
 
+    /** Replace an explicit DEFAULT placeholder with the column's catalog default expression. */
     public static Expression resolveExplicitDefault(Expression expression, Column column) {
         return expression instanceof DefaultValueSlot ? resolveDefault(column) : expression;
     }
