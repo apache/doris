@@ -255,7 +255,7 @@ Status CloudRowsetBuilder::set_txn_related_info() {
         // For empty rowsets when skip_writing_empty_rowset_metadata=true,
         // store only a lightweight marker instead of full rowset info.
         // This allows CalcDeleteBitmapTask to detect and skip gracefully,
-        // while using minimal memory (~16 bytes per entry).
+        // while retaining the workload group for publish routing.
         if (_skip_writing_rowset_metadata) {
             _engine.txn_delete_bitmap_cache().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
                                                                 _req.txn_expiration);

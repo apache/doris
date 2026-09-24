@@ -24,10 +24,15 @@
 #include <future>
 #include <thread>
 
+#include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
 #include "common/metrics/metrics.h"
 #include "common/metrics/system_metrics.h"
 #include "cpp/sync_point.h"
+#include "load/memtable/memtable_flush_executor.h"
+#include "runtime/exec_env.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_group/workload_group_manager.h"
 #include "testutil/test_util.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
@@ -141,6 +146,71 @@ protected:
     std::unique_ptr<ThreadPool> _pool;
     std::unique_ptr<ThreadPool> _pool2;
 };
+
+TEST_F(AdaptiveThreadPoolControllerTest, RetiredConfigPreservesAdaptiveReduction) {
+    config::enable_adaptive_flush_threads = true;
+    const auto old_flush_threads = config::flush_thread_num_per_store;
+    const auto old_high_priority_threads = config::high_priority_flush_thread_num_per_store;
+    const auto old_max_per_cpu = config::max_flush_thread_num_per_cpu;
+    const auto old_min_per_cpu = config::min_flush_thread_num_per_cpu;
+    Defer restore_config {[&] {
+        config::flush_thread_num_per_store = old_flush_threads;
+        config::max_flush_thread_num_per_cpu = old_max_per_cpu;
+        config::min_flush_thread_num_per_cpu = old_min_per_cpu;
+        EXPECT_TRUE(config::set_config("high_priority_flush_thread_num_per_store",
+                                       std::to_string(old_high_priority_threads))
+                            .ok());
+    }};
+    config::flush_thread_num_per_store = 8;
+    config::max_flush_thread_num_per_cpu = 4;
+    config::min_flush_thread_num_per_cpu = 0;
+
+    auto engine = std::make_unique<CloudStorageEngine>(EngineOptions());
+    engine->_memtable_flush_executor = std::make_unique<MemTableFlushExecutor>();
+    auto* default_pool = _pool.get();
+    engine->_memtable_flush_executor->_flush_pool = std::move(_pool);
+    auto wg = std::make_shared<WorkloadGroup>(
+            WorkloadGroupInfo {.id = 68389, .name = "retired_flush_config_test"});
+    auto* wg_pool = _pool2.get();
+    wg->_memtable_flush_pool = std::move(_pool2);
+    WorkloadGroupMgr wg_mgr;
+    wg_mgr._workload_groups.emplace(wg->id(), wg);
+    auto* env = ExecEnv::GetInstance();
+    auto old_engine = std::move(env->_storage_engine);
+    auto* old_wg_mgr = env->_workload_group_manager;
+    env->set_storage_engine(std::move(engine));
+    env->_workload_group_manager = &wg_mgr;
+    Defer restore_env {[&] {
+        env->_workload_group_manager = old_wg_mgr;
+        env->set_storage_engine(std::move(old_engine));
+    }};
+
+    bool reduce = true;
+    AdaptiveThreadPoolController controller;
+    auto adjust = [&](int current, int min_threads, int, std::string&) {
+        return reduce ? min_threads : current;
+    };
+    // Drive ticks explicitly; the long timer interval keeps the sequence deterministic.
+    controller.add("default", {default_pool}, adjust, 4, 0, 3600000);
+    controller.add("workload", {wg_pool}, adjust, 4, 0, 3600000);
+    controller.adjust_once();
+    reduce = false;
+    ASSERT_EQ(default_pool->max_threads(), 1);
+    ASSERT_EQ(wg_pool->max_threads(), 1);
+    ASSERT_EQ(controller.get_current_threads("default"), 1);
+    ASSERT_EQ(controller.get_current_threads("workload"), 1);
+
+    // set_config invokes the real update_config callback for both resource domains.
+    ASSERT_TRUE(config::set_config("high_priority_flush_thread_num_per_store", "7").ok());
+    EXPECT_EQ(config::high_priority_flush_thread_num_per_store, 7);
+    EXPECT_EQ(default_pool->max_threads(), 1);
+    EXPECT_EQ(wg_pool->max_threads(), 1);
+    controller.adjust_once(); // No new pressure signal: keep the reduced limits.
+    EXPECT_EQ(default_pool->max_threads(), 1);
+    EXPECT_EQ(wg_pool->max_threads(), 1);
+    EXPECT_EQ(controller.get_current_threads("default"), 1);
+    EXPECT_EQ(controller.get_current_threads("workload"), 1);
+}
 
 // Test basic add and get_current_threads
 TEST_F(AdaptiveThreadPoolControllerTest, TestAddPoolGroup) {

@@ -192,9 +192,14 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
 std::shared_ptr<WorkloadGroup> CloudTxnDeleteBitmapCache::get_workload_group(
         TTransactionId transaction_id, int64_t tablet_id) {
     std::shared_lock rlock(_rwlock);
-    auto it = _txn_map.find(TxnKey(transaction_id, tablet_id));
-    // Empty/skipped rowsets and a retried request on another BE have no local owner.
-    return it == _txn_map.end() ? nullptr : it->second.workload_group;
+    TxnKey key(transaction_id, tablet_id);
+    auto it = _txn_map.find(key);
+    if (it != _txn_map.end()) {
+        return it->second.workload_group;
+    }
+    auto marker = _empty_rowset_markers.find(key);
+    // A retried request on another BE has no local owner.
+    return marker == _empty_rowset_markers.end() ? nullptr : marker->second.workload_group;
 }
 
 void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
@@ -319,7 +324,8 @@ void CloudTxnDeleteBitmapCache::remove_expired_tablet_txn_info() {
         }
         // Clean from _empty_rowset_markers if exists
         auto marker_iter = _empty_rowset_markers.find(iter->second);
-        if (marker_iter != _empty_rowset_markers.end()) {
+        if (marker_iter != _empty_rowset_markers.end() &&
+            iter->first == marker_iter->second.txn_expiration) {
             LOG_INFO("clean expired empty rowset marker")
                     .tag("txn_id", iter->second.txn_id)
                     .tag("tablet_id", iter->second.tablet_id);
@@ -344,6 +350,7 @@ void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId tra
         erase(cache_key);
         _txn_map.erase(txn_key);
     }
+    _empty_rowset_markers.erase(txn_key);
 }
 
 void CloudTxnDeleteBitmapCache::mark_empty_rowset(TTransactionId txn_id, int64_t tablet_id,
@@ -362,7 +369,10 @@ void CloudTxnDeleteBitmapCache::mark_empty_rowset(TTransactionId txn_id, int64_t
     }
     std::unique_lock<std::shared_mutex> wlock(_rwlock);
     TxnKey txn_key(txn_id, tablet_id);
-    _empty_rowset_markers.emplace(txn_key);
+    auto* ctx = thread_context();
+    _empty_rowset_markers[txn_key] = {
+            ctx->is_attach_task() ? ctx->resource_ctx()->workload_group() : nullptr,
+            txn_expiration};
     _expiration_txn.emplace(txn_expiration, txn_key);
 }
 
