@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
@@ -67,21 +69,38 @@ public class PercentileReservoir extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        checkLevel();
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        checkLevel();
+    }
+
+    /**
+     * The level must be a constant that folds to a literal in [0, 1]. It is folded here instead of
+     * waiting for the rewrite phase because a constant expression such as 0.25 + 0.25 is only a
+     * literal after folding, some plans (INSERT ... VALUES, load column mappings) never run the
+     * rewrite phase, and constant folding can be turned off by debug_skip_fold_constant.
+     */
+    private void checkLevel() {
         Expression levelArgument = getArgument(1);
-        if (!levelArgument.isConstant()) {
+        Expression level = levelArgument.isConstant()
+                ? FoldConstantRuleOnFE.evaluateWithoutContext(levelArgument) : levelArgument;
+        if (!(level instanceof Literal)) {
             throw new AnalysisException(
                     "percentile_reservoir requires second parameter must be a constant : " + this.toSql());
         }
-        if (levelArgument instanceof Literal) {
-            double value = ((Literal) levelArgument).getDouble();
-            // Negate the valid range to reject NaN, which makes both < 0 and > 1 false.
-            if (!(value >= 0 && value <= 1)) {
-                throw new AnalysisException(
-                        "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
-            }
-        } else {
+        // a NULL level is skipped by the null-ignoring BE implementation and yields a NULL result
+        if (level instanceof NullLiteral) {
+            return;
+        }
+        // the literal may still carry its own type here, for example DECIMAL or VARCHAR
+        double value = ((Literal) ((Literal) level).checkedCastTo(DoubleType.INSTANCE)).getDouble();
+        // Negate the valid range to reject NaN, which makes both < 0 and > 1 false.
+        if (!(value >= 0 && value <= 1)) {
             throw new AnalysisException(
-                "percentile_reservoir requires second parameter must be a constant: " + this.toSql());
+                    "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
         }
     }
 
