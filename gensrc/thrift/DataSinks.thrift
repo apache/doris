@@ -491,6 +491,12 @@ struct TIcebergTableSink {
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
     // Unset keeps collection enabled for rolling upgrades with older FEs.
     18: optional bool collect_column_stats;
+    // Iceberg field ids of the FLOAT/DOUBLE fields whose NaN count would survive the table's metrics policy
+    // (effective mode != none). Counting a NaN is an extra pass over the data -- unlike the other statistics,
+    // which the parquet footer already carries -- so BE must not pay it for a field FE would then drop.
+    // Unset or empty means count nothing: an older FE does not read nan_value_counts back, so counting for it
+    // would be pure waste, and a table whose float fields are all metrics-disabled has nothing to report.
+    19: optional list<i32> nan_count_field_ids;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -545,6 +551,10 @@ struct TIcebergMergeSink {
     16: optional bool writes_data_files;
     // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
     17: optional bool has_variant_schema;
+    // Same contract as TIcebergTableSink.nan_count_field_ids, computed against the MERGE schema. The
+    // replacement data files UPDATE / SQL MERGE write go through the same iceberg parquet writer, so
+    // without this they would report no NaN counts and stay unprunable even when NaN-free.
+    18: optional list<i32> nan_count_field_ids;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type

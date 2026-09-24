@@ -32,11 +32,27 @@ VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter
                                              bool output_object_data,
                                              const ParquetFileOptions& parquet_options,
                                              const std::string* iceberg_schema_json,
-                                             const iceberg::Schema& iceberg_schema)
+                                             const iceberg::Schema& iceberg_schema,
+                                             const std::vector<int32_t>& nan_count_field_ids)
         : VParquetWriter(state, file_writer, output_vexpr_ctxs, std::move(column_names),
                          output_object_data, parquet_options),
           _iceberg_schema(iceberg_schema),
-          _iceberg_schema_json(iceberg_schema_json == nullptr ? "" : *iceberg_schema_json) {}
+          _iceberg_schema_json(iceberg_schema_json == nullptr ? "" : *iceberg_schema_json),
+          _nan_count_field_ids(nan_count_field_ids) {}
+
+Status VIcebergParquetWriter::open() {
+    RETURN_IF_ERROR(VParquetWriter::open());
+    _nan_value_counter.emplace(_iceberg_schema, _nan_count_field_ids);
+    return Status::OK();
+}
+
+Status VIcebergParquetWriter::write(const Block& block) {
+    if (block.rows() == 0) {
+        return Status::OK();
+    }
+    _nan_value_counter->count(block);
+    return VParquetWriter::write(block);
+}
 
 std::unique_ptr<ArrowBlockConvertor> VIcebergParquetWriter::_create_arrow_block_convertor(
         DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
@@ -97,6 +113,11 @@ Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumn
 
     stats->__set_column_sizes(column_sizes);
     stats->__set_value_counts(value_counts);
+    // Left unset when no column was counted, so FE keeps reporting "unknown" rather than an empty
+    // claim -- the same shape an older BE produces.
+    if (!_nan_value_counter->empty()) {
+        stats->__set_nan_value_counts(_nan_value_counter->counts());
+    }
     if (has_any_null_count) {
         stats->__set_null_value_counts(null_value_counts);
     }

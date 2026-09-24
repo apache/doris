@@ -238,6 +238,106 @@ public class IcebergWriterHelperTest {
         Assertions.assertEquals(Long.valueOf(2L), df.nullValueCounts().get(1));
     }
 
+    /**
+     * NaN counts are the only metadata that can prove a float column holds no NaN, because iceberg keeps NaN
+     * out of the bounds by spec. A reported zero is therefore a positive claim that lets a float range
+     * predicate prune the file, so it must travel from BE untouched — and an absent count must stay absent.
+     */
+    @Test
+    public void convertToWriterResultCarriesNanValueCounts() {
+        Schema floatSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "d", Types.DoubleType.get()),
+                Types.NestedField.optional(3, "f", Types.FloatType.get()));
+        Table table = tableWith(floatSchema, "write.format.default", "parquet");
+
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.putToValueCounts(2, 10L);
+        stats.putToValueCounts(3, 10L);
+        stats.putToNanValueCounts(2, 3L);
+        // An explicit zero is the whole point: it is what brings pruning back for a NaN-free column.
+        stats.putToNanValueCounts(3, 0L);
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertEquals(Long.valueOf(3L), df.nanValueCounts().get(2));
+        Assertions.assertEquals(Long.valueOf(0L), df.nanValueCounts().get(3));
+    }
+
+    /**
+     * A BE that reports no NaN counts (an older one, or a format whose writer cannot count them) must leave the
+     * metric absent, not zero: iceberg reads absent as "may contain NaN" and keeps the file, whereas a zero
+     * would license pruning away rows that do match.
+     */
+    @Test
+    public void convertToWriterResultLeavesNanValueCountsUnsetWhenBeReportsNone() {
+        Table table = tableWith("write.format.default", "parquet");
+        TIcebergColumnStats stats = new TIcebergColumnStats();
+        stats.putToValueCounts(1, 10L);
+        stats.putToNullValueCounts(1, 0L);
+
+        DataFile df = writeSingle(table, stats, "s3://b/db1/t/f.parquet");
+
+        Assertions.assertTrue(df.nanValueCounts() == null || df.nanValueCounts().isEmpty(),
+                "an unreported NaN count must not become an empty-but-present or zero claim");
+    }
+
+    /**
+     * Counting NaNs is an extra pass over the data (the parquet footer carries no NaN count), so BE must not
+     * pay it for a field FE would then drop. {@code shouldCollectColumnStats} is table-wide and stays true as
+     * soon as any one field is enabled, so it cannot be that gate — these are the cases where the two differ.
+     */
+    @Test
+    public void nanCountFieldIdsFollowThePerFieldMetricsPolicy() {
+        Schema floatSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "d", Types.DoubleType.get()),
+                Types.NestedField.optional(3, "f", Types.FloatType.get()));
+
+        // Default policy: every float field is eligible.
+        Table dflt = tableWith(floatSchema, "write.format.default", "parquet");
+        Assertions.assertEquals(Arrays.asList(2, 3),
+                IcebergWriterHelper.nanCountFieldIds(dflt, floatSchema));
+
+        // default=none with one NON-float field re-enabled: the table-wide flag is still true, but no float
+        // field survives the policy, so BE must be told to count nothing.
+        Table mixed = tableWith(floatSchema, "write.format.default", "parquet",
+                "write.metadata.metrics.default", "none",
+                "write.metadata.metrics.column.id", "full");
+        Assertions.assertTrue(IcebergWriterHelper.shouldCollectColumnStats(mixed, floatSchema),
+                "one enabled field keeps table-wide collection on -- which is exactly why it cannot gate the scan");
+        Assertions.assertTrue(IcebergWriterHelper.nanCountFieldIds(mixed, floatSchema).isEmpty());
+
+        // A single float field disabled while the rest stay default.
+        Table oneOff = tableWith(floatSchema, "write.format.default", "parquet",
+                "write.metadata.metrics.column.d", "none");
+        Assertions.assertEquals(Collections.singletonList(3),
+                IcebergWriterHelper.nanCountFieldIds(oneOff, floatSchema));
+    }
+
+    /**
+     * Iceberg gives the default metrics mode only to the first
+     * {@code write.metadata.metrics.max-inferred-column-defaults} fields and {@code none} to everything after,
+     * so a wide table disables most of its columns with no property set at all. That is the case that makes
+     * this list worth threading rather than a nice-to-have.
+     */
+    @Test
+    public void nanCountFieldIdsHonorTheInferredColumnCapOnAWideTable() {
+        List<Types.NestedField> fields = new ArrayList<>();
+        for (int id = 1; id <= 6; id++) {
+            fields.add(Types.NestedField.optional(id, "d" + id, Types.DoubleType.get()));
+        }
+        Schema wide = new Schema(fields);
+        // Cap the inferred defaults at 4 rather than building a 100-column fixture; the mechanism is the same.
+        Table table = tableWith(wide, "write.format.default", "parquet",
+                "write.metadata.metrics.max-inferred-column-defaults", "4");
+
+        Assertions.assertTrue(IcebergWriterHelper.shouldCollectColumnStats(table, wide));
+        Assertions.assertEquals(Arrays.asList(1, 2, 3, 4),
+                IcebergWriterHelper.nanCountFieldIds(table, wide),
+                "fields past the inferred-column cap default to metrics=none and must not be scanned");
+    }
+
     // ──────────── convertToWriterResult: #65782 honor iceberg metrics policy (ported from fe-core) ────────────
 
     @Test
