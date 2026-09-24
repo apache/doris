@@ -36,12 +36,12 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "exprs/vectorized_fn_call.h"
 
 namespace doris {
 namespace {
@@ -273,8 +273,11 @@ protected:
 
         _column_names = {"a", "b", "ts", "amount", "d", "s"};
         _column_types = {make_nullable(std::make_shared<DataTypeInt32>()),
-                         make_nullable(std::make_shared<DataTypeInt32>()), datetimev2_type(),
-                         decimal_type(), double_type(), string_type()};
+                         make_nullable(std::make_shared<DataTypeInt32>()),
+                         datetimev2_type(),
+                         decimal_type(),
+                         double_type(),
+                         string_type()};
     }
 
     // Runs one conjunct through a fresh converter; a null return means the
@@ -535,8 +538,7 @@ TEST_F(PaimonRustPredicateConverterTest, NestedCastLiteralIsNotPushed) {
 TEST_F(PaimonRustPredicateConverterTest, LikeIsPushed) {
     // Sanity: a plain `s LIKE 'abc%'` converts, so the rejections below come
     // from the pattern / escape handling, not from LIKE support itself.
-    auto predicate = push_expr(
-            like_call({slot_ref("s", string_type()), string_literal("abc%")}));
+    auto predicate = push_expr(like_call({slot_ref("s", string_type()), string_literal("abc%")}));
     EXPECT_NE(predicate.get(), nullptr);
 }
 
@@ -558,14 +560,11 @@ TEST_F(PaimonRustPredicateConverterTest, LikeWithDivergentEscapeIsNotPushed) {
     // backslash), so such patterns stay in the residual. Escapes before %, _
     // and \\ (and a trailing backslash) have identical semantics on both
     // sides and still convert.
-    EXPECT_EQ(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\qb%")}))
-                      .get(),
+    EXPECT_EQ(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\qb%")})).get(),
               nullptr);
-    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\%b")}))
-                      .get(),
+    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\%b")})).get(),
               nullptr);
-    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\\\b_")}))
-                      .get(),
+    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\\\b_")})).get(),
               nullptr);
 }
 

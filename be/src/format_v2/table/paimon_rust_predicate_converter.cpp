@@ -725,7 +725,6 @@ std::string PaimonRustPredicateConverter::_normalize_name(std::string_view name)
     return out;
 }
 
-
 int32_t PaimonRustPredicateConverter::_seconds_to_days(int64_t seconds) {
     static constexpr int64_t kSecondsPerDay = 24 * 60 * 60;
     int64_t days = seconds / kSecondsPerDay;

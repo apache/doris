@@ -264,15 +264,14 @@ TEST_F(PaimonRustTableReaderTest, DirectPathTruncatesBoundedStringColumns) {
     // direct path bypasses. Unbounded STRING columns and non-string columns
     // stay untouched, and with the option off nothing truncates.
     const auto fill_block = [] {
-        const auto varchar3 = make_nullable(
-                std::make_shared<DataTypeString>(3, PrimitiveType::TYPE_VARCHAR));
+        const auto varchar3 =
+                make_nullable(std::make_shared<DataTypeString>(3, PrimitiveType::TYPE_VARCHAR));
         const auto string_type = make_nullable(std::make_shared<DataTypeString>());
         const auto int_type = std::make_shared<DataTypeInt32>();
         Block block = Block({ColumnWithTypeAndName(varchar3->create_column(), varchar3, "v"),
                              ColumnWithTypeAndName(string_type->create_column(), string_type, "s"),
                              ColumnWithTypeAndName(int_type->create_column(), int_type, "k")});
-        for (auto [idx, field] :
-             std::initializer_list<std::pair<size_t, Field>> {
+        for (auto [idx, field] : std::initializer_list<std::pair<size_t, Field>> {
                      {0, Field::create_field<TYPE_STRING>("abcdefghij")},
                      {1, Field::create_field<TYPE_STRING>("0123456789ABCDEF")},
                      {2, Field::create_field<TYPE_INT>(1)},
@@ -511,11 +510,9 @@ TEST_F(PaimonRustTableReaderTest, UnverifiedSchemesPassThroughWithoutS3Aliases) 
     // into s3.* keys its scheme's parser ignores (which would fail the open
     // with a misleading auth error, e.g. "Missing required COS config").
     const std::vector<std::string> gated_schemes {
-            "cosn://bucket/wh/db.db/t", "cos://bucket/wh/db.db/t",
-            "obs://bucket/wh/db.db/t",   "gs://bucket/wh/db.db/t",
-            "gcs://bucket/wh/db.db/t",   "abfs://bucket/wh/db.db/t",
-            "abfss://bucket/wh/db.db/t", "az://bucket/wh/db.db/t",
-            "azure://bucket/wh/db.db/t"};
+            "cosn://bucket/wh/db.db/t",  "cos://bucket/wh/db.db/t", "obs://bucket/wh/db.db/t",
+            "gs://bucket/wh/db.db/t",    "gcs://bucket/wh/db.db/t", "abfs://bucket/wh/db.db/t",
+            "abfss://bucket/wh/db.db/t", "az://bucket/wh/db.db/t",  "azure://bucket/wh/db.db/t"};
     for (const auto& table_path : gated_schemes) {
         TFileScanRangeParams params;
         params.properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "DEFAULT";
@@ -532,13 +529,12 @@ TEST_F(PaimonRustTableReaderTest, UnverifiedSchemesPassThroughWithoutS3Aliases) 
                 reader.TEST_build_options(&params, make_rust_range_with_table_path(table_path));
         // No key of the s3.* / fs.oss.* families is synthesized for a scheme
         // whose parser reads neither.
-        for (const char* key : {"s3.access-key", "s3.secret-key", "s3.session.token",
-                                "s3.endpoint", "s3.region", "s3.path-style-access",
-                                "s3.anonymous", "s3.assumed.role.arn",
-                                "s3.assumed.role.externalId", "fs.oss.endpoint",
-                                "fs.oss.accessKeyId", "fs.oss.accessKeySecret"}) {
-            EXPECT_EQ(options.count(key), 0)
-                    << "scheme " << table_path << " synthesized " << key;
+        for (const char* key :
+             {"s3.access-key", "s3.secret-key", "s3.session.token", "s3.endpoint", "s3.region",
+              "s3.path-style-access", "s3.anonymous", "s3.assumed.role.arn",
+              "s3.assumed.role.externalId", "fs.oss.endpoint", "fs.oss.accessKeyId",
+              "fs.oss.accessKeySecret"}) {
+            EXPECT_EQ(options.count(key), 0) << "scheme " << table_path << " synthesized " << key;
         }
         // The FE-supplied property map passes through untouched.
         EXPECT_EQ(options.at("AWS_ACCESS_KEY"), "admin");
