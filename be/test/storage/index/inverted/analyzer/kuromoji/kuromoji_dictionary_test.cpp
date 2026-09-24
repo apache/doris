@@ -18,10 +18,10 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 
 #include <gtest/gtest.h>
-#include <sys/stat.h>
 
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -30,21 +30,20 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
+#include "storage/index/inverted/analyzer/kuromoji/kuromoji_test_base.h"
 
 namespace doris::segment_v2::inverted_index::kuromoji {
 
-class KuromojiDictionaryTest : public ::testing::Test {
+class KuromojiDictionaryTest : public KuromojiTestBase {
 protected:
-    std::string _dir;
-
     void SetUp() override {
-        _dir = std::string(::testing::TempDir()) + "/kmj_dict_rt";
-        ::mkdir(_dir.c_str(), 0755);
+        ASSERT_NO_FATAL_FAILURE(KuromojiTestBase::SetUp());
 
         SystemDictInput sys;
         sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "f-east"}}});             // 東
         sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "f-tokyo"}}}); // 東京
-        ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
+        auto st = KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys);
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         MatrixInput m;
         m.forward_size = 3;
@@ -108,8 +107,8 @@ TEST_F(KuromojiDictionaryTest, LoadAndQuery) {
 
 TEST_F(KuromojiDictionaryTest, RejectsMissingFiles) {
     // Point at a directory with no dictionary files -> must fail, not crash.
-    std::string bad = std::string(::testing::TempDir()) + "/kmj_dict_bad";
-    ::mkdir(bad.c_str(), 0755);
+    const std::string bad = _dir + "/missing_files";
+    ASSERT_TRUE(std::filesystem::create_directory(bad));
     std::unique_ptr<KuromojiDictionary> dict;
     EXPECT_FALSE(KuromojiDictionary::load(bad, &dict).ok());
 }
