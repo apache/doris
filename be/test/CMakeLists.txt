@@ -90,24 +90,7 @@ list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
 
 # todo: need fix those ut
 list(REMOVE_ITEM UT_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/service/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/segment_iterator_apply_index_expr_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
 
 message(STATUS "Disable the metrics collection for orc")
