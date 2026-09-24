@@ -574,15 +574,9 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
                _part_type == TPartitionType::EXTERNAL_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         RETURN_IF_ERROR(send_to_current_channel());
-        _data_processed += block->bytes();
-        if (_writer_count < local_state.channels.size()) {
-            if (_data_processed >=
-                _writer_count *
-                        config::table_sink_non_partition_write_scaling_data_processed_threshold) {
-                _writer_count++;
-            }
-        }
-        local_state.current_channel_idx = (local_state.current_channel_idx + 1) % _writer_count;
+        const auto writer_count =
+                _update_writer_scaling(block->bytes(), local_state.channels.size());
+        local_state.current_channel_idx = (local_state.current_channel_idx + 1) % writer_count;
     } else {
         // Range partition
         // 1. calculate range
@@ -619,6 +613,18 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
         }
     }
     return final_st;
+}
+
+size_t ExchangeSinkOperatorX::_update_writer_scaling(size_t block_bytes, size_t max_writer_count) {
+    LockGuard lock(_writer_scaling_mutex);
+    _data_processed += block_bytes;
+    if (_writer_count < max_writer_count &&
+        _data_processed >=
+                _writer_count *
+                        config::table_sink_non_partition_write_scaling_data_processed_threshold) {
+        ++_writer_count;
+    }
+    return _writer_count;
 }
 
 void ExchangeSinkLocalState::register_channels(ExchangeSinkBuffer* buffer) {
