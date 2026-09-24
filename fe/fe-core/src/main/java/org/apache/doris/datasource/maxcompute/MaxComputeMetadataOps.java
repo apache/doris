@@ -293,6 +293,10 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
+        } else {
+            // A mode-2 mapping can disappear while the canonical database object stays resident, so
+            // an empty lookup may still hide stale database/table objects, engine entries, and counts.
+            dorisCatalog.retireUnresolvedDatabaseGeneration();
         }
         LOG.info("after drop table {}.{}.{}, is db exists: {}",
                 dorisCatalog.getName(), dbName, tblName, db.isPresent());

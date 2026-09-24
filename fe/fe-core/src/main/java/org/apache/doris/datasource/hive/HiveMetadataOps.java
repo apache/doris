@@ -323,6 +323,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
+        } else {
+            // A mode-2 mapping can disappear while the canonical database object stays resident, so
+            // an empty lookup may still hide stale database/table objects, engine entries, and counts.
+            catalog.retireUnresolvedDatabaseGeneration();
         }
         LOG.info("after drop table {}.{}.{}, is db exists: {}",
                 getCatalog().getName(), dbName, tblName, db.isPresent());
@@ -348,8 +352,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 if (tbl.isPresent()) {
                     Env.getCurrentEnv().getRefreshManager()
                             .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), updateTime);
+                    return;
                 }
             }
+            // The table or database object is cold. The event carries the caller's spelling, which may
+            // not match canonical local cache keys under lower_case_*_names=2, so widen to whatever
+            // scope still covers the event instead of routing the raw name.
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tblName);
         } catch (Exception e) {
             LOG.warn("exception when calling afterTruncateTable for db: {}, table: {}, error: {}",
                     dbName, tblName, e.getMessage(), e);

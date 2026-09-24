@@ -149,11 +149,16 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void resetToUninitialized(boolean invalidCache) {
-        super.resetToUninitialized(invalidCache);
-        this.identifierMapping = new JdbcIdentifierMapping(
-                (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
-                Boolean.parseBoolean(getLowerCaseMetaNames()),
-                getMetaNamesMapping());
+        try {
+            super.resetToUninitialized(invalidCache);
+        } finally {
+            // The committed ALTER has already published the new properties; rebuild the derived name
+            // mapping even when the reset's client cleanup (closeClient) throws.
+            this.identifierMapping = new JdbcIdentifierMapping(
+                    (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
+                    Boolean.parseBoolean(getLowerCaseMetaNames()),
+                    getMetaNamesMapping());
+        }
     }
 
     @Override
