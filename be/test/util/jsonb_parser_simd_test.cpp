@@ -262,14 +262,30 @@ TEST_F(JsonbParserTest, ParseJsonWithInvalidNumberFormat) {
 }
 
 TEST_F(JsonbParserTest, RejectInvalidTokens) {
-    constexpr std::string_view invalid_json[] = {"nul",    "[nul]", R"({"x":nul})", "01",   "-01",
-                                                 "1.",     "[01]",  "[-01]",        "[1.]", "1e+",
-                                                 "1e9999", "{}x",   "[]x",          "nullx"};
+    constexpr std::string_view invalid_json[] = {"nul", "[nul]", R"({"x":nul})", "01",    "-01",
+                                                 "1.",  "[01]",  "[-01]",        "[1.]",  "1e+",
+                                                 "{}x", "[]x",   "{} {}",        "[] []", "nullx"};
 
     for (const auto json : invalid_json) {
         JsonBinaryValue jsonb_val;
         EXPECT_FALSE(jsonb_val.from_json_string(json.data(), json.size()).ok()) << json;
     }
+}
+
+TEST_F(JsonbParserTest, PreserveValidNumbersBeyondDoubleRange) {
+    constexpr std::string_view oversized_floating_point_json[] = {"9.6E400", "1e9999", "[9.6E400]",
+                                                                  R"({"value":1e9999})"};
+
+    for (const auto json : oversized_floating_point_json) {
+        JsonBinaryValue jsonb_val;
+        const auto status = jsonb_val.from_json_string(json.data(), json.size());
+        EXPECT_TRUE(status.ok()) << status;
+    }
+
+    const std::string oversized_integer(400, '9');
+    JsonBinaryValue jsonb_val;
+    const auto status = jsonb_val.from_json_string(oversized_integer);
+    EXPECT_TRUE(status.ok()) << status;
 }
 
 TEST_F(JsonbParserTest, ParseJsonWithInvalidBoolean) {

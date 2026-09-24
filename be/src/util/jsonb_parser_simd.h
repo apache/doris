@@ -59,7 +59,6 @@
 #pragma once
 #include <simdjson.h>
 
-#include <cmath>
 #include <limits>
 #include <string_view>
 
@@ -324,10 +323,6 @@ private:
                                                std::string(raw_string));
             }
         }
-        if (!std::isfinite(number)) {
-            return Status::InvalidArgument("non-finite number, raw string is: " +
-                                           std::string(raw_string));
-        }
         if (writer.writeDouble(number) == 0) {
             return Status::InvalidArgument("writeDouble failed");
         }
@@ -346,10 +341,10 @@ private:
         }
 
         // JSON text can represent integers beyond int128. Preserve the existing fallback to
-        // double when it is finite, even though the conversion may lose precision.
+        // double, even though the conversion may lose precision.
         double double_value = StringParser::string_to_float<double>(raw_string.data(),
                                                                     raw_string.size(), &result);
-        if (result != StringParser::PARSE_SUCCESS || !std::isfinite(double_value)) {
+        if (result != StringParser::PARSE_SUCCESS) {
             return Status::InvalidArgument("invalid number, raw string is: " +
                                            std::string(raw_string));
         }
