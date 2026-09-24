@@ -90,7 +90,7 @@ public class TopNWeighted extends NullableAggregateFunction
             // four arguments
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
                     .args(DoubleType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(ArrayType.of(DecimalV2Type.CATALOG_DEFAULT))
                     .args(DecimalV2Type.CATALOG_DEFAULT,
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
@@ -122,7 +122,7 @@ public class TopNWeighted extends NullableAggregateFunction
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(ArrayType.of(DateTimeV2Type.WILDCARD))
                     .args(DateTimeV2Type.WILDCARD,
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
