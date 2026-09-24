@@ -2386,9 +2386,9 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
         if (st.ok() && res.status().code() == MetaServiceCode::OK &&
             dp->param<int64_t>("table_id", -1) == tablet.table_id()) {
             // Pause only a successful acquisition, never a conflict or failed RPC.
-            LOG(INFO) << "delete bitmap restart barrier token=" << dp->param<std::string>("token", "")
-                      << " lock_id=" << lock_id << " tablet_id=" << tablet.tablet_id()
-                      << " initiator=" << initiator;
+            LOG(INFO) << "delete bitmap restart barrier token="
+                      << dp->param<std::string>("token", "") << " lock_id=" << lock_id
+                      << " tablet_id=" << tablet.tablet_id() << " initiator=" << initiator;
             DBUG_BLOCK;
         }
     });

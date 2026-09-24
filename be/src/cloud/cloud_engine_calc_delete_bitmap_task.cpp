@@ -221,8 +221,9 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.block_for_restart", {
         if (dp->param<int64_t>("tablet_id", -1) == _tablet_id) {
             // The restart regression pairs this marker with the persisted MS lock owner.
-            LOG(INFO) << "delete bitmap restart barrier token=" << dp->param<std::string>("token", "")
-                      << " lock_id=" << _transaction_id << " tablet_id=" << _tablet_id;
+            LOG(INFO) << "delete bitmap restart barrier token="
+                      << dp->param<std::string>("token", "") << " lock_id=" << _transaction_id
+                      << " tablet_id=" << _tablet_id;
             DBUG_BLOCK;
         }
     });
