@@ -24,10 +24,10 @@
 // `#define private public` convention of segment_iterator_limit_opt_test.cpp.
 #include <gtest/gtest.h>
 
-#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/config.h"
@@ -310,7 +310,7 @@ VExprContextSPtr make_virtual_slot_ctx(const VExprSPtr& virtual_expr) {
 class SegmentIteratorCandidatePushdownTest : public testing::Test {
 protected:
     void SetUp() override {
-        _saved_ratio = config::inverted_index_candidate_pushdown_ratio;
+        _saved_ratio = config::get_inverted_index_candidate_pushdown_ratio();
         _tablet_schema = make_tablet_schema();
         _segment = make_stub_segment(100, _tablet_schema);
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
@@ -332,7 +332,12 @@ protected:
         _iter->_common_expr_ctxs_push_down = {make_capturing_ctx(_expr)};
     }
 
-    void TearDown() override { config::inverted_index_candidate_pushdown_ratio = _saved_ratio; }
+    void TearDown() override { set_ratio(std::to_string(_saved_ratio)); }
+
+    void set_ratio(const std::string& ratio) {
+        auto st = config::set_config("inverted_index_candidate_pushdown_ratio", ratio);
+        ASSERT_TRUE(st.ok()) << st;
+    }
 
     void add_shrinking_predicate(std::initializer_list<uint32_t> rows) {
         auto result = std::make_shared<roaring::Roaring>();
@@ -368,7 +373,7 @@ protected:
 // Entry bitmap below the threshold: candidate_rows is published for the
 // expression conjuncts and reset on exit.
 TEST_F(SegmentIteratorCandidatePushdownTest, engages_below_threshold_and_resets) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows
 
     ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
@@ -383,7 +388,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, engages_below_threshold_and_resets)
 // at that conjunct boundary so the later expression conjuncts still get the
 // candidate restriction.
 TEST_F(SegmentIteratorCandidatePushdownTest, refreshes_after_index_conjuncts_shrink_bitmap) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 50); // 50% of 100 rows: no engage at entry
     add_shrinking_predicate({0, 1, 2, 3, 4});
 
@@ -395,7 +400,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, refreshes_after_index_conjuncts_shr
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, external_row_ranges_engage_candidate_before_expr) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 100); // full segment: no engage without the split
     _iter->_opts.row_ranges = RowRanges::create_single(0, 5);
 
@@ -410,7 +415,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, external_row_ranges_engage_candidat
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, delete_bitmap_engages_candidate_before_expr) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 100); // full segment: no engage without deletes
     auto deleted_rows = std::make_shared<roaring::Roaring>();
     deleted_rows->addRange(5, 100);
@@ -458,7 +463,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, versioned_deletes_do_not_publish_co
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, condition_ranges_engage_candidate_before_expr) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 100); // full segment: no engage without range pruning
     add_range_pruning_condition(0, 5);
 
@@ -479,7 +484,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, condition_ranges_engage_candidate_b
 // be evaluated without the candidate -- in the conjunct loop and the
 // virtual-column projection loop alike -- while simple roots keep it.
 TEST_F(SegmentIteratorCandidatePushdownTest, compound_root_evaluates_without_candidate) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
 
     auto compound_expr = std::make_shared<CapturingExpr>(_iter.get());
@@ -510,7 +515,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, compound_root_evaluates_without_can
 // its phrase leaves, so a SEARCH root keeps full-segment leaves like a
 // compound root does.
 TEST_F(SegmentIteratorCandidatePushdownTest, search_root_evaluates_without_candidate) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
 
     auto search_expr = std::make_shared<CapturingExpr>(_iter.get());
@@ -529,7 +534,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, search_root_evaluates_without_candi
 // A SEARCH below another root still combines its own leaves, so the whole root
 // is evaluated without the candidate.
 TEST_F(SegmentIteratorCandidatePushdownTest, nested_search_evaluates_without_candidate) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
 
     auto search_child = std::make_shared<CapturingExpr>(_iter.get());
@@ -548,7 +553,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, nested_search_evaluates_without_can
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, nested_compound_evaluates_without_candidate) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
 
     auto compound_child = std::make_shared<CapturingExpr>(_iter.get());
@@ -566,7 +571,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, nested_compound_evaluates_without_c
 
 TEST_F(SegmentIteratorCandidatePushdownTest,
        virtual_slot_wrapped_compound_preserves_three_valued_logic) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.add(0); // 1% of 100 rows: candidate engages
 
     // At row 0, A is NULL and B is FALSE, so SQL requires
@@ -598,7 +603,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest,
 // must engage candidate pushdown for the next conjunct even when column-level
 // pruning left the bitmap above the threshold.
 TEST_F(SegmentIteratorCandidatePushdownTest, expression_conjunct_crosses_threshold) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 100);
     auto selective_expr = std::make_shared<CandidateRestrictedBitmapExpr>(
             _iter.get(), std::initializer_list<uint32_t> {0, 1, 2, 3, 4},
@@ -618,7 +623,7 @@ TEST_F(SegmentIteratorCandidatePushdownTest, expression_conjunct_crosses_thresho
 // The final filtering conjunct can cross the threshold too; projections should
 // evaluate against its surviving rows without filtering those rows themselves.
 TEST_F(SegmentIteratorCandidatePushdownTest, last_conjunct_engages_candidate_for_projection) {
-    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    set_ratio("0.3");
     _iter->_row_bitmap.addRange(0, 100);
     auto selective_expr = std::make_shared<CandidateRestrictedBitmapExpr>(
             _iter.get(), std::initializer_list<uint32_t> {0, 1, 2, 3, 4},
@@ -635,10 +640,11 @@ TEST_F(SegmentIteratorCandidatePushdownTest, last_conjunct_engages_candidate_for
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
 }
 
-// A non-finite configured ratio must never engage the pushdown (the multiply
-// and integer conversion would otherwise be undefined behavior).
-TEST_F(SegmentIteratorCandidatePushdownTest, non_finite_ratio_never_engages) {
-    config::inverted_index_candidate_pushdown_ratio = std::numeric_limits<double>::infinity();
+// A rejected runtime update must not change the ratio seen by scan threads.
+TEST_F(SegmentIteratorCandidatePushdownTest, non_finite_runtime_ratio_is_not_published) {
+    set_ratio("0");
+    EXPECT_FALSE(config::set_config("inverted_index_candidate_pushdown_ratio", "inf").ok());
+    EXPECT_EQ(config::get_inverted_index_candidate_pushdown_ratio(), 0);
     _iter->_row_bitmap.add(0); // 1 row, far below any finite threshold
 
     ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
@@ -646,6 +652,18 @@ TEST_F(SegmentIteratorCandidatePushdownTest, non_finite_ratio_never_engages) {
     ASSERT_TRUE(_expr->captured());
     EXPECT_EQ(_expr->captured_candidate(), nullptr);
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, runtime_ratio_update_changes_candidate_decision) {
+    _iter->_row_bitmap.addRange(0, 20);
+
+    set_ratio("0.1");
+    _iter->_refresh_candidate_pushdown();
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+
+    set_ratio("0.3");
+    _iter->_refresh_candidate_pushdown();
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, &_iter->_row_bitmap);
 }
 
 } // namespace doris::segment_v2

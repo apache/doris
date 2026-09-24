@@ -1289,11 +1289,8 @@ void SegmentIterator::_refresh_candidate_pushdown() {
     if (_index_query_context == nullptr || _index_query_context->candidate_rows != nullptr) {
         return;
     }
-    // Guard the domain before the multiply: a non-finite or out-of-range
-    // configured ratio must never reach the floating-to-integer conversion
-    // (undefined behavior), even if a runtime config update transiently
-    // publishes a value the validator rejects.
-    double candidate_ratio = config::inverted_index_candidate_pushdown_ratio;
+    // Validate the snapshot before converting the row threshold to an integer.
+    double candidate_ratio = config::get_inverted_index_candidate_pushdown_ratio();
     if (!std::isfinite(candidate_ratio) || candidate_ratio <= 0 || candidate_ratio > 1) {
         return;
     }

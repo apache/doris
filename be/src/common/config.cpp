@@ -24,6 +24,7 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
+#include <atomic>
 #include <cerrno> // IWYU pragma: keep
 #include <cmath>
 #include <cstdlib>
@@ -1324,6 +1325,14 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
 DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
                  [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
+static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
+    published_inverted_index_candidate_pushdown_ratio.store(value);
+});
+
+double get_inverted_index_candidate_pushdown_ratio() {
+    return published_inverted_index_candidate_pushdown_ratio.load();
+}
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
@@ -2325,6 +2334,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    published_inverted_index_candidate_pushdown_ratio.store(
+            inverted_index_candidate_pushdown_ratio);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)

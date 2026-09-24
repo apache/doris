@@ -1376,6 +1376,7 @@ DECLARE_Int32(inverted_index_query_cache_shards);
 // doc-list intersection and verification run only over the candidates
 // (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
 DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
