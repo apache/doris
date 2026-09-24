@@ -113,23 +113,23 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL32:
         return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMAL32>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DECIMAL32>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL64:
         return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMAL64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DECIMAL64>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMALV2:
         return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMALV2>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DECIMALV2>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL128I:
         return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMAL128I>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DECIMAL128I>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_DECIMAL256:
         return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<Data<SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DECIMAL256>>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
@@ -139,7 +139,7 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     case PrimitiveType::TYPE_HLL:
     case PrimitiveType::TYPE_QUANTILE_STATE:
         return creator_without_type::create_unary_arguments<
-                AggregateFunctionsSingleValue<Data<SingleValueDataComplexType>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataColumn>>>(
                 argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_VARBINARY:
         // Owning binary values for IO must not implicitly enable single-value aggregates.

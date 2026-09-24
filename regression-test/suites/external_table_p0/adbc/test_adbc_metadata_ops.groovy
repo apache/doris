@@ -124,7 +124,14 @@ suite("test_adbc_metadata_ops", "p0,external") {
         assertTrue(catalogNames.contains(catalogName),
                 "the catalog is missing from SHOW CATALOGS: ${catalogNames}")
 
-        qt_show_create_catalog """SHOW CREATE CATALOG ${catalogName}"""
+        // Driver and fixture paths belong to this run, so a machine-specific golden DDL is invalid.
+        def createCatalog = sql("SHOW CREATE CATALOG ${catalogName}")
+        assertEquals(1, createCatalog.size())
+        assertEquals(catalogName, createCatalog[0][0].toString())
+        String catalogDdl = createCatalog[0][1].toString()
+        assertTrue(catalogDdl.contains('"type" = "adbc"'), catalogDdl)
+        assertTrue(catalogDdl.contains('"driver_url" = "' + sqliteDriverPath + '"'), catalogDdl)
+        assertTrue(catalogDdl.contains('"uri" = "file:' + dbFile.absolutePath + '"'), catalogDdl)
 
         qt_show_databases """SHOW DATABASES FROM ${catalogName}"""
         qt_show_tables """SHOW TABLES FROM ${catalogName}.${sqliteDb}"""
@@ -286,6 +293,8 @@ suite("test_adbc_metadata_ops", "p0,external") {
                 CREATE CATALOG ${flightCatalog} PROPERTIES (
                     "type" = "adbc",
                     "driver_url" = "${flightDriverPath}",
+                    -- The loopback source is Doris even when vendor detection is unavailable.
+                    "sql_dialect" = "doris",
                     "uri" = "grpc://127.0.0.1:${arrowPort}",
                     "user" = "root",
                     "password" = "",

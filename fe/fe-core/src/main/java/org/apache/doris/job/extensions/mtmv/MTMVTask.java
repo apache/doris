@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
@@ -1157,10 +1158,11 @@ public class MTMVTask extends AbstractTask {
             Map<TableIf, String> tableWithPartKey,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
-        // Create MTMV context first so that new StatementContext() captures the
-        // correct thread-local ConnectContext (with MTMV disabled rules, etc.).
+        // Create the MTMV context before parsing the MV definition SQL so SET_VAR hints
+        // resolve against the internal session (with MTMV disabled rules, etc.).
         ConnectContext mtmvCtx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(
+                mtmvCtx, new OriginStatement(mtmv.getQuerySql(), 0));
         // Install the StatementContext on the ConnectContext before parsing
         // the MV definition SQL.  UpdateMvByPartitionCommand.from() calls
         // NereidsParser.parseSingle() which, for SQL containing SET_VAR hints,
