@@ -25,10 +25,10 @@
 #include "arrow/record_batch.h"
 #include "arrow/result.h"
 #include "common/logging.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_const.h"
-#include "core/assert_cast.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/vexpr_context.h"
@@ -615,8 +615,7 @@ Status PaimonRustTableReader::_truncate_char_or_varchar_columns(Block* block) {
         if (primitive != TYPE_VARCHAR && primitive != TYPE_CHAR) {
             continue;
         }
-        const auto target_len =
-                assert_cast<const DataTypeString*>(type.get())->len();
+        const auto target_len = assert_cast<const DataTypeString*>(type.get())->len();
         if (target_len <= 0) {
             continue;
         }
