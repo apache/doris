@@ -96,6 +96,8 @@ suite("test_adbc_partitioned_read", "p0,external") {
             CREATE CATALOG ${name} PROPERTIES (
                 "type" = "adbc",
                 "driver_url" = "${driverPath}",
+                -- The loopback source is Doris even when vendor detection is unavailable.
+                "sql_dialect" = "doris",
                 "uri" = "grpc://127.0.0.1:${arrowPort}",
                 "user" = "root",
                 "password" = "",

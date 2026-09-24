@@ -145,6 +145,8 @@ suite("test_adbc_type_semantic", "p0,external") {
         CREATE CATALOG ${catalogName} PROPERTIES (
             "type" = "adbc",
             "driver_url" = "${driverPath}",
+            -- The loopback source is Doris even when vendor detection is unavailable.
+            "sql_dialect" = "doris",
             "uri" = "grpc://127.0.0.1:${arrowPort}",
             "user" = "root",
             "password" = "",
@@ -251,15 +253,17 @@ suite("test_adbc_type_semantic", "p0,external") {
             ) DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
+        // Casting a string to VARIANT preserves a scalar; parse JSON to exercise object serialization.
         sql """
             INSERT INTO internal.${dbName}.t_variant VALUES
-              (1, '{"a": 1, "b": "two"}'),
-              (2, '{"nested": {"deep": 3}}'),
+              (1, parse_to_variant('{"a": 1, "b": "two"}')),
+              (2, parse_to_variant('{"nested": {"deep": 3}}')),
               (3, NULL)
         """
 
         qt_desc_variant """DESC ${catalogName}.${dbName}.t_variant"""
         qt_select_variant """SELECT id, c_var FROM ${catalogName}.${dbName}.t_variant ORDER BY id"""
+        sameAsSourceText("t_variant", "c_var")
         assertEquals("text", externalTypeOf("t_variant", "c_var"),
                 "VARIANT is serialised as Arrow utf8, so the external column is a string and its "
                         + "sub-columns are no longer addressable through the catalog")
