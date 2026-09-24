@@ -32,6 +32,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <exception>
 #include <memory>
 #include <sstream>
 
@@ -49,9 +50,31 @@ struct evhttp;
 
 namespace doris {
 
+// libevent runs the hooks below from its own C frames, so an exception escaping a
+// handler would unwind through them and terminate the whole BE process. Handlers are
+// expected to report failures through Status, and this is the last resort that keeps a
+// missed one from taking the process down: the exception is logged and the request is
+// failed, never the BE.
+// raw_path() is logged instead of uri() to keep query string credentials out of the log.
+template <typename Fn>
+static bool catch_handler_exception(const char* hook, const HttpRequest* request, Fn&& fn) {
+    try {
+        fn();
+        return true;
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "http handler throws exception in " << hook
+                     << ", path=" << request->raw_path() << ", error=" << e.what();
+    } catch (...) {
+        LOG(WARNING) << "http handler throws unknown exception in " << hook
+                     << ", path=" << request->raw_path();
+    }
+    return false;
+}
+
 static void on_chunked(struct evhttp_request* ev_req, void* param) {
     HttpRequest* request = (HttpRequest*)ev_req->on_free_cb_arg;
-    request->handler()->on_chunk_data(request);
+    catch_handler_exception("on_chunk_data", request,
+                            [request] { request->handler()->on_chunk_data(request); });
 }
 
 static void on_free(struct evhttp_request* ev_req, void* arg) {
@@ -66,7 +89,7 @@ static void on_request(struct evhttp_request* ev_req, void* arg) {
         // In this case, request's on_header return -1
         return;
     }
-    request->handler()->handle(request);
+    catch_handler_exception("handle", request, [request] { request->handler()->handle(request); });
 }
 
 static int on_header(struct evhttp_request* ev_req, void* param) {
@@ -278,7 +301,13 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     }
     // set handler before call on_header, because handler_ctx will set in on_header
     request->set_handler(handler);
-    res = handler->on_header(request.get());
+    if (!catch_handler_exception("on_header", request.get(), [&res, handler, &request] {
+            res = handler->on_header(request.get());
+        })) {
+        // Same as a failed init_from_evhttp: the request is dropped without being
+        // registered, and ~HttpRequest releases the handler ctx it may have set.
+        return -1;
+    }
     if (res < 0) {
         // reply has already sent by handler's on_header
         evhttp_remove_header(evhttp_request_get_input_headers(ev_req), HttpHeaders::EXPECT);
