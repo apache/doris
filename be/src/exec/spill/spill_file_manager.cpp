@@ -64,7 +64,7 @@ SpillFileManager::~SpillFileManager() {
     // VDataStreamMgr is being destroyed. Retry them once more before dropping the in-memory state.
     // Any directory that still cannot be deleted remains under the active spill root and will be
     // moved to the GC root by init() after restart.
-    _retry_pending_query_spill_directories();
+    _retry_pending_spill_directories();
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
@@ -93,7 +93,7 @@ void SpillFileManager::stop() {
     // The GC thread may observe the stop latch before processing a recently queued failed deletion.
     // Retry the pending directories after the thread exits; later failures get one final retry in
     // the destructor.
-    _retry_pending_query_spill_directories();
+    _retry_pending_spill_directories();
 }
 
 Status SpillFileManager::init() {
@@ -308,7 +308,7 @@ void SpillFileManager::register_remote_query_dir(const std::string& query_dir) {
 
 void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
                                                     SpillDataDir* data_dir) {
-    if (data_dir != nullptr && data_dir == _remote_store) {
+    if (data_dir == _remote_store) {
         std::lock_guard lock(_remote_query_dirs_mutex);
         _remote_query_dirs.erase(query_id);
     }
@@ -363,24 +363,22 @@ Status SpillFileManager::_try_delete_spill_directory(
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::delete_query_spill_directory", {
         return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
     });
-    auto fs = pending_directory.data_dir != nullptr ? pending_directory.data_dir->fs()
-                                                    : io::global_local_filesystem();
-    if (fs == nullptr) {
-        return Status::InternalError("spill store {} is not ready",
-                                     pending_directory.data_dir->path());
-    }
+    // Every pending directory was written through the store, which was ready by then and
+    // never goes back.
+    auto fs = pending_directory.data_dir->fs();
+    DORIS_CHECK(fs != nullptr) << "spill store " << pending_directory.data_dir->path()
+                               << " is not ready";
     return fs->delete_directory(pending_directory.dir);
 }
 
-void SpillFileManager::_retry_pending_query_spill_directories() {
+void SpillFileManager::_retry_pending_spill_directories() {
     std::vector<PendingSpillDirectory> pending_directories;
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
         pending_directories.swap(_pending_spill_directories);
     }
-    DBUG_EXECUTE_IF(
-            "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain",
-            { DBUG_RUN_CALLBACK(); });
+    DBUG_EXECUTE_IF("fault_inject::spill_file_manager::retry_pending_spill_directories_after_drain",
+                    { DBUG_RUN_CALLBACK(); });
 
     // Limit repeated warnings for a persistently unavailable directory while retaining it for
     // every subsequent retry.
@@ -389,9 +387,7 @@ void SpillFileManager::_retry_pending_query_spill_directories() {
     for (auto& pending_directory : pending_directories) {
         auto status = _try_delete_spill_directory(pending_directory);
         if (status.ok()) {
-            if (pending_directory.data_dir != nullptr) {
-                pending_directory.data_dir->release(pending_directory.charged_bytes);
-            }
+            pending_directory.data_dir->release(pending_directory.charged_bytes);
             continue;
         }
 
@@ -428,7 +424,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
             LOG(INFO) << msg;
         }
     }};
-    _retry_pending_query_spill_directories();
+    _retry_pending_spill_directories();
     if (_remote_store != nullptr) {
         _remote_gc();
     }

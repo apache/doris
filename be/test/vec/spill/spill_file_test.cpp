@@ -1218,7 +1218,7 @@ TEST_F(SpillFileTest, RetryPreservesDirectoryQueuedAfterPendingDrain) {
     constexpr auto delete_debug_point_name =
             "fault_inject::spill_file_manager::delete_query_spill_directory";
     constexpr auto after_drain_debug_point_name =
-            "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain";
+            "fault_inject::spill_file_manager::retry_pending_spill_directories_after_drain";
     Defer restore_debug_points([&] {
         DebugPoints::instance()->remove(after_drain_debug_point_name);
         DebugPoints::instance()->remove(delete_debug_point_name);
