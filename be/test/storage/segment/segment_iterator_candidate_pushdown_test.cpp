@@ -24,10 +24,12 @@
 // `#define private public` convention of segment_iterator_limit_opt_test.cpp.
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "common/config.h"
@@ -652,6 +654,42 @@ TEST_F(SegmentIteratorCandidatePushdownTest, non_finite_runtime_ratio_is_not_pub
     ASSERT_TRUE(_expr->captured());
     EXPECT_EQ(_expr->captured_candidate(), nullptr);
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, concurrent_updates_reject_non_finite_ratio) {
+    set_ratio("0.2");
+    std::atomic<bool> start {false};
+    std::atomic<bool> invalid_accepted {false};
+    std::atomic<bool> valid_rejected {false};
+
+    std::thread valid_update([&] {
+        while (!start.load()) {
+            std::this_thread::yield();
+        }
+        for (int i = 0; i < 2000; ++i) {
+            if (!config::set_config("inverted_index_candidate_pushdown_ratio", "0.3").ok()) {
+                valid_rejected.store(true);
+            }
+        }
+    });
+    std::thread invalid_update([&] {
+        while (!start.load()) {
+            std::this_thread::yield();
+        }
+        for (int i = 0; i < 2000; ++i) {
+            if (config::set_config("inverted_index_candidate_pushdown_ratio", "inf").ok()) {
+                invalid_accepted.store(true);
+            }
+        }
+    });
+
+    start.store(true);
+    valid_update.join();
+    invalid_update.join();
+
+    EXPECT_FALSE(invalid_accepted.load());
+    EXPECT_FALSE(valid_rejected.load());
+    EXPECT_EQ(config::get_inverted_index_candidate_pushdown_ratio(), 0.3);
 }
 
 TEST_F(SegmentIteratorCandidatePushdownTest, runtime_ratio_update_changes_candidate_decision) {

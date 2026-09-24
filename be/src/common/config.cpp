@@ -1326,6 +1326,7 @@ DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
 DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
                  [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
 static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+static std::mutex inverted_index_candidate_pushdown_ratio_update_lock;
 DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
     published_inverted_index_candidate_pushdown_ratio.store(value);
 });
@@ -2437,6 +2438,11 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     UPDATE_FIELD(it->second, value, int16_t, need_persist);
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
+    std::unique_lock<std::mutex> ratio_lock(inverted_index_candidate_pushdown_ratio_update_lock,
+                                            std::defer_lock);
+    if (field == "inverted_index_candidate_pushdown_ratio") {
+        ratio_lock.lock();
+    }
     UPDATE_FIELD(it->second, value, double, need_persist);
     {
         // add lock to ensure thread safe
