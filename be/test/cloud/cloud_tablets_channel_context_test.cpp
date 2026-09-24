@@ -29,6 +29,7 @@
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablets_channel.h"
+#include "common/signal_handler.h"
 #include "cpp/sync_point.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
