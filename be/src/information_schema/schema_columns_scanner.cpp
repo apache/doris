@@ -174,6 +174,29 @@ std::string SchemaColumnsScanner::_to_mysql_data_type_string(TColumnDesc& desc) 
     }
 }
 
+namespace {
+
+// A struct field name goes into COLUMN_TYPE next to the separators that give the text its
+// shape. A name holding one of them would make the text impossible to split back into
+// fields, so wrap such a name in back quotes and double any back quote inside it.
+std::string quote_struct_field_name(const std::string& name) {
+    if (name.find_first_of(",:<>`") == std::string::npos) {
+        return name;
+    }
+    std::string quoted = "`";
+    for (char ch : name) {
+        if (ch == '`') {
+            quoted += "``";
+        } else {
+            quoted += ch;
+        }
+    }
+    quoted += "`";
+    return quoted;
+}
+
+} // namespace
+
 std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     switch (desc.columnType) {
     case TPrimitiveType::BOOLEAN:
@@ -284,11 +307,13 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::STRUCT: {
         // for old be service we should compitable
         std::string ret = "struct<";
-        if (!desc.children.empty()) {
-            for (int i = 0; i < desc.children.size() - 1; ++i) {
-                ret += _type_to_string(desc.children[i]) + ",";
+        // Name every field, a client rebuilds the schema from this text.
+        for (size_t i = 0; i < desc.children.size(); ++i) {
+            if (i != 0) {
+                ret += ",";
             }
-            ret += _type_to_string(desc.children[desc.children.size() - 1]);
+            ret += quote_struct_field_name(desc.children[i].columnName) + ":" +
+                   _type_to_string(desc.children[i]);
         }
         ret += ">";
         return ret;
