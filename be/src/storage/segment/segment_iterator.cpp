@@ -446,7 +446,9 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     _storage_name_and_type.resize(_schema->num_read_columns());
-    auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
+    // The field names built below must match the ones this segment's index files were written
+    // with, so take the format from the schema IndexFileReader was opened with.
+    auto storage_format = _segment->_tablet_schema->get_inverted_index_storage_format();
     for (size_t i = 0; i < _schema->num_read_columns(); ++i) {
         const TabletColumn* col = _schema->column(i);
         auto storage_type = _segment->get_data_type_of(*col, _schema->data_type(i), _opts);
@@ -507,12 +509,13 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
     }
 }
 
-void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
+void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
         const auto ordinal =
                 cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
         DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
         _column_states[ordinal].has_common_expr = true;
+        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
         _is_need_expr_eval = true;
         return;
     }
@@ -520,11 +523,11 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
         const auto& virtual_expr =
                 assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
-        _mark_common_expr_states(virtual_expr);
+        _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
     }
     for (const auto& child : expr->children()) {
-        _mark_common_expr_states(child);
+        _mark_common_expr_states(child, runtime_generated);
     }
 }
 
@@ -709,10 +712,7 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     // groups must still apply the key range to read the same physical rows as the key group.
     if (_opts.io_ctx.reader_type != ReaderType::READER_BASE_COMPACTION &&
         std::none_of(_schema->columns().begin(), _schema->columns().end(),
-                     [&](const TabletColumnPtr& col) {
-                         return col &&
-                                _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
-                     })) {
+                     [](const TabletColumnPtr& col) { return col && col->is_key(); })) {
         return Status::OK();
     }
 
@@ -1496,9 +1496,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.no_need_read_data_opt_enabled =
             _opts.runtime_state == nullptr ||
             _opts.runtime_state->query_options().enable_no_need_read_data_opt;
-    facts.keys_type_supported = _opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-                                (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-                                 _opts.enable_unique_key_merge_on_write);
+    facts.keys_type_supported = _keys_type_allows_skipping_data();
     return count_on_index_fastpath_safe(facts);
 }
 
@@ -1690,6 +1688,12 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     return Status::OK();
 }
 
+bool SegmentIterator::_keys_type_allows_skipping_data() const {
+    const KeysType keys_type = _segment->_tablet_schema->keys_type();
+    return keys_type == KeysType::DUP_KEYS ||
+           (keys_type == KeysType::UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+}
+
 bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
         return true;
@@ -1697,10 +1701,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_can_skip_reading_extra_column(cid)) {
         return false;
     }
-    // only support DUP_KEYS and UNIQUE_KEYS with MOW
-    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-            _opts.enable_unique_key_merge_on_write)))) {
+    if (!_keys_type_allows_skipping_data()) {
         return true;
     }
     // this is a virtual column, we always need to read data
@@ -2215,12 +2216,20 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     if (!_common_expr_ctxs_push_down.empty()) {
         for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-            _mark_common_expr_states(expr_ctx->root());
+            const auto& root = expr_ctx->root();
+            // TopN filters and runtime filters are attached to the scan on BE after the FE
+            // planner computed nested predicate access paths.
+            _mark_common_expr_states(root, root->is_topn_filter() || root->is_rf_wrapper());
         }
         if (_is_need_expr_eval) {
             for (uint32_t cid = 0; cid < _schema->num_block_columns(); ++cid) {
                 const auto field_type = _schema->column(cid)->type();
-                if (_column_states[cid].has_common_expr && _enable_prune_nested_column &&
+                // A runtime-generated common expression may read nested fields outside the
+                // FE predicate access paths, e.g. ORDER BY s.a with WHERE on s.b. Keep such
+                // a column in the NORMAL read phase so every access path is materialized
+                // before the expression is evaluated.
+                if (_column_states[cid].has_common_expr &&
+                    !_column_states[cid].has_runtime_common_expr && _enable_prune_nested_column &&
                     (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
                      field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                      field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
@@ -3633,9 +3642,7 @@ bool SegmentIterator::_no_need_read_key_data_eligible(ColumnId cid) {
         return false;
     }
 
-    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-            _opts.enable_unique_key_merge_on_write)))) {
+    if (!_keys_type_allows_skipping_data()) {
         return false;
     }
 

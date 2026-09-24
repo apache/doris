@@ -135,14 +135,29 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     /**
-     * Whether this scan hands out its splits lazily through a batch {@link SplitSource} that the
-     * BE fetches from the FE while it is scanning (external-table batch mode, see
-     * {@link SplitGenerator#isBatchMode()}). Such a scan needs its coordinator alive until the BE
-     * has finished scanning, even after the FE is done dispatching the query: closing the
-     * coordinator releases the split source ({@link #stop()}) and the BE's next split fetch fails.
+     * Whether the BE still depends on something this scan node holds on the FE while it is
+     * scanning, so that the coordinator - closing it releases what the node holds, through
+     * {@link #stop()} - has to stay alive until the BE has finished scanning, even after the FE is
+     * done dispatching the query. Here: a batch {@link SplitSource} the BE fetches its splits from
+     * lazily (external-table batch mode, see {@link SplitGenerator#isBatchMode()}); the BE's next
+     * split fetch fails once the source is released. A subclass holding another such resource
+     * adds its own reason, e.g. the Flight SQL session a remote Doris scan keeps open on the other
+     * frontend for the query the BE reads (RemoteDorisScanNode).
      */
-    public boolean hasBatchSplitSource() {
+    public boolean coordinatorMustOutliveDispatch() {
         return splitAssignment != null;
+    }
+
+    /**
+     * Whether {@link #stop()} has released something the BE would need again if the same plan were
+     * dispatched once more, so that a retry of the query has to plan again rather than reuse this
+     * node's scan ranges (StmtExecutor.handleQueryWithRetry re-dispatches the plan of a failed
+     * attempt whose coordinator was cancelled, and cancel() stops the scan nodes). A remote Doris
+     * scan's ranges are the endpoints of the query its Flight SQL session ran on the other frontend,
+     * gone with the session; a batch split source has the same property but is left as it is here.
+     */
+    public boolean cannotBeRedispatched() {
+        return false;
     }
 
     protected abstract void createScanRangeLocations() throws UserException;

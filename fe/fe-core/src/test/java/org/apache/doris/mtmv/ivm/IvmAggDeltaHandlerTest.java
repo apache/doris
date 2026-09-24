@@ -70,8 +70,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
-        mtmv.getIvmInfo().advanceRefreshVersion();
-        mtmv.getIvmInfo().advanceRefreshVersion();
+        mtmv.getIvmInfo().advanceSequencePrefix();
+        mtmv.getIvmInfo().advanceSequencePrefix();
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
                 IvmRewriteContext.incremental(mtmv), bundle.connectContext);
@@ -89,8 +89,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizeAggPlan(agg);
         bundle.rewriteResult.setIdentityKeySlots(identityKeys);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
-        mtmv.getIvmInfo().advanceRefreshVersion();
-        mtmv.getIvmInfo().advanceRefreshVersion();
+        mtmv.getIvmInfo().advanceSequencePrefix();
+        mtmv.getIvmInfo().advanceSequencePrefix();
         Plan rewritten = new IvmDeltaRewriter().generateIncrRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
                 IvmRewriteContext.incremental(mtmv), bundle.connectContext);

@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -106,6 +109,76 @@ public class CreateResourceCommandTest extends TestWithFeService {
         // ES resource creation should fail since ES resources are no longer supported
         Assertions.assertThrows(DdlException.class, () -> createResource(es));
         Assertions.assertDoesNotThrow(() -> createResource(jdbc));
+    }
+
+    @Test
+    public void testAiResourceCreationRequiresConfiguredUserIdentity() {
+        allowAdminPrivilege();
+        String originalAllowedUser = Config.ai_resource_allowed_user;
+        UserIdentity originalUser = connectContext.getCurrentUserIdentity();
+        try {
+            Config.ai_resource_allowed_user = "'root'@'%'";
+
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+            Assertions.assertDoesNotThrow(() -> createResourceInfo("ai").validate());
+
+            connectContext.setCurrentUserIdentity(
+                    UserIdentity.createAnalyzedUserIdentWithIp("root", "10.0.%"));
+            AnalysisException exception = Assertions.assertThrows(
+                    AnalysisException.class, () -> createResourceInfo("ai").validate());
+            Assertions.assertEquals(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    exception.getMysqlErrorCode());
+            Assertions.assertEquals("errCode = 2, detailMessage = "
+                            + "Current user does not have permission to create AI resources",
+                    exception.getMessage());
+        } finally {
+            Config.ai_resource_allowed_user = originalAllowedUser;
+            connectContext.setCurrentUserIdentity(originalUser);
+        }
+    }
+
+    @Test
+    public void testAiResourceCreationAllowsAnyAdminForWildcard() {
+        allowAdminPrivilege();
+        String originalAllowedUser = Config.ai_resource_allowed_user;
+        UserIdentity originalUser = connectContext.getCurrentUserIdentity();
+        try {
+            Config.ai_resource_allowed_user = "*";
+            connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+
+            Assertions.assertDoesNotThrow(() -> createResourceInfo("ai").validate());
+        } finally {
+            Config.ai_resource_allowed_user = originalAllowedUser;
+            connectContext.setCurrentUserIdentity(originalUser);
+        }
+    }
+
+    @Test
+    public void testAllowedUserDoesNotRestrictNonAiResourceCreation() {
+        allowAdminPrivilege();
+        String originalAllowedUser = Config.ai_resource_allowed_user;
+        UserIdentity originalUser = connectContext.getCurrentUserIdentity();
+        try {
+            Config.ai_resource_allowed_user = "'root'@'%'";
+            connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+
+            Assertions.assertDoesNotThrow(() -> createResourceInfo("jdbc").validate());
+        } finally {
+            Config.ai_resource_allowed_user = originalAllowedUser;
+            connectContext.setCurrentUserIdentity(originalUser);
+        }
+    }
+
+    private void allowAdminPrivilege() {
+        Env env = Env.getCurrentEnv();
+        AccessControllerManager spyAcm = Mockito.spy(env.getAccessManager());
+        Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
+                Mockito.nullable(ConnectContext.class), Mockito.eq(PrivPredicate.ADMIN));
+        Deencapsulation.setField(env, "accessManager", spyAcm);
+    }
+
+    private CreateResourceInfo createResourceInfo(String type) {
+        return new CreateResourceInfo(true, false, "test_" + type, ImmutableMap.of("type", type));
     }
 
     private void createResource(String sql) throws Exception {

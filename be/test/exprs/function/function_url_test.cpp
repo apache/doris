@@ -161,4 +161,34 @@ TEST(FunctionUrlTEST, ParseUrlQueryTest) {
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
+TEST(FunctionUrlTEST, ParseUrlAuthorityTest) {
+    std::string func_name = "parse_url";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            // A ':' in the path is not a port separator, and an '@' in the path is not a
+            // userinfo separator.
+            {{STRING("http://example.com/a:b"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com/a:b"), STRING("PORT")}, Null()},
+            {{STRING("http://example.com/a:b"), STRING("AUTHORITY")}, STRING("example.com")},
+            {{STRING("http://example.com/a@b:c"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com/a@b:c"), STRING("USERINFO")}, Null()},
+            // A ':' in the query or the fragment is not a port separator either.
+            {{STRING("http://example.com/p?r=http:8080"), STRING("PORT")}, Null()},
+            {{STRING("http://example.com#f:1"), STRING("HOST")}, STRING("example.com")},
+            {{STRING("http://example.com#f:1"), STRING("PORT")}, Null()},
+            {{STRING("http://example.com?x=1"), STRING("AUTHORITY")}, STRING("example.com")},
+            // A real port and a real userinfo are still returned.
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("HOST")},
+             STRING("example.com")},
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("PORT")}, STRING("80")},
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("USERINFO")},
+             STRING("user:pass")},
+            {{STRING("http://user:pass@example.com:80/a:b"), STRING("AUTHORITY")},
+             STRING("user:pass@example.com:80")},
+    };
+
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
 } // namespace doris

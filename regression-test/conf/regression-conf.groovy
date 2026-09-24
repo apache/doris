@@ -239,6 +239,7 @@ extArrowFlightHttpPort= 8030
 
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
+iceberg_scan_planning_rest_uri_port=18182
 iceberg_minio_port=19001
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182

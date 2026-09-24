@@ -475,11 +475,25 @@ SIMDJSON_NAME=simdjson-3.11.6.tar.gz
 SIMDJSON_SOURCE=simdjson-3.11.6
 SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
 
+# simdutf
+SIMDUTF_DOWNLOAD="https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.0.tar.gz"
+SIMDUTF_NAME=simdutf-9.2.0.tar.gz
+SIMDUTF_SOURCE=simdutf-9.2.0
+SIMDUTF_MD5SUM="abeae9267c1c1caf183b8d24a39c0147"
+
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
 NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
+
+# Google Cloud C++ OAuth2 authentication library. Only the auth/common REST
+# components are built; the Google Cloud Storage SDK is intentionally excluded.
+GOOGLE_CLOUD_CPP_DOWNLOAD="https://github.com/googleapis/google-cloud-cpp/archive/refs/tags/v2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_FALLBACK_DOWNLOAD="https://codeload.github.com/googleapis/google-cloud-cpp/tar.gz/refs/tags/v2.45.0"
+GOOGLE_CLOUD_CPP_NAME="google-cloud-cpp-2.45.0.tar.gz"
+GOOGLE_CLOUD_CPP_SOURCE="google-cloud-cpp-2.45.0"
+GOOGLE_CLOUD_CPP_MD5SUM="3cc131764cd9009c20407d7b67afcf6e"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -673,7 +687,9 @@ export TP_ARCHIVES=(
     'BENCHMARK'
     'XSIMD'
     'SIMDJSON'
+    'SIMDUTF'
     'NLOHMANN_JSON'
+    'GOOGLE_CLOUD_CPP'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'

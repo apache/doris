@@ -34,7 +34,6 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
-#include "benchmark_variant_segment.hpp"
 #include "benchmark_zone_map_index.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "common/config.h"
@@ -51,6 +50,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/thread_context.h"
+#include "variant/benchmark_variant_segment.hpp"
 
 namespace doris { // change if need
 

@@ -23,6 +23,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "common/compiler_util.h"
@@ -205,7 +206,12 @@ public:
         return std::make_shared<DataTypeFixedLengthObject>();
     }
 
-    bool supported_incremental_mode() const override { return true; }
+    // Floating-point accumulation is not exactly invertible: subtracting an outgoing
+    // value cannot restore the rounding lost when it was added, so a value that has
+    // left the frame would still distort later results. Recompute such frames instead.
+    bool supported_incremental_mode() const override {
+        return !std::is_floating_point_v<typename PrimitiveTypeTraits<TResult>::CppType>;
+    }
 
     NO_SANITIZE_UNDEFINED void execute_function_with_incremental(
             int64_t partition_start, int64_t partition_end, int64_t frame_start, int64_t frame_end,
