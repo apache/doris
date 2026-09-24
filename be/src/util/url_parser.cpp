@@ -111,10 +111,12 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     case FILE:
     case PATH: {
-        // Find first '/'.
         int32_t start_pos = _s_slash_search.search(&protocol_end);
 
-        if (start_pos < 0) {
+        int32_t question_pos = _s_question_search.search(&protocol_end);
+        int32_t hash_pos = _s_hash_search.search(&protocol_end);
+        if (start_pos < 0 || (question_pos >= 0 && question_pos < start_pos) ||
+            (hash_pos >= 0 && hash_pos < start_pos)) {
             // Return empty string. This is what Hive does.
             return true;
         }
@@ -128,10 +130,9 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         } else {
             // End string _s_at next '?' or '#'.
             end_pos = _s_question_search.search(&path_start);
-
-            if (end_pos < 0) {
-                // No '?' was found, look for '#'.
-                end_pos = _s_hash_search.search(&path_start);
+            int32_t path_hash_pos = _s_hash_search.search(&path_start);
+            if (end_pos < 0 || (path_hash_pos >= 0 && path_hash_pos < end_pos)) {
+                end_pos = path_hash_pos;
             }
         }
 
@@ -141,20 +142,28 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     case HOST: {
         StringRef authority = find_authority(protocol_end);
-        // Find '@' to strip out the userinfo.
-        int32_t start_pos = _s_at_search.search(&authority);
-
-        if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given.
-            start_pos = 0;
-        } else {
-            // Skip '@'.
-            start_pos += _s_at.size;
+        int32_t userinfo_end = -1;
+        for (int32_t i = 0; i < authority.size; ++i) {
+            if (authority.data[i] == '@') {
+                userinfo_end = i;
+            }
         }
 
-        StringRef host_start = authority.substring(start_pos);
-        // Find ':' to strip out port.
-        int32_t end_pos = _s_colon_search.search(&host_start);
+        StringRef host_start = authority.substring(userinfo_end + 1);
+        int32_t end_pos = host_start.size;
+        if (!host_start.empty() && host_start.data[0] == '[') {
+            for (int32_t i = 1; i < host_start.size; ++i) {
+                if (host_start.data[i] == ']') {
+                    end_pos = i + 1;
+                    break;
+                }
+            }
+        } else {
+            int32_t colon_pos = _s_colon_search.search(&host_start);
+            if (colon_pos >= 0) {
+                end_pos = colon_pos;
+            }
+        }
         *result = host_start.substring(0, end_pos);
         break;
     }
@@ -192,8 +201,12 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     case USERINFO: {
         StringRef authority = find_authority(protocol_end);
-        // Find '@'.
-        int32_t end_pos = _s_at_search.search(&authority);
+        int32_t end_pos = -1;
+        for (int32_t i = 0; i < authority.size; ++i) {
+            if (authority.data[i] == '@') {
+                end_pos = i;
+            }
+        }
 
         if (end_pos < 0) {
             // Indicate no user and pass were given.
@@ -206,26 +219,35 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     case PORT: {
         StringRef authority = find_authority(protocol_end);
-        // Find '@' to strip out the userinfo.
-        int32_t start_pos = _s_at_search.search(&authority);
-
-        if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given.
-            start_pos = 0;
-        } else {
-            // Skip '@'.
-            start_pos += _s_at.size;
+        int32_t userinfo_end = -1;
+        for (int32_t i = 0; i < authority.size; ++i) {
+            if (authority.data[i] == '@') {
+                userinfo_end = i;
+            }
         }
 
-        StringRef host_start = authority.substring(start_pos);
-        // Find ':' to strip out port.
-        int32_t end_pos = _s_colon_search.search(&host_start);
-        //no port found
-        if (end_pos < 0) {
+        StringRef host_start = authority.substring(userinfo_end + 1);
+        int32_t port_start = -1;
+        if (!host_start.empty() && host_start.data[0] == '[') {
+            for (int32_t i = 1; i < host_start.size; ++i) {
+                if (host_start.data[i] == ']') {
+                    if (i + 1 < host_start.size && host_start.data[i + 1] == ':') {
+                        port_start = i + 2;
+                    }
+                    break;
+                }
+            }
+        } else {
+            int32_t colon_pos = _s_colon_search.search(&host_start);
+            if (colon_pos >= 0) {
+                port_start = colon_pos + 1;
+            }
+        }
+        if (port_start < 0) {
             return false;
         }
 
-        *result = host_start.substring(end_pos + _s_colon.size);
+        *result = host_start.substring(port_start);
         break;
     }
 
