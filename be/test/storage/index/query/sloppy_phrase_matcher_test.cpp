@@ -20,15 +20,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <map>
+#include <cmath>
 #include <numeric>
 #include <random>
-#include <string>
 #include <vector>
-
-#include "storage/index/inverted/query/phrase_query/ordered_sloppy_phrase_matcher.h"
-#include "storage/index/inverted/query/phrase_query/sloppy_phrase_matcher.h"
-#include "storage/index/inverted/util/mock_iterator.h"
 
 namespace doris::index_query {
 namespace {
@@ -40,39 +35,6 @@ std::vector<PhrasePositionSpan> make_spans(const std::vector<std::vector<uint32_
         spans.emplace_back(clause.data(), clause.data() + clause.size());
     }
     return spans;
-}
-
-segment_v2::inverted_index::MockIterPtr make_v3_iterator(const std::vector<uint32_t>& positions) {
-    std::vector<int32_t> signed_positions;
-    signed_positions.reserve(positions.size());
-    for (uint32_t position : positions) {
-        signed_positions.push_back(static_cast<int32_t>(position));
-    }
-    auto iterator = std::make_shared<segment_v2::inverted_index::MockIterator>();
-    iterator->set_postings({{0, std::move(signed_positions)}});
-    return iterator;
-}
-
-float v3_unordered_frequency(const std::vector<size_t>& plan_index,
-                             const std::vector<std::vector<uint32_t>>& positions, int32_t slop) {
-    std::vector<segment_v2::inverted_index::PostingsAndFreq> postings;
-    postings.reserve(positions.size());
-    for (size_t i = 0; i < positions.size(); ++i) {
-        postings.emplace_back(make_v3_iterator(positions[i]), static_cast<int32_t>(i),
-                              std::vector<std::string> {std::to_string(plan_index[i])});
-    }
-    segment_v2::inverted_index::SloppyPhraseMatcher matcher(postings, slop);
-    return matcher.phrase_freq(0);
-}
-
-float v3_ordered_frequency(const std::vector<std::vector<uint32_t>>& positions, int32_t slop) {
-    std::vector<segment_v2::inverted_index::PostingsAndPosition> postings;
-    postings.reserve(positions.size());
-    for (size_t i = 0; i < positions.size(); ++i) {
-        postings.emplace_back(make_v3_iterator(positions[i]), static_cast<int32_t>(i));
-    }
-    segment_v2::inverted_index::OrderedSloppyPhraseMatcher matcher(std::move(postings), slop);
-    return matcher.phrase_freq(0);
 }
 
 std::vector<uint32_t> generate_positions(std::mt19937* generator) {
@@ -147,51 +109,63 @@ TEST(SniiSloppyPhraseMatcher, OrderedMatcherAccumulatesGapsAndFrequencies) {
     EXPECT_FLOAT_EQ(matcher.match(spans, true), 1.0F);
 }
 
-TEST(SniiSloppyPhraseMatcher, FrequenciesMatchV3Oracle) {
+// Frequencies the legacy CLucene (V3) sloppy and ordered matchers computed for these cases.
+TEST(SniiSloppyPhraseMatcher, FrequenciesMatchV3Values) {
     struct UnorderedCase {
         std::vector<size_t> plan_index;
         std::vector<std::vector<uint32_t>> positions;
+        std::vector<float> expected; // For slops 1, 2 and 4.
     };
     const std::vector<UnorderedCase> unordered_cases {
-            {.plan_index = {0, 1}, .positions = {{1, 5, 9}, {3, 7, 11}}},
-            {.plan_index = {0, 1}, .positions = {{1}, {0}}},
-            {.plan_index = {0, 1, 2}, .positions = {{0, 4}, {2, 6}, {1, 8}}},
-            {.plan_index = {0, 0}, .positions = {{3, 5, 7}, {3, 5, 7}}},
-            {.plan_index = {0, 0}, .positions = {{4}, {4}}},
-            {.plan_index = {0, 1}, .positions = {{1, 2, 3}, {1, 2, 3}}},
+            {.plan_index = {0, 1},
+             .positions = {{1, 5, 9}, {3, 7, 11}},
+             .expected = {1.5F, 1.5F, 2.0F}},
+            {.plan_index = {0, 1}, .positions = {{1}, {0}}, .expected = {0.0F, 1.0F / 3, 1.0F / 3}},
+            {.plan_index = {0, 1, 2},
+             .positions = {{0, 4}, {2, 6}, {1, 8}},
+             .expected = {0.0F, 2.0F / 3, 2.0F / 3}},
+            {.plan_index = {0, 0},
+             .positions = {{3, 5, 7}, {3, 5, 7}},
+             .expected = {1.0F, 1.0F, 1.0F}},
+            {.plan_index = {0, 0}, .positions = {{4}, {4}}, .expected = {0.0F, 0.0F, 0.0F}},
+            {.plan_index = {0, 1},
+             .positions = {{1, 2, 3}, {1, 2, 3}},
+             .expected = {2.5F, 2.5F, 2.5F}},
     };
+    const std::vector<uint32_t> slops {1, 2, 4};
     for (const auto& test_case : unordered_cases) {
         std::vector<uint32_t> sequential_offsets(test_case.positions.size());
         std::iota(sequential_offsets.begin(), sequential_offsets.end(), 0U);
         const auto spans = make_spans(test_case.positions);
-        for (uint32_t slop : {1U, 2U, 4U}) {
-            SCOPED_TRACE(::testing::Message()
-                         << "unordered clauses=" << test_case.positions.size() << " slop=" << slop);
-            SloppyPhraseMatcher matcher(test_case.plan_index, sequential_offsets, slop, false);
-            EXPECT_FLOAT_EQ(matcher.match(spans, true),
-                            v3_unordered_frequency(test_case.plan_index, test_case.positions,
-                                                   static_cast<int32_t>(slop)));
+        for (size_t i = 0; i < slops.size(); ++i) {
+            SCOPED_TRACE(::testing::Message() << "unordered clauses=" << test_case.positions.size()
+                                              << " slop=" << slops[i]);
+            SloppyPhraseMatcher matcher(test_case.plan_index, sequential_offsets, slops[i], false);
+            EXPECT_FLOAT_EQ(matcher.match(spans, true), test_case.expected[i]);
         }
     }
 
-    const std::vector<std::vector<std::vector<uint32_t>>> ordered_cases {
-            {{1, 5}, {3, 7}},
-            {{3}, {2}},
-            {{1, 8}, {3, 10}, {5, 12}},
-            {{1, 3, 5}, {2, 4, 6}},
+    struct OrderedCase {
+        std::vector<std::vector<uint32_t>> positions;
+        std::vector<float> expected; // For slops 1, 2 and 4.
     };
-    for (const auto& positions : ordered_cases) {
-        std::vector<size_t> plan_index(positions.size());
+    const std::vector<OrderedCase> ordered_cases {
+            {.positions = {{1, 5}, {3, 7}}, .expected = {1.0F, 1.0F, 1.0F}},
+            {.positions = {{3}, {2}}, .expected = {0.0F, 0.0F, 0.0F}},
+            {.positions = {{1, 8}, {3, 10}, {5, 12}}, .expected = {0.0F, 2.0F / 3, 2.0F / 3}},
+            {.positions = {{1, 3, 5}, {2, 4, 6}}, .expected = {3.0F, 3.0F, 3.0F}},
+    };
+    for (const auto& test_case : ordered_cases) {
+        std::vector<size_t> plan_index(test_case.positions.size());
         std::iota(plan_index.begin(), plan_index.end(), 0U);
-        std::vector<uint32_t> offsets(positions.size());
+        std::vector<uint32_t> offsets(test_case.positions.size());
         std::iota(offsets.begin(), offsets.end(), 0U);
-        const auto spans = make_spans(positions);
-        for (uint32_t slop : {1U, 2U, 4U}) {
-            SCOPED_TRACE(::testing::Message()
-                         << "ordered clauses=" << positions.size() << " slop=" << slop);
-            SloppyPhraseMatcher matcher(plan_index, offsets, slop, true);
-            EXPECT_FLOAT_EQ(matcher.match(spans, true),
-                            v3_ordered_frequency(positions, static_cast<int32_t>(slop)));
+        const auto spans = make_spans(test_case.positions);
+        for (size_t i = 0; i < slops.size(); ++i) {
+            SCOPED_TRACE(::testing::Message() << "ordered clauses=" << test_case.positions.size()
+                                              << " slop=" << slops[i]);
+            SloppyPhraseMatcher matcher(plan_index, offsets, slops[i], true);
+            EXPECT_FLOAT_EQ(matcher.match(spans, true), test_case.expected[i]);
         }
     }
 }
@@ -202,8 +176,8 @@ TEST(SniiSloppyPhraseMatcher, InterleavedClausesPreserveRepeatedTermCollisions) 
     const std::vector<std::vector<uint32_t>> positions {
             {0, 4, 8, 12}, {1, 5, 9, 13}, {0, 4, 8, 12}};
     const auto spans = make_spans(positions);
-    const float expected = v3_unordered_frequency(plan_index, positions, 4);
-    ASSERT_GT(expected, 0.0F);
+    // The legacy CLucene (V3) sloppy matcher's frequency for these positions.
+    const float expected = 1.2F;
 
     SloppyPhraseMatcher matcher(plan_index, offsets, 4, false);
     EXPECT_FLOAT_EQ(matcher.match(spans, true), expected);
@@ -211,9 +185,18 @@ TEST(SniiSloppyPhraseMatcher, InterleavedClausesPreserveRepeatedTermCollisions) 
     EXPECT_FLOAT_EQ(matcher.match(spans, true), expected);
 }
 
-TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Oracle) {
+// The generated frequencies, rounded to millionths, hash to the value the legacy CLucene (V3)
+// matchers gave for the same cases.
+TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Digest) {
     std::mt19937 generator(0x27011U);
     std::uniform_int_distribution<size_t> clause_count_distribution(2, 4);
+    uint64_t digest = 14695981039346656037ULL;
+    size_t count = 0;
+    const auto mix = [&digest, &count](float value) {
+        digest = (digest ^ static_cast<uint64_t>(std::llround(double(value) * 1e6))) *
+                 1099511628211ULL;
+        ++count;
+    };
     for (size_t iteration = 0; iteration < 256; ++iteration) {
         const size_t clause_count = clause_count_distribution(generator);
         std::vector<size_t> plan_index(clause_count);
@@ -234,18 +217,14 @@ TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Oracle) {
         std::iota(offsets.begin(), offsets.end(), 0U);
         const auto spans = make_spans(positions);
         for (uint32_t slop : {1U, 3U, 7U}) {
-            SCOPED_TRACE(::testing::Message() << "iteration=" << iteration
-                                              << " clauses=" << clause_count << " slop=" << slop);
             SloppyPhraseMatcher unordered(plan_index, offsets, slop, false);
-            EXPECT_FLOAT_EQ(
-                    unordered.match(spans, true),
-                    v3_unordered_frequency(plan_index, positions, static_cast<int32_t>(slop)));
-
+            mix(unordered.match(spans, true));
             SloppyPhraseMatcher ordered(plan_index, offsets, slop, true);
-            EXPECT_FLOAT_EQ(ordered.match(spans, true),
-                            v3_ordered_frequency(positions, static_cast<int32_t>(slop)));
+            mix(ordered.match(spans, true));
         }
     }
+    EXPECT_EQ(count, 1536U);
+    EXPECT_EQ(digest, 8055439586674593017ULL);
 }
 
 } // namespace
