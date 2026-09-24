@@ -25,6 +25,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.spm.BaselinePlan;
@@ -145,8 +147,13 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         all.sort(Comparator.comparingLong(BaselinePlan::getId));
 
         List<List<String>> rows = Lists.newArrayList();
+        // LIKE operand: real MySQL wildcard semantics (% and _ are wildcards, the pattern
+        // must match the WHOLE value), case-insensitive like the previous substring
+        // behavior - the same PatternMatcher path every other SHOW command uses.
+        PatternMatcher matcher = (pattern == null || pattern.isEmpty())
+                ? null : PatternMatcherWrapper.createMysqlPattern(pattern, false);
         for (BaselinePlan baseline : all) {
-            if (!matches(baseline)) {
+            if (!matches(baseline, matcher)) {
                 continue;
             }
             rows.add(toRow(baseline));
@@ -156,13 +163,14 @@ public class ShowBaselinePlansCommand extends ShowCommand {
 
     /**
      * Java-side filter: an exact match on the WHERE column (id / bind_sql_digest /
-     * bind_sql / plan_sql / source / status / scope), falling back to a substring match on
-     * source / status / bindSql / planSql for the legacy LIKE / pattern form.
+     * bind_sql / plan_sql / source / status / scope), or a MySQL LIKE match on
+     * source / status / bindSql / planSql when the pattern operand was given.
      *
      * @param baseline the baseline to test
+     * @param matcher  the LIKE pattern matcher (null when no LIKE pattern was given)
      * @return whether the baseline passes the filter
      */
-    private boolean matches(BaselinePlan baseline) {
+    private boolean matches(BaselinePlan baseline, PatternMatcher matcher) {
         if (filterColumn != null) {
             String value = filterValue == null ? "" : filterValue;
             switch (filterColumn.toLowerCase()) {
@@ -186,16 +194,16 @@ public class ShowBaselinePlansCommand extends ShowCommand {
                     return true; // unknown column: show nothing matches it exactly
             }
         }
-        if (pattern == null || pattern.isEmpty()) {
+        if (matcher == null) {
             return true;
         }
-        String upper = pattern.toUpperCase();
-        if (baseline.getSource().toString().equalsIgnoreCase(pattern)
-                || baseline.getStatus().toString().equalsIgnoreCase(pattern)) {
-            return true;
-        }
-        return (baseline.getBindSql() != null && baseline.getBindSql().toUpperCase().contains(upper))
-                || (baseline.getPlanSql() != null && baseline.getPlanSql().toUpperCase().contains(upper));
+        // MySQL LIKE semantics: % and _ are wildcards and the pattern must match the WHOLE
+        // value. Previously % / _ were treated literally, so LIKE '%lineitem%' returned no
+        // row whose SQL merely CONTAINS lineitem.
+        return matcher.match(baseline.getBindSql() == null ? "" : baseline.getBindSql())
+                || matcher.match(baseline.getPlanSql() == null ? "" : baseline.getPlanSql())
+                || matcher.match(baseline.getSource().toString())
+                || matcher.match(baseline.getStatus().toString());
     }
 
     /**

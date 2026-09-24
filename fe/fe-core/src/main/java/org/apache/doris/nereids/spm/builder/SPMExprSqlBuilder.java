@@ -25,8 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;
-import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;import org.apache.doris.nereids.trees.expressions.BitNot;import org.apache.doris.nereids.trees.expressions.BitAnd;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -128,8 +127,52 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // "IN (1, 2, 3)" matches a user "IN (10, 20)" regardless of list length.
             return "_spm_const_list(" + list.getId() + ")";
         }
-        // Default fallback: use toSql() of the expression itself (no column mapping)
+        // Default fallback: use toSql() of the expression itself (no column mapping).
+        // toSql() bypasses the ExprId -> column mapping, so a composite shape whose
+        // children need remapping (e.g. ~left.a above a join that renamed the colliding
+        // a to c_N / qualified it) would freeze a stale, unresolvable column and - with
+        // the default enable_spm_fallback = false - fail the rewritten query. Reject
+        // such shapes so CREATE keeps the user planSql and the rewrite degrades to the
+        // parameterized-tree path.
+        ensureNoRemappedSlots(expr, context);
         return expr.toSql();
+    }
+
+    /**
+     * Safety net of the generic toSql() fallback: rejects the expression when any slot
+     * below it is registered under a reference that no longer denotes the slot's own
+     * column (the collision-renaming / qualification case), because toSql() would emit
+     * the STALE column name. A registered reference that still names the column (plain
+     * or qualified, optionally backtick-quoted) is renderable. Public for tests.
+     *
+     * @param expr    the expression about to fall back to toSql()
+     * @param context the relation carrying the ExprId -> column-reference mapping
+     * @throws UnsupportedOperationException when a child slot needs remapping
+     */
+    public static void ensureNoRemappedSlots(Expression expr, SQLRelation context) {
+        if (expr instanceof SlotReference) {
+            SlotReference slot = (SlotReference) expr;
+            String mapped = context.getColumnNames().get(slot.getExprId());
+            if (mapped != null && !isSameReferenceTail(mapped, slot.getName())) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: expression " + expr.toSql() + " needs column remapping ("
+                                + mapped + " -> " + slot.getName() + ") which toSql() cannot apply");
+            }
+        }
+        for (Expression child : expr.children()) {
+            ensureNoRemappedSlots(child, context);
+        }
+    }
+
+    /** Whether a registered reference still denotes the given column name (possibly
+     *  qualified by a relation alias and/or backtick-quoted). */
+    private static boolean isSameReferenceTail(String reference, String columnName) {
+        int dot = reference.lastIndexOf('.');
+        String tail = dot >= 0 ? reference.substring(dot + 1) : reference;
+        if (tail.length() >= 2 && tail.charAt(0) == '`' && tail.charAt(tail.length() - 1) == '`') {
+            tail = tail.substring(1, tail.length() - 1).replace("``", "`");
+        }
+        return tail.equals(columnName);
     }
 
     // ==================== column references ====================
@@ -177,6 +220,17 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         return "(" + binaryArithmetic.left().accept(this, context)
                 + " " + operatorSymbol(binaryArithmetic)
                 + " " + binaryArithmetic.right().accept(this, context) + ")";
+    }
+
+    /**
+     * BitNot (~x): the generic fallback would print the expression through toSql() and
+     * bypass the column mapping; above a join whose colliding column was renamed, that
+     * froze the stale slot text. Render the child recursively instead so ~left.a becomes
+     * ~<mapped reference>.
+     */
+    @Override
+    public String visitBitNot(BitNot bitNot, SQLRelation context) {
+        return "~(" + bitNot.child().accept(this, context) + ")";
     }
 
     @Override

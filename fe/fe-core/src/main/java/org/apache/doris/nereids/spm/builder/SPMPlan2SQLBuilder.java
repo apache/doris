@@ -76,7 +76,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -84,10 +85,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -841,16 +844,43 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Quotes a result-column label for use as a SELECT alias: a plain identifier is
-     * emitted as-is, anything else (e.g. the expression text of an un-aliased output
-     * column such as round((sun_sales1 / sun_sales2), 2)) is wrapped in
-     * back-quotes so the frozen planSql can carry the original column header verbatim.
+     * Quotes an identifier for use as executable SQL text whenever it is not a plain
+     * {@code [A-Za-z_][A-Za-z0-9_]*} identifier: a column named {@code a-b} must be
+     * emitted as {@code `a-b`}, otherwise the frozen projection re-parses as the
+     * subtraction a - b. Embedded backticks are doubled. Plain names stay verbatim, so
+     * ordinary schemas keep byte-identical frozen SQL. Also used for result-column
+     * labels (the expression text of an un-aliased output column such as
+     * {@code round((sun_sales1 / sun_sales2), 2)} is wrapped so the frozen planSql can
+     * carry the original column header verbatim).
      */
-    private static String quoteIdentifier(String name) {
+    static String quoteIdentifier(String name) {
+        if (name == null) {
+            return null;
+        }
         if (name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
             return name;
         }
         return "`" + name.replace("`", "``") + "`";
+    }
+
+    /**
+     * Quotes every dot-separated component of a (possibly) qualified metadata name
+     * (catalog.db.table), so a table whose name is not a plain identifier (`my-table`)
+     * is still emitted as an identifier reference rather than as an expression.
+     */
+    static String quoteQualifiedName(String name) {
+        if (name == null || name.isEmpty()) {
+            return name;
+        }
+        String[] parts = name.split("\\.", -1);
+        StringBuilder sb = new StringBuilder(name.length() + 4);
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                sb.append('.');
+            }
+            sb.append(quoteIdentifier(parts[i]));
+        }
+        return sb.toString();
     }
 
     // ==================== Scan (wrapped as subquery or inline) ====================
@@ -869,16 +899,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPMPlan2SQLBuilder does not support relation: " + relation.getClass().getSimpleName());
         }
         PhysicalCatalogRelation catalogRelation = (PhysicalCatalogRelation) relation;
-        rejectRestrictedOlapScan(relation);
+        rejectUnsupportedScan(relation);
         SQLRelation sqlRelation = new SQLRelation();
         // Emit the fully qualified name (catalog.db.table) so the frozen planSql resolves
         // the same table when it is replayed from a session whose current database (or
         // catalog) differs from the one used at CREATE time (cross-db queries,
         // information_schema, ...). Tables without a database (e.g. FunctionGenTable)
-        // keep the bare name.
+        // keep the bare name. Each component is backtick-quoted when it is not a plain
+        // identifier, so a metadata name containing operators is re-parsed as an
+        // identifier instead of an expression.
         sqlRelation.setFrom(catalogRelation.getTable().getDatabase() == null
-                ? catalogRelation.getTable().getName()
-                : catalogRelation.getTable().getNameWithFullQualifiers());
+                ? quoteIdentifier(catalogRelation.getTable().getName())
+                : quoteQualifiedName(catalogRelation.getTable().getNameWithFullQualifiers()));
         // Register output columns: ExprId -> real column name. Internal system columns
         // (e.g. rowid columns a join may request from the scan) are execution details
         // and are never registered so they cannot leak into projections / ON clauses.
@@ -886,7 +918,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (isSystemColumnName(slot.getName())) {
                 continue;
             }
-            sqlRelation.registerRef(slot.getExprId(), slot.getName());
+            // registered as executable SQL text: a special-character column (`a-b`)
+            // must be backtick-quoted, otherwise a frozen projection SELECT a-b
+            // re-parses as the subtraction a - b and returns a different value
+            sqlRelation.registerRef(slot.getExprId(), quoteIdentifier(slot.getName()));
         }
         return sqlRelation;
     }
@@ -904,7 +939,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         SQLRelation relation = new SQLRelation();
         relation.setFrom(tvfRelation.getFunction().toSql());
         for (Slot slot : tvfRelation.getOutput()) {
-            relation.registerRef(slot.getExprId(), slot.getName());
+            relation.registerRef(slot.getExprId(), quoteIdentifier(slot.getName()));
         }
         return relation;
     }
@@ -928,20 +963,38 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * replayed SQL re-derives the same selection; only sample / partition / index
      * selections are not reconstructible from the frozen text.
      */
-    private static void rejectRestrictedOlapScan(PhysicalRelation relation) {
-        if (!(relation instanceof org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan)) {
+    private static void rejectUnsupportedScan(PhysicalRelation relation) {
+        if (relation instanceof org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan) {
+            org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan scan =
+                    (org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan) relation;
+            boolean partitionSubset = !scan.getSelectedPartitionIds().isEmpty()
+                    && scan.getSelectedPartitionIds().size()
+                            != scan.getTable().getPartitions().size();
+            if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId() || partitionSubset
+                    || scan.getTableSample().isPresent()) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: restricted olap scan (index/partition/sample selection)"
+                                + " is not supported yet");
+            }
             return;
         }
-        org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan scan =
-                (org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan) relation;
-        boolean partitionSubset = !scan.getSelectedPartitionIds().isEmpty()
-                && scan.getSelectedPartitionIds().size()
-                        != scan.getTable().getPartitions().size();
-        if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId() || partitionSubset
-                || scan.getTableSample().isPresent()) {
-            throw new UnsupportedOperationException(
-                    "SPM decompile: restricted olap scan (index/partition/sample selection)"
-                            + " is not supported yet");
+        if (relation instanceof PhysicalFileScan) {
+            // File scans (external catalogs) carry the same class of modifiers - partition
+            // pruning state, TABLESAMPLE, FOR VERSION AS OF snapshot state and scan
+            // parameters - while the generic serializer emits only catalog.db.table. A
+            // placeholder-bearing "FOR VERSION AS OF 123 ... WHERE k = 1" baseline would
+            // replay against the current unrestricted table and return different rows,
+            // so every non-default modifier fails the decompile: CREATE keeps the user
+            // planSql text and the rewrite degrades to the parameterized-tree path.
+            PhysicalFileScan scan = (PhysicalFileScan) relation;
+            boolean partitionPruned = scan.getSelectedPartitions() != null
+                    && scan.getSelectedPartitions() != LogicalFileScan.SelectedPartitions.NOT_PRUNED;
+            if (partitionPruned || scan.getTableSample().isPresent()
+                    || scan.getTableSnapshot().isPresent() || scan.getScanParams().isPresent()) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: restricted file scan"
+                                + " (partition/sample/snapshot/scan params) is not supported yet");
+            }
         }
     }
 
@@ -994,12 +1047,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
         String generatorSql = exprSqlBuilder.print(generate.getGenerators().get(0), relation);
         String columnList = columnNames.stream()
-                .map(Utils::quoteIfNeeded)
+                .map(SPMPlan2SQLBuilder::quoteIdentifier)
                 .collect(Collectors.joining(", "));
         relation.setFrom(baseSql + " LATERAL VIEW " + generatorSql + " "
-                + alias + " AS " + columnList);
+                + quoteIdentifier(alias) + " AS " + columnList);
         for (int i = 0; i < outputs.size(); i++) {
-            relation.registerRef(outputs.get(i).getExprId(), columnNames.get(i));
+            relation.registerRef(outputs.get(i).getExprId(), quoteIdentifier(columnNames.get(i)));
         }
         // When this relation is wrapped as a subquery by its parent, its SELECT list is
         // the subquery output: the generator columns must be part of it, otherwise the
@@ -1008,7 +1061,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (!relation.getSelects().isEmpty()) {
             List<Pair<ExprId, String>> selects = new ArrayList<>(relation.getSelects());
             for (int i = 0; i < outputs.size(); i++) {
-                selects.add(Pair.of(outputs.get(i).getExprId(), columnNames.get(i)));
+                selects.add(Pair.of(outputs.get(i).getExprId(), quoteIdentifier(columnNames.get(i))));
             }
             relation.setSelects(selects);
         }
@@ -1075,7 +1128,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         for (Slot slot : consumer.getOutput()) {
             Slot producerSlot = consumer.getProducerSlot(slot);
             String col = body.getColumnNames().get(producerSlot.getExprId());
-            relation.registerRef(slot.getExprId(), col != null ? col : producerSlot.getName());
+            relation.registerRef(slot.getExprId(),
+                    col != null ? col : quoteIdentifier(producerSlot.getName()));
         }
         return relation;
     }
@@ -1125,18 +1179,19 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
         // outer reference: WITH RECURSIVE cte(cols) AS (body) SELECT cols FROM cte
         String colList = anchorColNames.stream()
-                .map(Utils::quoteIfNeeded)
+                .map(SPMPlan2SQLBuilder::quoteIdentifier)
                 .collect(Collectors.joining(", "));
         SQLRelation relation = new SQLRelation();
         relation.setCte(Collections.singletonList(
-                "RECURSIVE " + Utils.quoteIfNeeded(cteName) + "(" + colList + ") AS (" + bodySql + ")"));
-        relation.setFrom(Utils.quoteIfNeeded(cteName));
+                "RECURSIVE " + quoteIdentifier(cteName) + "(" + colList + ") AS (" + bodySql + ")"));
+        relation.setFrom(quoteIdentifier(cteName));
         List<Pair<ExprId, String>> selects = new ArrayList<>();
         List<Slot> cteOutput = recCte.getOutput();
         for (int i = 0; i < cteOutput.size(); i++) {
             String col = i < anchorColNames.size() ? anchorColNames.get(i) : cteOutput.get(i).getName();
-            relation.registerRef(cteOutput.get(i).getExprId(), col);
-            selects.add(Pair.of(cteOutput.get(i).getExprId(), col));
+            String ref = quoteIdentifier(col);
+            relation.registerRef(cteOutput.get(i).getExprId(), ref);
+            selects.add(Pair.of(cteOutput.get(i).getExprId(), ref));
         }
         relation.setSelects(selects);
         relation.newAlias();
@@ -1218,13 +1273,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     public SQLRelation visitPhysicalWorkTableReference(PhysicalWorkTableReference reference, Void context) {
         SQLRelation relation = new SQLRelation();
         String tableName = reference.getTableName();
-        relation.setFrom(Utils.quoteIfNeeded(tableName));
+        relation.setFrom(quoteIdentifier(tableName));
         List<String> cols = recursiveCteColumns.get(reference.getNameParts().isEmpty()
                 ? tableName : reference.getNameParts().get(reference.getNameParts().size() - 1));
         List<Slot> outputs = reference.getOutput();
         for (int i = 0; i < outputs.size(); i++) {
             String col = cols != null && i < cols.size() ? cols.get(i) : outputs.get(i).getName();
-            relation.registerRef(outputs.get(i).getExprId(), col);
+            relation.registerRef(outputs.get(i).getExprId(), quoteIdentifier(col));
         }
         return relation;
     }
@@ -1240,7 +1295,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         List<Pair<ExprId, String>> selects = new ArrayList<>();
         for (NamedExpression project : oneRow.getProjects()) {
             String sql = exprSqlBuilder.print(project, relation);
-            relation.registerRef(project.getExprId(), sql);
+            String ref = sql;
+            // A FROM-less projection that is the query's result (SELECT 1 AS a) never
+            // reaches a projection layer that could relabel the output: the alias must
+            // be emitted HERE, otherwise the frozen SQL is "SELECT _spm_const_var(1)"
+            // and the replay exposes an expression-derived header instead of a. Only
+            // explicit aliases are emitted; nameFromChild names are the parser's
+            // fallback from the expression text and are not identifier-safe.
+            if (project instanceof Alias && !((Alias) project).isNameFromChild()) {
+                ref = quoteIdentifier(((Alias) project).getName());
+                sql = sql + " AS " + ref;
+            }
+            relation.registerRef(project.getExprId(), ref);
             selects.add(Pair.of(project.getExprId(), sql));
         }
         relation.setSelects(selects);
@@ -1417,7 +1483,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             droppedSideIds.addAll(right.getColumnNames().keySet());
         }
 
-        boolean columnConflicts = !Collections.disjoint(
+        boolean columnConflicts = intersectsIgnoreCase(
                 left.getColumnNames().values(), right.getColumnNames().values());
         if (columnConflicts) {
             // qualify every column with its side's alias (needed by the ON clause AND by
@@ -1651,7 +1717,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // inside the NOT IN subquery a bare name binds to the right side first, so a
         // left column sharing a name with a right column must be qualified by the left
         // relation alias to stay resolvable in the outer scope
-        boolean nameConflict = !Collections.disjoint(
+        boolean nameConflict = intersectsIgnoreCase(
                 left.getColumnNames().values(), right.getColumnNames().values());
         String leftQualifier = nameConflict ? left.getRelationAlias() : null;
         if (nameConflict && (leftQualifier == null || leftQualifier.isEmpty())) {
@@ -1717,6 +1783,40 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             selects.add(Pair.of(entry.getKey(), value));
             joinRelation.registerRef(entry.getKey(), value);
         }
+    }
+
+    /**
+     * Case-insensitive intersection test over column references: Doris binds column
+     * identifiers case-insensitively, so a and A are the SAME name and two join sides
+     * exposing them must take the qualification / renaming path. A case-sensitive check
+     * (Collections.disjoint) would skip it and freeze an unqualified predicate such as
+     * ON (a = A), which the re-analysis then rejects as ambiguous. Names are compared
+     * with backtick quoting stripped and lower-cased (Locale.ROOT).
+     */
+    private static boolean intersectsIgnoreCase(Collection<String> left, Collection<String> right) {
+        Set<String> normalized = new HashSet<>();
+        for (String name : left) {
+            normalized.add(normalizeIdentifier(name));
+        }
+        for (String name : right) {
+            if (normalized.contains(normalizeIdentifier(name))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Normalizes a column reference for case-insensitive comparison (strips quoting). */
+    private static String normalizeIdentifier(String name) {
+        if (name == null) {
+            return "";
+        }
+        String normalized = name;
+        if (normalized.length() >= 2 && normalized.charAt(0) == '`'
+                && normalized.charAt(normalized.length() - 1) == '`') {
+            normalized = normalized.substring(1, normalized.length() - 1).replace("``", "`");
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     /** True when expr is an equality with exactly one side on the left relation. */
@@ -1922,25 +2022,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 || (children.size() == 1 && children.get(0).isConstant());
     }
 
-    /** Whether any count output of a DISTINCT_GLOBAL stage consumes a recorded
-     * distinct-dedup buffer (see distinctMergeBuffers / isDistinctMergeArg). */
+    /** Whether any aggregate output of a DISTINCT_GLOBAL stage consumes a recorded
+     * distinct-dedup buffer (see distinctMergeBuffers / isDistinctMergeArg). Applies to
+     * EVERY supported aggregate (sum / avg / ...), not only count: SplitAggMultiPhase
+     * clears isDistinct on the final DISTINCT_GLOBAL function for all of them. */
     private boolean hasMarkedDistinctMergeArg(List<NamedExpression> outputs) {
         for (NamedExpression output : outputs) {
             Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
             if (!(inner instanceof AggregateExpression)) {
                 continue;
             }
-            AggregateFunction fn = ((AggregateExpression) inner).getFunction();
-            String name = fn.getName();
-            if (name.startsWith("partial_")) {
-                name = name.substring("partial_".length());
-            }
-            if (!"count".equalsIgnoreCase(name)) {
-                continue;
-            }
-            List<Expression> args = fn.children().isEmpty()
-                    ? new ArrayList<>(((AggregateExpression) inner).children()) : fn.children();
-            List<Expression> bufferArgs = new ArrayList<>(((AggregateExpression) inner).children());
+            AggregateExpression aggExpr = (AggregateExpression) inner;
+            List<Expression> args = aggExpr.getFunction().children().isEmpty()
+                    ? new ArrayList<>(aggExpr.children()) : aggExpr.getFunction().children();
+            List<Expression> bufferArgs = new ArrayList<>(aggExpr.children());
             if (isDistinctMergeArg(bufferArgs) || isDistinctMergeArg(args)) {
                 return true;
             }
@@ -2097,14 +2192,24 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             boolean distinct;
             if (fn.isDistinct()) {
                 distinct = true;
-            } else if (distinctMergeCount && "count".equalsIgnoreCase(aggName)) {
-                // DISTINCT_GLOBAL merge: only the count whose aggregate expression
-                // consumes the distinct-dedup buffer is the user's count(DISTINCT key);
-                // a plain count riding along the same stage consumes a merge-chain
-                // buffer and must stay plain (see distinctMergeBuffers). When no buffer
-                // of the stage is marked (distinct plans built by other shapes), keep
-                // the historical blanket behavior.
-                distinct = !stageHasDistinctMergeBuffer || isDistinctMergeArg(bufferArgs);
+            } else if (distinctMergeCount) {
+                if (stageHasDistinctMergeBuffer) {
+                    // DISTINCT_GLOBAL merge stage: SplitAggMultiPhase deliberately cleared
+                    // isDistinct on the final function because a lower physical stage
+                    // deduplicates its input; the decompiler folds that lower stage away,
+                    // so EVERY aggregate whose expression consumes the distinct-dedup
+                    // buffer (sum / avg / count / ...) must restore its DISTINCT - only
+                    // checking count would freeze sum(DISTINCT x) as sum(x) and return a
+                    // different value when x has duplicates. An aggregate riding along
+                    // the same stage consumes a merge-chain buffer and stays plain (see
+                    // distinctMergeBuffers).
+                    distinct = isDistinctMergeArg(bufferArgs);
+                } else {
+                    // No buffer of the stage is marked (distinct plans built by other
+                    // shapes): keep the historical blanket behavior for count and never
+                    // invent DISTINCT for the other aggregates.
+                    distinct = "count".equalsIgnoreCase(aggName);
+                }
             } else {
                 distinct = false;
             }
@@ -2524,12 +2629,42 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             branch.setSelects(selects);
             branchSqls.add(branch.toRelationSQL());
         }
+        // PhysicalUnion may carry constant one-row branches that rule
+        // MergeOneRowRelationIntoUnion MOVED out of children() into constantExprsList.
+        // Emitting only the regular children would silently DROP those rows at replay
+        // (e.g. SELECT 1 UNION ALL SELECT x FROM t WHERE y = ? lost the SELECT 1 row;
+        // a constant-only UNION rendered an empty body). Emit every constant row as a
+        // positional SELECT branch under the set's output names.
+        if (set instanceof PhysicalUnion) {
+            for (List<NamedExpression> row : ((PhysicalUnion) set).getConstantExprsList()) {
+                if (row.size() != outputs.size()) {
+                    throw new UnsupportedOperationException(
+                            "SPM decompile: union constant branch arity mismatch");
+                }
+                SQLRelation branch = new SQLRelation();
+                List<Pair<ExprId, String>> selects = new ArrayList<>();
+                for (int j = 0; j < row.size(); j++) {
+                    NamedExpression project = row.get(j);
+                    String item = exprSqlBuilder.print(project, branch);
+                    String outputName = outputs.get(j).getName();
+                    if (!item.equals(outputName)) {
+                        item = item + " AS " + quoteIdentifier(outputName);
+                    }
+                    selects.add(Pair.of(project.getExprId(), item));
+                }
+                branch.setSelects(selects);
+                // a FROM-less branch is a plain SELECT (toRelationSQL would return the
+                // empty FROM text for it)
+                branchSqls.add(branch.toSQL());
+            }
+        }
         SQLRelation setRelation = new SQLRelation();
         setRelation.setFrom("(" + String.join(" " + op + " ", branchSqls) + ")");
         setRelation.newAlias();
         // register the set outputs so upper nodes reference the produced column names
         for (int j = 0; j < outputs.size(); j++) {
-            setRelation.registerRef(outputs.get(j).getExprId(), outputs.get(j).getName());
+            setRelation.registerRef(outputs.get(j).getExprId(),
+                    quoteIdentifier(outputs.get(j).getName()));
         }
         return setRelation;
     }

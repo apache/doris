@@ -1914,6 +1914,17 @@ public class Env {
             if (analysisManager != null) {
                 analysisManager.getStatisticsCache().preHeat();
             }
+
+            // SPM baselines: the local cache may have been loaded BEFORE this FE became
+            // master and can miss rows the previous master wrote afterwards. Reload the
+            // shared spm_baselines table so the create-time dedup is authoritative (a
+            // failed read keeps the lazy retry; the durable-key check stays correct
+            // either way).
+            try {
+                BaselineManager.getInstance().forceReloadFromInternalTable();
+            } catch (Throwable t) {
+                LOG.warn("SPM baseline reload on master transfer failed (will retry lazily)", t);
+            }
         } catch (Throwable e) {
             // When failed to transfer to master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.

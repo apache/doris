@@ -37,46 +37,132 @@ import java.util.Map;
  * Reads the __internal_schema.audit_log internal table through the internal query
  * mechanism and returns the high-value query candidates for SPM auto capture.
  *
- * Within a capture cycle the results are deduplicated by sql_digest (design doc 7.2.5):
- * the record with the largest query_time wins, so the same query shape is only
- * processed once per cycle.
+ * Within a capture cycle the results are deduplicated by (catalog, db, sql_digest): the
+ * record with the largest query_time wins, so the same query SHAPE is only processed once
+ * per cycle - but only within one namespace. Identical unqualified SQL executed in two
+ * databases is a DIFFERENT query for SPM (its eventual match key is namespace-qualified),
+ * so the database / catalog must take part in the dedup key.
+ *
+ * Pagination: the batch LIMIT is applied with a stable (query_time, time, query_id)
+ * cursor. The caller resumes from the returned cursor until a batch comes back shorter
+ * than the limit (window exhausted); advancing the window past a truncated batch would
+ * permanently skip every eligible row beyond the LIMIT.
  */
 public class AuditLogScanner {
 
     private static final DateTimeFormatter DATETIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    /** audit_log SELECT columns (order must match rowToCapturedQuery). */
+    /** audit_log SELECT columns (order must match rowToCapturedQuery / toBatch). */
     private static final String SELECT_COLUMNS =
             "`stmt`, `query_time`, `scan_rows`, `return_rows`, `sql_digest`, `sql_hash`, `db`, `catalog`,"
-                    + " `query_id`, `is_internal`";
+                    + " `query_id`, `is_internal`, `time`";
 
     /**
-     * Scans the audit_log table within the given time window.
+     * Result of one audit scan: the namespace-deduplicated candidates plus the resume
+     * cursor ((query_time, time, query_id) of the last RAW row read).
+     */
+    public static class ScanBatch {
+        private final List<CapturedQuery> candidates;
+        private final boolean windowExhausted;
+        private final long cursorQueryTime;
+        private final String cursorTime;
+        private final String cursorQueryId;
+
+        ScanBatch(List<CapturedQuery> candidates, boolean windowExhausted,
+                long cursorQueryTime, String cursorTime, String cursorQueryId) {
+            this.candidates = candidates;
+            this.windowExhausted = windowExhausted;
+            this.cursorQueryTime = cursorQueryTime;
+            this.cursorTime = cursorTime == null ? "" : cursorTime;
+            this.cursorQueryId = cursorQueryId == null ? "" : cursorQueryId;
+        }
+
+        public List<CapturedQuery> getCandidates() {
+            return candidates;
+        }
+
+        /** Whether the batch returned fewer RAW rows than the limit (whole window read). */
+        public boolean isWindowExhausted() {
+            return windowExhausted;
+        }
+
+        public long getCursorQueryTime() {
+            return cursorQueryTime;
+        }
+
+        public String getCursorTime() {
+            return cursorTime;
+        }
+
+        public String getCursorQueryId() {
+            return cursorQueryId;
+        }
+    }
+
+    /**
+     * Scans the audit_log table within the given time window (first page).
      *
      * @param startTimeMs  window start (epoch millis, inclusive)
      * @param endTimeMs    window end (epoch millis, exclusive)
      * @param maxBatchSize max number of raw rows to scan (prevents OOM)
-     * @return deduplicated candidates sorted by query_time descending
+     * @return the scan batch (candidates + resume cursor)
      */
-    public List<CapturedQuery> scan(long startTimeMs, long endTimeMs, int maxBatchSize) {
+    public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize) {
+        return scan(startTimeMs, endTimeMs, maxBatchSize, 0L, "", "");
+    }
+
+    /**
+     * Scans the audit_log table within the given time window, resuming after the cursor
+     * returned by the previous batch.
+     *
+     * @param startTimeMs    window start (epoch millis, inclusive)
+     * @param endTimeMs      window end (epoch millis, exclusive)
+     * @param maxBatchSize   max number of raw rows per batch
+     * @param cursorQueryTime query_time of the last consumed row (0 = start from the top)
+     * @param cursorTime     time (event time) of the last consumed row
+     * @param cursorQueryId  query_id of the last consumed row
+     * @return the scan batch (candidates + resume cursor)
+     */
+    public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
+            long cursorQueryTime, String cursorTime, String cursorQueryId) {
         String start = formatTimestamp(startTimeMs);
         String end = formatTimestamp(endTimeMs);
 
         SessionVariable global = VariableMgr.getDefaultSessionVariable();
         long minQueryTimeMs = global.getPlanCaptureMinQueryTimeMs();
         long minScanRows = global.getPlanCaptureMinScanRows();
-        String sql = buildScanSql(start, end, maxBatchSize, minQueryTimeMs, minScanRows);
+        String sql = buildScanSql(start, end, maxBatchSize, minQueryTimeMs, minScanRows,
+                cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId));
 
         List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql);
-        if (rows == null || rows.isEmpty()) {
-            return List.of();
-        }
+        return toBatch(rows, maxBatchSize);
+    }
 
-        // dedup by sql_digest within the batch, keeping the fastest (largest query_time)
-        // representative, while preserving the query_time-descending order
+    /**
+     * Turns one page of raw audit rows into a batch: namespace-aware dedup plus the
+     * resume cursor. Package-visible for tests (the SQL / pagination contract is tested
+     * against fabricated rows).
+     *
+     * @param rows         the raw rows of one page
+     * @param maxBatchSize the batch limit (a shorter page exhausts the window)
+     * @return the scan batch
+     */
+    static ScanBatch toBatch(List<ResultRow> rows, int maxBatchSize) {
+        if (rows == null || rows.isEmpty()) {
+            return new ScanBatch(List.of(), true, 0L, "", "");
+        }
         Map<String, CapturedQuery> deduped = new LinkedHashMap<>();
+        long lastQueryTime = 0L;
+        String lastTime = "";
+        String lastQueryId = "";
         for (ResultRow row : rows) {
+            // the cursor always moves to the last RAW row read, even when that row is
+            // unusable / filtered later: it has been consumed and must not be scanned
+            // again by the next page
+            lastQueryTime = parseLong(row.getWithDefault(1, "0"));
+            lastTime = row.getWithDefault(10, "");
+            lastQueryId = row.getWithDefault(8, "");
             CapturedQuery candidate = rowToCapturedQuery(row);
             if (candidate == null || candidate.getStmt() == null || candidate.getStmt().isEmpty()) {
                 continue;
@@ -85,9 +171,15 @@ public class AuditLogScanner {
             if (digest == null || digest.isEmpty()) {
                 digest = candidate.getStmt();
             }
-            deduped.merge(digest, candidate, (a, b) -> b.getQueryTimeMs() >= a.getQueryTimeMs() ? b : a);
+            // namespace-aware key: the database / catalog take part, otherwise identical
+            // unqualified SQL from two namespaces collapses to one candidate and the
+            // other namespace never gets a baseline (SPM namespace-qualifies its match
+            // key, so the two executions really are different queries)
+            String key = candidate.getCatalog() + '\u0001' + candidate.getDb() + '\u0001' + digest;
+            deduped.merge(key, candidate, (a, b) -> b.getQueryTimeMs() >= a.getQueryTimeMs() ? b : a);
         }
-        return new ArrayList<>(deduped.values());
+        return new ScanBatch(new ArrayList<>(deduped.values()), rows.size() < maxBatchSize,
+                lastQueryTime, lastTime, lastQueryId);
     }
 
     /**
@@ -105,6 +197,24 @@ public class AuditLogScanner {
      */
     public static String buildScanSql(String start, String end, int maxBatchSize,
             long minQueryTimeMs, long minScanRows) {
+        return buildScanSql(start, end, maxBatchSize, minQueryTimeMs, minScanRows, "");
+    }
+
+    /**
+     * Builds the audit_log scan SQL with an optional resume-cursor predicate. The ORDER
+     * BY defines the stable total order the cursor walks:
+     * (query_time DESC, time DESC, query_id DESC).
+     *
+     * @param start           window start timestamp (formatted)
+     * @param end             window end timestamp (formatted)
+     * @param maxBatchSize    LIMIT for the scan
+     * @param minQueryTimeMs  query-time threshold
+     * @param minScanRows     scan-rows threshold
+     * @param cursorPredicate resume-cursor predicate (empty when starting at the top)
+     * @return the scan SQL
+     */
+    public static String buildScanSql(String start, String end, int maxBatchSize,
+            long minQueryTimeMs, long minScanRows, String cursorPredicate) {
         return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
                 + "WHERE `time` >= '" + start + "' AND `time` < '" + end + "' "
                 + "AND `is_query` = true "
@@ -112,8 +222,32 @@ public class AuditLogScanner {
                 + "AND (`query_time` >= " + minQueryTimeMs
                 + " OR `scan_rows` >= " + minScanRows + ") "
                 + "AND `is_internal` = false "
-                + "ORDER BY `query_time` DESC "
+                + (cursorPredicate == null ? "" : cursorPredicate)
+                + " ORDER BY `query_time` DESC, `time` DESC, `query_id` DESC "
                 + "LIMIT " + maxBatchSize;
+    }
+
+    /**
+     * Resume-cursor predicate of the (query_time, time, query_id) total order: strictly
+     * "after" the last consumed row, so a truncated batch continues exactly where it
+     * stopped without re-reading or skipping rows.
+     */
+    static String cursorPredicate(long cursorQueryTime, String cursorTime, String cursorQueryId) {
+        if (cursorQueryTime <= 0 || cursorTime == null || cursorTime.isEmpty()
+                || cursorQueryId == null || cursorQueryId.isEmpty()) {
+            return "";
+        }
+        String time = escapeSQLString(cursorTime);
+        String queryId = escapeSQLString(cursorQueryId);
+        return " AND (`query_time` < " + cursorQueryTime
+                + " OR (`query_time` = " + cursorQueryTime
+                + " AND (`time` < '" + time
+                + "' OR (`time` = '" + time
+                + "' AND `query_id` < '" + queryId + "')))) ";
+    }
+
+    private static String escapeSQLString(String value) {
+        return value.replace("'", "''");
     }
 
     private static String formatTimestamp(long epochMillis) {
@@ -128,7 +262,7 @@ public class AuditLogScanner {
      * @param row the result row (column order matches SELECT_COLUMNS)
      * @return the candidate, or null when the row is unusable
      */
-    private CapturedQuery rowToCapturedQuery(ResultRow row) {
+    private static CapturedQuery rowToCapturedQuery(ResultRow row) {
         if (row == null) {
             return null;
         }

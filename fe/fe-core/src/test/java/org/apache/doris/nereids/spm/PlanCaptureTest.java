@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.nereids.spm.capture.CapturedQuery;
 import org.apache.doris.nereids.spm.capture.PlanCaptureFilter;
 import org.apache.doris.nereids.spm.capture.PlanCaptureManager;
@@ -26,6 +31,8 @@ import org.apache.doris.plugin.AuditEvent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -79,6 +86,70 @@ public class PlanCaptureTest {
         // unparseable SQL -> empty list (not an exception)
         List<String> tables = PlanCaptureFilter.extractTableNames("SELECT FROM WHERE");
         Assertions.assertTrue(tables.isEmpty());
+    }
+
+    @Test
+    public void testExtractTableNamesExcludesCteAliases() {
+        // at parse time a CTE consumer is also an UnboundRelation: the alias must not
+        // count as a physical table, otherwise the >= 2-table gate admits the
+        // single-table workload it is meant to reject
+        List<String> onePhysical = PlanCaptureFilter.extractTableNames(
+                "WITH c AS (SELECT * FROM t1) SELECT * FROM c");
+        Assertions.assertEquals(1, onePhysical.size(),
+                "only t1 is a physical table: " + onePhysical);
+        Assertions.assertTrue(onePhysical.get(0).endsWith("t1"), onePhysical.toString());
+
+        List<String> twoPhysical = PlanCaptureFilter.extractTableNames(
+                "WITH c AS (SELECT * FROM t1 JOIN t2 ON t1.a = t2.a) SELECT * FROM c");
+        Assertions.assertEquals(2, twoPhysical.size(),
+                "t1 and t2 are physical, c is not: " + twoPhysical);
+        Assertions.assertFalse(twoPhysical.stream()
+                        .anyMatch(t -> t.endsWith("c") || t.endsWith(".c")),
+                "the CTE alias must be excluded: " + twoPhysical);
+
+        // the same alias consumed twice is still ONE physical table
+        List<String> reused = PlanCaptureFilter.extractTableNames(
+                "WITH c AS (SELECT * FROM t1) SELECT * FROM c x JOIN c y ON x.a = y.a");
+        Assertions.assertEquals(1, reused.size(),
+                "two consumers of one CTE alias: " + reused);
+    }
+
+    // ==================== table existence resolves in the CAPTURED namespace ====================
+
+    @Test
+    public void testAllTablesExistUsesCapturedNamespace() throws Exception {
+        PlanCaptureFilter captureFilter = new PlanCaptureFilter("", "");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+
+            CatalogIf external = Mockito.mock(CatalogIf.class);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            DatabaseIf db = Mockito.mock(DatabaseIf.class);
+            Mockito.when(external.getDbNullable("ext_db")).thenReturn(db);
+            Mockito.when(db.getTableNullable("t1")).thenReturn(Mockito.mock(TableIf.class));
+
+            // a three-part name resolves through the catalog manager
+            Assertions.assertTrue(captureFilter.allTablesExist(
+                    List.of("ext_cat.ext_db.t1"), "", ""));
+            // a two-part name resolves in the CAPTURED catalog, never against the
+            // internal catalog the audit row did not run in
+            Assertions.assertTrue(captureFilter.allTablesExist(
+                    List.of("ext_db.t1"), "ext_cat", ""));
+            // ... and a missing table in that namespace fails the gate
+            Assertions.assertFalse(captureFilter.allTablesExist(
+                    List.of("ext_db.nope"), "ext_cat", ""));
+            // an unresolvable catalog fails as well
+            Assertions.assertFalse(captureFilter.allTablesExist(
+                    List.of("no_cat.ext_db.t1"), "", ""));
+            // a plain one-part name cannot be verified and is treated as existing
+            Assertions.assertTrue(captureFilter.allTablesExist(
+                    List.of("whatever"), "ext_cat", ""));
+            // an empty table list trivially passes
+            Assertions.assertTrue(captureFilter.allTablesExist(List.of(), "ext_cat", ""));
+        }
     }
 
     // ==================== pure filter chain ====================

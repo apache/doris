@@ -33,6 +33,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -108,6 +110,17 @@ public class BaselineManager {
      *  before every id allocation. MAX over an aggregate is a light single-row query. */
     private static final String SELECT_MAX_ID_SQL = "SELECT MAX(`id`) FROM " + SPM_BASELINES_TABLE;
 
+    /**
+     * Durable-key lookup used by the create-time dedup: the in-memory index can be stale
+     * (a follower that loaded=true before becoming master missed rows written afterwards),
+     * so the authoritative duplicate check reads the (bind_sql_digest, plan_sql) key back
+     * from the table before a new row is inserted.
+     */
+    private static final String SELECT_BY_KEY_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
+            + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
+            + " `status`, `create_time`, `update_time` FROM " + SPM_BASELINES_TABLE
+            + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
+
     private static final String INSERT_SQL = "INSERT INTO " + SPM_BASELINES_TABLE
             + " VALUES (${id}, '${bindSql}', '${bindSqlDigest}', ${bindSqlHash},"
             + " '${planSql}', '${queryId}', ${cost}, ${queryTimeMs}, '${source}', '${status}',"
@@ -122,10 +135,6 @@ public class BaselineManager {
     private static final String DELETE_BY_IDENTITY_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
             + " WHERE `id` = ${id} AND `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql` = '${planSql}'";
-
-    /** Same-key cleanup before an INSERT so a re-created baseline never duplicates a row. */
-    private static final String DELETE_BY_KEY_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
-            + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
 
     /** Removes one baseline row by id + its previous status (status UPDATE support). */
     private static final String DELETE_BY_ID_AND_STATUS_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
@@ -260,6 +269,40 @@ public class BaselineManager {
                     }
                 }
             }
+            // Durable-key check: the in-memory index can be stale (e.g. a follower that
+            // loaded=true before becoming master missed rows written after its last
+            // refresh). Without this check the INSERT below would REPLACE a durable
+            // baseline - changing its id and, on an INSERT failure, losing the old row.
+            // A durable duplicate returns its id and is adopted into memory instead;
+            // extra same-key rows (partial-state survivors) are repaired away idempotently.
+            if (persistenceEnabled() && plan.getBindSqlDigest() != null) {
+                List<BaselinePlan> durable =
+                        readPersistedByKey(plan.getBindSqlDigest(), plan.getPlanSql());
+                if (!durable.isEmpty()) {
+                    BaselinePlan winner = durable.get(0);
+                    for (int i = 1; i < durable.size(); i++) {
+                        winner = pickDurableWinner(winner, durable.get(i));
+                    }
+                    for (BaselinePlan row : durable) {
+                        if (row.getId() != winner.getId()) {
+                            try {
+                                persistDeleteByIdentity(row);
+                            } catch (RuntimeException e) {
+                                // best-effort repair: the key state is deterministic either
+                                // way (the winner above), the leftover row is warned below
+                                LOG.warn("SPM failed to repair a duplicate baseline row (id={}): {}",
+                                        row.getId(), e.getMessage());
+                            }
+                        }
+                    }
+                    baselines.put(winner.getId(), winner);
+                    addToHashIndex(winner);
+                    stateVersion++;
+                    LOG.info("SPM baseline create deduplicated against the durable key: id={}",
+                            winner.getId());
+                    return winner.getId();
+                }
+            }
             // every baseline owned by the global manager is GLOBAL-scope (same value the
             // rows loaded from the internal table and the auto capturer get); the id stays
             // in the GLOBAL range [1, 2^62), so BaselineScope.ofId(id) is exact
@@ -276,9 +319,9 @@ public class BaselineManager {
             long now = System.currentTimeMillis();
             plan.setCreateTime(now);
             plan.setUpdateTime(now);
-            // persist first (a re-created baseline clears any previous same-key row first), so
-            // a persist failure leaves the in-memory state untouched and fails the DDL visibly
-            persistDeleteByKey(plan);
+            // persist first so a persist failure leaves the in-memory state untouched and
+            // fails the DDL visibly; no same-key row can exist here (the durable-key check
+            // above returned any), so the INSERT cannot overwrite an existing baseline
             persistInsert(plan);
             baselines.put(id, plan);
             addToHashIndex(plan);
@@ -779,41 +822,142 @@ public class BaselineManager {
         Map<Long, BaselinePlan> snapshot = new HashMap<>();
         for (ResultRow row : rows) {
             try {
-                BaselinePlan p = fromRow(row);
-                String planSql = p.getPlanSql();
-                boolean frozen = planSql != null
-                        && (planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
-                                || planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC));
-                // Rebuild the transient trees with ONE shared builder over both texts in
-                // the CREATE order (bind first, then plan), so the placeholder ids of the
-                // two trees stay aligned and a value extracted from the bind tree can
-                // never be substituted into a literal slot of the other tree. Frozen
-                // (placeholder-carrying) planSql is replayed as text - no plan tree.
-                Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
-                        p.getBindSql(), frozen ? null : planSql);
-                if (trees.first == null) {
-                    throw new RuntimeException("SPM baseline " + p.getId()
-                            + " bindSql cannot be parsed");
-                }
-                p.setParameterizedBindPlan(trees.first);
-                if (!frozen) {
-                    p.setParameterizedPlanPlan(trees.second);
-                }
+                BaselinePlan p = parsePersistedRow(row);
                 BaselinePlan previous = snapshot.put(p.getId(), p);
                 if (previous != null) {
-                    // two rows carry the same id (e.g. an out-of-contract manual write):
-                    // surface the anomaly instead of silently keeping the last row read.
-                    // Matching is keyed by (hash, digest) anyway, so a duplicated id can
-                    // only mislead SHOW / id-addressed DDL.
+                    // Two rows carry the same id (e.g. an ALTER status update whose
+                    // compensating delete failed, or an out-of-contract manual write):
+                    // SELECT_ALL_SQL has no ordering, so "last read wins" would make
+                    // refresh / restart decide the status NONDETERMINISTICALLY - a failed
+                    // DISABLE could be silently re-enabled. Pick a deterministic winner
+                    // (see pickDurableWinner) so every FE / restart converges on it.
+                    BaselinePlan winner = pickDurableWinner(previous, p);
+                    snapshot.put(p.getId(), winner);
                     LOG.warn("SPM persisted baseline id {} appears in more than one row"
-                                    + " (digests '{}' vs '{}'); keeping the last row read",
-                            p.getId(), previous.getBindSqlDigest(), p.getBindSqlDigest());
+                                    + " (statuses {} / {}, update times {} / {});"
+                                    + " deterministically keeping the {} row",
+                            p.getId(), previous.getStatus(), p.getStatus(),
+                            previous.getUpdateTime(), p.getUpdateTime(), winner.getStatus());
                 }
             } catch (Throwable t) {
                 LOG.warn("SPM skip invalid persisted baseline row: {}", t.getMessage());
             }
         }
         return snapshot;
+    }
+
+    /**
+     * Rebuilds one persisted row exactly like the startup load does: one BaselinePlan
+     * with its transient (parameterized) trees rebuilt from the stored bindSql / planSql.
+     *
+     * @param row the internal-table row
+     * @return the parsed row
+     * @throws Exception when the row's bindSql cannot be parsed
+     */
+    private static BaselinePlan parsePersistedRow(ResultRow row) throws Exception {
+        BaselinePlan p = fromRow(row);
+        String planSql = p.getPlanSql();
+        boolean frozen = planSql != null
+                && (planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
+                        || planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC));
+        // Rebuild the transient trees with ONE shared builder over both texts in
+        // the CREATE order (bind first, then plan), so the placeholder ids of the
+        // two trees stay aligned and a value extracted from the bind tree can
+        // never be substituted into a literal slot of the other tree. Frozen
+        // (placeholder-carrying) planSql is replayed as text - no plan tree.
+        Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
+                p.getBindSql(), frozen ? null : planSql);
+        if (trees.first == null) {
+            throw new RuntimeException("SPM baseline " + p.getId()
+                    + " bindSql cannot be parsed");
+        }
+        p.setParameterizedBindPlan(trees.first);
+        if (!frozen) {
+            p.setParameterizedPlanPlan(trees.second);
+        }
+        return p;
+    }
+
+    /**
+     * Reads every durable row with the given (bind_sql_digest, plan_sql) key. A read
+     * failure is rethrown as a retryable error: createBaseline must not fall through to
+     * an INSERT while the durable duplicate state is unknown.
+     *
+     * @param bindSqlDigest the parameterized digest
+     * @param planSql       the frozen plan SQL
+     * @return the parsed rows (possibly empty)
+     */
+    private static List<BaselinePlan> readPersistedByKey(String bindSqlDigest, String planSql) {
+        Map<String, String> params = new HashMap<>();
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
+        params.put("planSql", StatisticsUtil.escapeSQL(planSql));
+        try {
+            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_BY_KEY_SQL, params);
+            List<BaselinePlan> result = new ArrayList<>();
+            for (ResultRow row : rows) {
+                try {
+                    result.add(parsePersistedRow(row));
+                } catch (Throwable t) {
+                    LOG.warn("SPM skip invalid persisted baseline row: {}", t.getMessage());
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "SPM durable-key read failed (retry the CREATE): " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Deterministic winner of duplicate rows carrying one id (the internal table is a
+     * DUPLICATE-key table: the ALTER-status protocol INSERTs the new-status row before
+     * deleting the old-status one, so a failure of BOTH the old-row delete and the
+     * compensating delete leaves both rows behind).
+     *
+     * Rule: the LATER updateTime wins - it is the user's latest intent and, in the
+     * failure case above, the newly inserted row. When the timestamps tie (DATETIME has
+     * second precision), prefer DISABLED: silently re-enabling a baseline the user tried
+     * to disable is the harmful direction (it would start rewriting query plans again),
+     * while a failed ENABLE left disabled only means no rewrite - and a retried ENABLE
+     * converges. The selection is total and order-independent, so refresh / restart /
+     * every FE agree on the same row.
+     *
+     * @param first  one of the rows
+     * @param second the other row
+     * @return the row to keep in memory
+     */
+    @VisibleForTesting
+    static BaselinePlan pickDurableWinner(BaselinePlan first, BaselinePlan second) {
+        if (first.getUpdateTime() != second.getUpdateTime()) {
+            return first.getUpdateTime() > second.getUpdateTime() ? first : second;
+        }
+        boolean firstDisabled = !first.getStatus().isActive();
+        boolean secondDisabled = !second.getStatus().isActive();
+        if (firstDisabled != secondDisabled) {
+            return firstDisabled ? first : second;
+        }
+        return first;
+    }
+
+    /**
+     * Forces an authoritative reload of the internal table (master acquisition): the
+     * in-memory cache may have been loaded long BEFORE this FE became master, so it can
+     * miss every row the previous master wrote after that load - the create-time key
+     * dedup would then miss an existing durable baseline. {@code loaded} is cleared
+     * first, so a failed read keeps the lazy-retry state machine intact (the next access
+     * retries; mutators fail visibly via ensureLoadedOrThrow until the read succeeds).
+     */
+    public void forceReloadFromInternalTable() {
+        if (!persistenceEnabled()) {
+            return;
+        }
+        stateLock.writeLock().lock();
+        try {
+            loaded = false;
+        } finally {
+            stateLock.writeLock().unlock();
+        }
+        loadFromInternalTable();
     }
 
     /**
@@ -867,20 +1011,6 @@ public class BaselineManager {
         p.setCreateTime(fromTs(row.get(10)));
         p.setUpdateTime(fromTs(row.get(11)));
         return p;
-    }
-
-    private static void persistDeleteByKey(BaselinePlan p) {
-        if (!persistenceEnabled()) {
-            return;
-        }
-        Map<String, String> params = new HashMap<>();
-        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
-        params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
-        try {
-            StatisticsUtil.execUpdate(DELETE_BY_KEY_SQL, params);
-        } catch (Exception e) {
-            throw new RuntimeException("SPM persist (delete by key) failed: " + e.getMessage(), e);
-        }
     }
 
     private static void persistInsert(BaselinePlan p) {

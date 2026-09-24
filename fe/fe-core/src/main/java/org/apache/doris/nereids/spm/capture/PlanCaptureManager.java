@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.capture;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
@@ -30,6 +31,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,7 +63,7 @@ public class PlanCaptureManager extends MasterDaemon {
 
     private static final PlanCaptureManager INSTANCE = new PlanCaptureManager();
 
-    private final AuditLogScanner scanner = new AuditLogScanner();
+    private AuditLogScanner scanner = new AuditLogScanner();
 
     /** Capture filter, refreshed from the global session variables each cycle. */
     private PlanCaptureFilter filter;
@@ -83,6 +86,18 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /** Query ids already handled in earlier (overlapping) windows. */
     private final Map<String, Boolean> processedQueryIds = new LinkedHashMap<>();
+
+    /**
+     * Resume cursor of a TRUNCATED scan window: (query_time, time, query_id) of the last
+     * consumed row. Empty while no partial window is pending - a short batch advances
+     * the watermark instead.
+     */
+    private long cursorQueryTime = 0;
+    private String cursorTime = "";
+    private String cursorQueryId = "";
+
+    /** Whether the cloud-mode warning was already logged (the gate fires every cycle). */
+    private boolean cloudModeWarned = false;
 
     // capture statistics (design doc 7.2.1 / 7.2.6)
     private final AtomicLong successCount = new AtomicLong(0);
@@ -132,6 +147,17 @@ public class PlanCaptureManager extends MasterDaemon {
         // change affect future wakeups (rereading the variable in the cycle would only
         // change the scan window). Clamp to >= 1s so a misconfiguration cannot spin.
         setInterval(Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L);
+        // SPM baseline management (CREATE / ALTER / DROP / SHOW) explicitly rejects cloud
+        // mode; until the full lifecycle is supported the capture daemon must not create
+        // (or keep retrying to create) global baselines a cloud deployment cannot show,
+        // disable or drop.
+        if (Config.isCloudMode()) {
+            if (!cloudModeWarned) {
+                cloudModeWarned = true;
+                LOG.warn("SPM plan capture is not supported in cloud mode, skipping");
+            }
+            return;
+        }
         if (!global.isEnablePlanCapture()) {
             return;
         }
@@ -163,9 +189,9 @@ public class PlanCaptureManager extends MasterDaemon {
                 return;
             }
 
-            List<CapturedQuery> candidates =
-                    scanner.scan(scanStart, currentTime, global.getPlanCaptureMaxBatchSize());
-            for (CapturedQuery candidate : candidates) {
+            AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, currentTime,
+                    global.getPlanCaptureMaxBatchSize(), cursorQueryTime, cursorTime, cursorQueryId);
+            for (CapturedQuery candidate : batch.getCandidates()) {
                 String queryId = candidate.getQueryId();
                 if (queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId)) {
                     if (processedQueryIds.containsKey(queryId)) {
@@ -183,7 +209,23 @@ public class PlanCaptureManager extends MasterDaemon {
                 }
                 processCandidate(candidate);
             }
-            lastScanTimestamp = currentTime;
+            if (batch.isWindowExhausted()) {
+                // The whole window was scanned: advance the watermark (the overlap keeps
+                // late-arriving audit rows capturable) and drop the resume cursor.
+                lastScanTimestamp = nextScanTimestamp(lastScanTimestamp, currentTime, true);
+                cursorQueryTime = 0;
+                cursorTime = "";
+                cursorQueryId = "";
+            } else {
+                // The batch limit truncated the window: KEEP the window and remember the
+                // (query_time, time, query_id) cursor of the last consumed row, so the
+                // next cycle resumes exactly there. Advancing to the window end here
+                // would permanently skip every eligible row beyond the LIMIT (only the
+                // five-minute overlap would ever be re-scanned).
+                cursorQueryTime = batch.getCursorQueryTime();
+                cursorTime = batch.getCursorTime();
+                cursorQueryId = batch.getCursorQueryId();
+            }
 
             LOG.info("PlanCapture cycle finished: captured={}, dup={}, singleTable={}, filtered={}, fail={}",
                     successCount.get(), skipDuplicateCount.get(), skipSingleTableCount.get(),
@@ -210,8 +252,9 @@ public class PlanCaptureManager extends MasterDaemon {
                 }
                 return;
             }
-            // Level 4 filter: tables must still exist
-            if (!filter.allTablesExist(tables)) {
+            // Level 4 filter: tables must still exist in the CAPTURED namespace (external
+            // tables resolve through their own catalog, not InternalCatalog)
+            if (!filter.allTablesExist(tables, candidate.getCatalog(), candidate.getDb())) {
                 skipFilterCount.incrementAndGet();
                 return;
             }
@@ -303,16 +346,44 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * For tests: resets the counters and the scan window.
+     * For tests: resets the counters, the scan window and the resume cursor.
      */
     public void resetForTest() {
         lastScanTimestamp = 0;
+        cursorQueryTime = 0;
+        cursorTime = "";
+        cursorQueryId = "";
         processedQueryIds.clear();
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
         skipFilterCount.set(0);
         failCount.set(0);
+    }
+
+    /**
+     * For tests: replaces the audit scanner (e.g. with a scripted subclass).
+     *
+     * @param testScanner the scanner to use
+     */
+    @VisibleForTesting
+    void setScannerForTest(AuditLogScanner testScanner) {
+        this.scanner = testScanner;
+    }
+
+    /**
+     * Next scan watermark: only a FULLY consumed window may advance to its end. A window
+     * truncated by the batch limit keeps its watermark and resumes from the batch cursor
+     * instead (see runAfterCatalogReady / AuditLogScanner).
+     *
+     * @param lastScanTimestamp the current watermark
+     * @param currentTime       the window end just scanned
+     * @param windowExhausted   whether the batch consumed the whole window
+     * @return the next watermark
+     */
+    @VisibleForTesting
+    static long nextScanTimestamp(long lastScanTimestamp, long currentTime, boolean windowExhausted) {
+        return windowExhausted ? currentTime : lastScanTimestamp;
     }
 
     /**

@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -34,14 +38,21 @@ import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -52,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -63,6 +75,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * M1 milestone test: SPMPlan2SQLBuilder (physical plan decompiler).
@@ -543,6 +556,9 @@ public class SPMPlan2SQLBuilderTest {
         if (plan instanceof PhysicalHashJoin) {
             return builder.visitPhysicalHashJoin((PhysicalHashJoin<?, ?>) plan, null);
         }
+        if (plan instanceof PhysicalUnion) {
+            return builder.visitPhysicalUnion((PhysicalUnion) plan, null);
+        }
         if (plan instanceof PhysicalFilter) {
             return builder.visitPhysicalFilter((PhysicalFilter<?>) plan, null);
         }
@@ -772,6 +788,240 @@ public class SPMPlan2SQLBuilderTest {
                 "the CTE body must appear exactly once (no inline copy): " + sql);
         Assertions.assertEquals(2, countOccurrences(sql, "FROM t_0"),
                 "both consumers must reference the shared definition: " + sql);
+    }
+
+    // ==================== constant UNION branches ====================
+
+    /**
+     * MergeOneRowRelationIntoUnion MOVES a constant one-row branch out of children()
+     * into PhysicalUnion.constantExprsList. It must be emitted as a positional SELECT
+     * branch: emitting only the regular children silently dropped the row at replay
+     * (SELECT 1 UNION ALL SELECT x FROM t WHERE y = ? lost the SELECT 1 row).
+     */
+    @Test
+    public void testUnionConstantBranchIsEmitted() {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference setOutput = new SlotReference("k1", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(x));
+
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.children()).thenReturn(List.of(scan));
+        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of(List.of(x)));
+        Mockito.when(union.getOutput()).thenReturn(List.of(setOutput));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of(
+                List.of((NamedExpression) new Alias(new IntegerLiteral(1), "k1"))));
+        stubAccept(union);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(union);
+        Assertions.assertTrue(sql.contains("UNION ALL"), sql);
+        Assertions.assertTrue(sql.contains("1 AS k1"),
+                "the constant one-row branch must survive the freeze: " + sql);
+        Assertions.assertTrue(sql.contains("x AS k1"),
+                "the regular branch is projected under the set output names: " + sql);
+    }
+
+    @Test
+    public void testUnionConstantOnlyBranchIsEmitted() {
+        SlotReference setOutput = new SlotReference("k1", IntegerType.INSTANCE);
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.children()).thenReturn(List.of());
+        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of());
+        Mockito.when(union.getOutput()).thenReturn(List.of(setOutput));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of(
+                List.of((NamedExpression) new Alias(new IntegerLiteral(1), "k1"))));
+        stubAccept(union);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(union);
+        Assertions.assertTrue(sql.contains("SELECT 1 AS k1"),
+                "a constant-only UNION must not render an empty body: " + sql);
+        Assertions.assertFalse(sql.contains("UNION ALL"),
+                "there is no regular branch to join: " + sql);
+    }
+
+    @Test
+    public void testUnionConstantArityMismatchRejected() {
+        SlotReference setOutput = new SlotReference("k1", IntegerType.INSTANCE);
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.children()).thenReturn(List.of());
+        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of());
+        Mockito.when(union.getOutput()).thenReturn(List.of(setOutput));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of(List.of(
+                (NamedExpression) new Alias(new IntegerLiteral(1), "k1"),
+                (NamedExpression) new Alias(new IntegerLiteral(2), "k2"))));
+        stubAccept(union);
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().toSQL(union),
+                "a constant row that does not match the set arity must fail the decompile");
+    }
+
+    // ==================== FROM-less projection aliases (PhysicalOneRowRelation) ====================
+
+    @Test
+    public void testOneRowRelationEmitsExplicitAlias() {
+        PhysicalOneRowRelation oneRow = Mockito.mock(PhysicalOneRowRelation.class);
+        Mockito.when(oneRow.getProjects()).thenReturn(List.of(
+                (NamedExpression) new Alias(new IntegerLiteral(1), "a")));
+        stubAccept(oneRow);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(oneRow);
+        Assertions.assertTrue(sql.contains("1 AS a"),
+                "SELECT 1 AS a must freeze with its result-header alias: " + sql);
+    }
+
+    @Test
+    public void testOneRowRelationKeepsParserFallbackName() {
+        // Alias(expr) is the parser's name-from-child fallback (the expression TEXT,
+        // not an identifier): it must not be emitted as a quoted SQL alias
+        PhysicalOneRowRelation oneRow = Mockito.mock(PhysicalOneRowRelation.class);
+        Mockito.when(oneRow.getProjects()).thenReturn(List.of(
+                (NamedExpression) new Alias(new IntegerLiteral(1))));
+        stubAccept(oneRow);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(oneRow);
+        Assertions.assertFalse(sql.contains(" AS "),
+                "a name-from-child alias is not identifier-safe and must not be emitted: " + sql);
+    }
+
+    // ==================== slot remapping in composite expressions ====================
+
+    @Test
+    public void testBitNotRendersRemappedColumn() {
+        SQLRelation relation = new SQLRelation();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        relation.registerRef(a.getExprId(), "c_5");
+        Assertions.assertEquals("~(c_5)",
+                new SPMExprSqlBuilder().print(new BitNot(a), relation),
+                "a unary ~ child must go through the ExprId -> column mapping");
+    }
+
+    @Test
+    public void testGenericFallbackRejectsRemappedSlots() {
+        SQLRelation relation = new SQLRelation();
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        relation.registerRef(a.getExprId(), "c_5");
+        SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
+
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> SPMExprSqlBuilder.ensureNoRemappedSlots(new BitNot(a), relation),
+                "a remapped slot must never fall through to the raw toSql() path");
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> builder.visit((Expression) new BitNot(a), relation),
+                "the generic fallback must reject a stale column instead of freezing it");
+
+        // a registered reference that still names the column is renderable
+        SQLRelation qualified = new SQLRelation();
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        qualified.registerRef(b.getExprId(), "t_2.b");
+        Assertions.assertDoesNotThrow(
+                () -> SPMExprSqlBuilder.ensureNoRemappedSlots(new BitNot(b), qualified),
+                "a qualified reference still names the column and stays renderable");
+        Assertions.assertNotNull(builder.visit((Expression) new BitNot(b), qualified));
+    }
+
+    // ==================== DISTINCT restore for non-count merges ====================
+
+    /**
+     * SUM(DISTINCT x) mixed with a plain aggregate: SplitAggMultiPhase clears isDistinct
+     * on the final DISTINCT_GLOBAL function because the eliminated lower stage
+     * deduplicates its input. The decompiler folds that stage away and must restore
+     * DISTINCT for EVERY aggregate consuming the dedup buffer (not only count); an
+     * aggregate riding along the same stage stays plain.
+     */
+    @Test
+    public void testDistinctMergeRestoresDistinctForSum() {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference y = new SlotReference("y", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(x, y));
+
+        Alias localOutput = new Alias(new AggregateExpression(new Sum(x),
+                new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_BUFFER)), "m");
+
+        PhysicalHashAggregate<?> local = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(local.child(0)).thenReturn(scan);
+        Mockito.when(local.getAggPhase()).thenReturn(AggPhase.DISTINCT_LOCAL);
+        Mockito.when(local.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(local.getOutputExpressions()).thenReturn(List.of(localOutput));
+        stubAccept(local);
+
+        SlotReference bufferSlot = new SlotReference(
+                localOutput.getExprId(), "m", IntegerType.INSTANCE, true, List.of());
+        PhysicalHashAggregate<?> finalAgg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(finalAgg.child(0)).thenReturn(local);
+        Mockito.when(finalAgg.getAggPhase()).thenReturn(AggPhase.DISTINCT_GLOBAL);
+        Mockito.when(finalAgg.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(finalAgg.getOutputExpressions()).thenReturn(List.of(
+                (NamedExpression) new Alias(new AggregateExpression(new Sum(bufferSlot),
+                        new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        bufferSlot), "s"),
+                (NamedExpression) new Alias(new AggregateExpression(new Max(y),
+                        new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT)), "mx")));
+        stubAccept(finalAgg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(finalAgg);
+        Assertions.assertTrue(sql.contains("sum(DISTINCT x)"),
+                "SUM(DISTINCT x) must keep its DISTINCT through the stage fold: " + sql);
+        Assertions.assertTrue(sql.contains("max(y)"),
+                "an aggregate riding along the same stage stays plain: " + sql);
+        Assertions.assertFalse(sql.contains("max(DISTINCT"),
+                "DISTINCT must not be invented for the riding aggregate: " + sql);
+    }
+
+    // ==================== external file scan modifiers ====================
+
+    @Test
+    public void testFileScanWithoutModifiersDecompiles() {
+        PhysicalFileScan scan = mockFileScan();
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null);
+        Assertions.assertNotNull(relation);
+    }
+
+    @Test
+    public void testFileScanModifiersAreRejected() {
+        // partition pruning state, TABLESAMPLE, FOR VERSION AS OF snapshots and scan
+        // parameters are not expressible in the plain catalog.db.table text: freezing
+        // such a scan would replay against the unrestricted table
+        PhysicalFileScan partitionPruned = mockFileScan();
+        Mockito.when(partitionPruned.getSelectedPartitions())
+                .thenReturn(Mockito.mock(LogicalFileScan.SelectedPartitions.class));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().visitPhysicalRelation(partitionPruned, null),
+                "a pruned file scan must fail the decompile");
+
+        PhysicalFileScan sampled = mockFileScan();
+        Mockito.when(sampled.getTableSample())
+                .thenReturn(Optional.of(Mockito.mock(TableSample.class)));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().visitPhysicalRelation(sampled, null),
+                "a sampled file scan must fail the decompile");
+    }
+
+    private static PhysicalFileScan mockFileScan() {
+        PhysicalFileScan scan = Mockito.mock(PhysicalFileScan.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("ext_t");
+        Mockito.when(scan.getTable()).thenReturn(table);
+        return scan;
+    }
+
+    // ==================== identifier quoting ====================
+
+    @Test
+    public void testSpecialCharacterColumnIsQuoted() {
+        SlotReference dashed = new SlotReference("a-b", IntegerType.INSTANCE);
+        SlotReference plain = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(dashed, plain));
+
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null);
+        Assertions.assertEquals("`a-b`", relation.getColumnNames().get(dashed.getExprId()),
+                "a special-character column must be registered as a quoted identifier");
+        Assertions.assertEquals("a", relation.getColumnNames().get(plain.getExprId()),
+                "a plain column stays verbatim");
+
+        PhysicalProject project = mockProject(List.of(dashed), scan);
+        String sql = new SPMPlan2SQLBuilder().toSQL(project);
+        Assertions.assertTrue(sql.contains("`a-b`"),
+                "the frozen projection must keep the identifier quoted (no subtraction): " + sql);
     }
 
     /** Counts the occurrences of a literal fragment in a string. */

@@ -298,9 +298,16 @@ public class SPMOptimizer {
             sessionVar.enableCTEMaterialize = true;
             sessionVar.inlineCTEReferencedThreshold = 0;
             sessionVar.cteInlineMode = -1;
-            if (originalCtx == null) {
-                ctx.setStatementContext(statementContext);
-            }
+            // Install the FRESH statement context for the whole nested plan: the table
+            // collector caches the SELECT tables into the ConnectContext's CURRENT
+            // statement context, and collectAndLockTable() then locks THAT object. When
+            // the caller (StmtExecutor for a CREATE BASELINE statement) already installed
+            // the outer command's context, leaving it active made collectRelation cache
+            // into the outer object while lock() ran on the fresh (empty) one: the nested
+            // plan was optimized / decompiled WITHOUT its metadata-stability locks and
+            // could race concurrent ALTER / DROP. The exact original (possibly null) is
+            // restored in the finally below.
+            ctx.setStatementContext(statementContext);
             // planWithLock runs preprocess (SET_VAR hint) -> analyze -> rewrite ->
             // optimize -> postProcess; distribution planning is not needed for the
             // decompiler (the physical plan already carries distribution specs).
@@ -320,9 +327,7 @@ public class SPMOptimizer {
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
             sessionVar.inlineCTEReferencedThreshold = originalInlineCteThreshold;
             sessionVar.cteInlineMode = originalCteInlineMode;
-            if (originalCtx == null) {
-                ctx.setStatementContext(null);
-            }
+            ctx.setStatementContext(originalCtx);
         }
     }
 

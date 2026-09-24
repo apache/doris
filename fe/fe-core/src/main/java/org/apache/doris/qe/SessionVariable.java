@@ -2197,11 +2197,13 @@ public class SessionVariable implements Serializable, Writable {
             "Queries whose scan rows are below this threshold are not captured.")
     private long planCaptureMinScanRows = 10000;
 
-    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_INCLUDE_PATTERN, needForward = false, description =
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_INCLUDE_PATTERN, needForward = false,
+            setter = "setPlanCaptureIncludePattern", description =
             "Only queries whose table names match this regex are captured. Empty means all.")
     private String planCaptureIncludePattern = "";
 
-    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_EXCLUDE_PATTERN, needForward = false, description =
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_EXCLUDE_PATTERN, needForward = false,
+            setter = "setPlanCaptureExcludePattern", description =
             "Queries with any table matching this regex are skipped.")
     private String planCaptureExcludePattern = "";
 

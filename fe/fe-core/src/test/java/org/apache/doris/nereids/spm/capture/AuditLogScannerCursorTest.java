@@ -1,0 +1,165 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.spm.capture;
+
+import org.apache.doris.statistics.repository.ResultRow;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Audit scan pagination / dedup contract tests.
+ *
+ * - Dedup is namespace-aware: (catalog, db, digest), because SPM's eventual match key is
+ *   namespace-qualified - identical unqualified SQL in two databases is two queries, and
+ *   collapsing them would starve the other namespace forever.
+ * - Pagination uses a stable (query_time, time, query_id) cursor: the batch LIMIT must
+ *   never advance the window past unscanned rows (the old behavior advanced the watermark
+ *   to the window end and permanently skipped every row beyond the LIMIT).
+ */
+public class AuditLogScannerCursorTest {
+
+    /** One raw audit_log row in the SELECT-column order of AuditLogScanner. */
+    private static ResultRow row(String stmt, long queryTime, String digest,
+            String db, String catalog, String queryId, String time) {
+        List<String> values = new ArrayList<>();
+        values.add(stmt);                        // 0 stmt
+        values.add(String.valueOf(queryTime));   // 1 query_time
+        values.add("100");                       // 2 scan_rows
+        values.add("10");                        // 3 return_rows
+        values.add(digest);                      // 4 sql_digest
+        values.add("hash");                      // 5 sql_hash
+        values.add(db);                          // 6 db
+        values.add(catalog);                     // 7 catalog
+        values.add(queryId);                     // 8 query_id
+        values.add("false");                     // 9 is_internal
+        values.add(time);                        // 10 time
+        return new ResultRow(values);
+    }
+
+    @Test
+    public void testDedupKeepsNamespacesApart() {
+        // same stmt / digest, two databases: both must survive as separate candidates,
+        // each represented by its longest-running execution
+        List<ResultRow> rows = List.of(
+                row("select * from t", 1000, "d1", "db1", "internal", "q1", "2026-01-01 00:00:00"),
+                row("select * from t", 1000, "d1", "db2", "internal", "q2", "2026-01-01 00:00:01"),
+                row("select * from t", 5000, "d1", "db1", "internal", "q3", "2026-01-01 00:00:02"));
+
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(rows, 10);
+        List<CapturedQuery> candidates = batch.getCandidates();
+        Assertions.assertEquals(2, candidates.size(),
+                "identical SQL in two databases is two queries: " + candidates);
+        CapturedQuery db1 = candidates.stream().filter(c -> "db1".equals(c.getDb()))
+                .findFirst().orElseThrow(AssertionError::new);
+        CapturedQuery db2 = candidates.stream().filter(c -> "db2".equals(c.getDb()))
+                .findFirst().orElseThrow(AssertionError::new);
+        Assertions.assertEquals(5000L, db1.getQueryTimeMs(),
+                "the namespace keeps its longest-running row");
+        Assertions.assertEquals(1000L, db2.getQueryTimeMs());
+        Assertions.assertEquals("q3", db1.getQueryId());
+    }
+
+    @Test
+    public void testDedupKeepsCatalogsApart() {
+        List<ResultRow> rows = List.of(
+                row("select * from t", 1000, "d1", "db1", "cat1", "q1", "2026-01-01 00:00:00"),
+                row("select * from t", 2000, "d1", "db1", "cat2", "q2", "2026-01-01 00:00:01"));
+        Assertions.assertEquals(2, AuditLogScanner.toBatch(rows, 10).getCandidates().size(),
+                "the catalog takes part in the dedup key as well");
+    }
+
+    @Test
+    public void testCursorIsLastRawRowEvenWhenUnusable() {
+        // the trailing row has an empty statement (dropped as a candidate) but has been
+        // CONSUMED: the next page must resume after it, never rescan it
+        List<ResultRow> rows = List.of(
+                row("select * from t", 2000, "d1", "db1", "internal", "qA", "2026-01-01 00:00:00"),
+                row("", 100, "", "db1", "internal", "qB", "2026-01-01 00:00:01"));
+
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(rows, 10);
+        Assertions.assertEquals(1, batch.getCandidates().size(),
+                "an empty statement is not a candidate");
+        Assertions.assertEquals(100L, batch.getCursorQueryTime());
+        Assertions.assertEquals("2026-01-01 00:00:01", batch.getCursorTime());
+        Assertions.assertEquals("qB", batch.getCursorQueryId());
+    }
+
+    @Test
+    public void testWindowExhaustionSignal() {
+        List<ResultRow> twoRows = List.of(
+                row("select * from t", 2000, "d1", "db1", "internal", "qA", "2026-01-01 00:00:00"),
+                row("select * from t", 1000, "d2", "db1", "internal", "qB", "2026-01-01 00:00:01"));
+
+        Assertions.assertTrue(AuditLogScanner.toBatch(List.of(), 10).isWindowExhausted(),
+                "an empty page exhausts the window");
+        Assertions.assertTrue(AuditLogScanner.toBatch(twoRows, 10).isWindowExhausted(),
+                "a page shorter than the limit exhausts the window");
+        Assertions.assertFalse(AuditLogScanner.toBatch(twoRows, 2).isWindowExhausted(),
+                "a full page is TRUNCATED: the window must be kept and resumed by cursor");
+    }
+
+    @Test
+    public void testCursorPredicateIsStrictlyAfterAndEscaped() {
+        Assertions.assertEquals("", AuditLogScanner.cursorPredicate(0, "", ""),
+                "no cursor: start at the top of the window");
+        Assertions.assertEquals("", AuditLogScanner.cursorPredicate(100, "", "q"),
+                "a partial cursor must fall back to the top of the window");
+
+        String predicate = AuditLogScanner.cursorPredicate(
+                123, "2026-01-01 00:00:00", "q'1");
+        Assertions.assertTrue(predicate.contains("`query_time` < 123"), predicate);
+        Assertions.assertTrue(predicate.contains("`query_time` = 123"), predicate);
+        Assertions.assertTrue(predicate.contains("`time` = '2026-01-01 00:00:00'"), predicate);
+        Assertions.assertTrue(predicate.contains("`query_id` < 'q''1'"),
+                "a quote inside the query id must be escaped: " + predicate);
+        Assertions.assertTrue(predicate.startsWith(" AND "), predicate);
+    }
+
+    @Test
+    public void testScanSqlCarriesTotalOrderAndCursor() {
+        String sql = AuditLogScanner.buildScanSql(
+                "2026-01-01 00:00:00", "2026-01-01 03:00:00", 500, 1000, 100000);
+        Assertions.assertTrue(
+                sql.contains("ORDER BY `query_time` DESC, `time` DESC, `query_id` DESC"),
+                "the cursor walks a stable total order: " + sql);
+        Assertions.assertTrue(sql.contains("LIMIT 500"), sql);
+
+        String resumed = AuditLogScanner.buildScanSql("2026-01-01 00:00:00",
+                "2026-01-01 03:00:00", 500, 1000, 100000,
+                AuditLogScanner.cursorPredicate(9, "2026-01-01 01:00:00", "q"));
+        Assertions.assertTrue(resumed.contains("`query_time` < 9"),
+                "the resumed page continues exactly after the cursor: " + resumed);
+        Assertions.assertTrue(
+                resumed.contains("ORDER BY `query_time` DESC, `time` DESC, `query_id` DESC"),
+                resumed);
+    }
+
+    @Test
+    public void testWatermarkMovesOnlyForExhaustedWindows() {
+        Assertions.assertEquals(100L,
+                PlanCaptureManager.nextScanTimestamp(100L, 500L, false),
+                "a truncated window keeps its watermark: the cursor resumes inside it");
+        Assertions.assertEquals(500L,
+                PlanCaptureManager.nextScanTimestamp(100L, 500L, true),
+                "an exhausted window advances the watermark to the window end");
+    }
+}
