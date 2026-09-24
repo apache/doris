@@ -79,6 +79,28 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
     return data_set;
 }
 
+void check_encryption_function_all_arg_comb(const std::string& func_name,
+                                            const InputTypeSet& base_types,
+                                            const DataSet& data_set) {
+    const auto argument_count = base_types.size();
+    const auto mode_index = argument_count - 1;
+    for (const auto& row : data_set) {
+        for (size_t const_mask = 0; const_mask < (1UL << mode_index); ++const_mask) {
+            InputTypeSet input_types;
+            input_types.reserve(argument_count);
+            for (size_t index = 0; index < argument_count; ++index) {
+                const auto primitive_type = any_cast<PrimitiveType>(base_types[index]);
+                if (index == mode_index || (const_mask & (1UL << index))) {
+                    input_types.emplace_back(Consted {primitive_type});
+                } else {
+                    input_types.emplace_back(primitive_type);
+                }
+            }
+            static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, {row}));
+        }
+    }
+}
+
 } // namespace
 
 TEST(function_string_test, parse_data_size_nullable) {
@@ -2396,7 +2418,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
                             {{std::string(src[5]), std::string(key), std::string(mode)}, r[5]},
                             {{Null(), std::string(key), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
@@ -2431,7 +2453,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
                 {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 }
 
@@ -2463,7 +2485,7 @@ TEST(function_string_test, function_aes_decrypt_test) {
                             {{r[4], std::string(key), std::string(mode)}, std::string(src[4])},
                             {{Null(), std::string(key), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
@@ -2496,7 +2518,52 @@ TEST(function_string_test, function_aes_decrypt_test) {
                 {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_encryption_mode_must_be_constant_test) {
+    const auto check_non_const_mode = [](const std::string& func_name,
+                                         const InputTypeSet& input_types, const InputCell& input,
+                                         size_t mode_index) {
+        const auto status = check_function<DataTypeString, true>(func_name, input_types,
+                                                                 {{input, Null()}}, -1, -1, true);
+        const auto expected_message = "Argument at index " + std::to_string(mode_index) +
+                                      " for function " + func_name + " must be constant";
+        EXPECT_NE(std::string::npos, status.to_string().find(expected_message));
+    };
+
+    const InputTypeSet three_argument_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    const InputTypeSet four_argument_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR};
+    const InputTypeSet five_argument_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+    for (const auto& func_name : {"aes_encrypt", "aes_decrypt"}) {
+        check_non_const_mode(func_name, three_argument_types,
+                             {std::string("text"), std::string("key"), std::string("AES_128_ECB")},
+                             2);
+        check_non_const_mode(func_name, four_argument_types,
+                             {std::string("text"), std::string("key"), std::string("iv"),
+                              std::string("AES_128_CBC")},
+                             3);
+        check_non_const_mode(func_name, five_argument_types,
+                             {std::string("text"), std::string("key"), std::string("iv"),
+                              std::string("AES_128_GCM"), std::string("aad")},
+                             3);
+    }
+
+    for (const auto& func_name : {"sm4_encrypt", "sm4_decrypt"}) {
+        check_non_const_mode(func_name, three_argument_types,
+                             {std::string("text"), std::string("key"), std::string("SM4_128_ECB")},
+                             2);
+        check_non_const_mode(func_name, four_argument_types,
+                             {std::string("text"), std::string("key"), std::string("iv"),
+                              std::string("SM4_128_CBC")},
+                             3);
     }
 }
 
@@ -2536,7 +2603,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
                 {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 
     {
@@ -2573,7 +2640,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
                 {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 }
 
@@ -2612,7 +2679,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
                 {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 
     {
@@ -2648,7 +2715,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
                 {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
                 {{Null(), Null(), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 }
 
