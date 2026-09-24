@@ -151,7 +151,8 @@ AND l_commitdate < l_receiptdate
 GROUP BY
 o_orderpriority
 ORDER BY
-    o_orderpriority"""
+    o_orderpriority
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   o_orderpriority,
@@ -188,7 +189,8 @@ AND l_commitdate < l_receiptdate
 GROUP BY
 o_orderpriority
 ORDER BY
-    o_orderpriority"""
+    o_orderpriority
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q04 query")
     
@@ -229,7 +231,8 @@ AND l_commitdate < l_receiptdate
 GROUP BY
 o_orderpriority
 ORDER BY
-    o_orderpriority"""
+    o_orderpriority
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   o_orderpriority,
@@ -266,7 +269,8 @@ AND l_commitdate < l_receiptdate
 GROUP BY
 o_orderpriority
 ORDER BY
-    o_orderpriority"""
+    o_orderpriority
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q04 query")
     

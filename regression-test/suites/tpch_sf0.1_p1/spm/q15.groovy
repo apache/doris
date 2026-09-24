@@ -151,7 +151,8 @@ WHERE
       revenue1
   )
 ORDER BY
-      s_suppkey"""
+      s_suppkey
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   s_suppkey,
@@ -188,7 +189,8 @@ WHERE
       revenue1
   )
 ORDER BY
-      s_suppkey"""
+      s_suppkey
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q15 query")
     
@@ -229,7 +231,8 @@ WHERE
       revenue1
   )
 ORDER BY
-      s_suppkey"""
+      s_suppkey
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   s_suppkey,
@@ -266,7 +269,8 @@ WHERE
       revenue1
   )
 ORDER BY
-      s_suppkey"""
+      s_suppkey
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q15 query")
     

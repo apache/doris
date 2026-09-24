@@ -127,7 +127,8 @@ FROM
 WHERE
   l_partkey = p_partkey
   AND l_shipdate >= DATE '1995-09-01'
-      AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH"""
+      AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT 100.00 * sum(CASE
                     WHEN p_type LIKE 'PROMO%'
@@ -152,7 +153,8 @@ FROM
 WHERE
   l_partkey = p_partkey
   AND l_shipdate >= DATE '1995-09-01'
-      AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH"""
+      AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q14 query")
     
@@ -181,7 +183,8 @@ FROM
 WHERE
   l_partkey = p_partkey
   AND l_shipdate >= DATE '1996-09-01'
-      AND l_shipdate < DATE '1996-09-01' + INTERVAL '1' MONTH"""
+      AND l_shipdate < DATE '1996-09-01' + INTERVAL '1' MONTH
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT 100.00 * sum(CASE
                     WHEN p_type LIKE 'PROMO%'
@@ -206,7 +209,8 @@ FROM
 WHERE
   l_partkey = p_partkey
   AND l_shipdate >= DATE '1996-09-01'
-      AND l_shipdate < DATE '1996-09-01' + INTERVAL '1' MONTH"""
+      AND l_shipdate < DATE '1996-09-01' + INTERVAL '1' MONTH
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q14 query")
     

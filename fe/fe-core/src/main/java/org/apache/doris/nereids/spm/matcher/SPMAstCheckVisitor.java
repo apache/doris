@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.spm.matcher;
 
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
@@ -28,6 +30,8 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
@@ -96,6 +100,34 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         // Type mismatch -> no match
         if (bindExpr.getClass() != userExpr.getClass()) {
             return false;
+        }
+
+        // Identity fields that live OUTSIDE children() must be compared explicitly:
+        // UnboundStar: the REPLACE payload (a leaf with no children - a baseline
+        //   captured with "* REPLACE(k + 1 AS k)" must not replay its captured
+        //   expression for a query using "* REPLACE(k + 2 AS k)")
+        // UnboundFunction: the database qualifier (db1.f must not match db2.f)
+        // WindowExpression: the frame (ROWS 1 PRECEDING must not replay as 2 PRECEDING;
+        //   WindowFrame is not an expression child, so neither the placeholder
+        //   construction nor the generic child comparison sees its bound offsets)
+        if (bindExpr instanceof UnboundStar) {
+            return Objects.equals(bindExpr.toSql(), userExpr.toSql());
+        }
+        if (bindExpr instanceof UnboundFunction
+                && !Objects.equals(((UnboundFunction) bindExpr).getDbName(),
+                        ((UnboundFunction) userExpr).getDbName())) {
+            return false;
+        }
+        if (bindExpr instanceof WindowExpression) {
+            WindowFrame bindFrame = ((WindowExpression) bindExpr).getWindowFrame().orElse(null);
+            WindowFrame userFrame = ((WindowExpression) userExpr).getWindowFrame().orElse(null);
+            if ((bindFrame == null) != (userFrame == null)) {
+                return false;
+            }
+            if (bindFrame != null
+                    && !Objects.equals(bindFrame.computeToSql(), userFrame.computeToSql())) {
+                return false;
+            }
         }
 
         // Column references are compared by name (a = 100 must not match b = 42)
@@ -238,8 +270,10 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
 
         // compare the subquery's whole plan tree against the user side (every node's
         // expressions pairwise); this extracts the user values for placeholders anywhere
-        // inside the subquery (filters, having, projections, nested subqueries, ...)
-        return SPMPlanTreeSupport.check(bindSubquery.getQueryPlan(),
+        // inside the subquery (filters, having, projections, nested subqueries, ...),
+        // while LIMIT / OFFSET of the subquery plan are compared exactly (they cannot be
+        // merged from the user query afterwards)
+        return SPMPlanTreeSupport.checkSubqueryPlan(bindSubquery.getQueryPlan(),
                 userSubquery.getQueryPlan(), context.placeholderValues);
     }
 }

@@ -106,6 +106,7 @@ public class ExplainCommand extends Command implements NoForward {
                 explainCtx.getStatementContext().setIsDelete(true);
             }
             LogicalPlan explainPlan = ((LogicalPlan) explainable.getExplainPlan(explainCtx));
+            LogicalPlan originalPlan = explainPlan;
             // SPM (SQL Plan Management) rewrite for EXPLAIN: mirrors the query path
             // (StmtExecutor SPM integration point) so EXPLAIN reports the matched
             // baseline (id + bindSqlDigest) when enable_spm_rewrite is on.
@@ -155,9 +156,35 @@ public class ExplainCommand extends Command implements NoForward {
             try {
                 planner.plan(logicalPlanAdapter, explainCtx.getSessionVariable().toThrift());
             } catch (Throwable t) {
-                LOG.warn("SPM EXPLAIN analyze/plan failed; rewritten tree:\n{}",
-                        explainPlan.treeString(), t);
-                throw t;
+                // A failed planning of the REPLACEMENT tree must degrade like the query
+                // path (StmtExecutor): clear the applied flag and replan the ORIGINAL
+                // tree, so EXPLAIN cannot fail for a query that succeeds. The rewritten
+                // tree is validated again at execution time, so a broken frozen text
+                // must not make EXPLAIN unusable.
+                if (explainCtx.getStatementContext().isSpmBaselineApplied()
+                        && originalPlan != null && originalPlan != explainPlan) {
+                    LOG.warn("SPM EXPLAIN planning failed on the rewritten tree,"
+                            + " retrying with the original plan", t);
+                    explainCtx.getStatementContext().setSpmBaselineApplied(false);
+                    explainCtx.getStatementContext().setSpmUsedBaselineId(-1);
+                    explainPlan = originalPlan;
+                    Optional<NereidsPlanner> retryPlanner =
+                            explainable.getExplainPlanner(explainPlan,
+                                    explainCtx.getStatementContext());
+                    planner = retryPlanner.isPresent()
+                            ? retryPlanner.get()
+                            : new NereidsPlanner(explainCtx.getStatementContext());
+                    logicalPlanAdapter =
+                            new LogicalPlanAdapter(explainPlan, explainCtx.getStatementContext());
+                    logicalPlanAdapter.setIsExplain(explainOptions);
+                    executor.setParsedStmt(logicalPlanAdapter);
+                    planner.plan(logicalPlanAdapter,
+                            explainCtx.getSessionVariable().toThrift());
+                } else {
+                    LOG.warn("SPM EXPLAIN analyze/plan failed; rewritten tree:\n{}",
+                            explainPlan.treeString(), t);
+                    throw t;
+                }
             }
             executor.setPlanner(planner);
             // Skip SQL block rules check for EXPLAIN statements since they only show

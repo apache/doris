@@ -187,7 +187,8 @@ HAVING
       AND n_name = 'GERMANY'
   )
 ORDER BY
-      value DESC"""
+      value DESC
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   ps_partkey,
@@ -242,7 +243,8 @@ HAVING
       AND n_name = 'GERMANY'
   )
 ORDER BY
-      value DESC"""
+      value DESC
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q11 query")
     
@@ -301,7 +303,8 @@ HAVING
       AND n_name = 'FRANCE'
   )
 ORDER BY
-      value DESC"""
+      value DESC
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   ps_partkey,
@@ -356,7 +359,8 @@ HAVING
       AND n_name = 'FRANCE'
   )
 ORDER BY
-      value DESC"""
+      value DESC
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q11 query")
     

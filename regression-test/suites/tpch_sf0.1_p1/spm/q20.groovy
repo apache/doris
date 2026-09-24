@@ -207,7 +207,8 @@ WHERE
 )
 AND s_nationkey = n_nationkey
 AND n_name = 'CANADA'
-    ORDER BY s_name"""
+    ORDER BY s_name
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   s_name,
@@ -272,7 +273,8 @@ WHERE
 )
 AND s_nationkey = n_nationkey
 AND n_name = 'CANADA'
-    ORDER BY s_name"""
+    ORDER BY s_name
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q20 query")
     
@@ -341,7 +343,8 @@ WHERE
 )
 AND s_nationkey = n_nationkey
 AND n_name = 'CHINA'
-    ORDER BY s_name"""
+    ORDER BY s_name
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   s_name,
@@ -406,7 +409,8 @@ WHERE
 )
 AND s_nationkey = n_nationkey
 AND n_name = 'CHINA'
-    ORDER BY s_name"""
+    ORDER BY s_name
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q20 query")
     

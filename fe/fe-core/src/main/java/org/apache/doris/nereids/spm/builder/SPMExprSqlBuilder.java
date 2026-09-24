@@ -26,6 +26,9 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BitOr;
+import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -58,6 +61,8 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -257,6 +262,14 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         if (boundFunction instanceof org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable) {
             return boundFunction.child(0).accept(this, context);
         }
+        if (boundFunction instanceof GroupConcat || boundFunction instanceof MultiDistinctGroupConcat) {
+            String rendered = renderGroupConcat((AggregateFunction) boundFunction, context);
+            if (rendered == null) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: group_concat shape is not supported yet");
+            }
+            return rendered;
+        }
         String args = boundFunction.children().stream()
                 .map(a -> a.accept(this, context))
                 .collect(Collectors.joining(", "));
@@ -273,12 +286,25 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         String args = unboundFunction.children().stream()
                 .map(a -> a.accept(this, context))
                 .collect(Collectors.joining(", "));
-        return unboundFunction.getName() + "(" + args + ")";
+        // Keep the database qualifier: db1.f(k + 1) must not freeze as unqualified
+        // f(...) and resolve to db2.f when replayed under USE db2.
+        String dbName = unboundFunction.getDbName();
+        String qualifiedName = (dbName == null || dbName.isEmpty())
+                ? unboundFunction.getName() : dbName + "." + unboundFunction.getName();
+        return qualifiedName + "(" + args + ")";
     }
 
     @Override
     public String visitAggregateExpression(AggregateExpression aggregateExpression, SQLRelation context) {
         AggregateFunction fn = aggregateExpression.getFunction();
+        if (fn instanceof GroupConcat || fn instanceof MultiDistinctGroupConcat) {
+            String rendered = renderGroupConcat(fn, context);
+            if (rendered == null) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: group_concat shape is not supported yet");
+            }
+            return rendered;
+        }
         // Explicitly handle DISTINCT aggregates: count(distinct col)
         String distinct = fn.isDistinct() ? "distinct " : "";
         String args = fn.children().stream()
@@ -297,10 +323,19 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         String fnSql;
         if (fn instanceof AggregateFunction) {
             AggregateFunction aggFn = (AggregateFunction) fn;
-            String distinct = aggFn.isDistinct() ? "DISTINCT " : "";
-            fnSql = aggFn.getName() + "(" + distinct
-                    + fn.children().stream().map(c -> print(c, context))
-                            .collect(Collectors.joining(", ")) + ")";
+            if (aggFn instanceof GroupConcat || aggFn instanceof MultiDistinctGroupConcat) {
+                String rendered = renderGroupConcat(aggFn, context);
+                if (rendered == null) {
+                    throw new UnsupportedOperationException(
+                            "SPM decompile: group_concat shape is not supported yet");
+                }
+                fnSql = rendered;
+            } else {
+                String distinct = aggFn.isDistinct() ? "DISTINCT " : "";
+                fnSql = aggFn.getName() + "(" + distinct
+                        + fn.children().stream().map(c -> print(c, context))
+                                .collect(Collectors.joining(", ")) + ")";
+            }
         } else if (fn instanceof BoundFunction) {
             fnSql = ((BoundFunction) fn).getName() + "("
                     + fn.children().stream().map(c -> print(c, context))
@@ -316,7 +351,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         }
         if (!windowExpression.getOrderKeys().isEmpty()) {
             parts.add("ORDER BY " + windowExpression.getOrderKeys().stream()
-                    .map(o -> print(o.child(), context) + (o.isAsc() ? " ASC" : " DESC"))
+                    .map(o -> print(o.child(), context) + (o.isAsc() ? " ASC" : " DESC")
+                            + (o.isNullFirst() ? " NULLS FIRST" : " NULLS LAST"))
                     .collect(Collectors.joining(", ")));
         }
         // an explicit frame is only valid together with an ORDER BY clause; without one
@@ -329,6 +365,66 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     // ==================== other common types ====================
+
+    /**
+     * Renders a group_concat / multi_distinct_group_concat call with its DEDICATED grammar
+     * (GROUP_CONCAT([DISTINCT] value [ORDER BY key...] [SEPARATOR sep])). The separator and
+     * the ORDER BY keys are stored as function children; the generic comma-joined form
+     * would print an order expression as an extra argument
+     * (group_concat(v, ',', k DESC)), which is not a legal call and cannot be re-parsed
+     * after an FE restart / reload.
+     *
+     * @param fn      the concrete group_concat function (GroupConcat or
+     *                MultiDistinctGroupConcat)
+     * @param context the relation carrying the column-name mapping
+     * @return the SQL text, or null when the shape (multi-distinct values combined with
+     *         an ORDER BY) cannot be represented by the dedicated grammar
+     */
+    public String renderGroupConcat(AggregateFunction fn, SQLRelation context) {
+        List<Expression> children = fn.children();
+        int firstOrder = children.size();
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i) instanceof OrderExpression) {
+                firstOrder = i;
+                break;
+            }
+        }
+        List<Expression> values = children.subList(0, firstOrder);
+        List<Expression> orders = children.subList(firstOrder, children.size());
+        boolean separatorArgument = values.size() == 2 && values.get(1).isConstant();
+        boolean multiDistinctValues = fn instanceof MultiDistinctGroupConcat
+                || values.size() > 2
+                || (values.size() == 2 && !separatorArgument);
+        if (values.isEmpty() || (!orders.isEmpty() && multiDistinctValues)) {
+            // the dedicated grammar accepts a single value expression next to ORDER BY;
+            // multi-distinct values combined with ORDER BY have no faithful rendering
+            return null;
+        }
+        StringBuilder sb = new StringBuilder("GROUP_CONCAT(");
+        if (fn.isDistinct()) {
+            sb.append("DISTINCT ");
+        }
+        sb.append(print(values.get(0), context));
+        if (!orders.isEmpty()) {
+            sb.append(" ORDER BY ");
+            sb.append(orders.stream().map(order -> {
+                OrderExpression orderExpression = (OrderExpression) order;
+                return print(orderExpression.child(), context)
+                        + (orderExpression.isAsc() ? " ASC" : " DESC")
+                        + (orderExpression.isNullFirst() ? " NULLS FIRST" : " NULLS LAST");
+            }).collect(Collectors.joining(", ")));
+        }
+        if (separatorArgument) {
+            sb.append(" SEPARATOR ").append(print(values.get(1), context));
+        } else if (values.size() > 1) {
+            // multi-distinct / extra value arguments: the generic call form is unambiguous
+            // for them (no ORDER BY in this branch)
+            for (int i = 1; i < values.size(); i++) {
+                sb.append(", ").append(print(values.get(i), context));
+            }
+        }
+        return sb.append(")").toString();
+    }
 
     @Override
     public String visitCast(Cast cast, SQLRelation context) {
@@ -413,6 +509,12 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             return "%";
         } else if (op instanceof IntegralDivide) {
             return "DIV";
+        } else if (op instanceof BitAnd) {
+            return "&";
+        } else if (op instanceof BitOr) {
+            return "|";
+        } else if (op instanceof BitXor) {
+            return "^";
         }
         return op.toSql();
     }

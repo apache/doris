@@ -2260,6 +2260,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setPlanCaptureIncludePattern(String planCaptureIncludePattern) {
+        // reject invalid regexes at SET time: the PlanCaptureManager singleton / leader
+        // startup must never be the first place a broken pattern is discovered (a
+        // PatternSyntaxException escaping there could terminate the FE transition)
+        validateCaptureRegex(planCaptureIncludePattern);
         this.planCaptureIncludePattern = planCaptureIncludePattern;
     }
 
@@ -2268,7 +2272,26 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setPlanCaptureExcludePattern(String planCaptureExcludePattern) {
+        validateCaptureRegex(planCaptureExcludePattern);
         this.planCaptureExcludePattern = planCaptureExcludePattern;
+    }
+
+    /**
+     * Validates a plan-capture table regex; empty means "no pattern".
+     *
+     * @param regex the candidate pattern
+     * @throws IllegalArgumentException when the pattern does not compile
+     */
+    private static void validateCaptureRegex(String regex) {
+        if (regex == null || regex.isEmpty()) {
+            return;
+        }
+        try {
+            java.util.regex.Pattern.compile(regex);
+        } catch (java.util.regex.PatternSyntaxException e) {
+            throw new IllegalArgumentException("Invalid plan capture table regex '" + regex
+                    + "': " + e.getDescription());
+        }
     }
 
     public int getSpmBaselineRefreshIntervalSeconds() {

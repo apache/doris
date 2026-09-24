@@ -215,7 +215,8 @@ WHERE
     AND p_size BETWEEN 1 AND 15
     AND l_shipmode IN ('AIR', 'AIR REG')
     AND l_shipinstruct = 'DELIVER IN PERSON'
-      )"""
+      )
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT sum(l_extendedprice * (1 - l_discount)) AS revenue
 FROM
@@ -284,7 +285,8 @@ WHERE
     AND p_size BETWEEN 1 AND 15
     AND l_shipmode IN ('AIR', 'AIR REG')
     AND l_shipinstruct = 'DELIVER IN PERSON'
-      )"""
+      )
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q19 query")
     
@@ -357,7 +359,8 @@ WHERE
     AND p_size BETWEEN 2 AND 16
     AND l_shipmode IN ('AIR', 'TRUCK')
     AND l_shipinstruct = 'COLLECT COD'
-      )"""
+      )
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT sum(l_extendedprice * (1 - l_discount)) AS revenue
 FROM
@@ -426,7 +429,8 @@ WHERE
     AND p_size BETWEEN 2 AND 16
     AND l_shipmode IN ('AIR', 'TRUCK')
     AND l_shipinstruct = 'COLLECT COD'
-      )"""
+      )
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q19 query")
     

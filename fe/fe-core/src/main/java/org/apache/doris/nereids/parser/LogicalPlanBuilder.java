@@ -5733,6 +5733,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String pattern = null;
         String filterColumn = null;
         String filterValue = null;
+        Expression predicate = null;
         if (ctx.wildWhere() != null) {
             if (ctx.wildWhere().LIKE() != null) {
                 pattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
@@ -5742,14 +5743,40 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // scope), so a caller can pinpoint one baseline (e.g. the id returned by
                 // CREATE BASELINE PLAN). The legacy `WHERE source = 'CAPTURE'` style clause
                 // is kept as a substring pattern for backwards compatibility.
-                Expression predicate = getExpression(ctx.wildWhere().expression());
+                predicate = getExpression(ctx.wildWhere().expression());
                 if (predicate instanceof EqualTo) {
                     Expression left = ((EqualTo) predicate).left();
                     Expression right = ((EqualTo) predicate).right();
+                    // support reversed equality ('CAPTURE' = source) by swapping
+                    if (left instanceof Literal && columnNameOf(right) != null) {
+                        Expression tmp = left;
+                        left = right;
+                        right = tmp;
+                    }
                     if (right instanceof Literal) {
-                        String columnName = (left instanceof NamedExpression)
-                                ? ((NamedExpression) left).getName() : null;
+                        String columnName = columnNameOf(left);
                         if (columnName != null && !columnName.isEmpty()) {
+                            boolean knownColumn;
+                            switch (columnName.toLowerCase()) {
+                                case "id":
+                                case "bind_sql":
+                                case "bind_sql_digest":
+                                case "bind_sql_hash":
+                                case "plan_sql":
+                                case "source":
+                                case "status":
+                                case "scope":
+                                    knownColumn = true;
+                                    break;
+                                default:
+                                    knownColumn = false;
+                            }
+                            if (!knownColumn) {
+                                // an unknown column would silently match NOTHING in the
+                                // command and return ALL baselines - reject it instead
+                                throw new AnalysisException("Unknown SHOW BASELINE PLANS"
+                                        + " filter column: " + columnName);
+                            }
                             filterColumn = columnName;
                             filterValue = stripQuotes(right.toSql());
                         } else {
@@ -5762,7 +5789,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
             }
         }
+        // Only `WHERE <column> = <literal>` (and the LIKE prefix) is evaluated: an AND /
+        // range / function / unsupported predicate would leave every filter unset and the
+        // command would silently return ALL baselines - reject the unsupported shapes
+        // instead of widening the result set.
+        if (ctx.wildWhere() != null && filterColumn == null && pattern == null) {
+            throw new AnalysisException("SHOW BASELINE PLANS only supports"
+                    + " WHERE <column> = <literal> or LIKE '<pattern>'");
+        }
         return new ShowBaselinePlansCommand(pattern, filterColumn, filterValue);
+    }
+
+    /** The referenced column name of a SHOW filter operand (NamedExpression / UnboundSlot). */
+    private static String columnNameOf(Expression expr) {
+        if (expr instanceof NamedExpression) {
+            return ((NamedExpression) expr).getName();
+        }
+        if (expr instanceof UnboundSlot) {
+            return String.join(".", ((UnboundSlot) expr).getNameParts());
+        }
+        return null;
     }
 
     @Override

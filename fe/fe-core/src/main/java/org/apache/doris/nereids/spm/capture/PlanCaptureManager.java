@@ -31,7 +31,9 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -66,6 +68,22 @@ public class PlanCaptureManager extends MasterDaemon {
     /** Last scan window start (epoch millis); 0 means "first run, scan one interval". */
     private long lastScanTimestamp = 0;
 
+    /**
+     * Re-scan overlap (millis) applied to the watermark: AuditLoader buffers events
+     * asynchronously and writes their original event timestamp, so a row can become
+     * visible AFTER its window has passed (it would otherwise be excluded from every
+     * future window forever). Re-scanning a lagged/overlapping window plus query-id
+     * deduplication makes late arrivals capturable without processing an execution
+     * twice.
+     */
+    private static final long SCAN_WINDOW_OVERLAP_MS = 300_000L;
+
+    /** Upper bound for the processed-query-id dedup map. */
+    private static final int MAX_TRACKED_QUERY_IDS = 10000;
+
+    /** Query ids already handled in earlier (overlapping) windows. */
+    private final Map<String, Boolean> processedQueryIds = new LinkedHashMap<>();
+
     // capture statistics (design doc 7.2.1 / 7.2.6)
     private final AtomicLong successCount = new AtomicLong(0);
     private final AtomicLong skipDuplicateCount = new AtomicLong(0);
@@ -90,16 +108,30 @@ public class PlanCaptureManager extends MasterDaemon {
      * @return a new filter
      */
     private static PlanCaptureFilter buildFilterFromGlobal() {
-        SessionVariable global = VariableMgr.getDefaultSessionVariable();
-        return new PlanCaptureFilter(global.getPlanCaptureIncludePattern(),
-                global.getPlanCaptureExcludePattern(),
-                global.getPlanCaptureMinQueryTimeMs(),
-                global.getPlanCaptureMinScanRows());
+        try {
+            SessionVariable global = VariableMgr.getDefaultSessionVariable();
+            return new PlanCaptureFilter(global.getPlanCaptureIncludePattern(),
+                    global.getPlanCaptureExcludePattern(),
+                    global.getPlanCaptureMinQueryTimeMs(),
+                    global.getPlanCaptureMinScanRows());
+        } catch (RuntimeException e) {
+            // e.g. a legacy invalid regex in the global variable: never let it escape the
+            // singleton constructor / the daemon cycle (leader startup calls getInstance()
+            // before enable_plan_capture is even checked, and a PatternSyntaxException
+            // there would terminate the FE transition)
+            LOG.error("SPM plan capture disabled: invalid capture filter configuration", e);
+            return null;
+        }
     }
 
     @Override
     protected void runAfterCatalogReady() {
         SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        // Reschedule from the cycle itself: MasterDaemon sleeps its stored intervalMs, so
+        // only setInterval() here makes a `SET GLOBAL plan_capture_interval_seconds`
+        // change affect future wakeups (rereading the variable in the cycle would only
+        // change the scan window). Clamp to >= 1s so a misconfiguration cannot spin.
+        setInterval(Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L);
         if (!global.isEnablePlanCapture()) {
             return;
         }
@@ -110,14 +142,23 @@ public class PlanCaptureManager extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
+        PlanCaptureFilter newFilter = buildFilterFromGlobal();
+        if (newFilter == null) {
+            LOG.error("Plan capture filter unavailable (invalid capture regex?),"
+                    + " skipping this capture cycle");
+            return;
+        }
         try {
             // refresh the filter so SET GLOBAL changes take effect this cycle
-            this.filter = buildFilterFromGlobal();
+            this.filter = newFilter;
 
             long currentTime = System.currentTimeMillis();
+            // overlap the window so audit rows loaded late (whose event time is older
+            // than the last watermark) are still scanned; duplicates are filtered by
+            // query id below
             long scanStart = (lastScanTimestamp == 0)
                     ? currentTime - (long) global.getPlanCaptureIntervalSeconds() * 1000L
-                    : lastScanTimestamp;
+                    : Math.max(0L, lastScanTimestamp - SCAN_WINDOW_OVERLAP_MS);
             if (scanStart >= currentTime) {
                 return;
             }
@@ -125,6 +166,21 @@ public class PlanCaptureManager extends MasterDaemon {
             List<CapturedQuery> candidates =
                     scanner.scan(scanStart, currentTime, global.getPlanCaptureMaxBatchSize());
             for (CapturedQuery candidate : candidates) {
+                String queryId = candidate.getQueryId();
+                if (queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId)) {
+                    if (processedQueryIds.containsKey(queryId)) {
+                        continue; // already handled in an earlier overlapping window
+                    }
+                    processedQueryIds.put(queryId, Boolean.TRUE);
+                    if (processedQueryIds.size() > MAX_TRACKED_QUERY_IDS) {
+                        java.util.Iterator<String> it = processedQueryIds.keySet().iterator();
+                        int drop = MAX_TRACKED_QUERY_IDS / 10;
+                        while (it.hasNext() && drop-- > 0) {
+                            it.next();
+                            it.remove();
+                        }
+                    }
+                }
                 processCandidate(candidate);
             }
             lastScanTimestamp = currentTime;
@@ -164,6 +220,18 @@ public class PlanCaptureManager extends MasterDaemon {
             // SPM-mode optimize + decompile + parameterize)
             BaselinePlan baseline;
             try (AutoCloseConnectContext ctx = StatisticsUtil.buildConnectContext(false)) {
+                // Resolve names with the CAPTURED namespace instead of the internal-schema
+                // default: StatisticsUtil.buildConnectContext(false) points at
+                // __internal_schema, so an unqualified join from the audited database
+                // could not resolve its tables at all.
+                if (candidate.getCatalog() != null && !candidate.getCatalog().isEmpty()) {
+                    // changeDefaultCatalog clears the database, so the catalog must be
+                    // switched BEFORE the database is set
+                    ctx.connectContext.changeDefaultCatalog(candidate.getCatalog());
+                }
+                if (candidate.getDb() != null && !candidate.getDb().isEmpty()) {
+                    ctx.connectContext.setDatabase(candidate.getDb());
+                }
                 baseline = new SPMPlanner().buildBaselineFromSql(
                         ctx.connectContext, candidate.getStmt(), candidate.getStmt());
             }
@@ -239,6 +307,7 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     public void resetForTest() {
         lastScanTimestamp = 0;
+        processedQueryIds.clear();
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);

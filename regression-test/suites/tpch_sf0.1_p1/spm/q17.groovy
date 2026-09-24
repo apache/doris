@@ -139,7 +139,8 @@ WHERE
       lineitem
     WHERE
       l_partkey = p_partkey
-      )"""
+      )
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT sum(l_extendedprice) / 7.0 AS avg_yearly
 FROM
@@ -170,7 +171,8 @@ WHERE
       lineitem
     WHERE
       l_partkey = p_partkey
-      )"""
+      )
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q17 query")
     
@@ -205,7 +207,8 @@ WHERE
       lineitem
     WHERE
       l_partkey = p_partkey
-      )"""
+      )
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT sum(l_extendedprice) / 7.0 AS avg_yearly
 FROM
@@ -236,7 +239,8 @@ WHERE
       lineitem
     WHERE
       l_partkey = p_partkey
-      )"""
+      )
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q17 query")
     

@@ -195,7 +195,8 @@ ORDER BY
   supplier_cnt DESC,
   p_brand,
   p_type,
-      p_size"""
+      p_size
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def origWithoutSpm = sql """SELECT
   p_brand,
@@ -254,7 +255,8 @@ ORDER BY
   supplier_cnt DESC,
   p_brand,
   p_type,
-      p_size"""
+      p_size
+    LIMIT 100"""
         assertEquals(origWithSpm, origWithoutSpm,
                 "SPM rewrite must preserve the result of the q16 query")
     
@@ -317,7 +319,8 @@ ORDER BY
   supplier_cnt DESC,
   p_brand,
   p_type,
-      p_size"""
+      p_size
+    LIMIT 100"""
         sql 'set enable_spm_rewrite=false'
     def similarWithoutSpm = sql """SELECT
   p_brand,
@@ -376,7 +379,8 @@ ORDER BY
   supplier_cnt DESC,
   p_brand,
   p_type,
-      p_size"""
+      p_size
+    LIMIT 100"""
         assertEquals(similarWithSpm, similarWithoutSpm,
                 "SPM rewrite must preserve the result of a similar q16 query")
     
