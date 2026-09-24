@@ -38,8 +38,10 @@
 #include "core/column/column_map.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -367,6 +369,129 @@ struct TrackingOffsetIterator {
     TrackingFileColumnIterator* tracker = nullptr;
 };
 
+// item_data is the nested writer's raw input and differs by element type. It is not the
+// outer array's own data layout; write_array_column only adds the outer array metadata.
+void write_array_column(const std::string& file_name, ColumnMetaPB* meta,
+                        const TabletColumn& tablet_column, size_t num_rows,
+                        const std::vector<uint64_t>& item_data,
+                        const std::vector<uint64_t>& outer_offsets,
+                        const std::vector<uint8_t>& item_null_map,
+                        const std::vector<uint8_t>* outer_null_map) {
+    auto fs = io::global_local_filesystem();
+    io::FileWriterPtr file_writer;
+    auto st = fs->create_file(file_name, &file_writer);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ColumnWriterOptions writer_options;
+    writer_options.meta = meta;
+    std::unique_ptr<ColumnWriter> writer;
+    st = ColumnWriter::create(writer_options, &tablet_column, file_writer.get(), &writer);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_TRUE(writer->init().ok());
+
+    std::vector<uint64_t> outer_data {static_cast<uint64_t>(item_null_map.size()),
+                                      reinterpret_cast<uint64_t>(outer_offsets.data()),
+                                      reinterpret_cast<uint64_t>(item_data.data()),
+                                      reinterpret_cast<uint64_t>(item_null_map.data())};
+    ASSERT_TRUE(writer->append(outer_null_map ? outer_null_map->data() : nullptr, outer_data.data(),
+                               num_rows)
+                        .ok());
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(writer->write_data().ok());
+    ASSERT_TRUE(writer->write_ordinal_index().ok());
+    ASSERT_TRUE(file_writer->close().ok());
+}
+
+void read_array_baseline(const std::shared_ptr<ColumnReader>& reader,
+                         const TabletColumn& tablet_column, const DataTypePtr& column_type,
+                         io::FileReader* file_reader, MutableColumnPtr* baseline) {
+    ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(reader->new_iterator(&iterator, &tablet_column).ok());
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    options.file_reader = file_reader;
+    ASSERT_TRUE(iterator->init(options).ok());
+    ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+
+    *baseline = column_type->create_column();
+    size_t rows_to_read = reader->num_rows();
+    bool has_null = false;
+    ASSERT_TRUE(iterator->next_batch(&rows_to_read, *baseline, &has_null).ok());
+    ASSERT_EQ(reader->num_rows(), rows_to_read);
+}
+
+void check_lazy_array_read_matches_baseline(const std::shared_ptr<ColumnReader>& reader,
+                                            const TabletColumn& tablet_column,
+                                            const DataTypePtr& column_type,
+                                            const std::vector<rowid_t>& rowids,
+                                            const IColumn& baseline, io::FileReader* file_reader) {
+    ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(reader->new_iterator(&iterator, &tablet_column).ok());
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    options.file_reader = file_reader;
+    ASSERT_TRUE(iterator->init(options).ok());
+
+    iterator->set_column_name(tablet_column.name());
+    TColumnAccessPaths all_paths {create_data_access_path({tablet_column.name()})};
+    TColumnAccessPaths predicate_paths {
+            create_meta_access_path({tablet_column.name(), ColumnIterator::ACCESS_OFFSET})};
+    ASSERT_TRUE(iterator->set_access_paths(all_paths, predicate_paths).ok());
+
+    iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    auto lazy = column_type->create_column();
+    ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+    size_t rows_to_read = baseline.size();
+    bool has_null = false;
+    ASSERT_TRUE(iterator->next_batch(&rows_to_read, lazy, &has_null).ok());
+    ASSERT_EQ(baseline.size(), rows_to_read);
+
+    IColumn::Filter filter;
+    filter.resize_fill(baseline.size(), 0);
+    for (rowid_t rowid : rowids) {
+        filter[rowid] = 1;
+    }
+    lazy = IColumn::mutate(lazy->filter(filter, rowids.size()));
+
+    iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(iterator->need_to_read());
+    ASSERT_FALSE(iterator->need_to_read_meta_columns());
+    ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), lazy).ok());
+    iterator->finalize_lazy_phase(lazy);
+
+    ASSERT_EQ(rowids.size(), lazy->size());
+    for (size_t i = 0; i < rowids.size(); ++i) {
+        EXPECT_EQ(0, lazy->compare_at(i, rowids[i], baseline, 1));
+    }
+}
+
+void check_array_read_by_rowids_matches_baseline(const std::shared_ptr<ColumnReader>& reader,
+                                                 const TabletColumn& tablet_column,
+                                                 const DataTypePtr& column_type,
+                                                 const std::vector<rowid_t>& rowids,
+                                                 const IColumn& baseline,
+                                                 io::FileReader* file_reader) {
+    ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(reader->new_iterator(&iterator, &tablet_column).ok());
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    options.file_reader = file_reader;
+    ASSERT_TRUE(iterator->init(options).ok());
+
+    auto actual = column_type->create_column();
+    ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), actual).ok());
+    ASSERT_EQ(rowids.size(), actual->size());
+    for (size_t i = 0; i < rowids.size(); ++i) {
+        EXPECT_EQ(0, actual->compare_at(i, rowids[i], baseline, 1));
+    }
+
+    check_lazy_array_read_matches_baseline(reader, tablet_column, column_type, rowids, baseline,
+                                           file_reader);
+}
+
 TrackingOffsetIterator create_tracking_offset_iterator() {
     auto file_iterator = std::make_unique<TrackingFileColumnIterator>(create_test_reader());
     auto* tracker = file_iterator.get();
@@ -671,6 +796,401 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
         iterator->finalize_lazy_phase(lazy);
         check_selected_rows(rowids, *lazy);
     }
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedArrayMatchesSequentialRead) {
+    constexpr size_t num_rows = 12000;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn nested_array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                     FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn int_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT, true);
+    nested_array_column.add_sub_column(int_column);
+    array_column.add_sub_column(nested_array_column);
+    array_column.set_is_nullable(true);
+    nested_array_column.set_is_nullable(true);
+    array_column.set_name("a");
+    nested_array_column.set_name("item");
+    int_column.set_name("item");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    auto* nested_meta = meta.add_children_columns();
+    nested_meta->set_column_id(1);
+    nested_meta->set_unique_id(1);
+    nested_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    nested_meta->set_length(0);
+    nested_meta->set_encoding(DEFAULT_ENCODING);
+    nested_meta->set_compression(CompressionTypePB::LZ4F);
+    nested_meta->set_is_nullable(true);
+    auto* int_meta = nested_meta->add_children_columns();
+    int_meta->set_column_id(2);
+    int_meta->set_unique_id(2);
+    int_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    int_meta->set_length(0);
+    int_meta->set_encoding(BIT_SHUFFLE);
+    int_meta->set_compression(CompressionTypePB::LZ4F);
+    int_meta->set_is_nullable(true);
+
+    std::vector<int32_t> int_values;
+    std::vector<uint8_t> int_null_map;
+    std::vector<uint64_t> nested_offsets {0};
+    std::vector<uint8_t> nested_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> outer_null_map(num_rows, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool outer_is_null = row % 7 == 1;
+        outer_null_map[row] = outer_is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (outer_is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            const bool item_is_null = (row + item) % 5 == 0;
+            nested_item_null_map.push_back(item_is_null);
+            const size_t inner_count = item_is_null ? 2 : (row + item) % 3;
+            for (size_t inner = 0; inner < inner_count; ++inner) {
+                int_values.push_back(static_cast<int32_t>(row * 10 + item * 3 + inner));
+                int_null_map.push_back((row + item + inner) % 4 == 0);
+            }
+            nested_offsets.push_back(int_values.size());
+        }
+        outer_offsets[row + 1] = nested_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {static_cast<uint64_t>(int_values.size()),
+                                     reinterpret_cast<uint64_t>(nested_offsets.data()),
+                                     reinterpret_cast<uint64_t>(int_values.data()),
+                                     reinterpret_cast<uint64_t>(int_null_map.data())};
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_array";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       nested_item_null_map, &outer_null_map);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr int_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr nested_array_type = std::make_shared<DataTypeArray>(int_type);
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(nested_array_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 1, 2, 7, 11, 4095, 4096, 8191, 11998, 11999};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedStructMatchesSequentialRead) {
+    constexpr size_t num_rows = 12000;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn struct_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                               FieldType::OLAP_FIELD_TYPE_STRUCT);
+    TabletColumn int_a_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_INT, true);
+    TabletColumn int_b_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_INT, true);
+    struct_column.add_sub_column(int_a_column);
+    struct_column.add_sub_column(int_b_column);
+    array_column.add_sub_column(struct_column);
+    array_column.set_is_nullable(true);
+    struct_column.set_is_nullable(true);
+    array_column.set_name("a");
+    struct_column.set_name("item");
+    int_a_column.set_name("a");
+    int_b_column.set_name("b");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    auto* struct_meta = meta.add_children_columns();
+    struct_meta->set_column_id(1);
+    struct_meta->set_unique_id(1);
+    struct_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_STRUCT));
+    struct_meta->set_length(0);
+    struct_meta->set_encoding(DEFAULT_ENCODING);
+    struct_meta->set_compression(CompressionTypePB::LZ4F);
+    struct_meta->set_is_nullable(true);
+    auto* a_meta = struct_meta->add_children_columns();
+    a_meta->set_column_id(2);
+    a_meta->set_unique_id(2);
+    a_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    a_meta->set_length(0);
+    a_meta->set_encoding(BIT_SHUFFLE);
+    a_meta->set_compression(CompressionTypePB::LZ4F);
+    a_meta->set_is_nullable(true);
+    auto* b_meta = struct_meta->add_children_columns();
+    b_meta->set_column_id(3);
+    b_meta->set_unique_id(3);
+    b_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    b_meta->set_length(0);
+    b_meta->set_encoding(BIT_SHUFFLE);
+    b_meta->set_compression(CompressionTypePB::LZ4F);
+    b_meta->set_is_nullable(true);
+
+    std::vector<int32_t> a_values;
+    std::vector<int32_t> b_values;
+    std::vector<uint8_t> a_null_map;
+    std::vector<uint8_t> b_null_map;
+    std::vector<uint8_t> struct_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> outer_null_map(num_rows, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool outer_is_null = row % 7 == 1;
+        outer_null_map[row] = outer_is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (outer_is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            struct_item_null_map.push_back((row + item) % 5 == 0);
+            a_values.push_back(static_cast<int32_t>(row * 10 + item));
+            b_values.push_back(static_cast<int32_t>(row * 100 + item));
+            a_null_map.push_back((row + item) % 4 == 0);
+            b_null_map.push_back((row + item * 2) % 5 == 0);
+        }
+        outer_offsets[row + 1] = struct_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {reinterpret_cast<uint64_t>(a_values.data()),
+                                     reinterpret_cast<uint64_t>(b_values.data()),
+                                     reinterpret_cast<uint64_t>(a_null_map.data()),
+                                     reinterpret_cast<uint64_t>(b_null_map.data())};
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_struct";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       struct_item_null_map, &outer_null_map);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr a_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr b_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr struct_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {a_type, b_type}, std::vector<std::string> {"a", "b"});
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(struct_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 1, 2, 7, 11, 4095, 4096, 8191, 11998, 11999};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedMapMatchesSequentialRead) {
+    constexpr size_t num_rows = 12000;
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn map_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_MAP);
+    TabletColumn key_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+    TabletColumn value_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_INT, true);
+    map_column.add_sub_column(key_column);
+    map_column.add_sub_column(value_column);
+    array_column.add_sub_column(map_column);
+    array_column.set_is_nullable(true);
+    map_column.set_is_nullable(true);
+    array_column.set_name("a");
+    map_column.set_name("item");
+    key_column.set_name("key");
+    value_column.set_name("value");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(true);
+    auto* map_meta = meta.add_children_columns();
+    map_meta->set_column_id(1);
+    map_meta->set_unique_id(1);
+    map_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_MAP));
+    map_meta->set_length(0);
+    map_meta->set_encoding(DEFAULT_ENCODING);
+    map_meta->set_compression(CompressionTypePB::LZ4F);
+    map_meta->set_is_nullable(true);
+    auto* key_meta = map_meta->add_children_columns();
+    key_meta->set_column_id(2);
+    key_meta->set_unique_id(2);
+    key_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    key_meta->set_length(0);
+    key_meta->set_encoding(BIT_SHUFFLE);
+    key_meta->set_compression(CompressionTypePB::LZ4F);
+    key_meta->set_is_nullable(false);
+    auto* value_meta = map_meta->add_children_columns();
+    value_meta->set_column_id(3);
+    value_meta->set_unique_id(3);
+    value_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    value_meta->set_length(0);
+    value_meta->set_encoding(BIT_SHUFFLE);
+    value_meta->set_compression(CompressionTypePB::LZ4F);
+    value_meta->set_is_nullable(true);
+
+    std::vector<int32_t> key_values;
+    std::vector<int32_t> value_values;
+    std::vector<uint8_t> key_null_map;
+    std::vector<uint8_t> value_null_map;
+    std::vector<uint64_t> map_offsets {0};
+    std::vector<uint8_t> map_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    std::vector<uint8_t> outer_null_map(num_rows, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        const bool outer_is_null = row % 7 == 1;
+        outer_null_map[row] = outer_is_null;
+        const size_t item_count = row % 11 == 0 ? 0 : (outer_is_null ? 3 : row % 3 + 1);
+        for (size_t item = 0; item < item_count; ++item) {
+            map_item_null_map.push_back((row + item) % 5 == 0);
+            const size_t kv_count = (row + item) % 3;
+            for (size_t kv = 0; kv < kv_count; ++kv) {
+                key_values.push_back(static_cast<int32_t>(row * 10 + item * 3 + kv));
+                value_values.push_back(static_cast<int32_t>(row * 100 + item * 7 + kv));
+                key_null_map.push_back(0);
+                value_null_map.push_back((row + item + kv) % 4 == 0);
+            }
+            map_offsets.push_back(key_values.size());
+        }
+        outer_offsets[row + 1] = map_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {static_cast<uint64_t>(key_values.size()),
+                                     reinterpret_cast<uint64_t>(map_offsets.data()),
+                                     reinterpret_cast<uint64_t>(key_values.data()),
+                                     reinterpret_cast<uint64_t>(value_values.data()),
+                                     reinterpret_cast<uint64_t>(key_null_map.data()),
+                                     reinterpret_cast<uint64_t>(value_null_map.data())};
+    const std::string file_name = COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_map";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       map_item_null_map, &outer_null_map);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr key_type = std::make_shared<DataTypeInt32>();
+    DataTypePtr value_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr map_type = std::make_shared<DataTypeMap>(key_type, value_type);
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(map_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 1, 2, 7, 11, 4095, 4096, 8191, 11998, 11999};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadByRowidsNestedArraySchemaEvolutionFromNonNullSource) {
+    constexpr size_t num_rows = 8;
+    const std::array<size_t, num_rows> item_counts {2, 0, 3, 1, 4, 0, 2, 3};
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn nested_array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                                     FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn int_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT, true);
+    nested_array_column.add_sub_column(int_column);
+    array_column.add_sub_column(nested_array_column);
+    array_column.set_name("a");
+    nested_array_column.set_name("item");
+    int_column.set_name("item");
+
+    meta.set_column_id(0);
+    meta.set_unique_id(0);
+    meta.set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    meta.set_length(0);
+    meta.set_encoding(DEFAULT_ENCODING);
+    meta.set_compression(CompressionTypePB::LZ4F);
+    meta.set_is_nullable(false);
+    auto* nested_meta = meta.add_children_columns();
+    nested_meta->set_column_id(1);
+    nested_meta->set_unique_id(1);
+    nested_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+    nested_meta->set_length(0);
+    nested_meta->set_encoding(DEFAULT_ENCODING);
+    nested_meta->set_compression(CompressionTypePB::LZ4F);
+    nested_meta->set_is_nullable(true);
+    auto* int_meta = nested_meta->add_children_columns();
+    int_meta->set_column_id(2);
+    int_meta->set_unique_id(2);
+    int_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+    int_meta->set_length(0);
+    int_meta->set_encoding(BIT_SHUFFLE);
+    int_meta->set_compression(CompressionTypePB::LZ4F);
+    int_meta->set_is_nullable(true);
+
+    std::vector<int32_t> int_values;
+    std::vector<uint8_t> int_null_map;
+    std::vector<uint64_t> nested_offsets {0};
+    std::vector<uint8_t> nested_item_null_map;
+    std::vector<uint64_t> outer_offsets(num_rows + 1, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        for (size_t item = 0; item < item_counts[row]; ++item) {
+            nested_item_null_map.push_back((row + item) % 5 == 0);
+            const size_t inner_count = (row + item) % 3;
+            for (size_t inner = 0; inner < inner_count; ++inner) {
+                int_values.push_back(static_cast<int32_t>(row * 10 + item * 3 + inner));
+                int_null_map.push_back((row + item + inner) % 4 == 0);
+            }
+            nested_offsets.push_back(int_values.size());
+        }
+        outer_offsets[row + 1] = nested_item_null_map.size();
+    }
+
+    std::vector<uint64_t> item_data {static_cast<uint64_t>(int_values.size()),
+                                     reinterpret_cast<uint64_t>(nested_offsets.data()),
+                                     reinterpret_cast<uint64_t>(int_values.data()),
+                                     reinterpret_cast<uint64_t>(int_null_map.data())};
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_nested_array_schema_evolution";
+    write_array_column(file_name, &meta, array_column, num_rows, item_data, outer_offsets,
+                       nested_item_null_map, nullptr);
+
+    io::FileReaderSPtr file_reader;
+    auto st = io::global_local_filesystem()->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr int_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr nested_array_type = std::make_shared<DataTypeArray>(int_type);
+    DataTypePtr outer_item_type = std::make_shared<DataTypeNullable>(nested_array_type);
+    DataTypePtr outer_array_type = std::make_shared<DataTypeArray>(outer_item_type);
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(outer_array_type);
+    MutableColumnPtr baseline;
+    read_array_baseline(reader, array_column, column_type, file_reader.get(), &baseline);
+    const std::vector<rowid_t> rowids {0, 2, 3, 6, 7};
+    check_array_read_by_rowids_matches_baseline(reader, array_column, column_type, rowids,
+                                                *baseline, file_reader.get());
 }
 
 TEST_F(ColumnReaderTest, ArrayReadByRowidsSchemaEvolutionFromNonNullSource) {
