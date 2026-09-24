@@ -329,6 +329,38 @@ public class FlussConnectorLakeSiblingTest {
                 "the real Paimon authentication gate must consume the forwarded raw switch");
     }
 
+    @Test
+    public void directKerberosOverrideActivatesTheConsumerDespiteClusterSimpleDefault()
+            throws Exception {
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put("fluss.bootstrap.servers", "127.0.0.1:9123");
+        catalogProperties.put("hadoop.security.authentication", "kerberos");
+        catalogProperties.put("hadoop.kerberos.principal", "doris@EXAMPLE.COM");
+        catalogProperties.put("hadoop.kerberos.keytab", "/etc/security/doris.keytab");
+        RecordingContext context = new RecordingContext();
+        FlussConnector connector = new FlussConnector(
+                FlussCatalogProperties.of(catalogProperties), context);
+
+        Map<String, String> tableProperties = new HashMap<>();
+        tableProperties.put("table.datalake.paimon.metastore", "filesystem");
+        tableProperties.put("table.datalake.paimon.warehouse", "hdfs://nameservice/lake");
+        tableProperties.put(
+                "table.datalake.paimon.hadoop.security.authentication", "simple");
+        Map<String, String> synthesized = PaimonSiblingProperties.synthesize(
+                catalogProperties, tableProperties, Collections.emptyMap());
+
+        connector.getOrCreateLakeSibling(synthesized);
+
+        Map<String, String> siblingProperties = context.requestedProperties.get(0);
+        Map<String, String> storageProperties = connector.deriveStorageProperties(catalogProperties);
+        Assertions.assertEquals("kerberos",
+                siblingProperties.get("hadoop.security.authentication"));
+        Assertions.assertEquals("kerberos",
+                storageProperties.get("hadoop.security.authentication"));
+        Assertions.assertNotNull(paimonPluginAuthenticator(siblingProperties, storageProperties),
+                "the real Paimon builder must follow the effective direct catalog override");
+    }
+
     private static Object paimonPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageProperties) throws Exception {
         Class<?> connectorClass =

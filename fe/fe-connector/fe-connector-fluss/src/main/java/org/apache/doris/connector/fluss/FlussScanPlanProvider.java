@@ -317,11 +317,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         if (handle.isPartitioned()) {
-            for (PartitionInfo partition : selectedPartitions(handle, request.getRequiredPartitions())) {
-                // fluss's own partition name ("20260101$cn"), not the Doris one: this is a fluss API.
-                appendPartitionRanges(ranges, handle, union,
-                        FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
-                        bucketsOf(handle, partition), partition.getPartitionName());
+            if (!request.isPartitionsPrunedToEmpty()) {
+                for (PartitionInfo partition : selectedPartitions(
+                        handle, request.getRequiredPartitions())) {
+                    // fluss's own partition name ("20260101$cn"), not the Doris one: this is a fluss API.
+                    appendPartitionRanges(ranges, handle, union,
+                            FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
+                            bucketsOf(handle, partition), partition.getPartitionName());
+                }
             }
         } else {
             appendPartitionRanges(ranges, handle, union, FlussScanRange.Partition.NONE,
@@ -350,11 +353,13 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 livePartitionValues.add(new LinkedHashMap<>(FlussPartitions.toScanPartition(
                         partition, handle.getPartitionKeys()).getValues()));
             }
-            for (PartitionInfo partition : selectedPartitions(
-                    handle, request.getRequiredPartitions(), livePartitions)) {
-                states.add(readPartitionState(handle, union,
-                        FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
-                        bucketsOf(handle, partition), partition.getPartitionName()));
+            if (!request.isPartitionsPrunedToEmpty()) {
+                for (PartitionInfo partition : selectedPartitions(
+                        handle, request.getRequiredPartitions(), livePartitions)) {
+                    states.add(readPartitionState(handle, union,
+                            FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
+                            bucketsOf(handle, partition), partition.getPartitionName()));
+                }
             }
         } else {
             livePartitionValues.add(Collections.emptyMap());

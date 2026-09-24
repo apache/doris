@@ -68,11 +68,19 @@ std::atomic<uint32_t> g_cdc_child_generation {0};
 // its last syscall. While claimed, the original child is either running or remains a zombie, so its
 // numeric pid cannot be reused for another same-parent child.
 std::atomic<uint64_t> g_cdc_child_operation {0};
+// pid_t is signed and a published child pid is positive, so bit 31 of the pid half is free for a
+// pending-reap handoff. Keeping the request in the SAME atomic word as the operation claim closes
+// the release/request race: either the owner observes the bit before releasing, or the handler wins
+// the release CAS and claims the now-idle identity itself.
+constexpr uint64_t CDC_CHILD_REAP_PENDING = uint64_t {1} << 31;
+static_assert(std::atomic<uint64_t>::is_always_lock_free);
 
 #ifdef BE_TEST
 static_assert(std::atomic<bool>::is_always_lock_free);
 std::atomic<bool> g_pause_cdc_sigchld_handler {false};
 std::atomic<bool> g_cdc_sigchld_handler_paused {false};
+std::atomic<bool> g_pause_cdc_child_inspection_after_running {false};
+std::atomic<bool> g_cdc_child_inspection_paused {false};
 #endif
 
 pid_t child_pid(uint64_t identity) {
@@ -97,8 +105,40 @@ bool try_claim_child_identity(uint64_t identity) {
     if (g_cdc_child_identity.load() == identity) {
         return true;
     }
+    // The publication was revoked while the CAS was in flight. No actor can acquire the operation
+    // until this store, and a pending request for the revoked generation no longer needs service.
     g_cdc_child_operation.store(0);
     return false;
+}
+
+// Signal-safe acquisition with a lossless handoff when a normal thread already owns the claim.
+// The pending bit and claim are changed by one CAS, so a concurrent release cannot pass between
+// "request reap" and "observe idle" and lose the only SIGCHLD notification.
+bool try_claim_or_request_child_reap(uint64_t identity) {
+    if (identity == 0) {
+        return false;
+    }
+    uint64_t operation = 0;
+    while (true) {
+        if (operation == 0) {
+            if (g_cdc_child_operation.compare_exchange_weak(operation, identity)) {
+                if (g_cdc_child_identity.load() == identity) {
+                    return true;
+                }
+                g_cdc_child_operation.store(0);
+                return false;
+            }
+            continue;
+        }
+        if ((operation & ~CDC_CHILD_REAP_PENDING) != identity ||
+            (operation & CDC_CHILD_REAP_PENDING) != 0) {
+            return false;
+        }
+        if (g_cdc_child_operation.compare_exchange_weak(operation,
+                                                        operation | CDC_CHILD_REAP_PENDING)) {
+            return false;
+        }
+    }
 }
 
 // Normal threads may wait for a handler's short WNOHANG operation. Returning false means the exact
@@ -113,8 +153,31 @@ bool claim_child_identity(uint64_t identity) {
     return false;
 }
 
-void release_child_identity() {
-    g_cdc_child_operation.store(0);
+// Returns true when the claim was released. A false return means a handler attached a reap request
+// to this exact claim; the owner consumed it and must repeat waitpid before trying to release again.
+// The final CAS races atomically with the handler's pending-bit CAS, which is the missed-wakeup fence.
+bool release_child_identity_if_quiescent(uint64_t identity) {
+    while (true) {
+        uint64_t operation = identity;
+        if (g_cdc_child_operation.compare_exchange_strong(operation, 0)) {
+            return true;
+        }
+        if (operation != (identity | CDC_CHILD_REAP_PENDING)) {
+            // Only this owner can change a non-pending claim. Treat an already released/revoked
+            // token as quiescent rather than touching another generation.
+            return true;
+        }
+        if (g_cdc_child_operation.compare_exchange_strong(operation, identity)) {
+            return false;
+        }
+    }
+}
+
+void release_terminal_child_identity(uint64_t identity) {
+    // The child is already unpublished and reaped. Consume any handler request that was based on a
+    // pre-revocation identity, but no further waitpid is necessary.
+    while (!release_child_identity_if_quiescent(identity)) {
+    }
 }
 
 // Reap the cdc client so it does not linger as a zombie.
@@ -129,9 +192,9 @@ void handle_sigchld(int sig_no) {
     const int saved_errno = errno;
     const uint64_t cdc_identity = g_cdc_child_identity.load();
     const pid_t cdc_pid = child_pid(cdc_identity);
-    // Never retain a raw pid without the operation claim. If another actor owns the identity, that
-    // actor also owns reaping it; returning is safe even when this signal was for the CDC child.
-    if (cdc_pid <= 0 || !try_claim_child_identity(cdc_identity)) {
+    // Never retain a raw pid without the operation claim. If another actor owns this identity, the
+    // helper attaches a pending-reap handoff to that claim before this handler returns.
+    if (cdc_pid <= 0 || !try_claim_or_request_child_reap(cdc_identity)) {
         errno = saved_errno;
         return;
     }
@@ -143,18 +206,26 @@ void handle_sigchld(int sig_no) {
         g_cdc_sigchld_handler_paused.store(false);
     }
 #endif
-    int status = 0;
-    pid_t wait_result;
-    do {
-        wait_result = waitpid(cdc_pid, &status, WNOHANG);
-    } while (wait_result < 0 && errno == EINTR);
-    if (wait_result == cdc_pid || (wait_result < 0 && errno == ECHILD)) {
-        uint64_t expected = cdc_identity;
-        g_cdc_child_identity.compare_exchange_strong(expected, 0);
+    while (true) {
+        int status = 0;
+        pid_t wait_result;
+        do {
+            wait_result = waitpid(cdc_pid, &status, WNOHANG);
+        } while (wait_result < 0 && errno == EINTR);
+        if (wait_result == cdc_pid || (wait_result < 0 && errno == ECHILD)) {
+            uint64_t expected = cdc_identity;
+            g_cdc_child_identity.compare_exchange_strong(expected, 0);
+            // Reaping makes the numeric pid reusable. Consume stale handoffs without issuing
+            // another syscall against a pid that may already belong to a different child.
+            release_terminal_child_identity(cdc_identity);
+            break;
+        }
+        // No syscall may use cdc_pid after a successful release. If a concurrent handler marked
+        // this claim pending, consume the request and repeat waitpid before releasing instead.
+        if (release_child_identity_if_quiescent(cdc_identity)) {
+            break;
+        }
     }
-    // No syscall may use cdc_pid after this release. If waitpid collected it, only now can the
-    // kernel reuse the number, and every stale generation will fail claim_child_identity().
-    release_child_identity();
     errno = saved_errno;
 }
 
@@ -208,11 +279,11 @@ bool terminate_owned_child(uint64_t identity) {
     }
     uint64_t expected = identity;
     if (!g_cdc_child_identity.compare_exchange_strong(expected, 0)) {
-        release_child_identity();
+        release_terminal_child_identity(identity);
         return false;
     }
     terminate_and_reap_child(child_pid(identity));
-    release_child_identity();
+    release_terminal_child_identity(identity);
     return true;
 }
 
@@ -232,21 +303,43 @@ enum class OwnedChildState {
     }
 
     int local_status = 0;
-    pid_t wait_result;
-    do {
-        wait_result = waitpid(child_pid(identity), &local_status, WNOHANG);
-    } while (wait_result < 0 && errno == EINTR);
-    const int local_wait_error = wait_result < 0 ? errno : 0;
-
+    int local_wait_error = 0;
     OwnedChildState state = OwnedChildState::RUNNING;
-    if (wait_result == child_pid(identity) || (wait_result < 0 && local_wait_error == ECHILD)) {
-        uint64_t expected = identity;
-        g_cdc_child_identity.compare_exchange_strong(expected, 0);
-        state = OwnedChildState::EXITED;
-    } else if (wait_result < 0) {
-        state = OwnedChildState::WAIT_ERROR;
+    while (true) {
+        pid_t wait_result;
+        do {
+            wait_result = waitpid(child_pid(identity), &local_status, WNOHANG);
+        } while (wait_result < 0 && errno == EINTR);
+        local_wait_error = wait_result < 0 ? errno : 0;
+
+        state = OwnedChildState::RUNNING;
+        if (wait_result == child_pid(identity) || (wait_result < 0 && local_wait_error == ECHILD)) {
+            uint64_t expected = identity;
+            g_cdc_child_identity.compare_exchange_strong(expected, 0);
+            state = OwnedChildState::EXITED;
+        } else if (wait_result < 0) {
+            state = OwnedChildState::WAIT_ERROR;
+        }
+#ifdef BE_TEST
+        if (wait_result == 0 && g_pause_cdc_child_inspection_after_running.load()) {
+            g_cdc_child_inspection_paused.store(true);
+            while (g_pause_cdc_child_inspection_after_running.load()) {
+            }
+            g_cdc_child_inspection_paused.store(false);
+        }
+#endif
+        if (state == OwnedChildState::EXITED) {
+            // The pid is reusable after waitpid/ECHILD. A pending handler request refers to this
+            // now-unpublished generation and can be consumed without another OS operation.
+            release_terminal_child_identity(identity);
+            break;
+        }
+        if (release_child_identity_if_quiescent(identity)) {
+            break;
+        }
+        // A SIGCHLD arrived after the WNOHANG observation while this claim was still held. The
+        // pending-bit handoff makes this owner repeat the observation instead of returning RUNNING.
     }
-    release_child_identity();
 
     if (status != nullptr) {
         *status = local_status;
@@ -267,7 +360,7 @@ bool revoke_owned_child_for_test(uint64_t identity) {
     }
     uint64_t expected = identity;
     const bool revoked = g_cdc_child_identity.compare_exchange_strong(expected, 0);
-    release_child_identity();
+    release_terminal_child_identity(identity);
     return revoked;
 }
 #endif
@@ -324,6 +417,12 @@ uint64_t CdcClientMgr::_publish_child_pid(pid_t pid) {
     if (pid <= 0) {
         return 0;
     }
+    // A handler may have unpublished its exited generation just before releasing the operation
+    // claim. Do not publish a replacement into that short gap: the operation token also carries
+    // the pending-reap bit for the currently published generation.
+    while (g_cdc_child_operation.load() != 0) {
+        std::this_thread::yield();
+    }
     const uint64_t identity = new_child_identity(pid);
     uint64_t empty = 0;
     if (!g_cdc_child_identity.compare_exchange_strong(empty, identity)) {
@@ -357,6 +456,10 @@ bool CdcClientMgr::terminate_child_identity_for_test(uint64_t identity) {
     return _terminate_child_identity(identity);
 }
 
+bool CdcClientMgr::inspect_child_identity_for_test(uint64_t identity) {
+    return inspect_owned_child(identity, nullptr, nullptr) == OwnedChildState::RUNNING;
+}
+
 void CdcClientMgr::invoke_sigchld_handler_for_test() {
     handle_sigchld(SIGCHLD);
 }
@@ -367,6 +470,14 @@ void CdcClientMgr::pause_sigchld_handler_for_test(bool pause) {
 
 bool CdcClientMgr::sigchld_handler_paused_for_test() {
     return g_cdc_sigchld_handler_paused.load();
+}
+
+void CdcClientMgr::pause_child_inspection_after_running_for_test(bool pause) {
+    g_pause_cdc_child_inspection_after_running.store(pause);
+}
+
+bool CdcClientMgr::child_inspection_paused_for_test() {
+    return g_cdc_child_inspection_paused.load();
 }
 #endif
 

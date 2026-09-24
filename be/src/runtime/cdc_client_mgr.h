@@ -57,11 +57,16 @@ public:
     uint64_t get_child_identity_for_test() const { return _get_child_identity(); }
     // For testing only: run the production cleanup gate for an exact identity.
     bool terminate_child_identity_for_test(uint64_t identity);
+    // For testing only: inspect the exact identity through the normal WNOHANG path.
+    bool inspect_child_identity_for_test(uint64_t identity);
     // For testing only: invoke the installed handler body deterministically.
     static void invoke_sigchld_handler_for_test();
     // For testing only: pause a deterministic handler after it has copied the published identity.
     static void pause_sigchld_handler_for_test(bool pause);
     static bool sigchld_handler_paused_for_test();
+    // For testing only: pause after inspect's WNOHANG=0 observation and before claim release.
+    static void pause_child_inspection_after_running_for_test(bool pause);
+    static bool child_inspection_paused_for_test();
     // For testing only: inspect / drive the adopt-external flag
     bool get_adopted_external_for_test() const { return _adopted_external.load(); }
     void set_adopted_external_for_test(bool v) { _adopted_external.store(v); }

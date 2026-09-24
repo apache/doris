@@ -37,7 +37,19 @@ case "$1" in
             echo "injected list failure" >&2
             exit 41
         fi
-        if [[ "${FAKE_FLINK_MODE}" != "success" || ! -f "${FAKE_FLINK_STATE}/cancelled" ]]; then
+        scheduled_requested=false
+        for arg in "$@"; do
+            if [[ "${arg}" == "-s" ]]; then
+                scheduled_requested=true
+            fi
+        done
+        if [[ "${FAKE_FLINK_MODE}" == "accepted-timeout" ]]; then
+            # Flink list -r deliberately omits a remotely accepted job that is still
+            # CREATED/INITIALIZING. It becomes visible only when the scheduled selector is present.
+            if [[ "${scheduled_requested}" == "true" && ! -f "${FAKE_FLINK_STATE}/cancelled" ]]; then
+                echo "${job_id} : tiering (INITIALIZING)"
+            fi
+        elif [[ "${FAKE_FLINK_MODE}" != "success" || ! -f "${FAKE_FLINK_STATE}/cancelled" ]]; then
             echo "${job_id} : tiering (RUNNING)"
         fi
         ;;
@@ -114,5 +126,14 @@ rm -f "${FAKE_FLINK_STATE}/cancelled" "${success_marker}"
 export FAKE_FLINK_MODE=success
 run_fixture_gate "${success_marker}" >"${TEST_DIR}/success.log" 2>&1
 test -f "${success_marker}"
+
+# Models a detached submit accepted by Flink while the local CLI times out. Retry cleanup must see
+# its scheduled state, cancel it, and prove it terminal before publishing the next fixture stage.
+accepted_marker="${TEST_DIR}/SUCCESS-accepted-timeout"
+rm -f "${FAKE_FLINK_STATE}/cancelled" "${accepted_marker}"
+export FAKE_FLINK_MODE=accepted-timeout
+run_fixture_gate "${accepted_marker}" >"${TEST_DIR}/accepted-timeout.log" 2>&1
+test -f "${accepted_marker}"
+test -f "${FAKE_FLINK_STATE}/cancelled"
 
 echo "fluss job-control tests passed"

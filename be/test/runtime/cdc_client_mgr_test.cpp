@@ -570,6 +570,76 @@ TEST_F(CdcClientMgrTest, ConcurrentHandlersHaveOneExclusiveProcessOperator) {
     mgr.stop();
 }
 
+TEST_F(CdcClientMgrTest, SigchldDuringRunningInspectionIsHandedBackForReap) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    // Keep delivery deterministic: the test invokes the production handler only after waitid proves
+    // the child is waitable, while the inspecting thread still holds the operation claim.
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sleep 10"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+
+    CdcClientMgr mgr;
+    const uint64_t identity = mgr.set_child_pid_for_test(pid);
+    CdcClientMgr::pause_child_inspection_after_running_for_test(true);
+    std::atomic<bool> inspector_saw_running {true};
+    std::thread inspector(
+            [&]() { inspector_saw_running.store(mgr.inspect_child_identity_for_test(identity)); });
+    Defer resume_and_join_inspector {[&]() {
+        CdcClientMgr::pause_child_inspection_after_running_for_test(false);
+        if (inspector.joinable()) {
+            inspector.join();
+        }
+    }};
+
+    for (int i = 0; i < 100 && !CdcClientMgr::child_inspection_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!CdcClientMgr::child_inspection_paused_for_test()) {
+        FAIL() << "the inspector did not pause after observing WNOHANG=0";
+    }
+
+    ASSERT_EQ(kill(pid, SIGKILL), 0);
+    siginfo_t child_info {};
+    for (int i = 0; i < 100; ++i) {
+        ASSERT_EQ(waitid(P_PID, pid, &child_info, WEXITED | WNOHANG | WNOWAIT), 0);
+        if (child_info.si_pid == pid) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(child_info.si_pid, pid);
+
+    // The handler cannot claim while inspect owns it. It must attach a pending request rather than
+    // consume the only notification and return. No later signal and no explicit stop() drive cleanup.
+    CdcClientMgr::invoke_sigchld_handler_for_test();
+    EXPECT_EQ(mgr.get_child_identity_for_test(), identity);
+    CdcClientMgr::pause_child_inspection_after_running_for_test(false);
+    inspector.join();
+
+    EXPECT_FALSE(inspector_saw_running.load());
+    EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+    errno = 0;
+    EXPECT_EQ(waitpid(pid, nullptr, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD) << "the pending-reap handoff did not collect the exited child";
+}
+
 // Test start_cdc_client when environment is missing
 TEST_F(CdcClientMgrTest, StartCdcClientMissingEnv) {
     unsetenv("JAVA_HOME");
