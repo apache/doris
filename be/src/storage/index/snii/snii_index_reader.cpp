@@ -129,6 +129,7 @@ private:
 struct SniiQueryExecutionResult {
     std::shared_ptr<roaring::Roaring> bitmap;
     std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
+    bool candidate_rows_consumed = false;
 };
 
 std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
@@ -383,17 +384,21 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
             status = ::doris::snii::query::term_query(logical_reader, terms.front(), &sink);
             emitted_to_sink = true;
         } else {
-            status = collect_phrase_frequency
-                             ? ::doris::snii::query::phrase_query_with_frequencies(
-                                       logical_reader, terms, &result->phrase_matches, profile,
-                                       {.slop = static_cast<uint32_t>(query_info.slop),
-                                        .ordered = query_info.ordered,
-                                        .candidates = candidates})
-                             : ::doris::snii::query::phrase_query(
-                                       logical_reader, terms, &docids, profile,
-                                       {.slop = static_cast<uint32_t>(query_info.slop),
-                                        .ordered = query_info.ordered,
-                                        .candidates = candidates});
+            status =
+                    collect_phrase_frequency
+                            ? ::doris::snii::query::phrase_query_with_frequencies(
+                                      logical_reader, terms, &result->phrase_matches, profile,
+                                      {.slop = static_cast<uint32_t>(query_info.slop),
+                                       .ordered = query_info.ordered,
+                                       .candidates = candidates,
+                                       .candidate_rows_consumed = &result->candidate_rows_consumed})
+                            : ::doris::snii::query::phrase_query(
+                                      logical_reader, terms, &docids, profile,
+                                      {.slop = static_cast<uint32_t>(query_info.slop),
+                                       .ordered = query_info.ordered,
+                                       .candidates = candidates,
+                                       .candidate_rows_consumed =
+                                               &result->candidate_rows_consumed});
         }
         break;
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
@@ -406,10 +411,15 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                     collect_phrase_frequency
                             ? ::doris::snii::query::phrase_prefix_query_with_frequencies(
                                       logical_reader, terms, &result->phrase_matches, profile,
-                                      {.max_expansions = max_expansions, .candidates = candidates})
+                                      {.max_expansions = max_expansions,
+                                       .candidates = candidates,
+                                       .candidate_rows_consumed = &result->candidate_rows_consumed})
                             : ::doris::snii::query::phrase_prefix_query(
                                       logical_reader, terms, &docids, profile,
-                                      {.max_expansions = max_expansions, .candidates = candidates});
+                                      {.max_expansions = max_expansions,
+                                       .candidates = candidates,
+                                       .candidate_rows_consumed =
+                                               &result->candidate_rows_consumed});
         }
         break;
     case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
@@ -719,11 +729,10 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
         }
     }
 
-    // A multi-term phrase restricted to the scan candidates produces a partial bitmap. It stays
-    // out of the result cache and single-flight, which both serve the full-segment query.
+    // A multi-term phrase may produce a partial bitmap, so this path skips single-flight. The
+    // executor reports whether the result is actually candidate-restricted before caching it.
     const bool consume_candidates =
             context->candidate_rows != nullptr && consumes_candidates(query_type, terms.size());
-    context->candidate_rows_consumed = consume_candidates;
     const SniiQueryBitmapRequest request {
             .query_type = query_type,
             .query_info = execution_query_info,
@@ -768,6 +777,10 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     }
     RETURN_IF_ERROR(single_flight_status);
     DORIS_CHECK(result_bitmap != nullptr);
+    if (allow_result_cache && consume_candidates && !context->candidate_rows_consumed) {
+        insert_query_cache(context, cache, cache_key, result_bitmap, &cache_handler,
+                           allow_result_cache);
+    }
     if (actual_similarity && !result_bitmap->isEmpty()) {
         ::doris::snii::stats::SniiStatsProvider segment_stats;
         RETURN_IF_ERROR(
@@ -843,6 +856,7 @@ Status SniiIndexReader::_compute_query_bitmap(
                                            &query_result, nullptr, request.candidates));
     }
     *out = std::move(query_result.bitmap);
+    context->candidate_rows_consumed = query_result.candidate_rows_consumed;
     if (phrase_matches != nullptr) {
         *phrase_matches = std::move(query_result.phrase_matches);
     }

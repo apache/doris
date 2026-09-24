@@ -66,6 +66,9 @@ Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::s
                          std::vector<uint32_t>* const docids,
                          format::PrxDecodeContext* decode_context,
                          std::vector<PhraseMatch>* matches, const PhraseQueryOptions& options) {
+    if (options.candidate_rows_consumed != nullptr) {
+        *options.candidate_rows_consumed = false;
+    }
     if (docids == nullptr && matches == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("phrase_query: null out");
     }
@@ -83,6 +86,9 @@ Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::s
         RETURN_IF_ERROR(term_query(idx, terms.front(), docids));
         if (options.candidates != nullptr) {
             retain_candidates(*options.candidates, docids);
+            if (options.candidate_rows_consumed != nullptr) {
+                *options.candidate_rows_consumed = true;
+            }
         }
         return Status::OK();
     }
@@ -99,6 +105,9 @@ Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::s
     if (!all_present) {
         return Status::OK();
     }
+    if (options.candidates != nullptr && options.candidate_rows_consumed != nullptr) {
+        *options.candidate_rows_consumed = true;
+    }
     return execute_phrase_plans(idx, &round1, &plans, mapping.phrase_plan_index, docids,
                                 decode_context, matches, options);
 }
@@ -108,7 +117,10 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 std::vector<uint32_t>* const docids, int32_t max_expansions,
                                 format::PrxDecodeContext* decode_context,
                                 std::vector<PhraseMatch>* matches,
-                                const roaring::Roaring* candidates) {
+                                const roaring::Roaring* candidates, bool* candidate_rows_consumed) {
+    if (candidate_rows_consumed != nullptr) {
+        *candidate_rows_consumed = false;
+    }
     if (docids == nullptr && matches == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("phrase_prefix_query: null out");
     }
@@ -126,6 +138,9 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
         RETURN_IF_ERROR(prefix_query(idx, terms.front(), docids, max_expansions));
         if (candidates != nullptr) {
             retain_candidates(*candidates, docids);
+            if (candidate_rows_consumed != nullptr) {
+                *candidate_rows_consumed = true;
+            }
         }
         return Status::OK();
     }
@@ -155,6 +170,9 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
             max_expansions));
     if (tail_hits.empty()) {
         return Status::OK();
+    }
+    if (candidates != nullptr && candidate_rows_consumed != nullptr) {
+        *candidate_rows_consumed = true;
     }
     std::vector<ResolvedQueryTerm> tail_terms;
     tail_terms.reserve(tail_hits.size());

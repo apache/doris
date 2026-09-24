@@ -56,6 +56,8 @@ struct PhraseQueryOptions {
     // Optional scan candidate docids. The result is then exactly the unrestricted result
     // intersected with them, and position verification only visits candidates.
     const roaring::Roaring* candidates = nullptr;
+    // Reports whether execution reached candidate restriction.
+    bool* candidate_rows_consumed = nullptr;
 };
 
 Status phrase_query(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
@@ -79,6 +81,8 @@ struct PhrasePrefixQueryOptions {
     int32_t max_expansions = 0;
     // Restricts the result the way PhraseQueryOptions::candidates does.
     const roaring::Roaring* candidates = nullptr;
+    // Reports whether execution reached candidate restriction.
+    bool* candidate_rows_consumed = nullptr;
 };
 
 // phrase_prefix_query -- MATCH_PHRASE_PREFIX: the last item in `terms` is a

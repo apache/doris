@@ -230,7 +230,7 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
             .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
     return phrase_prefix_query_impl(idx, terms, docids, options.max_expansions,
                                     profile == nullptr ? nullptr : &decode_context, nullptr,
-                                    options.candidates);
+                                    options.candidates, options.candidate_rows_consumed);
 }
 
 Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
@@ -261,7 +261,7 @@ Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
             .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
     return phrase_prefix_query_impl(idx, terms, nullptr, options.max_expansions,
                                     profile == nullptr ? nullptr : &decode_context, matches,
-                                    options.candidates);
+                                    options.candidates, options.candidate_rows_consumed);
 }
 
 } // namespace doris::snii::query

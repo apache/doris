@@ -400,7 +400,8 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 std::vector<uint32_t>* const docids, int32_t max_expansions,
                                 format::PrxDecodeContext* decode_context,
                                 std::vector<PhraseMatch>* matches = nullptr,
-                                const roaring::Roaring* candidates = nullptr);
+                                const roaring::Roaring* candidates = nullptr,
+                                bool* candidate_rows_consumed = nullptr);
 
 } // namespace doris::snii::query::phrase_impl
 
