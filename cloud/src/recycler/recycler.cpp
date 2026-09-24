@@ -103,9 +103,12 @@ void sleep_for_packed_file_retry() {
 
 bool is_packed_slice_path(const doris::RowsetMetaCloudPB& rowset, const std::string& path) {
     const auto& locations = rowset.packed_slice_locations();
-    auto it = locations.find(path);
-    return it != locations.end() && it->second.has_packed_file_path() &&
-           !it->second.packed_file_path().empty();
+    return std::ranges::any_of(locations, [&](const auto& it) {
+        if (it.first == path || it.first.starts_with(path)) {
+            return true;
+        }
+        return false;
+    });
 }
 
 void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
@@ -3819,7 +3822,10 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     if (rs_meta_pb.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
         // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
         // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
-        delete_rowset_data_by_prefix = true;
+        if (is_packed_slice_path(rs_meta_pb, rowset_path_prefix(rs_meta_pb.tablet_id(),
+                                                                rs_meta_pb.rowset_id_v2()))) {
+            return 0;
+        }
     } else if (rs_meta_pb.has_tablet_schema()) {
         for (const auto& index : rs_meta_pb.tablet_schema().index()) {
             if (index.has_index_type() && index.index_type() == IndexType::INVERTED) {
@@ -4654,9 +4660,10 @@ int InstanceRecycler::delete_rowset_data(
             }
         }
         if (rs.rowset_state() == RowsetStatePB::BEGIN_PARTIAL_UPDATE) {
-            // if rowset state is RowsetStatePB::BEGIN_PARTIAL_UPDATE, the number of segments data
-            // may be larger than num_segments field in RowsetMeta, so we need to delete the rowset's data by prefix
-            rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id, rs.rowset_id_v2());
+            if (!is_packed_slice_path(rs, rowset_path_prefix(tablet_id, rowset_id))) {
+                rowsets_delete_by_prefix.emplace_back(rs.resource_id(), tablet_id,
+                                                      rs.rowset_id_v2());
+            }
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {

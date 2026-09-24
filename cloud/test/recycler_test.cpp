@@ -2979,6 +2979,7 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
     int64_t tablet_id = 10015;
     int64_t index_id = 1000;
     int64_t txn_id_base = 293039;
+    std::string unaggregated_extra_path;
     for (int j = 0; j < 20; ++j) {
         int64_t txn_id = txn_id_base + j;
         int segment_num = 5;
@@ -2998,17 +2999,45 @@ TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
             int extra_segment_id = segment_num;
             auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), extra_segment_id);
             accessor->put_file(path, path);
+            if (j == 15) {
+                unaggregated_extra_path = path;
+            }
         }
     }
+
+    constexpr int64_t packed_tablet_id = 10016;
+    auto packed_rowset = create_rowset(
+            "recycle_tmp_rowsets_partial_update", packed_tablet_id, index_id, 5, schema,
+            RowsetStatePB::BEGIN_PARTIAL_UPDATE, txn_id_base + 20);
+    const std::string packed_file_path =
+            fmt::format("data/packed_file/0/{}.bin", packed_rowset.rowset_id_v2());
+    constexpr int64_t kPackedSliceSize = 128;
+    auto* packed_locations = packed_rowset.mutable_packed_slice_locations();
+    for (int i = 0; i < packed_rowset.num_segments(); ++i) {
+        const std::string small_path =
+                segment_path(packed_tablet_id, packed_rowset.rowset_id_v2(), i);
+        auto& location = (*packed_locations)[small_path];
+        location.set_packed_file_path(packed_file_path);
+        location.set_offset(i * kPackedSliceSize);
+        location.set_size(kPackedSliceSize);
+    }
+    ASSERT_EQ(create_tmp_rowset(txn_kv.get(), accessor.get(), packed_rowset, false), 0);
+    for (int i = 0; i < packed_rowset.num_segments(); ++i) {
+        accessor->delete_file(segment_path(packed_tablet_id, packed_rowset.rowset_id_v2(), i));
+    }
+    ASSERT_EQ(accessor->put_file(packed_file_path, packed_file_path), 0);
+    const std::string packed_extra_path =
+            segment_path(packed_tablet_id, packed_rowset.rowset_id_v2(), packed_rowset.num_segments());
+    ASSERT_EQ(accessor->put_file(packed_extra_path, packed_extra_path), 0);
+
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
     check_delete_bitmap_file_size(accessor, tablet_id, 10);
 
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
-    // check rowset does not exist on obj store
-    std::unique_ptr<ListIterator> list_iter;
-    ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    EXPECT_EQ(1, accessor->exists(unaggregated_extra_path));
+    EXPECT_EQ(0, accessor->exists(packed_file_path));
+    EXPECT_EQ(0, accessor->exists(packed_extra_path));
     // check all tmp rowset kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
