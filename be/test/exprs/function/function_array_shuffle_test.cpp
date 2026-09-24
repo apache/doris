@@ -16,6 +16,7 @@
 // under the License.
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -78,14 +79,20 @@ static std::vector<std::string> run_array_shuffle(const std::vector<TestArray>& 
 
     block.insert({nullptr, return_type, "result"});
     auto result_idx = block.columns() - 1;
-    EXPECT_TRUE(func->execute(fn_ctx, block, {0, 1}, result_idx, row_size).ok());
+    auto st = func->execute(fn_ctx, block, {0, 1}, result_idx, row_size);
+    EXPECT_EQ(Status::OK(), st);
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
     static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
-    std::vector<std::string> results;
+    std::vector<std::string> results(row_size);
+    // A failed call has no result column. Return empty rows, so the test fails
+    // on the check above instead of crashing here.
+    if (!st.ok()) {
+        return results;
+    }
     const auto& result_column = *block.get_by_position(result_idx).column;
     for (size_t i = 0; i < row_size; ++i) {
-        results.push_back(return_type->to_string(result_column, i));
+        results[i] = return_type->to_string(result_column, i);
     }
     return results;
 }
@@ -109,6 +116,32 @@ TEST(function_array_shuffle_test, const_seed) {
     for (const auto& result : results) {
         EXPECT_EQ(result, seed1);
     }
+}
+
+// Any BIGINT is a valid seed. All 64 bits are used, so -1 and 4294967295
+// (same low 32 bits) give different results.
+TEST(function_array_shuffle_test, any_bigint_seed) {
+    const std::vector<int64_t> seeds = {-1, 4294967295, std::numeric_limits<int64_t>::min(),
+                                        std::numeric_limits<int64_t>::max()};
+    auto results = run_array_shuffle({kArray, kArray, kArray, kArray}, seeds, false);
+    for (size_t i = 0; i < seeds.size(); ++i) {
+        EXPECT_EQ(results[i], run_array_shuffle({kArray}, {seeds[i]}, false)[0]);
+    }
+    EXPECT_NE(results[0], results[1]);
+}
+
+// Arrays with 0 or 1 element are skipped, and this does not change the other rows.
+TEST(function_array_shuffle_test, short_arrays) {
+    const TestArray empty_array = {};
+    const TestArray one_element = {Int32(7)};
+    const TestArray two_elements = {Int32(1), Int32(2)};
+    auto results = run_array_shuffle({empty_array, one_element, two_elements, kArray}, {1, 1, 1, 1},
+                                     false);
+    EXPECT_EQ(results[0], "[]");
+    EXPECT_EQ(results[1], "[7]");
+    // Seed 1 swaps the two elements, so a 2-element array is really shuffled.
+    EXPECT_EQ(results[2], "[2, 1]");
+    EXPECT_EQ(results[3], run_array_shuffle({kArray}, {1}, false)[0]);
 }
 
 } // namespace doris

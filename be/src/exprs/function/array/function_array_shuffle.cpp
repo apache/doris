@@ -79,16 +79,16 @@ public:
             const auto& seeds = assert_cast<const ColumnInt64&>(*seed_column).get_data();
             // Each row re-seeds with its own seed, so the result of a row only
             // depends on its array and seed, not on the rows before it.
-            std::mt19937 g;
-            dest_column_ptr = _execute(src_column_array, [&](size_t row) -> std::mt19937& {
-                g.seed(cast_set<uint32_t>(seeds[index_check_const(row, seed_const)]));
+            std::mt19937_64 g;
+            dest_column_ptr = _execute(src_column_array, [&](size_t row) -> std::mt19937_64& {
+                // Use all 64 bits of the seed, so any BIGINT works, negative too.
+                g.seed(static_cast<uint64_t>(seeds[index_check_const(row, seed_const)]));
                 return g;
             });
         } else {
-            // time() will not exceed the range of uint32.
-            std::mt19937 g(cast_set<uint32_t>(time(nullptr)));
+            std::mt19937_64 g(static_cast<uint64_t>(time(nullptr)));
             dest_column_ptr =
-                    _execute(src_column_array, [&](size_t) -> std::mt19937& { return g; });
+                    _execute(src_column_array, [&](size_t) -> std::mt19937_64& { return g; });
         }
         if (!dest_column_ptr) {
             return Status::RuntimeError(
@@ -117,7 +117,11 @@ private:
         for (size_t i = 0; i < src_offsets_size; ++i) {
             auto last_offset = src_offsets[i - 1];
             auto src_offset = src_offsets[i];
-
+            // An array with 0 or 1 element does not change. Skip it, so we also
+            // skip seeding the generator for it.
+            if (src_offset - last_offset < 2) {
+                continue;
+            }
             std::shuffle(&permutation[last_offset], &permutation[src_offset], get_generator(i));
         }
         return ColumnArray::create(src_nested_column->permute(permutation, 0),
