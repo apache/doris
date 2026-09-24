@@ -893,7 +893,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 selectivity = compareExprStats.histogram.getValuesSelectivity(
                         options.stream().map(Literal.class::cast).collect(Collectors.toList()));
             }
-                if (newCompareExprStats.getHotValues() != null && selectivity > 0) {
+            if (newCompareExprStats.getHotValues() != null && selectivity > 0) {
                 Map<Literal, Float> keptHotValues = new HashMap<>(newCompareExprStats.getHotValues());
                 double keptRatio = selectivity;
                 keptHotValues.replaceAll((value, ratio) -> (float) (ratio / keptRatio));
