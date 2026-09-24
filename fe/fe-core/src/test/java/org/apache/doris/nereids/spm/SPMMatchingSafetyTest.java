@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -506,6 +507,106 @@ public class SPMMatchingSafetyTest {
         Assertions.assertTrue(sql.contains("`is_query` = true"), sql);
         Assertions.assertTrue(sql.contains("`is_nereids` = true"), sql);
         Assertions.assertTrue(sql.endsWith("LIMIT 500"), sql);
+    }
+
+    // ==================== derived-table (query block) LIMIT is part of the match ====================
+
+    @Test
+    public void testDerivedTableLimitIsPartOfMatch() {
+        // a derived-table LIMIT/OFFSET has no stable identity outside its query block, so
+        // it must be compared EXACTLY: replaying the captured LIMIT 10 OFFSET 1 for a
+        // user LIMIT 20 OFFSET 2 would change the result slice
+        String bind = "SELECT * FROM (SELECT a FROM t2 WHERE k = 1 LIMIT 10 OFFSET 1) x"
+                + " JOIN t1 ON x.a = t1.a";
+        Assertions.assertTrue(matches(bind, bind), "identical derived limits must match");
+        Assertions.assertFalse(matches(bind,
+                "SELECT * FROM (SELECT a FROM t2 WHERE k = 1 LIMIT 20 OFFSET 2) x"
+                        + " JOIN t1 ON x.a = t1.a"),
+                "a different derived-table LIMIT/OFFSET must not match");
+        Assertions.assertFalse(matches(bind,
+                "SELECT * FROM (SELECT a FROM t2 WHERE k = 1) x JOIN t1 ON x.a = t1.a"),
+                "dropping the derived-table LIMIT must not match");
+
+        // the TOP-LEVEL LIMIT is merged from the user query (mergeLimits): the rewritten
+        // plan runs the user's slice, so differing top-level limits stay matchable
+        String topLevel = "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a LIMIT 10";
+        Assertions.assertTrue(matches(topLevel,
+                "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a LIMIT 20"),
+                "a top-level LIMIT is adopted from the user query");
+    }
+
+    // ==================== scan modifiers are part of the match ====================
+
+    @Test
+    public void testPartitionSelectionIsPartOfMatch() {
+        String bind = "SELECT * FROM t1 PARTITION(p1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1";
+        Assertions.assertTrue(matches(bind, bind));
+        Assertions.assertFalse(matches(bind,
+                "SELECT * FROM t1 PARTITION(p2) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
+                "a different partition selection must not match (replay would read p1)");
+        Assertions.assertFalse(matches(bind,
+                "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
+                "a query without the partition selection must not match a partitioned bind");
+    }
+
+    // ==================== user-visible alias identifiers are part of the match ====================
+
+    @Test
+    public void testExplicitAliasNameIsPartOfMatch() {
+        Assertions.assertTrue(matches("SELECT k AS x FROM t1 WHERE a = 1",
+                "SELECT k AS x FROM t1 WHERE a = 1"));
+        Assertions.assertFalse(matches("SELECT k AS x FROM t1 WHERE a = 1",
+                "SELECT k AS y FROM t1 WHERE a = 1"),
+                "a different explicit alias is a different result header and must not match");
+    }
+
+    // ==================== two-part relations are keyed by the effective catalog ====================
+
+    @Test
+    public void testTwoPartRelationIsKeyedByCatalog() {
+        LogicalPlan twoPart = parse("SELECT * FROM db1.t WHERE k = 1");
+        Assertions.assertNotEquals(
+                SPMPlanTreeSupport.namespaceQualified(twoPart, "cat1", "cur").toSpmDigest(),
+                SPMPlanTreeSupport.namespaceQualified(twoPart, "cat2", "cur").toSpmDigest(),
+                "db.table resolves relative to the CURRENT catalog: the same text in two"
+                        + " catalogs names two different tables");
+        Assertions.assertEquals(
+                SPMPlanTreeSupport.namespaceQualified(twoPart, "cat1", "cur").toSpmDigest(),
+                SPMPlanTreeSupport.namespaceQualified(twoPart, "cat1", "other").toSpmDigest(),
+                "a two-part name pins its database: the session database is irrelevant");
+
+        // a three-part name is already complete and stays verbatim
+        LogicalPlan threePart = parse("SELECT * FROM cat1.db1.t WHERE k = 1");
+        Assertions.assertEquals(
+                SPMPlanTreeSupport.namespaceQualified(threePart, "catX", "cur").toSpmDigest(),
+                SPMPlanTreeSupport.namespaceQualified(threePart, "catY", "cur").toSpmDigest(),
+                "a three-part name carries its own catalog");
+    }
+
+    // ==================== capture regex is validated through SQL SET (VariableMgr) ====================
+
+    @Test
+    public void testCaptureRegexValidatedThroughVariableMgr() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                org.apache.doris.analysis.SetType.SESSION,
+                SessionVariable.PLAN_CAPTURE_INCLUDE_PATTERN,
+                new org.apache.doris.analysis.StringLiteral("tbl_.*")));
+        Assertions.assertEquals("tbl_.*", variable.getPlanCaptureIncludePattern());
+
+        // without the setter wiring this SET wrote the field directly and PERSISTED the
+        // broken pattern; every enabled capture cycle then failed filter construction
+        org.apache.doris.common.DdlException error = Assertions.assertThrows(
+                org.apache.doris.common.DdlException.class,
+                () -> VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                        org.apache.doris.analysis.SetType.SESSION,
+                        SessionVariable.PLAN_CAPTURE_INCLUDE_PATTERN,
+                        new org.apache.doris.analysis.StringLiteral("[unclosed"))),
+                "SET with an invalid regex must fail instead of persisting a broken pattern");
+        Assertions.assertTrue(error.getMessage().contains("Invalid plan capture table regex"),
+                "the error must name the invalid pattern: " + error.getMessage());
+        Assertions.assertEquals("tbl_.*", variable.getPlanCaptureIncludePattern(),
+                "the invalid value must never be written");
     }
 
     // ==================== ALTER to the same status is a no-op ====================

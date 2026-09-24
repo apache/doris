@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -26,6 +29,8 @@ import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -601,23 +606,49 @@ public final class SPMPlanTreeSupport {
             return new QualifyTransform(catalog, db, Collections.unmodifiableSet(extended));
         }
 
-        /** Prefixes a single-part relation unless it is a reference to a visible CTE alias. */
+        /** Prefixes a one- or two-part relation with the effective namespace. */
         Plan qualify(UnboundRelation relation) {
             List<String> parts = relation.getNameParts();
-            if (parts.size() != 1 || isVisibleCte(parts.get(0))) {
-                return relation; // already (partially) qualified, or bound by a WITH clause
+            if (parts.size() > 2) {
+                return relation; // fully qualified (catalog.db.table): nothing to add
             }
+            if (parts.size() == 1 && isVisibleCte(parts.get(0))) {
+                return relation; // bound by a WITH clause, not a base-table reference
+            }
+            // A one-part name is relative to the current db, but a TWO-part name is only
+            // relative to the current CATALOG ("db.t" means current_catalog.db.t):
+            // leaving "db.t" verbatim would let a baseline created in cat1 match the
+            // same text executed in cat2, after which the frozen fully-qualified replay
+            // keeps reading cat1.db.t. Only three-part names are complete.
             List<String> qualified = new ArrayList<>(3);
             if (catalog != null && !catalog.isEmpty()) {
                 qualified.add(catalog);
             }
-            qualified.add(db);
+            if (parts.size() == 1) {
+                qualified.add(db);
+            }
             qualified.addAll(parts);
             try {
-                return new UnboundRelation(relation.getRelationId(), qualified);
+                return copyWithNameParts(relation, qualified);
             } catch (RuntimeException e) {
                 return relation;
             }
+        }
+
+        /**
+         * Rebuilds the relation with new name parts while preserving EVERY scan modifier
+         * (partition list, tablet ids, hints, sample, index, scan params, snapshot):
+         * dropping them here would hide a PARTITION(...) / TABLESAMPLE / FOR VERSION
+         * selection from the Level 3 comparison and allow a baseline captured under a
+         * different selection to match.
+         */
+        private static UnboundRelation copyWithNameParts(UnboundRelation relation,
+                List<String> nameParts) {
+            return new UnboundRelation(relation.getRelationId(), nameParts,
+                    relation.getPartNames(), relation.isTempPart(), relation.getTabletIds(),
+                    relation.getHints(), relation.getTableSample(), relation.getIndexName(),
+                    relation.getScanParams(), relation.getIndexInSqlString(),
+                    relation.getTableSnapshot());
         }
 
         private boolean isVisibleCte(String name) {
@@ -850,7 +881,14 @@ public final class SPMPlanTreeSupport {
             return false;
         }
         for (int i = 0; i < bindChildren.size(); i++) {
-            if (!checkPlan(bindChildren.get(i), userChildren.get(i), placeholderValues, insideSubquery)) {
+            // A derived table (LogicalSubQueryAlias) opens a nested query block: its own
+            // LIMIT / OFFSET cannot rely on the positional merge (mergeLimits gives up on
+            // a class mismatch - e.g. a frozen join order that differs from the user's -
+            // and would silently keep the captured slice), so nested limits are part of
+            // the exact match (see the LIMIT check above).
+            boolean childInsideSubquery = insideSubquery || bind instanceof LogicalSubQueryAlias;
+            if (!checkPlan(bindChildren.get(i), userChildren.get(i), placeholderValues,
+                    childInsideSubquery)) {
                 return false;
             }
         }
@@ -870,8 +908,9 @@ public final class SPMPlanTreeSupport {
                 return false;
             }
             for (int i = 0; i < bindAliases.size(); i++) {
-                if (!checkPlan(bindAliases.get(i), userAliases.get(i), placeholderValues,
-                        insideSubquery)) {
+                // CTE bodies are nested query blocks: their LIMIT / OFFSET are compared
+                // exactly (the positional LIMIT merge cannot reach them reliably)
+                if (!checkPlan(bindAliases.get(i), userAliases.get(i), placeholderValues, true)) {
                     return false;
                 }
             }
@@ -886,6 +925,17 @@ public final class SPMPlanTreeSupport {
      */
     private static boolean checkNodeExpressions(Plan bind, Plan user,
             Map<Long, Expression> placeholderValues) {
+        // Base-table relation: UnboundRelation.toDigest() omits partition names / sample /
+        // hints and normalizes tablet / snapshot / scan-parameter values, and the
+        // namespace is only covered by the L1/L2 digest pre-filter. Compare every
+        // non-parameterizable scan identity field exactly here, so "t PARTITION(p1)" can
+        // never match "PARTITION(p2)" (the frozen replay would keep reading p1). The
+        // relation NAMES are deliberately not compared at this level: the stored bind
+        // tree is the raw parse while the user side is namespace-qualified; name
+        // equality is enforced by the digest pre-filter.
+        if (bind instanceof UnboundRelation && user instanceof UnboundRelation) {
+            return sameScanIdentity((UnboundRelation) bind, (UnboundRelation) user);
+        }
         // Table-valued function: UnboundTVFRelation.toDigest() reduces every call to
         // "fn(?)" and the node has no expressions/children, so the generic comparison
         // cannot distinguish the properties. numbers('number'='100') must never match a
@@ -1005,7 +1055,73 @@ public final class SPMPlanTreeSupport {
     /** Single expression pair check (bind side parameterized, user side raw). */
     private static boolean checkExpression(Expression bindExpr, Expression userExpr,
             Map<Long, Expression> placeholderValues) {
+        // Explicit output aliases (SELECT ... AS name) are part of the result contract:
+        // the rewritten plan reuses the frozen text, so a baseline matched with a
+        // different alias would report the CAPTURED column header. Derived names
+        // (nameFromChild - the parser's fallback from the expression text, which may
+        // carry the captured literal) stay out of the comparison. Both the analyzed
+        // Alias and the parse-time UnboundAlias are covered: a raw parsed tree (the
+        // bind side is re-parsed from the frozen text) only ever carries UnboundAlias,
+        // whose name is only reachable through getAlias().
+        String bindAliasName = explicitAliasName(bindExpr);
+        String userAliasName = explicitAliasName(userExpr);
+        if (bindAliasName != null && userAliasName != null
+                && !bindAliasName.equals(userAliasName)) {
+            return false;
+        }
         return new SPMAstCheckVisitor().checkExpression(bindExpr, userExpr, placeholderValues);
+    }
+
+    /**
+     * The user-written name of an explicit output alias ({@code Alias} or parse-time
+     * {@code UnboundAlias}), or null when the expression is not one. A nameFromChild
+     * fallback is the expression text rather than an identifier and does not qualify.
+     */
+    private static String explicitAliasName(Expression expr) {
+        if (expr instanceof Alias) {
+            Alias alias = (Alias) expr;
+            return alias.isNameFromChild() ? null : alias.getName();
+        }
+        if (expr instanceof UnboundAlias) {
+            UnboundAlias alias = (UnboundAlias) expr;
+            return !alias.isNameFromChild() && alias.getAlias().isPresent()
+                    ? alias.getAlias().get() : null;
+        }
+        return null;
+    }
+
+    /**
+     * Compares every non-parameterizable scan identity field of a base-table relation:
+     * partition selection, tablet selection, hints, index, sample, snapshot and scan
+     * parameters. {@code TableSnapshot} / {@code TableScanParams} have no value-based
+     * equals, so their stable textual form is compared as well.
+     */
+    private static boolean sameScanIdentity(UnboundRelation bind, UnboundRelation user) {
+        return Objects.equals(bind.getPartNames(), user.getPartNames())
+                && Objects.equals(bind.getTabletIds(), user.getTabletIds())
+                && Objects.equals(bind.getHints(), user.getHints())
+                && Objects.equals(bind.getIndexName(), user.getIndexName())
+                && sameOptionalValue(bind.getTableSample(), user.getTableSample())
+                && sameOptionalValue(bind.getTableSnapshot(), user.getTableSnapshot())
+                && sameScanParams(bind.getScanParams(), user.getScanParams());
+    }
+
+    /** Optional value equality with a textual fallback for value types without equals. */
+    private static <T> boolean sameOptionalValue(Optional<T> bind, Optional<T> user) {
+        if (!bind.isPresent() || !user.isPresent()) {
+            return bind.isPresent() == user.isPresent();
+        }
+        return Objects.equals(bind.get(), user.get())
+                || Objects.equals(bind.get().toString(), user.get().toString());
+    }
+
+    /** TableScanParams equality (the analysis type has no value-based equals). */
+    private static boolean sameScanParams(TableScanParams bind, TableScanParams user) {
+        if (bind == null || user == null) {
+            return bind == user;
+        }
+        return bind == user || bind.equals(user)
+                || Objects.equals(bind.toString(), user.toString());
     }
 
     // ==================== non-expression literal merge (LIMIT / OFFSET) ====================
