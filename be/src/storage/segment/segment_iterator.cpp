@@ -66,6 +66,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
@@ -809,15 +810,28 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     return Status::OK();
 }
 
-Status SegmentIterator::_get_row_ranges_by_column_conditions() {
-    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_column_conditions_ns);
+static bool can_consume_candidate_rows(const VExprContextSPtr& expr_ctx) {
+    const auto& root = expr_ctx->root();
+    DORIS_CHECK(root != nullptr);
+    const VExpr* effective_root = root.get();
+    if (root->is_virtual_slot_ref()) {
+        const auto& virtual_expr =
+                assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
+        DORIS_CHECK(virtual_expr != nullptr);
+        effective_root = virtual_expr.get();
+    }
+    if (effective_root->node_type() != TExprNodeType::MATCH_PRED) {
+        return false;
+    }
+    const auto* match = dynamic_cast<const VMatchPredicate*>(effective_root);
+    return match == nullptr || match->function_name() == "match_phrase" ||
+           match->function_name() == "match_phrase_prefix";
+}
+
+Status SegmentIterator::_apply_scan_restrictions() {
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
-
-    // Apply stable scan restrictions before evaluating inverted-index expressions so
-    // selective restrictions can also serve as phrase-query candidates. The candidate
-    // pointer keeps referring to _row_bitmap as later predicates shrink it.
     auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr) {
         size_t pre_size = _row_bitmap.cardinality();
@@ -842,9 +856,31 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
+    return Status::OK();
+}
 
+Status SegmentIterator::_get_row_ranges_by_column_conditions() {
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_column_conditions_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
+    }
+
+    const double candidate_ratio = config::get_inverted_index_candidate_pushdown_ratio();
+    const bool prune_before_index =
+            _index_query_context != nullptr && _opts.runtime_state != nullptr &&
+            _opts.runtime_state->query_options().enable_inverted_index_query &&
+            std::isfinite(candidate_ratio) && candidate_ratio > 0 && candidate_ratio <= 1 &&
+            (std::ranges::any_of(_common_expr_ctxs_push_down, can_consume_candidate_rows) ||
+             std::ranges::any_of(_virtual_column_exprs, [](const auto& entry) {
+                 return can_consume_candidate_rows(entry.second);
+             }));
+
+    // Prune early only when an index expression can use the candidate bitmap.
+    if (prune_before_index) {
+        RETURN_IF_ERROR(_apply_scan_restrictions());
+        if (_row_bitmap.isEmpty()) {
+            return Status::OK();
+        }
     }
 
     {
@@ -914,6 +950,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
         }
+    }
+
+    if (!prune_before_index) {
+        RETURN_IF_ERROR(_apply_scan_restrictions());
     }
 
     DBUG_EXECUTE_IF("segment_iterator.inverted_index.filtered_rows", {
@@ -1472,8 +1512,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
-    // Mirror of the pre-index delete-bitmap subtraction: the fast path is only
-    // sound when there is nothing to subtract for THIS segment.
+    // A count answer cannot skip versioned deletes for this segment.
     const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
                                         delete_bitmap_it->second == nullptr ||

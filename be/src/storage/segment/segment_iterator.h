@@ -144,6 +144,7 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
+    [[nodiscard]] Status _apply_scan_restrictions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,

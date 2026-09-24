@@ -201,8 +201,8 @@ public:
 
 class RangePruningColumnIterator : public ColumnIterator {
 public:
-    explicit RangePruningColumnIterator(RowRanges row_ranges)
-            : _row_ranges(std::move(row_ranges)) {}
+    explicit RangePruningColumnIterator(RowRanges row_ranges, int* zone_map_reads = nullptr)
+            : _row_ranges(std::move(row_ranges)), _zone_map_reads(zone_map_reads) {}
 
     Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
     ordinal_t get_current_ordinal() const override { return 0; }
@@ -211,12 +211,16 @@ public:
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
             RowRanges* row_ranges) override {
+        if (_zone_map_reads != nullptr) {
+            ++*_zone_map_reads;
+        }
         *row_ranges = _row_ranges;
         return Status::OK();
     }
 
 private:
     RowRanges _row_ranges;
+    int* _zone_map_reads;
 };
 
 class ScopedConditionCache {
@@ -351,9 +355,9 @@ protected:
         _iter->_col_predicates.emplace_back(std::make_shared<ShrinkingPredicate>(0, result));
     }
 
-    void add_range_pruning_condition(rowid_t from, rowid_t to) {
-        _iter->_column_iterators[0] =
-                std::make_unique<RangePruningColumnIterator>(RowRanges::create_single(from, to));
+    void add_range_pruning_condition(rowid_t from, rowid_t to, int* zone_map_reads = nullptr) {
+        _iter->_column_iterators[0] = std::make_unique<RangePruningColumnIterator>(
+                RowRanges::create_single(from, to), zone_map_reads);
         auto result = std::make_shared<roaring::Roaring>();
         auto predicate = std::make_shared<ShrinkingPredicate>(0, std::move(result));
         auto block_predicate = AndBlockColumnPredicate::create_shared();
@@ -477,6 +481,22 @@ TEST_F(SegmentIteratorCandidatePushdownTest, condition_ranges_engage_candidate_b
     EXPECT_TRUE(_expr->captured_candidate_copy()->contains(0));
     EXPECT_FALSE(_expr->captured_candidate_copy()->contains(5));
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, disabled_ratio_keeps_empty_index_short_circuit) {
+    set_ratio("0");
+    _iter->_row_bitmap.addRange(0, 100);
+    int zone_map_reads = 0;
+    add_range_pruning_condition(0, 100, &zone_map_reads);
+    auto empty_index_expr = std::make_shared<CandidateRestrictedBitmapExpr>(
+            _iter.get(), std::initializer_list<uint32_t> {}, std::initializer_list<uint32_t> {});
+    _iter->_common_expr_ctxs_push_down = {make_capturing_ctx(empty_index_expr)};
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    EXPECT_TRUE(empty_index_expr->evaluated());
+    EXPECT_TRUE(_iter->_row_bitmap.isEmpty());
+    EXPECT_EQ(zone_map_reads, 0);
 }
 
 // Three-valued compound shortcuts (VCompoundPred) treat an empty TRUE bitmap
