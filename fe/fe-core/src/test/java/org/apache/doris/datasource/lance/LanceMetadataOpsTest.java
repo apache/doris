@@ -40,7 +40,7 @@ import org.lance.namespace.errors.TableAlreadyExistsException;
 import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.model.AlterTableAddColumnsRequest;
 import org.lance.namespace.model.CreateTableRequest;
-import org.lance.namespace.model.RenameTableRequest;
+import org.lance.namespace.model.DropNamespaceRequest;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -267,6 +267,47 @@ public class LanceMetadataOpsTest {
     }
 
     @Test
+    public void testDropDatabaseReturnsFalseForIfExistsNoOp() throws DdlException {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.doThrow(new NamespaceNotFoundException("missing"))
+                .when(namespace).namespaceExists(Mockito.any());
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        LanceMetadataOps ops = new LanceMetadataOps(catalog);
+
+        try {
+            Assertions.assertFalse(ops.dropDb("missing_db", true, false));
+        } finally {
+            client.close();
+        }
+
+        Mockito.verify(namespace, Mockito.never()).dropNamespace(Mockito.any());
+        Mockito.verify(catalog).unregisterDatabase("missing_db");
+    }
+
+    @Test
+    public void testDropDatabaseUsesRemoteDatabaseName() throws DdlException {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(catalog).getDbNullable("sales_db");
+        Mockito.when(database.getRemoteName()).thenReturn("Sales");
+        LanceMetadataOps ops = new LanceMetadataOps(catalog);
+
+        try {
+            Assertions.assertTrue(ops.dropDb("sales_db", false, true));
+        } finally {
+            client.close();
+        }
+
+        ArgumentCaptor<DropNamespaceRequest> request = ArgumentCaptor.forClass(DropNamespaceRequest.class);
+        Mockito.verify(namespace).dropNamespace(request.capture());
+        Assertions.assertEquals(Arrays.asList("tenant", "Sales"), request.getValue().getId());
+        Mockito.verify(catalog).unregisterDatabase("sales_db");
+    }
+
+    @Test
     public void testDropAndRenameInvalidateTableAccessCacheEvenWhenReplayCacheMisses() throws DdlException {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
         LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
@@ -298,15 +339,13 @@ public class LanceMetadataOpsTest {
         Mockito.doReturn(database).when(catalog).getDbNullable("local_db");
         Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
         Mockito.when(database.getRemoteName()).thenReturn("analytics");
-        ExternalTable oldTable = table("local_db", "events", "analytics", "remote_events");
-        Mockito.when(database.getTableNullable("events")).thenReturn(null, oldTable);
-        ExternalTable table = table("local_db", "renamed_events", "analytics", "renamed_events");
+        Mockito.when(database.getTableNullable("events")).thenReturn(null);
+        ExternalTable table = table("local_db", "events", "analytics", "events");
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
         try {
             Assertions.assertFalse(ops.createDb("analytics", false, Collections.emptyMap()));
             Assertions.assertFalse(ops.createTable(createTableInfo(false)));
-            ops.renameTable("local_db", "events", "renamed_events");
             ops.dropTable(table, false);
             ops.dropDb("analytics", false, false);
         } finally {
@@ -317,13 +356,24 @@ public class LanceMetadataOpsTest {
         Mockito.verify(catalog).unregisterDatabase("analytics");
         Mockito.verify(database, Mockito.times(2)).resetMetaCacheNames();
         Mockito.verify(database).unregisterTable("events");
-        Mockito.verify(database).unregisterTable("renamed_events");
-        ArgumentCaptor<RenameTableRequest> renameRequest =
-                ArgumentCaptor.forClass(RenameTableRequest.class);
-        Mockito.verify(namespace).renameTable(renameRequest.capture());
-        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "remote_events"),
-                renameRequest.getValue().getId());
-        Assertions.assertEquals("renamed_events", renameRequest.getValue().getNewTableName());
+    }
+
+    @Test
+    public void testRenameTableIsRejected() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+
+        try {
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> new LanceMetadataOps(catalog).renameTable("local_db", "events", "renamed_events"));
+            Assertions.assertTrue(exception.getMessage().contains("not supported"));
+        } finally {
+            client.close();
+        }
+
+        Mockito.verify(namespace, Mockito.never()).renameTable(Mockito.any());
+        Mockito.verify(catalog, Mockito.never()).invalidateTableAccessCache();
     }
 
     @Test
