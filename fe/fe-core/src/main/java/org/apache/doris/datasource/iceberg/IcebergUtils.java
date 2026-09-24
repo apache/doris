@@ -1096,13 +1096,8 @@ public class IcebergUtils {
         for (int i = 0; i < fields.size(); i++) {
             NestedField field = fields.get(i);
             Object value = partitionData.get(i);
-            try {
-                partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
-            } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
-                        e.getMessage());
-                partitionValues.add(null);
-            }
+            // These values also identify delete-file partitions; an unsupported value must never become NULL.
+            partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
         }
         return partitionValues;
     }
@@ -1140,8 +1135,13 @@ public class IcebergUtils {
                     return null;
                 }
                 return value.toString();
-            // case binary, fixed should not supported, because if return string with utf8,
-            // the data maybe be corrupted
+            case BINARY:
+            case FIXED:
+                if (value == null) {
+                    return null;
+                }
+                // Iceberg's Base64 representation preserves arbitrary bytes and the buffer's position/limit.
+                return Transforms.identity(type).toHumanString(type, value);
             case DATE:
                 if (value == null) {
                     return null;
@@ -1165,8 +1165,10 @@ public class IcebergUtils {
                 // (1970-01-01T00:00:00)
                 long timestampMicros = (Long) value;
                 TimestampType timestampType = (TimestampType) type;
+                // Fractional pre-epoch values need a non-negative nanos adjustment (e.g. -1 microsecond).
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
-                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        Math.floorDiv(timestampMicros, 1_000_000),
+                        (int) Math.floorMod(timestampMicros, 1_000_000) * 1000,
                         ZoneOffset.UTC);
                 // type is timestamptz if timestampType.shouldAdjustToUTC() is true
                 if (timestampType.shouldAdjustToUTC()) {
@@ -1370,11 +1372,22 @@ public class IcebergUtils {
                     return Double.parseDouble(normalizeFloatingPointPartitionValue(valueStr));
                 case BOOLEAN:
                     return Boolean.parseBoolean(valueStr);
+                case UUID:
+                    return UUID.fromString(valueStr);
+                case BINARY:
+                case FIXED:
+                    byte[] bytes = Base64.getDecoder().decode(valueStr);
+                    Preconditions.checkArgument(icebergType.typeId() != TypeID.FIXED
+                                    || bytes.length == ((Types.FixedType) icebergType).length(),
+                            "Invalid fixed partition value length: %s", bytes.length);
+                    return ByteBuffer.wrap(bytes);
                 case DATE:
                     // Parse date string (format: yyyy-MM-dd) to epoch day
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType);
+                case TIME:
+                    return LocalTime.parse(valueStr, DateTimeFormatter.ISO_LOCAL_TIME).toNanoOfDay() / 1000;
                 case DECIMAL:
                     return new BigDecimal(valueStr);
                 default:

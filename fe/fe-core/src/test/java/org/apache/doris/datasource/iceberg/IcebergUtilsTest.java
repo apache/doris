@@ -786,6 +786,29 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testBinaryPartitionJsonPreservesBufferBounds() {
+        for (org.apache.iceberg.types.Type type : Arrays.asList(Types.BinaryType.get(), Types.FixedType.ofLength(4))) {
+            Schema schema = new Schema(Types.NestedField.optional(1, "partition_key", type));
+            PartitionSpec spec = PartitionSpec.builderFor(schema).identity("partition_key").build();
+            ByteBuffer buffer = ByteBuffer.allocateDirect(6);
+            buffer.put(new byte[] {42, 0, (byte) 0xff, (byte) 0x80, 0x2f, 42});
+            buffer.position(1);
+            buffer.limit(5);
+            ByteBuffer value = buffer.asReadOnlyBuffer();
+            PartitionData partition = new PartitionData(spec.partitionType());
+            partition.set(0, value);
+            List<String> encoded = IcebergUtils.parsePartitionValuesFromJson(
+                    IcebergUtils.getPartitionDataJson(partition, spec, "UTC"));
+            Assert.assertEquals(Collections.singletonList("AP+ALw=="), encoded);
+            Assert.assertEquals(1, value.position());
+            Assert.assertEquals(5, value.limit());
+            Assert.assertEquals(value, IcebergUtils.parsePartitionValueFromString(encoded.get(0), type));
+        }
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> IcebergUtils.parsePartitionValueFromString("AP+ALw==", Types.FixedType.ofLength(3)));
+    }
+
+    @Test
     public void testGetIdentityPartitionColumnsIgnoresTransformPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),

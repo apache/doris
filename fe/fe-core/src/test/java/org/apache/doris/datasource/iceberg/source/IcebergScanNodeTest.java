@@ -1912,8 +1912,81 @@ public class IcebergScanNodeTest {
         assertDeleteSplitPartitionMetadata(table);
     }
 
+    @Test
+    public void testDeleteSplitKeepsBinaryPartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.BinaryType.get(),
+                ByteBuffer.wrap(new byte[] {0, (byte) 0xff, (byte) 0x80, 0x2f}));
+        assertDeleteAfterDroppingPartitionField(Types.BinaryType.get(), ByteBuffer.allocate(0));
+        assertDeleteAfterDroppingPartitionField(Types.BinaryType.get(), null);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsFixedPartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.FixedType.ofLength(4),
+                ByteBuffer.wrap(new byte[] {0, (byte) 0xff, (byte) 0x80, 0x2f}));
+        assertDeleteAfterDroppingPartitionField(Types.FixedType.ofLength(4), null);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsUuidPartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.UUIDType.get(),
+                UUID.fromString("123e4567-e89b-12d3-a456-426614174000"));
+    }
+
+    @Test
+    public void testDeleteSplitKeepsTimePartitionAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.TimeType.get(), 12_345_678_901L);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsPreEpochTimestampAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withoutZone(), -1L);
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withoutZone(), -1_000_001L);
+    }
+
+    @Test
+    public void testDeleteSplitKeepsPreEpochTimestamptzAfterDroppingField() throws Exception {
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withZone(), -1L);
+        assertDeleteAfterDroppingPartitionField(Types.TimestampType.withZone(), -1_000_001L);
+    }
+
+    private void assertDeleteAfterDroppingPartitionField(org.apache.iceberg.types.Type type, Object value)
+            throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "partition_key", type));
+        Table table = new HadoopTables(new Configuration()).create(schema,
+                PartitionSpec.builderFor(schema).identity("partition_key").build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"),
+                temporaryFolder.newFolder().toURI().toString());
+        PartitionData partition = new PartitionData(table.spec().partitionType());
+        partition.set(0, value);
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                .withPartition(partition).withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        table.updateSpec().removeField("partition_key").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/new.parquet")
+                .withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+
+        Assert.assertTrue(table.spec().isUnpartitioned());
+        assertDeleteSplitPartitionMetadata(table);
+    }
+
     private void assertDeleteSplitPartitionMetadata(Table table) throws Exception {
-        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("UTC");
+        context.setThreadLocalInfo();
+        try {
+            assertDeleteSplitPartitionMetadata(table, context.getSessionVariable());
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void assertDeleteSplitPartitionMetadata(Table table, SessionVariable sessionVariable) throws Exception {
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
         setIcebergTable(node, table);
         setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
         setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
@@ -1934,7 +2007,10 @@ public class IcebergScanNodeTest {
                 Assert.assertTrue("Every data file must carry its spec id through Thrift", file.isSetPartitionSpecId());
                 Assert.assertEquals(task.file().specId(), file.getPartitionSpecId());
                 PartitionSpec spec = table.specs().get(file.getPartitionSpecId());
-                Assert.assertEquals(spec.isPartitioned() ? "[\"7\"]" : "[]", file.getPartitionDataJson());
+                Assert.assertNotNull(file.getPartitionDataJson());
+                if (spec.isUnpartitioned()) {
+                    Assert.assertEquals("[]", file.getPartitionDataJson());
+                }
 
                 TIcebergCommitData commit = new TIcebergCommitData();
                 commit.setFilePath("delete-" + fileCount + ".parquet");
@@ -1946,7 +2022,12 @@ public class IcebergScanNodeTest {
                 DeleteFile delete = IcebergWriterHelper.convertToDeleteFiles(
                         FileFormat.PARQUET, spec, Collections.singletonList(commit)).get(0);
                 Assert.assertEquals(task.file().specId(), delete.specId());
-                Assert.assertEquals(task.file().partition(), delete.partition());
+                Assert.assertEquals(task.file().partition().size(), delete.partition().size());
+                // PartitionData.equals compares binary backing arrays by identity, not byte content.
+                for (int i = 0; i < task.file().partition().size(); i++) {
+                    Assert.assertEquals(task.file().partition().get(i, Object.class),
+                            delete.partition().get(i, Object.class));
+                }
                 fileCount++;
             }
             Assert.assertEquals(table.currentSnapshot().summary().get("total-data-files"),
