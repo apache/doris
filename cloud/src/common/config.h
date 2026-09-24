@@ -231,9 +231,10 @@ CONF_Int64(internal_stage_objects_expire_time_second, "259200"); // 3 * 24 * 360
 // BEs that never come back: a BE directory in which no object changed for this long is deleted.
 // A live BE rewrites a heartbeat object in its directory every spill_s3_heartbeat_interval_second
 // (BE config, 1 hour by default), so keep this many times larger than that; the length of queries
-// does not matter. A value <= 0 disables the task. Incomplete multipart uploads of a crashed BE
-// are invisible to this sweep: configure an AbortIncompleteMultipartUpload lifecycle rule on the
-// bucket for those.
+// does not matter then. A BE that disabled its heartbeat (interval 0) is protected only by its
+// newest spill object, so for such BEs this must exceed the longest query. A value <= 0 disables
+// the task. Incomplete multipart uploads of a crashed BE are invisible to this sweep: configure an
+// AbortIncompleteMultipartUpload lifecycle rule on the bucket for those.
 CONF_mInt64(spill_objects_expire_time_second, "604800"); // 7 * 24 * 3600 seconds
 
 // format with base64: eg, "cloudcloudcloudcloud" -> "c2VsZWN0ZGJzZWxlY3RkYnNlbGVjdGRic2VsZWN0ZGI="

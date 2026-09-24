@@ -53,10 +53,10 @@ void SpillFile::gc() {
     // Delete the spill directory (or object key prefix) directly instead of moving it to a
     // GC directory. No existence check: for object storage a "directory" never exists as an
     // object, while deleting a missing local directory or an empty prefix is a no-op.
+    // The store was ready when create_spill_file() created this file and never goes back.
     auto fs = _data_dir->fs();
-    Status status =
-            fs != nullptr ? fs->delete_directory(_spill_dir)
-                          : Status::InternalError("spill store {} is not ready", _data_dir->path());
+    DORIS_CHECK(fs != nullptr) << "spill store " << _data_dir->path() << " is not ready";
+    Status status = fs->delete_directory(_spill_dir);
     DBUG_EXECUTE_IF("fault_inject::spill_file::gc", {
         status = Status::Error<INTERNAL_ERROR>("fault_inject spill_file gc failed");
     });

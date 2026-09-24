@@ -7843,6 +7843,63 @@ std::string InstanceRecycler::spill_object_prefix() const {
     return "spill/";
 }
 
+std::optional<int64_t> InstanceRecycler::spill_objects_expiration_time() const {
+    if (config::force_immediate_recycle) {
+        return INT64_MAX;
+    }
+    if (config::spill_objects_expire_time_second <= 0) {
+        // A non-positive TTL would select objects of running queries; treat it as "disabled".
+        return std::nullopt;
+    }
+    return duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
+           config::spill_objects_expire_time_second;
+}
+
+int InstanceRecycler::list_expired_spill_groups(StorageVaultAccessor& accessor,
+                                                int64_t expiration_time,
+                                                std::vector<ExpiredSpillGroup>* groups) {
+    // Objects are written by BE under "{vault prefix}/spill/{ip}_{port}/...", and a live BE
+    // rewrites "spill/{ip}_{port}/_heartbeat" every hour. A BE directory is expired only when
+    // nothing in it changed for the whole TTL: objects of a long query of a live BE are kept
+    // however old they are, since the heartbeat keeps the directory fresh. The keys do not name
+    // the instance, so in a vault shared with other instances the sweep also removes the
+    // directories of their dead BEs.
+    const std::string prefix = spill_object_prefix();
+    std::unique_ptr<ListIterator> list_iter;
+    if (accessor.list_directory(prefix, &list_iter) != 0) {
+        return -1;
+    }
+    // Every BE directory "spill/{ip}_{port}/" and every object directly under "spill/" (a
+    // directory marker "spill/" included), with the latest modification time of its objects.
+    std::map<std::string, ExpiredSpillGroup> latest;
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        const std::string& path = file->path;
+        DCHECK(path.starts_with(prefix)) << path;
+        auto slash = path.find('/', prefix.size());
+        const bool is_directory = slash != std::string::npos;
+        std::string group = is_directory ? path.substr(0, slash + 1) : path;
+        auto [it, inserted] = latest.try_emplace(std::move(group),
+                                                 ExpiredSpillGroup {.latest_mtime_s = file->mtime_s,
+                                                                    .bytes = file->size,
+                                                                    .is_directory = is_directory});
+        if (!inserted) {
+            it->second.latest_mtime_s = std::max(it->second.latest_mtime_s, file->mtime_s);
+            it->second.bytes += file->size;
+        }
+    }
+    if (!list_iter->is_valid()) {
+        return -1;
+    }
+    for (auto& [path, group] : latest) {
+        if (group.latest_mtime_s > expiration_time) {
+            continue;
+        }
+        group.path = path;
+        groups->push_back(std::move(group));
+    }
+    return 0;
+}
+
 int InstanceRecycler::recycle_expired_spill_objects() {
     LOG_INFO("begin to recycle expired spill objects").tag("instance_id", instance_id_);
 
@@ -7856,21 +7913,14 @@ int InstanceRecycler::recycle_expired_spill_objects() {
         LOG_INFO("recycle expired spill objects, cost={}s", cost).tag("instance_id", instance_id_);
     };
 
-    if (!config::force_immediate_recycle && config::spill_objects_expire_time_second <= 0) {
-        // A non-positive TTL would select objects of running queries; treat it as "disabled".
+    auto expiration_time = spill_objects_expiration_time();
+    if (!expiration_time.has_value()) {
         LOG_WARNING("skip recycling spill objects: spill_objects_expire_time_second must be > 0")
                 .tag("instance_id", instance_id_)
                 .tag("value", config::spill_objects_expire_time_second);
         return 0;
     }
-    int64_t expiration_time =
-            duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
-            config::spill_objects_expire_time_second;
-    if (config::force_immediate_recycle) {
-        expiration_time = INT64_MAX;
-    }
 
-    const std::string prefix = spill_object_prefix();
     int ret = 0;
     for (const auto& [resource_id, accessor] : accessor_map_) {
         if (stopped()) {
@@ -7881,63 +7931,46 @@ int InstanceRecycler::recycle_expired_spill_objects() {
         if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
             continue;
         }
-        // Objects are written by BE under "{vault prefix}/spill/{ip}_{port}/...", and a live BE
-        // rewrites "spill/{ip}_{port}/_heartbeat" every hour. A BE directory is deleted only
-        // when nothing in it changed for the whole TTL: objects of a long query of a live BE
-        // are kept however old they are, since the heartbeat keeps the directory fresh. The keys
-        // do not name the instance, so in a vault shared with other instances the sweep also
-        // removes the directories of their dead BEs.
-        std::unique_ptr<ListIterator> list_iter;
-        if (accessor->list_directory(prefix, &list_iter) != 0) {
+        std::vector<ExpiredSpillGroup> groups;
+        if (list_expired_spill_groups(*accessor, *expiration_time, &groups) != 0) {
             LOG(WARNING) << "failed to list spill objects, instance_id=" << instance_id_
                          << " resource_id=" << resource_id;
             ret = -1;
             continue;
         }
-        // Latest modification time of every BE directory "spill/{ip}_{port}/".
-        std::map<std::string, int64_t> latest_mtime;
-        for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
-            const std::string& path = file->path;
-            if (!path.starts_with(prefix)) {
-                continue;
+        if (config::enable_recycler_stats_metrics) {
+            // From the listing above: no second LIST for the statistics.
+            for (const auto& group : groups) {
+                metrics_context.total_need_recycle_num++;
+                metrics_context.total_need_recycle_data_size += group.bytes;
             }
-            auto slash = path.find('/', prefix.size());
-            // An object directly under "spill/" is not in any BE directory; it is its own group.
-            std::string group = slash == std::string::npos ? path : path.substr(0, slash + 1);
-            auto [it, inserted] = latest_mtime.emplace(std::move(group), file->mtime_s);
-            if (!inserted) {
-                it->second = std::max(it->second, file->mtime_s);
-            }
+            metrics_context.report(true);
         }
-        if (!list_iter->is_valid()) {
-            LOG(WARNING) << "failed to list spill objects, instance_id=" << instance_id_
-                         << " resource_id=" << resource_id;
-            ret = -1;
-            continue;
-        }
-        for (const auto& [group, mtime] : latest_mtime) {
+        for (const auto& group : groups) {
             if (stopped()) {
                 break;
             }
-            if (mtime > expiration_time) {
-                continue;
-            }
+            // Only a BE directory is deleted as a prefix. An object directly under "spill/" is
+            // deleted alone: a directory marker "spill/" is such an object, and deleting it as a
+            // prefix would sweep the directories of live BEs.
             // The expiration time still applies: objects written after the listing survive.
-            int ret1 = group.ends_with('/') ? accessor->delete_prefix(group, expiration_time)
-                                            : accessor->delete_file(group);
+            int ret1 = group.is_directory ? accessor->delete_prefix(group.path, *expiration_time)
+                                          : accessor->delete_file(group.path);
             if (ret1 != 0) {
                 LOG(WARNING) << "failed to recycle expired spill objects, ret=" << ret1
                              << " instance_id=" << instance_id_ << " resource_id=" << resource_id
-                             << " prefix=" << group;
+                             << " prefix=" << group.path;
                 ret = -1;
                 continue;
             }
             LOG_INFO("recycled expired spill objects")
                     .tag("instance_id", instance_id_)
                     .tag("resource_id", resource_id)
-                    .tag("prefix", group)
-                    .tag("latest_mtime", mtime);
+                    .tag("prefix", group.path)
+                    .tag("latest_mtime", group.latest_mtime_s)
+                    .tag("bytes", group.bytes);
             metrics_context.total_recycled_num++;
+            metrics_context.total_recycled_data_size += group.bytes;
             metrics_context.report();
         }
     }
@@ -8490,6 +8523,37 @@ int InstanceRecycler::scan_and_statistics_expired_stage_objects() {
     };
 
     scan_and_statistics();
+    metrics_context.report(true);
+    return 0;
+}
+
+// Scan and statistics spill groups that need to be recycled: the BE directories and objects
+// under "spill/" of every S3 vault in which nothing changed for spill_objects_expire_time_second
+int InstanceRecycler::scan_and_statistics_expired_spill_objects() {
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_expired_spill_objects");
+
+    auto expiration_time = spill_objects_expiration_time();
+    if (expiration_time.has_value()) {
+        for (const auto& [resource_id, accessor] : accessor_map_) {
+            if (stopped()) {
+                break;
+            }
+            if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
+                continue;
+            }
+            std::vector<ExpiredSpillGroup> groups;
+            if (list_expired_spill_groups(*accessor, *expiration_time, &groups) != 0) {
+                LOG(WARNING) << "failed to list spill objects, instance_id=" << instance_id_
+                             << " resource_id=" << resource_id;
+                continue;
+            }
+            for (const auto& group : groups) {
+                metrics_context.total_need_recycle_num++;
+                metrics_context.total_need_recycle_data_size += group.bytes;
+            }
+        }
+    }
+
     metrics_context.report(true);
     return 0;
 }

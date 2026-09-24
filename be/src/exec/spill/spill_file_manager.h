@@ -125,7 +125,7 @@ private:
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
-    void _retry_pending_query_spill_directories();
+    void _retry_pending_spill_directories();
     /// Queue a failed deletion, merged with a pending ancestor or absorbing pending descendants
     /// of the same store so that an outage keeps about one entry per query.
     void _add_pending_directory(PendingSpillDirectory pending_directory);
