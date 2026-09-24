@@ -18,29 +18,12 @@
 #include "storage/index/snii/query/wildcard_query.h"
 
 #include <cstdint>
-#include <string>
 #include <string_view>
 #include <vector>
 
 #include "storage/index/snii/query/internal/term_expansion.h"
-#include "storage/index/snii/query/internal/wildcard_matcher.h"
 
 namespace doris::snii::query {
-
-namespace {
-
-std::string literal_prefix_for_wildcard(std::string_view pattern) {
-    std::string out;
-    for (char c : pattern) {
-        if (c == '*' || c == '?') {
-            break;
-        }
-        out.push_back(c);
-    }
-    return out;
-}
-
-} // namespace
 
 Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pattern,
                       std::vector<uint32_t>* const docids, int32_t max_expansions) {
@@ -64,18 +47,10 @@ Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pa
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("wildcard_query: null sink");
     }
-    const std::string enum_prefix = literal_prefix_for_wildcard(pattern);
-    // Request-scoped matcher: its two DP scratch rows are reused across every
-    // visited dictionary term, so the whole-dictionary scan triggered by a
-    // leading wildcard performs O(1) scratch allocations instead of O(2N).
-    internal::WildcardMatcher<> matcher(pattern);
-    if (!matcher.pattern_valid()) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "wildcard_query: pattern is not valid UTF-8");
-    }
-    return internal::emit_expanded_docid_union(
-            idx, enum_prefix, [&matcher](std::string_view term) { return matcher(term); }, sink,
-            max_expansions);
+    index_query::TermPattern term_pattern;
+    RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kWildcard,
+                                                     pattern, &term_pattern));
+    return internal::emit_expanded_docid_union(idx, term_pattern, sink, max_expansions);
 }
 
 } // namespace doris::snii::query

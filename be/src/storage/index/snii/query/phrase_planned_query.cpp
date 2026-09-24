@@ -143,9 +143,12 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
     // Expand the tail in the logical plain namespace. The visitor range-seeks
     // past typed internal namespaces before counting max_expansions and decodes
     // escaped physical keys before applying the logical prefix.
+    index_query::TermPattern tail;
+    RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
+                                                     terms.back(), &tail));
     std::vector<LogicalIndexReader::PrefixHit> tail_hits;
     RETURN_IF_ERROR(internal::visit_expanded_plain_terms(
-            idx, terms.back(), [](std::string_view) { return true; },
+            idx, tail,
             [&](LogicalIndexReader::PrefixHit&& hit, bool*) {
                 tail_hits.push_back(std::move(hit));
                 return Status::OK();

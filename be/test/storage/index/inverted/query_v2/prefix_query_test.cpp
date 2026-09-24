@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/query_v2/prefix_query/prefix_query.h"
-
 #include <CLucene.h>
 #include <gtest/gtest.h>
 
@@ -27,7 +25,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/query_v2/prefix_query/prefix_weight.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(store)
@@ -127,13 +125,24 @@ static std::vector<uint32_t> collect_docs(ScorerPtr scorer) {
     return result;
 }
 
+// The terms the shared expansion finds for a prefix.
+static std::vector<std::string> expand_prefix(lucene::index::IndexReader* reader,
+                                              const std::wstring& field, const std::string& prefix,
+                                              int32_t max_expansions) {
+    index_query::TermPattern pattern;
+    EXPECT_TRUE(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix, prefix,
+                                                 &pattern)
+                        .ok());
+    return expand_terms(reader, field, pattern, max_expansions, nullptr);
+}
+
 // --- PrefixQuery construction ---
 
 TEST_F(PrefixQueryV2Test, construction_and_weight) {
     auto ctx = std::make_shared<IndexQueryContext>();
     std::wstring field = StringHelper::to_wstring("content");
 
-    PrefixQuery q(ctx, field, "app");
+    ExpandQuery q(ctx, field, index_query::TermPatternKind::kPrefix, "app");
     auto w = q.weight(false);
     ASSERT_NE(w, nullptr);
 }
@@ -146,7 +155,7 @@ TEST_F(PrefixQueryV2Test, expand_prefix_basic) {
     ASSERT_NE(reader, nullptr);
 
     std::wstring field = StringHelper::to_wstring("content");
-    auto terms = PrefixWeight::expand_prefix(reader.get(), field, "app", 50, nullptr);
+    auto terms = expand_prefix(reader.get(), field, "app", 50);
 
     // Should find: apple, application, apply
     EXPECT_EQ(terms.size(), 3);
@@ -165,7 +174,7 @@ TEST_F(PrefixQueryV2Test, expand_prefix_max_expansions) {
 
     std::wstring field = StringHelper::to_wstring("content");
     // "ban" matches: banana, band, bank → limit to 2
-    auto terms = PrefixWeight::expand_prefix(reader.get(), field, "ban", 2, nullptr);
+    auto terms = expand_prefix(reader.get(), field, "ban", 2);
     EXPECT_EQ(terms.size(), 2);
 
     _CLDECDELETE(dir);
@@ -177,7 +186,7 @@ TEST_F(PrefixQueryV2Test, expand_prefix_no_match) {
     auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     std::wstring field = StringHelper::to_wstring("content");
-    auto terms = PrefixWeight::expand_prefix(reader.get(), field, "zzz", 50, nullptr);
+    auto terms = expand_prefix(reader.get(), field, "zzz", 50);
     EXPECT_TRUE(terms.empty());
 
     _CLDECDELETE(dir);
@@ -189,8 +198,7 @@ TEST_F(PrefixQueryV2Test, expand_prefix_longer_than_terms) {
     auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     std::wstring field = StringHelper::to_wstring("content");
-    auto terms =
-            PrefixWeight::expand_prefix(reader.get(), field, "applicationformxyz", 50, nullptr);
+    auto terms = expand_prefix(reader.get(), field, "applicationformxyz", 50);
     EXPECT_TRUE(terms.empty());
 
     _CLDECDELETE(dir);
@@ -206,7 +214,7 @@ TEST_F(PrefixQueryV2Test, scorer_basic) {
 
     std::wstring field = StringHelper::to_wstring("content");
     // nullable=false to test the non-nullable branch
-    PrefixWeight w(ctx, field, "car", false, 50, false);
+    ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "car");
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
@@ -233,7 +241,7 @@ TEST_F(PrefixQueryV2Test, scorer_nullable) {
     auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     std::wstring field = StringHelper::to_wstring("content");
-    PrefixWeight w(ctx, field, "app", false, 50, true);
+    ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "app");
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
@@ -258,7 +266,7 @@ TEST_F(PrefixQueryV2Test, scorer_no_match_returns_empty) {
     auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     std::wstring field = StringHelper::to_wstring("content");
-    PrefixWeight w(ctx, field, "zzz", false, 50, false);
+    ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "zzz");
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
@@ -276,7 +284,7 @@ TEST_F(PrefixQueryV2Test, scorer_no_match_returns_empty) {
 TEST_F(PrefixQueryV2Test, scorer_no_reader_returns_empty) {
     auto ctx = std::make_shared<IndexQueryContext>();
     std::wstring field = StringHelper::to_wstring("content");
-    PrefixWeight w(ctx, field, "app", false, 50, false);
+    ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "app");
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = 10;
@@ -294,7 +302,7 @@ TEST_F(PrefixQueryV2Test, scorer_with_binding_key) {
     auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     std::wstring field = StringHelper::to_wstring("content");
-    PrefixWeight w(ctx, field, "ban", false, 50, false);
+    ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "ban");
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
@@ -319,7 +327,7 @@ TEST_F(PrefixQueryV2Test, end_to_end) {
     auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
 
     std::wstring field = StringHelper::to_wstring("content");
-    PrefixQuery q(ctx, field, "cat");
+    ExpandQuery q(ctx, field, index_query::TermPatternKind::kPrefix, "cat");
     auto w = q.weight(false);
 
     QueryExecutionContext exec_ctx;

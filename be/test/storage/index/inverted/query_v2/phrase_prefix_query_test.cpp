@@ -26,10 +26,11 @@
 #include <string>
 
 #include "io/fs/local_file_system.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
-#include "storage/index/inverted/query_v2/prefix_query/prefix_weight.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_weight.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(store)
@@ -174,8 +175,8 @@ TEST_F(PhrasePrefixQueryV2Test, single_term_fallback_to_prefix) {
     auto w = q.weight(false);
     ASSERT_NE(w, nullptr);
 
-    // Should be a PrefixWeight, not PhrasePrefixWeight
-    auto prefix_w = std::dynamic_pointer_cast<PrefixWeight>(w);
+    // Should be an ExpandWeight, not PhrasePrefixWeight
+    auto prefix_w = std::dynamic_pointer_cast<ExpandWeight>(w);
     EXPECT_NE(prefix_w, nullptr);
 
     // Execute it
@@ -239,6 +240,31 @@ TEST_F(PhrasePrefixQueryV2Test, phrase_prefix_match) {
     std::set<uint32_t> expected = {0, 1, 6, 10, 11, 19};
     std::set<uint32_t> actual(docs.begin(), docs.end());
     EXPECT_EQ(actual, expected);
+
+    _CLDECDELETE(dir);
+}
+
+TEST_F(PhrasePrefixQueryV2Test, prefix_expansions_follow_the_session_limit) {
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 1;
+    RuntimeState runtime_state;
+    runtime_state.set_query_options(query_options);
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->runtime_state = &runtime_state;
+
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    PhrasePrefixQuery q(ctx, field, make_term_infos({"quick", "bro"}));
+    auto w = q.weight(false);
+
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.readers = {reader};
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+
+    // One expansion keeps "brother", the first term that starts with "bro".
+    EXPECT_EQ(collect_docs(w->scorer(exec_ctx, "")), std::vector<uint32_t> {10});
 
     _CLDECDELETE(dir);
 }

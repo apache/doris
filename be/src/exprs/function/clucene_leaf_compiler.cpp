@@ -25,11 +25,10 @@
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
-#include "storage/index/inverted/query_v2/regexp_query/regexp_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
-#include "storage/index/inverted/query_v2/wildcard_query/wildcard_query.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 namespace doris {
@@ -70,10 +69,11 @@ query_v2::QueryPtr phrase_query(const SearchLeafContext& ctx, const std::wstring
 
 query_v2::QueryPtr pattern_query(const SearchLeafContext& ctx, const std::wstring& field,
                                  logical::ExpandKind kind, const std::string& pattern) {
-    if (kind == logical::ExpandKind::kRegexp) {
-        return std::make_shared<query_v2::RegexpQuery>(ctx.context, field, pattern);
-    }
-    return std::make_shared<query_v2::WildcardQuery>(ctx.context, field, pattern);
+    return std::make_shared<query_v2::ExpandQuery>(
+            ctx.context, field,
+            kind == logical::ExpandKind::kRegexp ? index_query::TermPatternKind::kRegexp
+                                                 : index_query::TermPatternKind::kWildcard,
+            pattern);
 }
 
 } // namespace

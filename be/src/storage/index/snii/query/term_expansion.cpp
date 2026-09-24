@@ -61,14 +61,17 @@ Status prove_no_internal_terms(const reader::LogicalIndexReader& idx,
 } // namespace
 
 Status visit_expanded_plain_terms(const reader::LogicalIndexReader& idx,
-                                  std::string_view enum_prefix, const TermMatcher& matches,
+                                  index_query::TermPattern& pattern,
                                   const reader::LogicalIndexReader::PrefixHitVisitor& visitor,
                                   int32_t max_expansions) {
-    if (!matches || !visitor) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "term_expansion: null matcher or visitor");
+    if (!visitor) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("term_expansion: null visitor");
+    }
+    if (!pattern.can_match()) {
+        return Status::OK();
     }
 
+    const std::string& enum_prefix = pattern.enumeration_prefix();
     reader::DictBlockCache dict_cache(/*max_entries=*/1);
     if (enum_prefix.empty()) {
         RETURN_IF_ERROR(prove_no_internal_terms(idx, &dict_cache));
@@ -80,7 +83,7 @@ Status visit_expanded_plain_terms(const reader::LogicalIndexReader& idx,
     return idx.visit_prefix_terms(
             enum_prefix,
             [&](reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) -> Status {
-                if (!matches(hit.term)) {
+                if (!pattern.matches(hit.term)) {
                     return Status::OK();
                 }
                 bool visitor_stop = false;
@@ -93,7 +96,7 @@ Status visit_expanded_plain_terms(const reader::LogicalIndexReader& idx,
 }
 
 Status emit_expanded_docid_union(const reader::LogicalIndexReader& idx,
-                                 std::string_view enum_prefix, const TermMatcher& matches,
+                                 index_query::TermPattern& pattern,
                                  index_query::DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("term_expansion: null sink");
@@ -101,7 +104,7 @@ Status emit_expanded_docid_union(const reader::LogicalIndexReader& idx,
 
     std::vector<ResolvedDocidPosting> postings;
     RETURN_IF_ERROR(visit_expanded_plain_terms(
-            idx, enum_prefix, matches,
+            idx, pattern,
             [&](reader::LogicalIndexReader::PrefixHit&& hit, bool*) {
                 postings.push_back({std::move(hit.entry), hit.frq_base, hit.prx_base});
                 return Status::OK();

@@ -17,39 +17,36 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include "storage/index/index_query_context.h"
-#include "storage/index/inverted/query_v2/query.h"
-#include "storage/index/inverted/query_v2/regexp_query/regexp_weight.h"
+#include "storage/index/inverted/query_v2/weight.h"
+#include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class RegexpQuery : public Query {
-public:
-    RegexpQuery(IndexQueryContextPtr context, std::wstring field, std::string pattern)
-            : _context(std::move(context)),
-              _field(std::move(field)),
-              _pattern(std::move(pattern)) {}
-    ~RegexpQuery() override = default;
+// The terms of `field` that `pattern` matches, in dictionary order, at most `max_expansions` of
+// them when it is positive.
+std::vector<std::string> expand_terms(lucene::index::IndexReader* reader, const std::wstring& field,
+                                      index_query::TermPattern& pattern, int32_t max_expansions,
+                                      const io::IOContext* io_ctx);
 
-    WeightPtr weight(bool enable_scoring) override {
-        auto pattern = make_exact_match(_pattern);
-        return std::make_shared<RegexpWeight>(std::move(_context), std::move(_field),
-                                              std::move(pattern), enable_scoring, _nullable);
-    }
+// Every document that holds a term the pattern expands to, with a constant score.
+class ExpandWeight : public Weight {
+public:
+    ExpandWeight(IndexQueryContextPtr context, std::wstring field,
+                 index_query::TermPatternKind kind, std::string pattern);
+    ~ExpandWeight() override = default;
+
+    ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
 
 private:
-    static std::string make_exact_match(const std::string& pattern) {
-        if (!pattern.empty() && pattern.front() == '^' && pattern.back() == '$') {
-            return pattern;
-        }
-        return "^(" + pattern + ")$";
-    }
-
     IndexQueryContextPtr _context;
-
     std::wstring _field;
+    index_query::TermPatternKind _kind;
     std::string _pattern;
-    bool _nullable = true;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

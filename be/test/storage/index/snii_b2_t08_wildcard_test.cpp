@@ -15,14 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// T08 -- wildcard matcher scratch reuse.
+// T08 -- wildcard matcher.
 //
-// Proves the request-scoped internal::WildcardMatcher preserves the former ASCII
-// behavior while matching UTF-8 code points, and reuses its two DP scratch rows
-// across every visited term so a whole-dictionary scan performs O(1) heap
-// allocations (<= 2) instead of O(2N). A header-only CountingAllocator gives the
-// deterministic allocation counts; a byte-for-byte copy of the original DP
-// serves as the ASCII equivalence oracle.
+// Proves index_query::WildcardMatcher matches like the original DP, a byte-for-byte
+// copy of which serves as the ASCII equivalence oracle, while matching UTF-8 code
+// points.
 
 #include <gtest/gtest.h>
 
@@ -30,14 +27,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "common/status.h"
 #include "storage/index/query/docid_sink.h"
-#include "storage/index/snii/query/internal/wildcard_matcher.h"
+#include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/wildcard_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -54,57 +50,11 @@ using snii_test::assert_ok;
 using snii_test::build_reader;
 using snii_test::MemoryFile;
 
-// Minimal counting allocator: every allocate() bumps a per-type static counter so
-// tests can assert exact heap-allocation counts without overriding global new.
-// Stateless (all instances compare equal), so std::vector::swap stays a pointer
-// swap that performs no allocation -- exactly what the matcher relies on.
-template <class T>
-struct CountingAllocator {
-    using value_type = T;
-
-    CountingAllocator() noexcept = default;
-    // Converting (rebind) constructor: intentionally non-explicit, as required by
-    // the Allocator named requirement / std::allocator_traits.
-    template <class U>
-    CountingAllocator(const CountingAllocator<U>& /*other*/) noexcept {} // NOLINT(*-explicit-*)
-
-    T* allocate(std::size_t n) {
-        ++s_total_allocs;
-        ++s_live;
-        return static_cast<T*>(::operator new(n * sizeof(T)));
-    }
-    void deallocate(T* p, std::size_t /*n*/) noexcept {
-        --s_live;
-        ::operator delete(p);
-    }
-
-    template <class U>
-    bool operator==(const CountingAllocator<U>& /*other*/) const noexcept {
-        return true;
-    }
-    template <class U>
-    bool operator!=(const CountingAllocator<U>& /*other*/) const noexcept {
-        return false;
-    }
-
-    static void reset() {
-        s_total_allocs = 0;
-        s_live = 0;
-    }
-    static std::size_t total_allocs() { return s_total_allocs; }
-    static std::size_t live() { return s_live; }
-
-    static inline std::size_t s_total_allocs = 0;
-    static inline std::size_t s_live = 0;
-};
-
-// Byte-for-byte copy of the former wildcard_query.cpp DP (templated only so the
-// baseline-characterization test can count its per-call allocations). This is the
-// equivalence oracle the optimized matcher must reproduce exactly.
-template <class Alloc = std::allocator<uint8_t>>
+// Byte-for-byte copy of the former wildcard_query.cpp DP, the equivalence oracle
+// the matcher must reproduce exactly.
 bool wildcard_match_dp_reference(std::string_view pattern, std::string_view text) {
-    std::vector<uint8_t, Alloc> prev(text.size() + 1, 0);
-    std::vector<uint8_t, Alloc> curr(text.size() + 1, 0);
+    std::vector<uint8_t> prev(text.size() + 1, 0);
+    std::vector<uint8_t> curr(text.size() + 1, 0);
     prev[0] = 1;
 
     for (char p : pattern) {
@@ -141,30 +91,15 @@ std::vector<std::string> all_strings_up_to(std::string_view alphabet, size_t max
     return out;
 }
 
-// `count` terms whose first (warmup) entry is the longest (`max_len`); every later
-// term is <= max_len, so a matcher that reuses scratch reallocates only on the
-// first call. The lengths still vary across terms (cycling 0..max_len).
-std::vector<std::string> make_varied_length_terms(size_t count, size_t max_len) {
-    std::vector<std::string> terms;
-    terms.reserve(count);
-    terms.push_back(std::string(max_len, 'a'));
-    for (size_t i = 1; i < count; ++i) {
-        const size_t len = i % (max_len + 1);
-        terms.push_back(std::string(len, static_cast<char>('a' + (i % 26))));
-    }
-    return terms;
-}
-
 // W-EQ-DP: the optimized matcher reproduces the reference DP for ASCII over an
 // exhaustive small-alphabet battery (covers "", leading/trailing '*'/'?',
 // consecutive "**", '?' interplay) plus realistic dictionary patterns/terms. One
-// matcher is reused across all terms of a pattern, so this also proves scratch
-// reuse never corrupts a result.
+// matcher serves every term of a pattern.
 TEST(SniiWildcardQueryTest, MatcherEquivalentToReferenceDp) {
     const std::vector<std::string> exhaustive_patterns = all_strings_up_to("ab*?", 4);
-    const std::vector<std::string> exhaustive_texts = all_strings_up_to("ab", 4);
+    const std::vector<std::string> exhaustive_texts = all_strings_up_to("ab", 6);
     for (const std::string& pattern : exhaustive_patterns) {
-        internal::WildcardMatcher<> matcher(pattern);
+        index_query::WildcardMatcher matcher(pattern);
         for (const std::string& text : exhaustive_texts) {
             EXPECT_EQ(matcher(text), wildcard_match_dp_reference(pattern, text))
                     << "pattern=\"" << pattern << "\" text=\"" << text << "\"";
@@ -189,7 +124,7 @@ TEST(SniiWildcardQueryTest, MatcherEquivalentToReferenceDp) {
                                             "ordering",
                                             std::string(40, 'a')};
     for (const std::string& pattern : patterns) {
-        internal::WildcardMatcher<> matcher(pattern);
+        index_query::WildcardMatcher matcher(pattern);
         for (const std::string& text : terms) {
             EXPECT_EQ(matcher(text), wildcard_match_dp_reference(pattern, text))
                     << "pattern=\"" << pattern << "\" text=\"" << text << "\"";
@@ -199,14 +134,14 @@ TEST(SniiWildcardQueryTest, MatcherEquivalentToReferenceDp) {
 
 // W-EMPTY-PAT: an empty pattern matches only the empty string.
 TEST(SniiWildcardQueryTest, EmptyPatternMatchesOnlyEmptyText) {
-    internal::WildcardMatcher<> matcher("");
+    index_query::WildcardMatcher matcher("");
     EXPECT_TRUE(matcher(""));
     EXPECT_FALSE(matcher("a"));
 }
 
 // W-STAR-ONLY: "*" matches the empty string and any non-empty string.
 TEST(SniiWildcardQueryTest, StarMatchesEverything) {
-    internal::WildcardMatcher<> matcher("*");
+    index_query::WildcardMatcher matcher("*");
     EXPECT_TRUE(matcher(""));
     EXPECT_TRUE(matcher("x"));
     EXPECT_TRUE(matcher("xyz"));
@@ -214,33 +149,45 @@ TEST(SniiWildcardQueryTest, StarMatchesEverything) {
 
 // W-QMARK: "?" matches exactly one UTF-8 code point.
 TEST(SniiWildcardQueryTest, QuestionMarkMatchesExactlyOneUtf8CodePoint) {
-    internal::WildcardMatcher<> matcher("?");
+    index_query::WildcardMatcher matcher("?");
     EXPECT_FALSE(matcher(""));
     EXPECT_TRUE(matcher("a"));
     EXPECT_TRUE(matcher("猫"));
     EXPECT_TRUE(matcher("🔥"));
     EXPECT_FALSE(matcher("ab"));
 
-    internal::WildcardMatcher<> surrounded("a?b");
+    index_query::WildcardMatcher surrounded("a?b");
     EXPECT_TRUE(surrounded("a猫b"));
     EXPECT_TRUE(surrounded("a🔥b"));
     EXPECT_FALSE(surrounded("a猫猫b"));
 
-    internal::WildcardMatcher<> three("a???b");
+    index_query::WildcardMatcher three("a???b");
     EXPECT_FALSE(three("a猫b"));
     EXPECT_TRUE(three("a猫🔥éb"));
 
-    internal::WildcardMatcher<> star_then_two("a*??b");
+    index_query::WildcardMatcher star_then_two("a*??b");
     EXPECT_FALSE(star_then_two("a猫b"));
     EXPECT_TRUE(star_then_two("a猫🔥b"));
 }
 
 // W-UTF8-LITERAL: non-ASCII literals are compared as complete code points.
 TEST(SniiWildcardQueryTest, Utf8LiteralsMatchCompleteCodePoints) {
-    internal::WildcardMatcher<> matcher("猫?火");
+    index_query::WildcardMatcher matcher("猫?火");
     EXPECT_TRUE(matcher("猫🔥火"));
     EXPECT_FALSE(matcher("猫🔥🔥火"));
     EXPECT_FALSE(matcher("狗🔥火"));
+}
+
+// W-ASCII: a pattern of ASCII literals and '*' reads text as bytes, which gives the
+// code-point answer for multi-byte text.
+TEST(SniiWildcardQueryTest, AsciiPatternMatchesMultiByteTextLikeCodePoints) {
+    index_query::WildcardMatcher matcher("a*b");
+    EXPECT_TRUE(matcher("a猫b"));
+    EXPECT_TRUE(matcher("a🔥猫b"));
+    EXPECT_FALSE(matcher("a猫"));
+    index_query::WildcardMatcher suffix("*b");
+    EXPECT_TRUE(suffix("猫b"));
+    EXPECT_FALSE(suffix("b猫"));
 }
 
 // W-INVALID-UTF8: patterns remain strict UTF-8, while malformed raw keyword
@@ -250,17 +197,17 @@ TEST(SniiWildcardQueryTest, MalformedTermsRetainByteCompatibleMatching) {
     const std::string truncated("\xe7\x8c", 2);
     const std::string invalid_continuation("\xe7x\xab", 3);
 
-    internal::WildcardMatcher<> any("*");
+    index_query::WildcardMatcher any("*");
     EXPECT_TRUE(any(invalid_lead));
     EXPECT_TRUE(any(truncated));
     EXPECT_TRUE(any(invalid_continuation));
 
-    internal::WildcardMatcher<> two_bytes("??");
+    index_query::WildcardMatcher two_bytes("??");
     EXPECT_FALSE(two_bytes(invalid_lead));
     EXPECT_TRUE(two_bytes(truncated));
     EXPECT_FALSE(two_bytes(invalid_continuation));
 
-    internal::WildcardMatcher<> invalid_pattern(invalid_lead);
+    index_query::WildcardMatcher invalid_pattern(invalid_lead);
     EXPECT_FALSE(invalid_pattern(invalid_lead));
     EXPECT_FALSE(invalid_pattern("猫"));
 }
@@ -279,7 +226,7 @@ TEST(SniiWildcardQueryTest, InvalidUtf8PatternReturnsInvalidArgument) {
 
 // W-CONSEC-STAR: consecutive '*' degrade gracefully.
 TEST(SniiWildcardQueryTest, ConsecutiveStars) {
-    internal::WildcardMatcher<> matcher("**a**");
+    index_query::WildcardMatcher matcher("**a**");
     EXPECT_TRUE(matcher("a"));
     EXPECT_TRUE(matcher("xax"));
     EXPECT_FALSE(matcher("b"));
@@ -287,59 +234,10 @@ TEST(SniiWildcardQueryTest, ConsecutiveStars) {
 
 // W-ANCHOR: a literal pattern is anchored at both ends (full match only).
 TEST(SniiWildcardQueryTest, LiteralIsFullyAnchored) {
-    internal::WildcardMatcher<> matcher("ab");
+    index_query::WildcardMatcher matcher("ab");
     EXPECT_TRUE(matcher("ab"));
     EXPECT_FALSE(matcher("abc"));
     EXPECT_FALSE(matcher("xab"));
-}
-
-// Perf (deterministic): the matcher allocates its two scratch rows once and reuses
-// them across every term -- total heap allocations stay <= 2 and are independent
-// of the term count N.
-TEST(SniiWildcardQueryTest, MatcherReusesScratchAcrossTerms) {
-    using Alloc = CountingAllocator<uint8_t>;
-
-    auto allocs_for_n = [](size_t n) {
-        Alloc::reset();
-        internal::WildcardMatcher<Alloc> matcher("*a*");
-        for (const std::string& term : make_varied_length_terms(n, /*max_len=*/64)) {
-            matcher(term);
-        }
-        return Alloc::total_allocs();
-    };
-
-    EXPECT_LE(allocs_for_n(1000), 2U);
-    // N-independent: exactly the two scratch rows, whether N=10 or N=1000.
-    EXPECT_EQ(allocs_for_n(10), 2U);
-    EXPECT_EQ(allocs_for_n(1000), 2U);
-    EXPECT_EQ(Alloc::live(), 0U); // matcher destroyed each lambda call: no leak.
-}
-
-// Perf (deterministic): once warmed up with the longest term, the scratch capacity
-// never changes across subsequent shorter/equal-length terms (no realloc).
-TEST(SniiWildcardQueryTest, MatcherScratchCapacityStable) {
-    internal::WildcardMatcher<> matcher("*x*");
-    matcher(std::string(64, 'a')); // warmup with the longest term
-    const size_t cap_after_warmup = matcher.scratch_capacity();
-    EXPECT_GE(cap_after_warmup, 65U);
-    for (size_t len : {size_t {0}, size_t {1}, size_t {7}, size_t {63}, size_t {64}}) {
-        matcher(std::string(len, 'b'));
-        EXPECT_EQ(matcher.scratch_capacity(), cap_after_warmup);
-    }
-}
-
-// Perf baseline (deterministic, contrast): the former per-call DP constructs two
-// std::vectors every call, so N terms cost exactly 2N allocations -- the cost the
-// reused matcher above eliminates.
-TEST(SniiWildcardQueryTest, PerCallDpReferenceAllocatesTwicePerTerm) {
-    using Alloc = CountingAllocator<uint8_t>;
-    Alloc::reset();
-    const std::vector<std::string> terms = make_varied_length_terms(/*count=*/100, /*max_len=*/64);
-    for (const std::string& term : terms) {
-        wildcard_match_dp_reference<Alloc>("*a*", term);
-    }
-    EXPECT_EQ(Alloc::total_allocs(), 2U * terms.size());
-    EXPECT_EQ(Alloc::live(), 0U);
 }
 
 // W-RESULT: end-to-end, "ord*" returns the sorted deduplicated union of the

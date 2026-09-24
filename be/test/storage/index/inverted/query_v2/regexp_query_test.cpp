@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/query_v2/regexp_query/regexp_query.h"
-
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -28,7 +26,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/query_v2/regexp_query/regexp_weight.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -49,23 +47,26 @@ public:
         st = io::global_local_filesystem()->create_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
         std::string field_name = "content";
-        create_test_index(field_name, kTestDir);
+        create_test_index(
+                field_name, kTestDir,
+                {"apple123",   "apple456",     "banana789",     "test123abc", "pattern456",
+                 "regex999",   "match123",     "search456",     "prefix123",  "suffix789",
+                 "apple_test", "banana_data",  "test_pattern",  "data_regex", "apple_banana",
+                 "test_match", "pattern_test", "prefix_suffix", "abc123xyz",  "def456ghi"},
+                "standard");
     }
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-private:
-    void create_test_index(const std::string& field_name, const std::string& dir) {
-        std::vector<std::string> test_data = {
-                "apple123",   "apple456",     "banana789",     "test123abc", "pattern456",
-                "regex999",   "match123",     "search456",     "prefix123",  "suffix789",
-                "apple_test", "banana_data",  "test_pattern",  "data_regex", "apple_banana",
-                "test_match", "pattern_test", "prefix_suffix", "abc123xyz",  "def456ghi"};
-
+protected:
+    // Indexes one document per value with the named tokenizer.
+    static void create_test_index(const std::string& field_name, const std::string& dir,
+                                  const std::vector<std::string>& test_data,
+                                  const std::string& tokenizer) {
         CustomAnalyzerConfig::Builder builder;
-        builder.with_tokenizer_config("standard", {});
+        builder.with_tokenizer_config(tokenizer, {});
         auto custom_analyzer_config = builder.build();
         auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
 
@@ -101,6 +102,11 @@ private:
     }
 };
 
+// SEARCH hands query_v2 a regular expression anchored to whole terms.
+static std::string anchored(const std::string& pattern) {
+    return "^(" + pattern + ")$";
+}
+
 static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
         lucene::index::IndexReader* raw_reader) {
     return {raw_reader, [](lucene::index::IndexReader* reader) {
@@ -121,7 +127,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_construction) {
     std::string pattern = "apple.*";
 
     // Test query construction
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     ASSERT_NE(query, nullptr);
 
     // Test weight creation without scoring
@@ -129,7 +136,7 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_construction) {
     ASSERT_NE(weight, nullptr);
 
     // Verify weight is of correct type
-    auto regexp_weight = std::dynamic_pointer_cast<query_v2::RegexpWeight>(weight);
+    auto regexp_weight = std::dynamic_pointer_cast<query_v2::ExpandWeight>(weight);
     ASSERT_NE(regexp_weight, nullptr);
 }
 
@@ -141,7 +148,8 @@ TEST_F(RegexpQueryV2Test, test_rejects_expensive_bounded_repeat) {
     std::wstring field = StringHelper::to_wstring("content");
     for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
         SCOPED_TRACE(pattern);
-        auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+        auto query = std::make_shared<query_v2::ExpandQuery>(
+                context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
         auto weight = query->weight(false);
         query_v2::QueryExecutionContext exec_ctx;
         EXPECT_THROW(weight->scorer(exec_ctx), Exception);
@@ -157,14 +165,15 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_scoring) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = ".*123.*";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     ASSERT_NE(query, nullptr);
 
     // Test weight creation with scoring enabled
     auto weight = query->weight(true);
     ASSERT_NE(weight, nullptr);
 
-    auto regexp_weight = std::dynamic_pointer_cast<query_v2::RegexpWeight>(weight);
+    auto regexp_weight = std::dynamic_pointer_cast<query_v2::ExpandWeight>(weight);
     ASSERT_NE(regexp_weight, nullptr);
 }
 
@@ -181,7 +190,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "apple.*";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -201,6 +211,34 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
 
     // Should match documents containing terms starting with "apple"
     EXPECT_GT(result.cardinality(), 0);
+
+    _CLDECDELETE(dir);
+}
+
+// RE2 bounds "中(国|华)" by strings whose common bytes end inside a character.
+TEST_F(RegexpQueryV2Test, test_regexp_alternating_multibyte_characters) {
+    const std::string cjk_dir = kTestDir + "/cjk";
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(cjk_dir).ok());
+    create_test_index("content", cjk_dir, {"中一", "中国", "中华", "丰收"}, "keyword");
+
+    auto context = std::make_shared<IndexQueryContext>();
+    auto* dir = FSDirectory::getDirectory(cjk_dir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored("中(国|华)"));
+    auto weight = query->weight(false);
+
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader_holder->maxDoc();
+    exec_ctx.readers = {reader_holder};
+    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    auto scorer = weight->scorer(exec_ctx);
+    roaring::Roaring result;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        result.add(doc);
+    }
+    EXPECT_EQ(result, roaring::Roaring::bitmapOf(2, 1, 2));
 
     _CLDECDELETE(dir);
 }
@@ -227,7 +265,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_different_patterns) {
     };
 
     for (const auto& pattern : patterns) {
-        auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+        auto query = std::make_shared<query_v2::ExpandQuery>(
+                context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
         auto weight = query->weight(false);
 
         query_v2::QueryExecutionContext exec_ctx;
@@ -266,7 +305,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_no_matches) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "nonexistent.*pattern";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -303,7 +343,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_binding_key) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "banana.*";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -339,7 +380,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_destructor) {
     std::string pattern = "test.*";
 
     {
-        auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+        auto query = std::make_shared<query_v2::ExpandQuery>(
+                context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
         auto weight = query->weight(false);
         ASSERT_NE(weight, nullptr);
         // Query and weight will be destroyed at scope exit
@@ -362,7 +404,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_complex_pattern) {
     // Match terms that start with alphanumeric and contain digits
     std::string pattern = "[a-z]+[0-9]+.*";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -395,17 +438,19 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_move_semantics) {
     std::string pattern = "test.*";
 
     // Create query and immediately call weight() to test move semantics
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight1 = query->weight(false);
     ASSERT_NE(weight1, nullptr);
 
     // Create another query to verify weight can be called multiple times
-    auto query2 = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query2 = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight2 = query2->weight(true);
     ASSERT_NE(weight2, nullptr);
 }
 
-TEST_F(RegexpQueryV2Test, test_make_exact_match_anchoring) {
+TEST_F(RegexpQueryV2Test, test_whole_term_match) {
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
@@ -417,7 +462,8 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_anchoring) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "apple123";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -440,7 +486,7 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_anchoring) {
     _CLDECDELETE(dir);
 }
 
-TEST_F(RegexpQueryV2Test, test_make_exact_match_already_anchored) {
+TEST_F(RegexpQueryV2Test, test_whole_term_match_already_anchored) {
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
@@ -452,7 +498,8 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_already_anchored) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "^apple123$";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -475,7 +522,7 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_already_anchored) {
     _CLDECDELETE(dir);
 }
 
-TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_start) {
+TEST_F(RegexpQueryV2Test, test_whole_term_match_anchored_start) {
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
@@ -487,7 +534,8 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_start) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = "^apple.*";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -510,7 +558,7 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_start) {
     _CLDECDELETE(dir);
 }
 
-TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_end) {
+TEST_F(RegexpQueryV2Test, test_whole_term_match_anchored_end) {
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
@@ -522,7 +570,8 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_end) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = ".*123$";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;
@@ -545,7 +594,7 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_partial_anchor_end) {
     _CLDECDELETE(dir);
 }
 
-TEST_F(RegexpQueryV2Test, test_make_exact_match_wildcard_pattern) {
+TEST_F(RegexpQueryV2Test, test_whole_term_match_any_term) {
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
@@ -557,7 +606,8 @@ TEST_F(RegexpQueryV2Test, test_make_exact_match_wildcard_pattern) {
     std::wstring field = StringHelper::to_wstring("content");
     std::string pattern = ".*";
 
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+    auto query = std::make_shared<query_v2::ExpandQuery>(
+            context, field, index_query::TermPatternKind::kRegexp, anchored(pattern));
     auto weight = query->weight(false);
 
     query_v2::QueryExecutionContext exec_ctx;

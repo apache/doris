@@ -18,9 +18,9 @@
 #pragma once
 
 #include "storage/index/index_query_context.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_weight.h"
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
-#include "storage/index/inverted/query_v2/prefix_query/prefix_weight.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/union_postings.h"
 #include "storage/index/inverted/query_v2/weight.h"
@@ -73,8 +73,11 @@ private:
             all_postings.emplace_back(offset, std::move(posting));
         }
 
-        auto expanded_terms = PrefixWeight::expand_prefix(reader.get(), _field, _prefix.second,
-                                                          _max_expansions, _context->io_ctx);
+        index_query::TermPattern tail;
+        THROW_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
+                                                        _prefix.second, &tail));
+        auto expanded_terms =
+                expand_terms(reader.get(), _field, tail, _max_expansions, _context->io_ctx);
         if (expanded_terms.empty()) {
             return std::make_shared<EmptyScorer>();
         }

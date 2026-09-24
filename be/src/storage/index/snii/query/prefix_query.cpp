@@ -49,8 +49,10 @@ Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("prefix_query: null sink");
     }
 
-    return internal::emit_expanded_docid_union(
-            idx, prefix, [](std::string_view) { return true; }, sink, max_expansions);
+    index_query::TermPattern pattern;
+    RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix, prefix,
+                                                     &pattern));
+    return internal::emit_expanded_docid_union(idx, pattern, sink, max_expansions);
 }
 
 } // namespace doris::snii::query

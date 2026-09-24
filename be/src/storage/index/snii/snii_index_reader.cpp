@@ -45,6 +45,7 @@
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/query/docid_sink.h"
 #include "storage/index/query/roaring_docid_sink.h"
+#include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/count_query.h"
@@ -112,12 +113,6 @@ std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
         terms.push_back(term_info.get_single_term());
     }
     return terms;
-}
-
-int32_t max_expansions_of(const IndexQueryContextPtr& context) {
-    return context->runtime_state == nullptr
-                   ? 50
-                   : context->runtime_state->query_options().inverted_index_max_expansions;
 }
 
 bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
@@ -580,7 +575,7 @@ Status SniiIndexReader::query_analyzed(const IndexQueryContextPtr& context,
         }
         longest_value_bytes = std::max(longest_value_bytes, term_info.get_single_term().size());
     }
-    const int32_t max_expansions = max_expansions_of(context);
+    const int32_t max_expansions = index_query::max_expansions(*context);
     const InvertedIndexAnalyzedQuerySemantic semantic {.term_infos = &query_info.term_infos,
                                                        .query_type = query_type,
                                                        .slop = query_info.slop,
@@ -610,7 +605,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                                InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
                                const InvertedIndexAnalyzerCtx* analyzer_ctx) {
     const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
-    const int32_t max_expansions = max_expansions_of(context);
+    const int32_t max_expansions = index_query::max_expansions(*context);
     InvertedIndexQueryInfo query_info;
     std::string plain_analysis_str = search_str;
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {

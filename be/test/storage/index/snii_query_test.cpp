@@ -16,7 +16,6 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <re2/re2.h>
 
 #include <algorithm>
 #include <atomic>
@@ -33,6 +32,7 @@
 #include <vector>
 
 #include "storage/index/query/docid_sink.h"
+#include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
@@ -42,7 +42,6 @@
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/file_writer.h"
-#include "storage/index/snii/query/internal/regex_prefix.h"
 #include "storage/index/snii/query/internal/resolved_phrase_plan.h"
 #include "storage/index/snii/query/internal/term_expansion.h"
 #include "storage/index/snii/query/phrase_query.h"
@@ -764,11 +763,12 @@ TEST(SniiRegexpQueryTest, MatchesV3Golden) {
 // enumeration prefix for left-anchored patterns whose literal scan stops early.
 TEST(SniiRegexpQueryTest, AnchoredPrefixIsTightened) {
     auto prefix_of = [](std::string_view pattern) -> std::string {
-        re2::RE2::Options options;
-        options.set_log_errors(false);
-        const re2::RE2 re(re2::StringPiece(pattern.data(), pattern.size()), options);
-        EXPECT_TRUE(re.ok()) << pattern;
-        return internal::regex_enum_prefix(pattern, re);
+        index_query::TermPattern term_pattern;
+        EXPECT_TRUE(index_query::TermPattern::create(index_query::TermPatternKind::kRegexp, pattern,
+                                                     &term_pattern)
+                            .ok())
+                << pattern;
+        return term_pattern.enumeration_prefix();
     };
 
     // Tightened beyond the naive literal scan (which would yield "").
@@ -782,6 +782,10 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixIsTightened) {
     EXPECT_EQ(prefix_of("ord.*"), "");
     EXPECT_EQ(prefix_of(".*failed.*order.*"), "");
     EXPECT_EQ(prefix_of("[0-9]+"), "");
+    // "^a?b" matches "b" as well as "ab", so no prefix bounds it.
+    EXPECT_EQ(prefix_of("^a?b"), "");
+    // The bytes both bounds share end inside a character; the prefix keeps whole characters.
+    EXPECT_EQ(prefix_of("^(中(国|华))$"), "中");
 }
 
 // Deterministic perf (op-count): the tightened "^(order)" prefix reaches a single
@@ -793,39 +797,28 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixEnumeratesSingleTerm) {
     assert_ok(build_reader(&file, &segment_reader, &index_reader));
 
     constexpr std::string_view kPattern = "^(order)";
-    re2::RE2::Options options;
-    options.set_log_errors(false);
-    const re2::RE2 re(re2::StringPiece(kPattern.data(), kPattern.size()), options);
-    ASSERT_TRUE(re.ok());
+    index_query::TermPattern pattern;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kRegexp, kPattern,
+                                               &pattern));
+    EXPECT_EQ(pattern.enumeration_prefix(), "order");
 
-    const std::string enum_prefix = internal::regex_enum_prefix(kPattern, re);
-    EXPECT_EQ(enum_prefix, "order");
-
-    auto count_matcher = [&](std::string_view prefix) {
-        int calls = 0;
-        std::vector<uint32_t> docids;
-        ::doris::index_query::VectorDocIdSink sink(docids);
-        assert_ok(internal::emit_expanded_docid_union(
-                index_reader, prefix,
-                [&](std::string_view term) {
-                    ++calls;
-                    return re2::RE2::FullMatch(re2::StringPiece(term.data(), term.size()), re);
-                },
-                &sink));
-        return std::pair<int, std::vector<uint32_t>> {calls, std::move(docids)};
+    auto count_terms = [&](std::string_view prefix) {
+        int terms = 0;
+        assert_ok(index_reader.visit_prefix_terms(
+                prefix, [&](reader::LogicalIndexReader::PrefixHit&&, bool*) {
+                    ++terms;
+                    return Status::OK();
+                }));
+        return terms;
     };
+    // The tightened prefix reaches one dictionary term; the empty prefix reaches all 11.
+    EXPECT_EQ(count_terms(pattern.enumeration_prefix()), 1);
+    EXPECT_EQ(count_terms(""), 11);
 
-    // Tightened prefix enumerates only "order" -> exactly one matcher call.
-    auto [tight_calls, tight_docids] = count_matcher(enum_prefix);
-    EXPECT_EQ(tight_calls, 1);
-
-    // The baseline empty prefix (old behavior) scans all 11 dictionary terms.
-    auto [full_calls, full_docids] = count_matcher("");
-    EXPECT_EQ(full_calls, 11);
-
-    // Narrowing is a pure optimization: identical result either way.
-    EXPECT_EQ(tight_docids, all_docids_0_to(9000));
-    EXPECT_EQ(full_docids, all_docids_0_to(9000));
+    std::vector<uint32_t> docids;
+    ::doris::index_query::VectorDocIdSink sink(docids);
+    assert_ok(internal::emit_expanded_docid_union(index_reader, pattern, &sink));
+    EXPECT_EQ(docids, all_docids_0_to(9000));
 }
 
 TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixFiltersTailPrxByExpectedDocs) {

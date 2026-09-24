@@ -20,8 +20,8 @@
 #include "common/exception.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query/query_info.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_weight.h"
 #include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_weight.h"
-#include "storage/index/inverted/query_v2/prefix_query/prefix_query.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
 
@@ -56,8 +56,9 @@ public:
         }
 
         // Only prefix term, no phrase terms — fall back to a plain prefix query.
-        PrefixQuery prefix_query(_context, std::move(_field), std::move(_prefix.value().second));
-        return prefix_query.weight(enable_scoring);
+        return std::make_shared<ExpandWeight>(_context, std::move(_field),
+                                              index_query::TermPatternKind::kPrefix,
+                                              std::move(_prefix.value().second));
     }
 
 private:
@@ -78,14 +79,14 @@ private:
 
         return std::make_shared<PhrasePrefixWeight>(
                 _context, std::move(_field), std::move(_phrase_terms), std::move(_prefix.value()),
-                std::move(bm25_similarity), enable_scoring, _max_expansions, _nullable);
+                std::move(bm25_similarity), enable_scoring, index_query::max_expansions(*_context),
+                _nullable);
     }
 
     IndexQueryContextPtr _context;
     std::wstring _field;
     std::vector<std::pair<size_t, std::string>> _phrase_terms;
     std::optional<std::pair<size_t, std::string>> _prefix;
-    int32_t _max_expansions = 50;
     bool _nullable = true;
 };
 

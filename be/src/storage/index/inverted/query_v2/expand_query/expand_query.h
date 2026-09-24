@@ -17,33 +17,37 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "storage/index/index_query_context.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_weight.h"
 #include "storage/index/inverted/query_v2/query.h"
-#include "storage/index/inverted/query_v2/wildcard_query/wildcard_weight.h"
+#include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class WildcardQuery : public Query {
+// Matches the documents holding a term that a prefix, glob or regular expression expands to.
+class ExpandQuery : public Query {
 public:
-    WildcardQuery(IndexQueryContextPtr context, std::wstring field, std::string pattern)
+    ExpandQuery(IndexQueryContextPtr context, std::wstring field, index_query::TermPatternKind kind,
+                std::string pattern)
             : _context(std::move(context)),
               _field(std::move(field)),
+              _kind(kind),
               _pattern(std::move(pattern)) {}
-    ~WildcardQuery() override = default;
+    ~ExpandQuery() override = default;
 
-    WeightPtr weight(bool enable_scoring) override {
-        return std::make_shared<WildcardWeight>(std::move(_context), std::move(_field),
-                                                std::move(_pattern), enable_scoring, _nullable);
+    // Scores are constant, so scoring changes nothing.
+    WeightPtr weight(bool /*enable_scoring*/) override {
+        return std::make_shared<ExpandWeight>(_context, _field, _kind, _pattern);
     }
 
 private:
     IndexQueryContextPtr _context;
-
     std::wstring _field;
+    index_query::TermPatternKind _kind;
     std::string _pattern;
-    bool _nullable = true;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

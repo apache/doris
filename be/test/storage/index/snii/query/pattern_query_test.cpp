@@ -328,3 +328,38 @@ TEST(SniiPatternQuery, WideWildcardUsesPrefixEnumerationWithoutPerTermLookup) {
 
     std::remove(path.c_str());
 }
+
+TEST(SniiPatternQuery, RegexpWithAnOptionalFirstCharacterFindsEveryMatchingTerm) {
+    Corpus corpus;
+    corpus.doc_count = 4;
+    corpus.docs = {{"ab"}, {"b"}, {"bc"}, {"ca"}};
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    // Matching terms start with "a" or "b", so no enumeration prefix bounds them.
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::regexp_query(idx, "^a?b", &got).ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {0, 1, 2}));
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPatternQuery, RegexpRejectsABoundedRepeatHyperscanRunsSlowly) {
+    const Corpus corpus = BuildRegexpParityCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    std::vector<uint32_t> got;
+    const doris::Status status = query::regexp_query(idx, "(ab?c?d){1000,5000}", &got);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVALID_ARGUMENT>()) << status;
+
+    std::remove(path.c_str());
+}

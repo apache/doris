@@ -25,8 +25,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/query_v2/regexp_query/regexp_query.h"
-#include "storage/index/inverted/query_v2/wildcard_query/wildcard_query.h"
+#include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -151,7 +150,11 @@ TEST_F(RegexpWildcardLowercaseTest, RegexpUppercasePatternNoMatch) {
     std::wstring field = StringHelper::to_wstring("title");
 
     // Pattern "AB.*" should NOT match "abc" (uppercase vs lowercase)
-    auto query = std::make_shared<RegexpQuery>(context, field, "AB.*");
+    auto query =
+            std::make_shared<ExpandQuery>(context, field, index_query::TermPatternKind::kRegexp,
+                                          "^("
+                                          "AB.*"
+                                          ")$");
     auto matched = execute_query(kTestDir, field, query);
 
     EXPECT_EQ(matched.size(), 0)
@@ -164,7 +167,11 @@ TEST_F(RegexpWildcardLowercaseTest, RegexpLowercasePatternMatches) {
     std::wstring field = StringHelper::to_wstring("title");
 
     // Pattern "ab.*" should match "abc" (both lowercase)
-    auto query = std::make_shared<RegexpQuery>(context, field, "ab.*");
+    auto query =
+            std::make_shared<ExpandQuery>(context, field, index_query::TermPatternKind::kRegexp,
+                                          "^("
+                                          "ab.*"
+                                          ")$");
     auto matched = execute_query(kTestDir, field, query);
 
     // Docs 0 and 1 contain "abc", docs 2 and 3 don't
@@ -178,7 +185,8 @@ TEST_F(RegexpWildcardLowercaseTest, WildcardLowercasePatternMatches) {
     std::wstring field = StringHelper::to_wstring("title");
 
     // Pattern "ab*" (already lowercased by function_search.cpp) should match "abc"
-    auto query = std::make_shared<WildcardQuery>(context, field, "ab*");
+    auto query = std::make_shared<ExpandQuery>(context, field,
+                                               index_query::TermPatternKind::kWildcard, "ab*");
     auto matched = execute_query(kTestDir, field, query);
 
     EXPECT_EQ(matched.size(), 2) << "Lowercase wildcard 'ab*' should match lowercased terms 'abc'";
@@ -191,7 +199,8 @@ TEST_F(RegexpWildcardLowercaseTest, WildcardUppercasePatternNoMatch) {
     std::wstring field = StringHelper::to_wstring("title");
 
     // Pattern "AB*" should NOT match "abc" at the WildcardQuery level
-    auto query = std::make_shared<WildcardQuery>(context, field, "AB*");
+    auto query = std::make_shared<ExpandQuery>(context, field,
+                                               index_query::TermPatternKind::kWildcard, "AB*");
     auto matched = execute_query(kTestDir, field, query);
 
     EXPECT_EQ(matched.size(), 0) << "Uppercase wildcard 'AB*' should not match lowercased terms";
@@ -203,7 +212,11 @@ TEST_F(RegexpWildcardLowercaseTest, RegexpComplexPatternMatches) {
     std::wstring field = StringHelper::to_wstring("title");
 
     // Pattern "ch.*y" should match "cherry" (lowercased)
-    auto query = std::make_shared<RegexpQuery>(context, field, "ch.*y");
+    auto query =
+            std::make_shared<ExpandQuery>(context, field, index_query::TermPatternKind::kRegexp,
+                                          "^("
+                                          "ch.*y"
+                                          ")$");
     auto matched = execute_query(kTestDir, field, query);
 
     EXPECT_EQ(matched.size(), 1) << "Regex 'ch.*y' should match 'cherry' in doc 3";
@@ -218,7 +231,8 @@ TEST_F(RegexpWildcardLowercaseTest, WildcardStarMatchesAll) {
     std::wstring field = StringHelper::to_wstring("title");
 
     // Pattern "a*" should match "abc" and "apple"
-    auto query = std::make_shared<WildcardQuery>(context, field, "a*");
+    auto query = std::make_shared<ExpandQuery>(context, field,
+                                               index_query::TermPatternKind::kWildcard, "a*");
     auto matched = execute_query(kTestDir, field, query);
 
     // Docs 0,1 have "abc", doc 2 has "apple", doc 3 has no "a*" terms
