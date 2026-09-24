@@ -1169,9 +1169,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * mode that makes the BE return potentially duplicate rows even for
      * declared unique keys.  In these modes any uniqueness guarantee —
      * whether from OLAP key metadata or from user-declared PRIMARY KEY /
-     * UNIQUE constraints — is unreliable.
+     * UNIQUE constraints — is unreliable. PK/FK join elimination also checks
+     * this scan property before using a declared primary key.
+     *
+     * @return true if scan settings can expose multiple rows for a declared key
      */
-    private boolean isDuplicateProducingScanMode() {
+    public boolean isDuplicateProducingScanMode() {
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         // skipStorageEngineMerge: BE returns unmerged versions — all
         // table types may have duplicate key rows.

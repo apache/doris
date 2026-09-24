@@ -29,7 +29,7 @@ suite("join_elim_line_pattern") {
     """
 
     sql """CREATE TABLE `orders` (
-      `o_orderkey` BIGINT NULL,
+      `o_orderkey` BIGINT NOT NULL,
       `o_partkey` INT NULL,
       `o_suppkey` INT NULL,
       `o_custkey` INT NULL,
