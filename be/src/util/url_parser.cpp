@@ -73,6 +73,21 @@ bool UrlParser::find_query_component(const StringRef& url, StringRef* query) {
     return true;
 }
 
+StringRef UrlParser::find_authority(const StringRef& protocol_end) {
+    // The authority component runs from the end of '://' up to the first '/', '?' or '#',
+    // whichever comes first.
+    int32_t end_pos = _s_slash_search.search(&protocol_end);
+    int32_t question_pos = _s_question_search.search(&protocol_end);
+    if (question_pos >= 0 && (end_pos < 0 || question_pos < end_pos)) {
+        end_pos = question_pos;
+    }
+    int32_t hash_pos = _s_hash_search.search(&protocol_end);
+    if (hash_pos >= 0 && (end_pos < 0 || hash_pos < end_pos)) {
+        end_pos = hash_pos;
+    }
+    return protocol_end.substring(0, end_pos);
+}
+
 bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result) {
     result->data = nullptr;
     result->size = 0;
@@ -90,9 +105,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
 
     switch (part) {
     case AUTHORITY: {
-        // Find first '/'.
-        int32_t end_pos = _s_slash_search.search(&protocol_end);
-        *result = protocol_end.substring(0, end_pos);
+        *result = find_authority(protocol_end);
         break;
     }
 
@@ -127,31 +140,21 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case HOST: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
+        StringRef authority = find_authority(protocol_end);
+        // Find '@' to strip out the userinfo.
+        int32_t start_pos = _s_at_search.search(&authority);
 
         if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
+            // No '@' was found, i.e., no user:pass info was given.
             start_pos = 0;
         } else {
             // Skip '@'.
             start_pos += _s_at.size;
         }
 
-        StringRef host_start = protocol_end.substring(start_pos);
-        // Find first '?'.
-        int32_t query_start_pos = _s_question_search.search(&host_start);
-        if (query_start_pos > 0) {
-            host_start = host_start.substring(0, query_start_pos);
-        }
+        StringRef host_start = authority.substring(start_pos);
         // Find ':' to strip out port.
         int32_t end_pos = _s_colon_search.search(&host_start);
-
-        if (end_pos < 0) {
-            // No port was given. search for '/' to determine ending position.
-            end_pos = _s_slash_search.search(&host_start);
-        }
-
         *result = host_start.substring(0, end_pos);
         break;
     }
@@ -188,31 +191,33 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
     }
 
     case USERINFO: {
+        StringRef authority = find_authority(protocol_end);
         // Find '@'.
-        int32_t end_pos = _s_at_search.search(&protocol_end);
+        int32_t end_pos = _s_at_search.search(&authority);
 
         if (end_pos < 0) {
             // Indicate no user and pass were given.
             return false;
         }
 
-        *result = protocol_end.substring(0, end_pos);
+        *result = authority.substring(0, end_pos);
         break;
     }
 
     case PORT: {
-        // Find '@'.
-        int32_t start_pos = _s_at_search.search(&protocol_end);
+        StringRef authority = find_authority(protocol_end);
+        // Find '@' to strip out the userinfo.
+        int32_t start_pos = _s_at_search.search(&authority);
 
         if (start_pos < 0) {
-            // No '@' was found, i.e., no user:pass info was given, start after _s_protocol.
+            // No '@' was found, i.e., no user:pass info was given.
             start_pos = 0;
         } else {
             // Skip '@'.
             start_pos += _s_at.size;
         }
 
-        StringRef host_start = protocol_end.substring(start_pos);
+        StringRef host_start = authority.substring(start_pos);
         // Find ':' to strip out port.
         int32_t end_pos = _s_colon_search.search(&host_start);
         //no port found
@@ -220,13 +225,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
             return false;
         }
 
-        StringRef port_start_str = host_start.substring(end_pos + _s_colon.size);
-        int32_t port_end_pos = _s_slash_search.search(&port_start_str);
-        //if '/' not found, try to find '?'
-        if (port_end_pos < 0) {
-            port_end_pos = _s_question_search.search(&port_start_str);
-        }
-        *result = port_start_str.substring(0, port_end_pos);
+        *result = host_start.substring(end_pos + _s_colon.size);
         break;
     }
 
