@@ -152,7 +152,7 @@ bool UrlParser::parse_url(const StringRef& url, UrlPart part, StringRef* result)
         }
 
         StringRef host_start = authority.substring(userinfo_end + 1);
-        int32_t end_pos = host_start.size;
+        int32_t end_pos = cast_set<int32_t>(host_start.size);
         if (!host_start.empty() && host_start.data[0] == '[') {
             for (int32_t i = 1; i < host_start.size; ++i) {
                 if (host_start.data[i] == ']') {
