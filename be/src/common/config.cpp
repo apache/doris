@@ -1210,14 +1210,16 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
-// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
-// can be shared by all Lance dataset readers.
+// Lance uses one BE-wide session with separate index/metadata memory budgets and one optional
+// Foyer disk cache shared by data-file blocks and serialized index entries. Changes require a
+// BE restart. Block sizes are managed by Lance-C; changing capacity requires a new directory.
 DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
-DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
-DEFINE_Bool(enable_lance_data_cache, "true");
-DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
-DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
-DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1 GiB
+DEFINE_Bool(enable_lance_foyer_cache, "true");
+// Use a new default directory because the previous data cache used a different disk layout.
+DEFINE_String(lance_foyer_cache_path, "${DORIS_HOME}/lance_foyer_cache");
+// Shared total, not a per-type quota; must be a multiple of 4096 and at least 64 MiB.
+DEFINE_Int64(lance_foyer_cache_disk_capacity_bytes, "107374182400"); // 100 GiB
 
 // I/O buffering budget per Lance scanner, not a cap on its total memory usage.
 // Runtime changes apply to newly created scanners.

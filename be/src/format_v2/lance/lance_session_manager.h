@@ -32,17 +32,17 @@ namespace doris::format::lance {
 class LanceSessionMetrics;
 
 // Owns the single Lance session shared by all queries in one BE process. The session always owns
-// Lance's metadata/index caches and optionally installs the Foyer data-file cache. Readers only
-// open datasets through this class and do not depend on the selected data-cache implementation.
+// Lance's metadata/index memory caches and optionally installs one shared Foyer disk cache for
+// data and index entries. Readers only open datasets through this class and do not depend on the
+// selected cache implementation.
 class LanceSessionManager final {
 public:
     struct Config {
         int64_t lance_index_cache_size_bytes = 0;
         int64_t lance_metadata_cache_size_bytes = 0;
-        bool enable_lance_data_cache = false;
-        std::string lance_data_cache_path;
-        int64_t lance_data_cache_disk_capacity_bytes = 0;
-        int64_t lance_data_cache_read_block_size_bytes = 0;
+        bool enable_lance_foyer_cache = false;
+        std::string lance_foyer_cache_path;
+        int64_t lance_foyer_cache_disk_capacity_bytes = 0;
     };
 
     static LanceSessionManager& instance();

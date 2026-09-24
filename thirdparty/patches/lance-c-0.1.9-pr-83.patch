@@ -15,7 +15,7 @@ index d9a5f2b..29c89c4 100644
 +++ b/README.md
 @@ -70,6 +70,40 @@ Based on the [liblance RFC](https://github.com/lance-format/lance/discussions/60
  | [x] | Filter pushdown | `lance_scanner_set_substrait_filter()` accepts a serialized Substrait `ExtendedExpression`; `lance_scanner_additional_sql_filter()` adds SQL predicates with AND before scanning starts |
- | [x] | Data-file cache | Optional Foyer memory/disk cache for immutable `data/*.lance` reads |
+ | [x] | Data-file cache | Optional Foyer disk cache shared with serializable index entries |
  
 +## Multi-vector search
 +

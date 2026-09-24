@@ -47,6 +47,25 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_metadata_cache_hits_total,
                                      MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_metadata_cache_misses_total,
                                      MetricUnit::OPERATIONS);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(lance_session_foyer_cache_capacity_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_memory_hits_total,
+                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_memory_misses_total,
+                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_disk_hits_total,
+                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_disk_misses_total,
+                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_read_bytes_total,
+                                     MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_write_bytes_total,
+                                     MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_decode_failures_total,
+                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_read_errors_total,
+                                     MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(lance_session_index_disk_cache_write_errors_total,
+                                     MetricUnit::OPERATIONS);
 
 constexpr std::string_view LANCE_SESSION_CACHE_METRICS_HOOK = "lance_session_cache";
 
@@ -59,11 +78,9 @@ LanceSessionManager::Config load_lance_session_config() {
     return {
             .lance_index_cache_size_bytes = config::lance_index_cache_size_bytes,
             .lance_metadata_cache_size_bytes = config::lance_metadata_cache_size_bytes,
-            .enable_lance_data_cache = config::enable_lance_data_cache,
-            .lance_data_cache_path = config::lance_data_cache_path,
-            .lance_data_cache_disk_capacity_bytes = config::lance_data_cache_disk_capacity_bytes,
-            .lance_data_cache_read_block_size_bytes =
-                    config::lance_data_cache_read_block_size_bytes,
+            .enable_lance_foyer_cache = config::enable_lance_foyer_cache,
+            .lance_foyer_cache_path = config::lance_foyer_cache_path,
+            .lance_foyer_cache_disk_capacity_bytes = config::lance_foyer_cache_disk_capacity_bytes,
     };
 }
 
@@ -83,10 +100,22 @@ public:
         INT_GAUGE_METRIC_REGISTER(_entity, lance_session_metadata_cache_entries);
         INT_COUNTER_METRIC_REGISTER(_entity, lance_session_metadata_cache_hits_total);
         INT_COUNTER_METRIC_REGISTER(_entity, lance_session_metadata_cache_misses_total);
+        INT_GAUGE_METRIC_REGISTER(_entity, lance_session_foyer_cache_capacity_bytes);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_memory_hits_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_memory_misses_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_disk_hits_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_disk_misses_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_read_bytes_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_write_bytes_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_decode_failures_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_read_errors_total);
+        INT_COUNTER_METRIC_REGISTER(_entity, lance_session_index_disk_cache_write_errors_total);
 
         lance_session_index_cache_capacity_bytes->set_value(config.lance_index_cache_size_bytes);
         lance_session_metadata_cache_capacity_bytes->set_value(
                 config.lance_metadata_cache_size_bytes);
+        lance_session_foyer_cache_capacity_bytes->set_value(
+                config.enable_lance_foyer_cache ? config.lance_foyer_cache_disk_capacity_bytes : 0);
         _entity->register_hook(std::string(LANCE_SESSION_CACHE_METRICS_HOOK),
                                [this]() { update(); });
         update();
@@ -104,6 +133,16 @@ public:
         METRIC_DEREGISTER(_entity, lance_session_metadata_cache_entries);
         METRIC_DEREGISTER(_entity, lance_session_metadata_cache_hits_total);
         METRIC_DEREGISTER(_entity, lance_session_metadata_cache_misses_total);
+        METRIC_DEREGISTER(_entity, lance_session_foyer_cache_capacity_bytes);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_memory_hits_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_memory_misses_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_disk_hits_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_disk_misses_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_read_bytes_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_write_bytes_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_decode_failures_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_read_errors_total);
+        METRIC_DEREGISTER(_entity, lance_session_index_disk_cache_write_errors_total);
     }
 
 private:
@@ -119,6 +158,8 @@ private:
         lance_session_index_cache_usage_bytes->set_value(
                 metric_value(stats.index_cache_size_bytes));
         lance_session_index_cache_entries->set_value(metric_value(stats.index_cache_entries));
+        // A hit here includes either an L1 memory hit or an L2 serialized-index hit.
+        // The index disk-cache counters below distinguish the two tiers.
         lance_session_index_cache_hits_total->set_value(metric_value(stats.index_cache_hits));
         lance_session_index_cache_misses_total->set_value(metric_value(stats.index_cache_misses));
         lance_session_metadata_cache_usage_bytes->set_value(
@@ -127,6 +168,35 @@ private:
         lance_session_metadata_cache_hits_total->set_value(metric_value(stats.metadata_cache_hits));
         lance_session_metadata_cache_misses_total->set_value(
                 metric_value(stats.metadata_cache_misses));
+
+        // The index disk tier is shared by all datasets in this session. Keep these counters in
+        // BE metrics rather than copying them into a scanner profile, where concurrent queries
+        // would double-count the same cumulative session activity. Write bytes count submitted
+        // serialized bytes, and write errors count serialization failures, not background I/O.
+        LanceIndexDiskCacheStats index_disk_stats {};
+        if (lance_session_get_index_disk_cache_stats(_session, &index_disk_stats) != 0) {
+            LOG_EVERY_N(WARNING, 100)
+                    << lance_error("collect Lance index disk cache statistics").to_string();
+            return;
+        }
+        lance_session_index_disk_cache_memory_hits_total->set_value(
+                metric_value(index_disk_stats.memory_hits));
+        lance_session_index_disk_cache_memory_misses_total->set_value(
+                metric_value(index_disk_stats.memory_misses));
+        lance_session_index_disk_cache_disk_hits_total->set_value(
+                metric_value(index_disk_stats.disk_hits));
+        lance_session_index_disk_cache_disk_misses_total->set_value(
+                metric_value(index_disk_stats.disk_misses));
+        lance_session_index_disk_cache_read_bytes_total->set_value(
+                metric_value(index_disk_stats.disk_read_bytes));
+        lance_session_index_disk_cache_write_bytes_total->set_value(
+                metric_value(index_disk_stats.disk_write_bytes));
+        lance_session_index_disk_cache_decode_failures_total->set_value(
+                metric_value(index_disk_stats.decode_failures));
+        lance_session_index_disk_cache_read_errors_total->set_value(
+                metric_value(index_disk_stats.disk_read_errors));
+        lance_session_index_disk_cache_write_errors_total->set_value(
+                metric_value(index_disk_stats.disk_write_errors));
     }
 
     LanceSession* _session;
@@ -141,6 +211,16 @@ private:
     IntGauge* lance_session_metadata_cache_entries = nullptr;
     IntCounter* lance_session_metadata_cache_hits_total = nullptr;
     IntCounter* lance_session_metadata_cache_misses_total = nullptr;
+    IntGauge* lance_session_foyer_cache_capacity_bytes = nullptr;
+    IntCounter* lance_session_index_disk_cache_memory_hits_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_memory_misses_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_disk_hits_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_disk_misses_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_read_bytes_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_write_bytes_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_decode_failures_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_read_errors_total = nullptr;
+    IntCounter* lance_session_index_disk_cache_write_errors_total = nullptr;
 };
 
 LanceSessionManager& LanceSessionManager::instance() {
@@ -154,13 +234,10 @@ LanceSessionManager::LanceSessionManager(Config config) : _config(std::move(conf
     LOG(INFO) << "Creating BE-wide Lance session manager: lance_index_cache_size_bytes="
               << _config.lance_index_cache_size_bytes
               << ", lance_metadata_cache_size_bytes=" << _config.lance_metadata_cache_size_bytes
-              << ", enable_lance_data_cache=" << _config.enable_lance_data_cache
-              << ", lance_data_cache_path=" << _config.lance_data_cache_path
-              << ", lance_data_cache_disk_capacity_bytes="
-              << _config.lance_data_cache_disk_capacity_bytes
-              << ", lance_data_cache_read_block_size_bytes="
-              << _config.lance_data_cache_read_block_size_bytes
-              << ", foyer_memory_capacity_bytes=" << _config.lance_data_cache_read_block_size_bytes;
+              << ", enable_lance_foyer_cache=" << _config.enable_lance_foyer_cache
+              << ", lance_foyer_cache_path=" << _config.lance_foyer_cache_path
+              << ", lance_foyer_cache_disk_capacity_bytes="
+              << _config.lance_foyer_cache_disk_capacity_bytes;
 }
 
 LanceSessionManager::~LanceSessionManager() {
@@ -169,27 +246,33 @@ LanceSessionManager::~LanceSessionManager() {
 }
 
 Status LanceSessionManager::_initialize() {
-    if (_config.enable_lance_data_cache) {
+    // Validate signed BE settings before converting them to unsigned Lance-C budgets.
+    // Zero remains valid for the two memory caches.
+    if (_config.lance_index_cache_size_bytes < 0 || _config.lance_metadata_cache_size_bytes < 0) {
+        return Status::InvalidArgument(
+                "Lance memory cache sizes must be non-negative: lance_index_cache_size_bytes={}, "
+                "lance_metadata_cache_size_bytes={}",
+                _config.lance_index_cache_size_bytes, _config.lance_metadata_cache_size_bytes);
+    }
+    if (_config.enable_lance_foyer_cache) {
         // Treat the configured cache mode as a process-level requirement. If an enabled
-        // data cache cannot initialize, report the failure instead of silently creating a
+        // cache cannot initialize, report the failure instead of silently creating a
         // session without it. This keeps directory/configuration/device failures visible
         // to the operator. Disabling the cache is an explicit configuration change.
-        const LanceDataCacheOptions data_cache_options {
-                .directory = _config.lance_data_cache_path.c_str(),
-                // Foyer's HybridCache requires a memory tier. Keep it at the minimum useful
-                // capacity of exactly one range-cache block; WriteOnInsertion enqueues disk
-                // writes on insertion rather than waiting for memory-tier eviction.
-                .memory_capacity_bytes =
-                        static_cast<uint64_t>(_config.lance_data_cache_read_block_size_bytes),
+        if (_config.lance_foyer_cache_disk_capacity_bytes <= 0) {
+            return Status::InvalidArgument(
+                    "lance_foyer_cache_disk_capacity_bytes must be positive, got {}",
+                    _config.lance_foyer_cache_disk_capacity_bytes);
+        }
+        const LanceFoyerCacheOptions foyer_cache_options {
+                .directory = _config.lance_foyer_cache_path.c_str(),
                 .disk_capacity_bytes =
-                        static_cast<uint64_t>(_config.lance_data_cache_disk_capacity_bytes),
-                .read_block_size_bytes =
-                        static_cast<uint64_t>(_config.lance_data_cache_read_block_size_bytes),
+                        static_cast<uint64_t>(_config.lance_foyer_cache_disk_capacity_bytes),
         };
-        _session = lance_session_new_with_data_cache(
+        _session = lance_session_new_with_foyer_cache(
                 static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
                 static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes),
-                &data_cache_options);
+                &foyer_cache_options);
     } else {
         _session =
                 lance_session_new(static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
@@ -200,12 +283,12 @@ Status LanceSessionManager::_initialize() {
         // replace it. Keep the original cause (including Foyer's directory/I/O details) and
         // explain how to recover from the initialization status retained by call_once below.
         auto status = lance_error("create shared Lance session");
-        if (_config.enable_lance_data_cache) {
+        if (_config.enable_lance_foyer_cache) {
             status.append(
-                    "; Check the Lance data cache configuration and storage. After fixing the "
-                    "issue, restart this BE. Alternatively, set enable_lance_data_cache=false "
-                    "in be.conf and restart this BE. Session initialization will not be retried "
-                    "in this BE process.");
+                    "; Check the Lance Foyer cache configuration and storage. After fixing the "
+                    "issue, restart this BE. Alternatively, set enable_lance_foyer_cache=false "
+                    "in be.conf and restart this BE. Session initialization will not be "
+                    "retried in this BE process.");
         }
         return status;
     }
@@ -224,7 +307,7 @@ Status LanceSessionManager::open_dataset(const char* uri, const char* const* sto
     // normal return from this lambda, so call_once completes and retains that failure just
     // like a successful initialization. All subsequent readers receive the same copied
     // error; fixing the cache directory alone does not trigger another attempt. This is
-    // intentional: repair the cache configuration/storage (or disable the data cache), then
+    // intentional: repair the cache configuration/storage (or disable the cache), then
     // restart the BE to recreate the process-wide manager and session.
     std::call_once(_initialize_once, [this] { _initialize_status = _initialize(); });
     RETURN_IF_ERROR(_initialize_status);
