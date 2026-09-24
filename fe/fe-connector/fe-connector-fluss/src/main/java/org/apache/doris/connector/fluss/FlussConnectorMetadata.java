@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TTableType;
 
 import org.apache.fluss.client.metadata.LakeSnapshot;
 import org.apache.fluss.exception.DatabaseNotExistException;
-import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.exception.TableNotExistException;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.Schema;
@@ -289,16 +288,9 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     + "', and the fluss connector currently supports only '" + PAIMON_LAKE_FORMAT + "'");
         }
 
-        LakeSnapshot snapshot;
-        try {
-            snapshot = FlussStatementScope.sharedLakeSnapshot(session, flussHandle.toTablePath(),
-                    () -> adminOps.getReadableLakeSnapshot(flussHandle.toTablePath()));
-        } catch (LakeTableSnapshotNotExistException e) {
-            throw new DorisConnectorException("The lake table of '" + flussHandle.getDatabaseName() + "."
-                    + flussHandle.getTableName() + "' has no readable snapshot yet: nothing has been"
-                    + " tiered to the lake. Start (or wait for) the fluss tiering service for this table",
-                    e);
-        }
+        Optional<LakeSnapshot> snapshot = FlussStatementScope.sharedLakeSnapshot(
+                session, flussHandle.toTablePath(),
+                () -> adminOps.getReadableLakeSnapshot(flussHandle.toTablePath()));
 
         Connector sibling = lakeSiblingFactory.apply(PaimonSiblingProperties.synthesize(
                 rawCatalogProperties, flussHandle.getProperties(), lakeOverrides));
@@ -313,20 +305,34 @@ public class FlussConnectorMetadata implements ConnectorMetadata {
                     + flussHandle.getTableName() + "' does not exist yet: nothing has been tiered to the"
                     + " lake. Start (or wait for) the fluss tiering service for this table");
         }
-        ConnectorMvccSnapshot pin = forward(session, sibling,
-                m -> m.resolveTimeTravel(session, lakeHandle.get(),
-                        ConnectorTimeTravelSpec.snapshotId(String.valueOf(snapshot.getSnapshotId()))))
-                .orElseThrow(() -> new DorisConnectorException("Fluss reports readable lake snapshot "
-                        + snapshot.getSnapshotId() + " for '" + flussHandle.getDatabaseName() + "."
-                        + flussHandle.getTableName() + "', but the paimon lake no longer contains it"));
-        ConnectorTableHandle pinnedHandle = forward(session, sibling,
-                m -> m.applySnapshot(session, lakeHandle.get(), pin));
+        ConnectorMvccSnapshot pin;
+        if (snapshot.isPresent()) {
+            LakeSnapshot readable = snapshot.get();
+            pin = forward(session, sibling,
+                    m -> m.resolveTimeTravel(session, lakeHandle.get(), ConnectorTimeTravelSpec
+                            .snapshotId(String.valueOf(readable.getSnapshotId()))))
+                    .orElseThrow(() -> new DorisConnectorException("Fluss reports readable lake snapshot "
+                            + readable.getSnapshotId() + " for '" + flussHandle.getDatabaseName() + "."
+                            + flussHandle.getTableName() + "', but the paimon lake no longer contains it"));
+        } else {
+            // $lake is the physical lake view, so unlike $log and a required union read it remains useful
+            // before Fluss publishes its first readable boundary. Ask the sibling to fence its own latest
+            // state; Paimon represents a genuinely empty table with snapshot -1, which keeps it empty even
+            // if the first commit lands while this statement is still being planned.
+            pin = forward(session, sibling,
+                    m -> m.beginQuerySnapshot(session, lakeHandle.get())).orElse(null);
+        }
+        ConnectorTableHandle pinnedHandle = pin == null
+                ? lakeHandle.get()
+                : forward(session, sibling, m -> m.applySnapshot(session, lakeHandle.get(), pin));
 
         // From here on this handle travels back through the engine and returns to the guards below, which
         // route it by asking the sibling whether it is its own. Checked once, here, where a failure still
         // has a cause attached to it.
         pinnedHandle = LakeSibling.requireOwned(sibling, pinnedHandle);
-        lakePins.put(pinnedHandle, pin);
+        if (pin != null) {
+            lakePins.put(pinnedHandle, pin);
+        }
         return Optional.of(pinnedHandle);
     }
 

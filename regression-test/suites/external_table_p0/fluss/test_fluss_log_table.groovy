@@ -45,10 +45,9 @@ suite("test_fluss_log_table", "p0,external") {
     sql """switch ${catalogName}"""
     sql """use fluss_test"""
 
-    // The connector is wired into the v2 file scanner only; the legacy one answers
-    // "Not supported create reader for table format: fluss". Fuzzy sessions randomize
-    // this variable, so pinning it is what keeps the suite from failing on half the
-    // CI runs for a reason that has nothing to do with fluss.
+    // BE always routes Fluss through the v2 scanner, regardless of this session variable. Keep the
+    // explicit value here to document the suite's intended scanner; the misc/merge suites also set it
+    // false and verify that forced routing stays consistent.
     sql """set enable_file_scanner_v2 = true"""
     // TIMESTAMP_LTZ renders through the session time zone, and the baseline below
     // records what it rendered as. Without pinning it, the recorded value would be

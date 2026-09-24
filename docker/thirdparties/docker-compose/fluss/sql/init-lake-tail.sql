@@ -171,5 +171,13 @@ DELETE FROM big_pk WHERE id = 77777;
 DELETE FROM big_pk WHERE id = 99999;
 SET 'execution.runtime-mode' = 'streaming';
 
+-- Model an auto-partition retention cycle after the readable lake snapshot was
+-- published. The rows remain in that pinned Paimon snapshot, but these partition
+-- names disappear from Fluss's live metadata. Queries whose predicates select
+-- only one of them therefore exercise the FE prune-to-zero boundary before the
+-- connector planner, for both LOG and primary-key union reads.
+ALTER TABLE lake_part DROP PARTITION (dt = '20260102');
+ALTER TABLE lake_pk_part DROP PARTITION (dt = '20260102');
+
 -- lake_pk_cold gets nothing: it is the fixture for a primary-key table the lake
 -- already holds in full, where planning must wrap no split and read no tail.

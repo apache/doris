@@ -268,13 +268,12 @@ suite("test_fluss_read_modes", "p0,external") {
     sql """set fluss_union_read_mode = 'disabled'"""
     order_qt_log_rows_session_disabled """select id, name from lake_log\$log"""
 
-    // A value the connector cannot make sense of is refused wherever it is read, `$log`
-    // included: a statement whose setting is a typo is a statement nobody can serve, and
-    // reporting it only sometimes would make the same typo look intermittent.
-    sql """set fluss_union_read_mode = 'sometimes'"""
+    // Refuse a typo when it is assigned, before it can become session state. Deferring this to
+    // whichever table happens to read the value first would make the same invalid SET appear to
+    // work or fail depending on the next statement.
     test {
-        sql """select * from lake_log\$log"""
-        exception "fluss_union_read_mode"
+        sql """set fluss_union_read_mode = 'sometimes'"""
+        exception "fluss_union_read_mode value is invalid"
     }
     sql """set fluss_union_read_mode = ''"""
 
@@ -325,17 +324,6 @@ suite("test_fluss_read_modes", "p0,external") {
     assertTrue(backToCatalogPlan.contains("mode=required")
             && !backToCatalogPlan.contains("(session)"),
             "the plan still credits the session: ${backToCatalogPlan}")
-
-    // The name in the message has to be the name the user typed. Nothing checks at
-    // compile time that the connector spells this variable the way fe-core declares it --
-    // the connector looks it up by name in a map -- so a message naming something else
-    // would be the first sign, and only if someone is reading it.
-    sql """set fluss_union_read_mode = 'sometimes'"""
-    test {
-        sql """select * from lake_log"""
-        exception "session variable 'fluss_union_read_mode'"
-    }
-    sql """set fluss_union_read_mode = ''"""
 
     // --- the decision has to hold for the whole of planning -------------------
     // Planning a primary-key union read asks fluss for the log tails AFTER it has decided

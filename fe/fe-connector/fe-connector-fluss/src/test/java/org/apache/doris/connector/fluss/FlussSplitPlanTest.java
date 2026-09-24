@@ -86,6 +86,15 @@ public class FlussSplitPlanTest {
         siblingExpected = false;
     }
 
+    @Test
+    public void retainedLakeHistoryOptsOutOfTheEnginePruneToZeroShortCircuit() {
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(
+                adminOps, FlussCatalogProperties.of(catalog()), this::lakeSibling);
+
+        Assertions.assertTrue(provider.ignorePartitionPruneShortCircuit(),
+                "live Fluss partitions are not the complete union-table partition universe");
+    }
+
     // ---------------------------------------------------------------- unpartitioned log table
 
     @Test

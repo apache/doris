@@ -397,6 +397,20 @@ public class FlussLakeTableTest {
     }
 
     @Test
+    public void anEmptyPhysicalLakeIsPinnedAsEmptyInsteadOfRejected() {
+        RecordingFlussAdminOps adminOps = withLakeTable();
+        adminOps.readableLakeSnapshot = null;
+        FlussConnectorMetadata metadata = metadata(adminOps);
+
+        RecordingLakeSibling.Handle handle = (RecordingLakeSibling.Handle) lakeHandle(metadata);
+
+        Assertions.assertEquals(-1L, handle.pinnedSnapshotId,
+                "the sibling's empty snapshot fence must survive until scan planning");
+        Assertions.assertTrue(builtSiblings.get(0).calls.contains("beginQuerySnapshot"));
+        Assertions.assertTrue(builtSiblings.get(0).calls.contains("applySnapshot:-1:{}"));
+    }
+
+    @Test
     public void siblingThatDisownsItsHandleFailsLoud() {
         // Connector.ownsHandle defaults to false, so a connector that never overrode it disowns the handles
         // it just produced. Every guard on this side then silently fails open and the first cast throws a

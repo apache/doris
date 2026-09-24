@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -300,5 +301,41 @@ public class FlussConnectorLakeSiblingTest {
 
         Assertions.assertEquals(lakeProperties("s3://bucket/lake"), context.requestedProperties.get(0),
                 "the sibling must not receive a second FE-only copy of shared storage settings");
+    }
+
+    @Test
+    public void kerberosGateSurvivesStorageExtractionAndActivatesThePaimonConsumer()
+            throws Exception {
+        RecordingContext context = new RecordingContext();
+        FlussConnector connector = connector(context);
+        Map<String, String> properties = lakeProperties("hdfs://nameservice/lake");
+        properties.put("hadoop.security.authentication", "kerberos");
+        properties.put("hadoop.kerberos.principal", "doris@EXAMPLE.COM");
+        properties.put("hadoop.kerberos.keytab", "/etc/security/doris.keytab");
+        properties.put("dfs.nameservices", "nameservice");
+
+        connector.getOrCreateLakeSibling(properties);
+
+        Map<String, String> siblingProperties = context.requestedProperties.get(0);
+        Map<String, String> storageProperties =
+                connector.deriveStorageProperties(Collections.emptyMap());
+        Assertions.assertEquals("kerberos",
+                siblingProperties.get("hadoop.security.authentication"));
+        Assertions.assertFalse(siblingProperties.containsKey("hadoop.kerberos.principal"),
+                "identity details belong to the shared FE/BE storage context");
+        Assertions.assertEquals("doris@EXAMPLE.COM",
+                storageProperties.get("hadoop.kerberos.principal"));
+        Assertions.assertNotNull(paimonPluginAuthenticator(siblingProperties, storageProperties),
+                "the real Paimon authentication gate must consume the forwarded raw switch");
+    }
+
+    private static Object paimonPluginAuthenticator(Map<String, String> properties,
+            Map<String, String> storageProperties) throws Exception {
+        Class<?> connectorClass =
+                Class.forName("org.apache.doris.connector.paimon.PaimonConnector");
+        Method builder = connectorClass.getDeclaredMethod(
+                "buildPluginAuthenticator", Map.class, Map.class);
+        builder.setAccessible(true);
+        return builder.invoke(null, properties, storageProperties);
     }
 }

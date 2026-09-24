@@ -18,6 +18,7 @@
 package org.apache.doris.connector.fluss;
 
 import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
 import org.apache.fluss.metadata.TablePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -61,17 +63,38 @@ public class FlussStatementScopeTest {
         TablePath table = TablePath.of("db", "tbl");
         AtomicInteger loads = new AtomicInteger();
 
-        LakeSnapshot first = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
+        Optional<LakeSnapshot> first = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
             loads.incrementAndGet();
             return new LakeSnapshot(11L, Collections.emptyMap());
         });
-        LakeSnapshot second = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
+        Optional<LakeSnapshot> second = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
             loads.incrementAndGet();
             return new LakeSnapshot(12L, Collections.emptyMap());
         });
 
         Assertions.assertSame(first, second);
-        Assertions.assertEquals(11L, second.getSnapshotId());
+        Assertions.assertEquals(11L, second.orElseThrow(AssertionError::new).getSnapshotId());
         Assertions.assertEquals(1, loads.get(), "$lake and $log must use one readable boundary");
+    }
+
+    @Test
+    public void missingLakeSnapshotIsSharedAcrossBothHalvesOfOneStatement() {
+        FlussTestSession session = new FlussTestSession(7L, "query-empty");
+        TablePath table = TablePath.of("db", "tbl");
+        AtomicInteger loads = new AtomicInteger();
+
+        Optional<LakeSnapshot> first = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
+            loads.incrementAndGet();
+            throw new LakeTableSnapshotNotExistException("not tiered yet");
+        });
+        Optional<LakeSnapshot> second = FlussStatementScope.sharedLakeSnapshot(session, table, () -> {
+            loads.incrementAndGet();
+            return new LakeSnapshot(12L, Collections.emptyMap());
+        });
+
+        Assertions.assertFalse(first.isPresent());
+        Assertions.assertSame(first, second);
+        Assertions.assertEquals(1, loads.get(),
+                "the first tiering commit must not move the boundary within one statement");
     }
 }

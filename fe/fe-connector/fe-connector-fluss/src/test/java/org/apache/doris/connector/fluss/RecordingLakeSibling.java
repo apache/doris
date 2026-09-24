@@ -366,6 +366,13 @@ final class RecordingLakeSibling implements Connector {
          * answered here — a caller that invented connector-specific options would go unnoticed otherwise.
          */
         @Override
+        public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+                ConnectorSession session, ConnectorTableHandle handle) {
+            calls.add("beginQuerySnapshot");
+            return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(-1L).build());
+        }
+
+        @Override
         public ConnectorTableHandle applySnapshot(ConnectorSession session,
                 ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
             calls.add("applySnapshot:" + snapshot.getSnapshotId() + ":" + snapshot.getProperties());

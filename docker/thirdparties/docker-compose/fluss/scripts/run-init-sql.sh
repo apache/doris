@@ -62,6 +62,7 @@ MINIO_CONTROL_DIR=/tmp/fluss-minio-control
 MINIO_CLEANUP_WAIT_SECONDS=120
 ZOOKEEPER_CONTROL_DIR=/tmp/fluss-zookeeper-control
 ZOOKEEPER_EXPORT_WAIT_SECONDS=120
+TIERING_CANCEL_WAIT_SECONDS=120
 
 # What each lake fixture must hold in paimon before the tail is written -- the
 # row counts init.sql writes, merged where the table has a primary key. Keep in
@@ -131,6 +132,9 @@ sleep_before() {
     sleep "${seconds}"
 }
 
+# shellcheck source=fluss-job-control.sh
+source /opt/fluss-scripts/fluss-job-control.sh
+
 run_sql_probe() {
     local sql="$1"
     local log="$2"
@@ -171,21 +175,6 @@ sed -e "s|__FLUSS_PAIMON_WAREHOUSE__|${FLUSS_PAIMON_WAREHOUSE}|g" \
     -e "s|__FLUSS_LAKE_S3_ACCESS_KEY__|${FLUSS_LAKE_S3_ACCESS_KEY}|g" \
     -e "s|__FLUSS_LAKE_S3_SECRET_KEY__|${FLUSS_LAKE_S3_SECRET_KEY}|g" \
     "${LAKE_READABLE_COUNTS_TEMPLATE}" >"${MARKER_DIR}/lake-readable-counts-header.sql"
-
-# Cancels every job on the cluster. This cluster runs nothing but the tiering
-# service, and a retry must not leave the previous attempt's job consuming the
-# database the next attempt is about to drop and recreate.
-cancel_all_jobs() {
-    local ids id command_timeout
-    command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 1
-    ids="$(timeout "${command_timeout}" "${FLINK_BIN}" list -r 2>/dev/null \
-        | grep -oE '[0-9a-f]{32}' || true)"
-    for id in ${ids}; do
-        echo "Cancelling flink job ${id}"
-        command_timeout="$(bounded_command_timeout "${INIT_DEADLINE_EPOCH}")" || return 1
-        timeout "${command_timeout}" "${FLINK_BIN}" cancel "${id}" >/dev/null 2>&1 || true
-    done
-}
 
 # Submits the fluss -> paimon tiering service. Detached, because it is a
 # streaming job that has to keep running while init.sql writes.

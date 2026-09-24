@@ -126,10 +126,10 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `lake_log` | lake table, 4 rows tiered + 2 in the log, 3 buckets (some bucket has no tail) |
 | `lake_cold` | lake table read entirely from the lake — no log tail at all |
 | `lake_types` | lake table with the full type coverage; non-NULL rows tiered, the all-NULL row in the log |
-| `lake_part` | lake table partitioned by `dt`; only `20260101` has a log tail |
+| `lake_part` | lake table partitioned by `dt`; `20260101` has a log tail, while `20260102` remains only in the readable lake snapshot after its live Fluss partition is dropped to model retention |
 | `lake_pk` | primary-key lake table, one bucket; its tail updates one tiered row, deletes another and adds a key the lake never saw |
 | `lake_pk_multi` | primary-key lake table over 3 buckets; the tail reaches some buckets and not others, which is what makes per-bucket binding observable |
-| `lake_pk_part` | primary-key lake table partitioned by `dt`: `20260101` is lake + tail, `20260102` is lake only, `20260103` was written after tiering stopped so the lake has never seen it |
+| `lake_pk_part` | primary-key lake table partitioned by `dt`: `20260101` is lake + tail, `20260102` remains only in the readable lake snapshot after its live Fluss partition is dropped, and `20260103` was written after tiering stopped so the lake has never seen it |
 | `lake_pk_cold` | primary-key lake table read entirely from the lake — no tail, so nothing to merge |
 | `lake_nested` | lake table with nested complex types; the populated row is tiered, the all-NULL row stays in the log |
 | `lake_empty` | lake table nothing was ever written to, so tiering has never committed and there is no snapshot to read |
@@ -154,7 +154,8 @@ Building them takes three steps (`scripts/run-init-sql.sh`):
    exact Paimon snapshot rather than Paimon's latest snapshot or Fluss's
    snapshot-plus-log view;
 3. the tiering job is cancelled, and only then does `sql/init-lake-tail.sql`
-   write the rows that must stay in the fluss log.
+   write the rows that must stay in the fluss log and drop the two live
+   `20260102` partitions whose already-tiered rows must remain queryable.
 
 Both the counting and the cancelling are load-bearing. Left running, the tiering
 service would keep consuming the tail, and a suite asserting that a table is read

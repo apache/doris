@@ -183,7 +183,8 @@ public class FlussConnector implements Connector {
             lakeStorageProperties = Collections.unmodifiableMap(
                     LakeStorageOptions.toStorageProperties(siblingProperties));
             Map<String, String> metadataProperties = new HashMap<>(siblingProperties);
-            metadataProperties.keySet().removeIf(LakeStorageOptions::isStorageOption);
+            metadataProperties.keySet().removeIf(option -> LakeStorageOptions.isStorageOption(option)
+                    && !LakeStorageOptions.isSiblingAuthenticationGate(option));
             Connector sibling =
                     context.createSiblingConnector(PAIMON_CONNECTOR_TYPE, metadataProperties);
             if (sibling == null) {

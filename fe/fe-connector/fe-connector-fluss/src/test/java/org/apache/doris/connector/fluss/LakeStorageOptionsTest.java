@@ -107,6 +107,18 @@ public class LakeStorageOptionsTest {
     }
 
     @Test
+    public void kerberosAuthenticationIsBothStorageAndAPaimonConsumerGate() {
+        String option = "hadoop.security.authentication";
+        Assertions.assertTrue(LakeStorageOptions.isStorageOption(option));
+        Assertions.assertTrue(LakeStorageOptions.isSiblingAuthenticationGate(option));
+        Assertions.assertFalse(
+                LakeStorageOptions.isSiblingAuthenticationGate("hadoop.kerberos.principal"));
+        Assertions.assertEquals(Collections.singletonMap(option, "kerberos"),
+                LakeStorageOptions.toStorageProperties(
+                        Collections.singletonMap(option, "kerberos")));
+    }
+
+    @Test
     public void translationIsByNameAndNotByASpellingRule() {
         // The temptation is "replace dashes with underscores". It gets s3.access-key right and everything
         // else wrong: OSS and OBS spell the same setting differently, and a rule would also rewrite keys

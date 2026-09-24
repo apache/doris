@@ -652,8 +652,8 @@ reset_data_dirs() {
     local data_dir
 
     for data_dir in "$@"; do
-        sudo mkdir -p "${data_dir}"
-        sudo rm -rf "${data_dir:?}"/*
+        host_admin_cmd mkdir -p "${data_dir}"
+        host_admin_cmd rm -rf "${data_dir:?}"/*
     done
 }
 
@@ -1522,8 +1522,8 @@ start_fluss() {
     reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
     # The fluss and flink images run as uid 9999, the host directories are
     # created by root.
-    sudo chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
-    sudo chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
+    host_admin_cmd chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    host_admin_cmd chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
 
     compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
 }

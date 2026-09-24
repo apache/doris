@@ -22,9 +22,9 @@
 // fixtures here cover WHERE each half comes from:
 //   lake_pk_multi  three buckets, tail in some of them -- a lake split may only
 //                  be filtered by the tail of its own bucket;
-//   lake_pk_part   three partitions, one lake+tail, one lake only, one that the
-//                  lake has never seen and that is therefore read whole from
-//                  fluss inside the same scan;
+//   lake_pk_part   three logical partitions, one lake+tail, one retained only
+//                  in the lake after its live Fluss partition is dropped, and
+//                  one that the lake has never seen and is read from Fluss;
 //   lake_pk_cold   nothing left in the log, so nothing to merge and nothing to
 //                  plan for.
 //
@@ -137,10 +137,10 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
     order_qt_multi_new """select name from lake_pk_multi where id = 10"""
 
     // --- partitions, each standing differently towards the lake ---------------
-    // 20260101 is lake plus tail, 20260102 is lake alone, 20260103 was created
-    // after tiering stopped and the lake has never heard of it. All three are read
-    // by one scan, which therefore mixes suppressed lake splits, plain lake
-    // splits, and buckets read whole out of fluss.
+    // 20260101 is lake plus tail, 20260102 remains only in the readable lake
+    // snapshot after its live Fluss partition was dropped, and 20260103 was
+    // created after tiering stopped. All three are read by one scan, which mixes
+    // suppressed lake splits, retained lake-only splits, and live Fluss buckets.
     def partPlan = planOf("""select * from lake_pk_part""")
     assertTrue(partPlan.contains("unionRead=yes"), "not a merge: ${partPlan}")
     assertTrue(countIn(partPlan, "lakeSplits") >= 2, "lake half lost a partition: ${partPlan}")
@@ -151,18 +151,32 @@ suite("test_fluss_lake_pk_merge", "p0,external") {
             "the partition the lake never saw was not read from fluss: ${partPlan}")
 
     order_qt_part_rows """select id, name, dt from lake_pk_part"""
-    compareModes("select id, name, dt from lake_pk_part order by dt, id")
 
-    // Pruned to the partition the lake holds in full: lake splits, no tail, and
-    // nothing suppressed. Pruning is per partition on the fluss half and by pushed
-    // predicate on the paimon half, so a plan that keeps the tail here has bound
-    // the two halves at table level.
+    // Pruned to the partition the lake holds in full but current Fluss metadata no
+    // longer lists: lake splits, no tail, and nothing suppressed. This is the real
+    // engine prune-to-zero consumer boundary, not a direct provider invocation.
     def tieredPlan = planOf("""select * from lake_pk_part where dt = '20260102'""")
+    assertTrue(tieredPlan.contains("partition=0/2"),
+            "fixture no longer reaches the engine prune-to-zero boundary: ${tieredPlan}")
     assertTrue(countIn(tieredPlan, "lakeSplits") >= 1, "lake half pruned away: ${tieredPlan}")
     assertEquals(0, countIn(tieredPlan, "suppressedLakeSplits"),
             "a partition with no tail was suppressed: ${tieredPlan}")
-    assertEquals(0, countIn(tieredPlan, "pkTailRanges"), "tail read for nothing: ${tieredPlan}")
     order_qt_part_lake_only """select id, name from lake_pk_part where dt = '20260102'"""
+
+    def retainedRequired = rowsOf(
+            """select id, name from lake_pk_part where dt = '20260102' order by id""")
+    assertTrue(!retainedRequired.isEmpty(), "required mode lost the retained PK partition")
+    assertTrue(rowsOf("""select id, name from ${flussOnlyCatalog}.fluss_test.lake_pk_part
+                         where dt = '20260102' order by id""").isEmpty(),
+            "disabled mode unexpectedly found a partition absent from current Fluss metadata")
+
+    sql """set fluss_union_read_mode = 'auto'"""
+    def retainedAutoPlan = planOf("""select * from lake_pk_part where dt = '20260102'""")
+    assertTrue(retainedAutoPlan.contains("unionRead=yes"),
+            "auto mode fell back before planning retained PK history: ${retainedAutoPlan}")
+    assertEquals(retainedRequired,
+            rowsOf("""select id, name from lake_pk_part where dt = '20260102' order by id"""))
+    sql """set fluss_union_read_mode = ''"""
 
     // Pruned to the partition the lake has never seen: no lake half at all, and
     // its buckets read whole from fluss.
