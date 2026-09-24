@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "core/block/block.h"
@@ -150,6 +151,29 @@ TEST(ExchangeSinkOperatorTest, test_all_remote) {
                              {.is_local = false, .fragment_instance_id = create_TUniqueId(1, 3)},
                              {.is_local = false, .fragment_instance_id = create_TUniqueId(1, 4)},
                              {.is_local = false, .fragment_instance_id = create_TUniqueId(1, 5)}});
+}
+
+TEST(ExchangeSinkOperatorTest, shared_writer_scaling_state_is_synchronized) {
+    auto [op, ctx, mock_channel] = create_exchange_sink(
+            {{.is_local = true, .fragment_instance_id = create_TUniqueId(1, 1)}});
+    constexpr size_t thread_count = 8;
+    constexpr size_t updates_per_thread = 100;
+    std::vector<std::thread> threads;
+    threads.reserve(thread_count);
+    for (size_t i = 0; i < thread_count; ++i) {
+        threads.emplace_back([&] {
+            for (size_t update = 0; update < updates_per_thread; ++update) {
+                op->update_writer_scaling_for_test(1, 1);
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    auto [data_processed, writer_count] = op->writer_scaling_state_for_test();
+    EXPECT_EQ(data_processed, thread_count * updates_per_thread);
+    EXPECT_EQ(writer_count, 1);
 }
 
 TEST(ExchangeSinkOperatorTest, test_some_api) {

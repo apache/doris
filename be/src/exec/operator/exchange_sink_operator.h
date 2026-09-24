@@ -200,6 +200,17 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
+#ifdef BE_TEST
+    size_t update_writer_scaling_for_test(size_t block_bytes, size_t max_writer_count) {
+        return _update_writer_scaling(block_bytes, max_writer_count);
+    }
+
+    std::pair<size_t, size_t> writer_scaling_state_for_test() {
+        LockGuard lock(_writer_scaling_mutex);
+        return {_data_processed, _writer_count};
+    }
+#endif
+
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
@@ -239,6 +250,7 @@ private:
     // or each ExchangeSinkLocalState can have its own sink buffer.
     std::shared_ptr<ExchangeSinkBuffer> _create_buffer(
             RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
+    size_t _update_writer_scaling(size_t block_bytes, size_t max_writer_count);
     std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeState* _state = nullptr;
 
@@ -280,8 +292,9 @@ private:
 
     // for external table sink random partition
     // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
-    size_t _data_processed = 0;
-    int _writer_count = 1;
+    AnnotatedMutex _writer_scaling_mutex;
+    size_t _data_processed GUARDED_BY(_writer_scaling_mutex) = 0;
+    size_t _writer_count GUARDED_BY(_writer_scaling_mutex) = 1;
     // If dest_is_merge is true, it indicates that the corresponding receiver is a VMERGING-EXCHANGE.
     // The receiver will sort the collected data, so the sender must ensure that the data sent is ordered.
     const bool _dest_is_merge;
