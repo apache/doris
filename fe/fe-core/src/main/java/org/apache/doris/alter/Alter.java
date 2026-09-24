@@ -812,7 +812,11 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-            Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(origTable.getId());
+            // NOTICE: this removal is not journaled on its own. replayReplaceTable() reaches this branch with
+            // isReplay, and a follower must not append to the edit log (BDBJE treats a replica side write as
+            // fatal). The OP_REPLACE_TABLE entry which this operation writes owns the transition: its replay
+            // runs this same code again on every frontend.
+            Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
             if (origTable instanceof MTMV) {
                 Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
             }

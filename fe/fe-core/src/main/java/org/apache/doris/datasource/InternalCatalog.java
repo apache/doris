@@ -1058,7 +1058,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof BaseTableStream) {
             Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
         }
-        Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(table.getId());
+        // NOTICE: this removal is not journaled on its own. unprotectDropTable() is reached by
+        // replayDropTable() and replayDropDb() with isReplay, and a follower must not append to the edit log
+        // (BDBJE treats a replica side write as fatal). The entry of the enclosing DROP owns this transition:
+        // its replay runs this same code again on every frontend.
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         Env.getCurrentEnv().getConstraintManager().checkAndDropTableConstraints(
