@@ -17,20 +17,13 @@
 
 #include "util/block_compression.h"
 
+#include <brotli/decode.h>
 #include <bzlib.h>
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
-#include <glog/logging.h>
-
-#include <exception>
-// Only used on x86 or x86_64
-#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
-        defined(__i386) || defined(_M_IX86)
-#include <libdeflate.h>
-#endif
-#include <brotli/decode.h>
 #include <glog/log_severity.h>
 #include <glog/logging.h>
+#include <libdeflate.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <lz4/lz4hc.h>
@@ -43,6 +36,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <mutex>
 #include <orc/Exceptions.hh>
@@ -1443,9 +1437,6 @@ private:
     const static int MEM_LEVEL = 8;
 };
 
-// Only used on x86 or x86_64
-#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
-        defined(__i386) || defined(_M_IX86)
 class GzipBlockCompressionByLibdeflate final : public GzipBlockCompression {
 public:
     GzipBlockCompressionByLibdeflate() : GzipBlockCompression() {}
@@ -1474,7 +1465,6 @@ public:
         return Status::OK();
     }
 };
-#endif
 
 class LzoBlockCompression final : public BlockCompressionCodec {
 public:
@@ -1663,13 +1653,7 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
         *codec = ZstdBlockCompression::instance();
         break;
     case tparquet::CompressionCodec::GZIP:
-// Only used on x86 or x86_64
-#if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
-        defined(__i386) || defined(_M_IX86)
         *codec = GzipBlockCompressionByLibdeflate::instance();
-#else
-        *codec = GzipBlockCompression::instance();
-#endif
         break;
     case tparquet::CompressionCodec::LZO:
         *codec = LzoBlockCompression::instance();
