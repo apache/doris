@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <optional>
 #include <roaring/roaring.hh>
 #include <span>
 #include <vector>
@@ -32,6 +31,10 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 index_query::TruthSet collect_truth_set(const ScorerPtr& scorer, const NullBitmapResolver* resolver,
                                         const roaring::Roaring* candidates = nullptr);
 
+// Adds the TRUE rows of a fresh scorer to `rows`, taken from its bitmap view or a postings block at
+// a time where it has one. UNKNOWN rows are not read.
+void collect_true_rows(const ScorerPtr& scorer, roaring::Roaring* rows);
+
 // Intersects the truth sets `collect(scorer, candidates)` returns, reading each scorer only within
 // the rows the ones before it leave TRUE or UNKNOWN; an empty intersection ends the loop.
 template <typename Collect>
@@ -39,13 +42,20 @@ index_query::TruthSet intersect_truth_sets(std::span<ScorerPtr> scorers, uint32_
                                            Collect collect) {
     index_query::TruthSet result;
     result.true_rows.addRange(0, row_count);
-    std::optional<roaring::Roaring> candidates;
+    roaring::Roaring possible;
+    const roaring::Roaring* candidates = nullptr;
     for (ScorerPtr& scorer : scorers) {
-        result.intersect_with(collect(scorer, candidates ? &*candidates : nullptr));
+        result.intersect_with(collect(scorer, candidates));
         if (result.true_rows.isEmpty() && result.null_rows.isEmpty()) {
             break;
         }
-        candidates = result.true_rows | result.null_rows;
+        // Without UNKNOWN rows the TRUE rows are the candidates themselves.
+        if (result.null_rows.isEmpty()) {
+            candidates = &result.true_rows;
+        } else {
+            possible = result.true_rows | result.null_rows;
+            candidates = &possible;
+        }
     }
     return result;
 }

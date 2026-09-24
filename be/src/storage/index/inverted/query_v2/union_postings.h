@@ -23,40 +23,37 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+// A min-heap keeps the unfinished subs ordered by document, so a step or a seek moves only the
+// subs behind it.
 class UnionPostings final : public Postings {
 public:
     explicit UnionPostings(std::vector<SegmentPostingsPtr> subs) : _subs(std::move(subs)) {
-        _doc = TERMINATED;
-        for (auto& sub : _subs) {
-            _doc = std::min(_doc, sub->doc());
+        for (const auto& sub : _subs) {
+            if (sub->doc() != TERMINATED) {
+                _heap.push_back(sub.get());
+            }
         }
+        std::ranges::make_heap(_heap, later);
+        _doc = _heap.empty() ? TERMINATED : _heap.front()->doc();
     }
 
     uint32_t advance() override {
-        uint32_t next = TERMINATED;
-        for (auto& sub : _subs) {
-            uint32_t d = sub->doc();
-            if (d == _doc) {
-                d = sub->advance();
-            }
-            next = std::min(next, d);
+        while (!_heap.empty() && _heap.front()->doc() == _doc) {
+            std::ranges::pop_heap(_heap, later);
+            restore_back(_heap.back()->advance());
         }
-        return _doc = next;
+        return _doc = _heap.empty() ? TERMINATED : _heap.front()->doc();
     }
 
     uint32_t seek(uint32_t target) override {
         if (target <= _doc) {
             return _doc;
         }
-        uint32_t min_doc = TERMINATED;
-        for (auto& sub : _subs) {
-            uint32_t d = sub->doc();
-            if (d < target) {
-                d = sub->seek(target);
-            }
-            min_doc = std::min(min_doc, d);
+        while (!_heap.empty() && _heap.front()->doc() < target) {
+            std::ranges::pop_heap(_heap, later);
+            restore_back(_heap.back()->seek(target));
         }
-        return _doc = min_doc;
+        return _doc = _heap.empty() ? TERMINATED : _heap.front()->doc();
     }
 
     uint32_t doc() const override { return _doc; }
@@ -104,7 +101,21 @@ public:
     }
 
 private:
+    static constexpr auto later = [](const SegmentPostings* left, const SegmentPostings* right) {
+        return left->doc() > right->doc();
+    };
+
+    // Puts the sub popped to the back, now on `doc`, back into the heap, or drops it once done.
+    void restore_back(uint32_t doc) {
+        if (doc == TERMINATED) {
+            _heap.pop_back();
+        } else {
+            std::ranges::push_heap(_heap, later);
+        }
+    }
+
     std::vector<SegmentPostingsPtr> _subs;
+    std::vector<SegmentPostings*> _heap;
     uint32_t _doc = TERMINATED;
 };
 

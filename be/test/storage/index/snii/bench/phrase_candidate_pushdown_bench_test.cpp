@@ -27,9 +27,11 @@
 //   GTEST_ALSO_RUN_DISABLED_TESTS=1 ./run-be-ut.sh --run \
 //       --filter='*PhraseCandidatePushdownBench*' -j <N>
 //
-// PHRASE_CANDIDATE_BENCH_DOCS sets the segment size (default 200000) and
-// PHRASE_CANDIDATE_BENCH_ITERATIONS the samples per measurement (default 10). Times are medians of
-// per-query thread CPU time, which moves far less than wall time on a shared machine.
+// PHRASE_CANDIDATE_BENCH_DOCS sets the segment size (default 200000),
+// PHRASE_CANDIDATE_BENCH_ITERATIONS the samples per measurement (default 10) and
+// PHRASE_CANDIDATE_BENCH_CASES, a comma-separated list of query labels, the queries to run (default
+// all). Times are medians of per-query thread CPU time, which moves far less than wall time on a
+// shared machine.
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -43,6 +45,7 @@
 #include <iostream>
 #include <memory>
 #include <random>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -127,6 +130,17 @@ constexpr BenchQuery kDocIdQueries[] = {
 uint32_t env_or(const char* name, uint32_t fallback) {
     const char* value = std::getenv(name);
     return value == nullptr ? fallback : static_cast<uint32_t>(std::stoul(value));
+}
+
+bool selected(std::string_view label) {
+    const char* cases = std::getenv("PHRASE_CANDIDATE_BENCH_CASES");
+    if (cases == nullptr) {
+        return true;
+    }
+    return std::ranges::any_of(std::views::split(std::string_view(cases), ','),
+                               [label](const auto& part) {
+                                   return std::string_view(part.begin(), part.end()) == label;
+                               });
 }
 
 std::vector<std::string> build_corpus(uint32_t doc_count) {
@@ -364,11 +378,17 @@ void print_row(std::string_view format, const BenchQuery& query, std::string_vie
 void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name, uint32_t doc_count,
                       uint32_t iterations) {
     for (const BenchQuery& query : kDocIdQueries) {
+        if (!selected(query.label)) {
+            continue;
+        }
         roaring::Roaring full;
         const std::string label = fmt::format("reader/{}/docids/{}/full", format_name, query.label);
         median_query_ms(reader, query, nullptr, iterations, &full, label);
     }
     for (const BenchQuery& query : kQueries) {
+        if (!selected(query.label)) {
+            continue;
+        }
         roaring::Roaring full;
         const std::string full_label = fmt::format("reader/{}/{}/full", format_name, query.label);
         const double full_ms =

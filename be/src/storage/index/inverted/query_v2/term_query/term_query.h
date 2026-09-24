@@ -35,7 +35,10 @@ public:
             bm25_similarity = std::make_shared<BM25Similarity>();
             bm25_similarity->for_one_term(_context, _field, _term);
         } else {
-            bm25_similarity = std::make_shared<BM25Similarity>(1.0F, 1.0F);
+            // Unscored terms share one constant similarity instead of each filling a score table.
+            static const SimilarityPtr unscored_similarity =
+                    std::make_shared<BM25Similarity>(1.0F, 1.0F);
+            bm25_similarity = unscored_similarity;
         }
         return std::make_shared<TermWeight>(std::move(_context), std::move(_field),
                                             std::move(_term), std::move(bm25_similarity),

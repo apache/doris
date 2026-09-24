@@ -29,6 +29,11 @@ struct TruthSet {
     roaring::Roaring null_rows;
 
     void intersect_with(const TruthSet& other) {
+        // Without UNKNOWN rows on either side, AND keeps the rows both hold TRUE.
+        if (null_rows.isEmpty() && other.null_rows.isEmpty()) {
+            true_rows &= other.true_rows;
+            return;
+        }
         auto possible = true_rows | null_rows;
         possible &= other.true_rows | other.null_rows;
         true_rows &= other.true_rows;

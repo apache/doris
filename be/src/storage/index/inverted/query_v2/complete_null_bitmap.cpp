@@ -284,6 +284,20 @@ index_query::TruthSet collect_truth_set(const ScorerPtr& scorer, const NullBitma
     return result;
 }
 
+void collect_true_rows(const ScorerPtr& scorer, roaring::Roaring* rows) {
+    if (const auto* truths = scorer->get_true_bitmap(); truths != nullptr) {
+        *rows |= *truths;
+        return;
+    }
+    auto collected =
+            consume_true_rows<false>(*scorer, scorer->doc(), nullptr, [](uint32_t, auto&&) {});
+    if (rows->isEmpty()) {
+        rows->swap(collected);
+    } else {
+        *rows |= collected;
+    }
+}
+
 ScorerPtr materialize_scorer(ScorerPtr source, bool enable_scoring,
                              const NullBitmapResolver* resolver,
                              const roaring::Roaring* candidates) {

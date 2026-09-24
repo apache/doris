@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include <optional>
 #include <roaring/roaring.hh>
 
@@ -76,7 +74,6 @@ private:
         }
 
         if (resolver == nullptr || _logical_field.empty()) {
-            LOG(WARNING) << "TermScorer: Null bitmap resolver or logical field is empty";
             return;
         }
 

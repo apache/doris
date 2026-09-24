@@ -17,6 +17,8 @@
 
 #include "storage/index/inverted/query_v2/intersection.h"
 
+#include <algorithm>
+
 #include "common/status.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
@@ -94,7 +96,8 @@ ScorerPtr make_intersect_scorers(std::vector<ScorerPtr> scorers, uint32_t num_do
 template <typename TDocSet, typename TOtherDocSet>
 template <typename T>
 std::enable_if_t<std::is_same_v<TDocSet, T>, IntersectionPtr<TDocSet, TDocSet>>
-Intersection<TDocSet, TOtherDocSet>::create(std::vector<TDocSet>& docsets, uint32_t num_docs) {
+Intersection<TDocSet, TOtherDocSet>::create(std::vector<TDocSet>& docsets, uint32_t num_docs,
+                                            const roaring::Roaring* candidates) {
     size_t num_docsets = docsets.size();
     if (num_docsets < 2) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -108,18 +111,33 @@ Intersection<TDocSet, TOtherDocSet>::create(std::vector<TDocSet>& docsets, uint3
     TDocSet left = std::move(docsets[0]);
     TDocSet right = std::move(docsets[1]);
     docsets.erase(docsets.begin(), docsets.begin() + 2);
-    return std::make_shared<Intersection<TDocSet, TDocSet>>(std::move(left), std::move(right),
-                                                            std::move(docsets), num_docs);
+    auto intersection = std::make_shared<Intersection<TDocSet, TDocSet>>(
+            std::move(left), std::move(right), std::move(docsets), num_docs, candidates);
+    if (candidates != nullptr) {
+        intersection->intersect_from(intersection->doc());
+    }
+    return intersection;
 }
 
 template <typename TDocSet, typename TOtherDocSet>
 Intersection<TDocSet, TOtherDocSet>::Intersection(TDocSet left, TDocSet right,
                                                   std::vector<TOtherDocSet> others,
-                                                  uint32_t num_docs)
+                                                  uint32_t num_docs,
+                                                  const roaring::Roaring* candidates)
         : _left(std::move(left)),
           _right(std::move(right)),
           _others(std::move(others)),
-          _num_docs(num_docs) {}
+          _num_docs(num_docs) {
+    if (candidates != nullptr) {
+        _candidate_rows.emplace(candidates->begin());
+        const uint64_t count = candidates->cardinality();
+        _candidates_at = (_left->cost() <= count) + (_right->cost() <= count) +
+                         std::ranges::count_if(_others, [count](const TOtherDocSet& other) {
+                             return other->cost() <= count;
+                         });
+        _candidates_lead = _candidates_at <= 1;
+    }
+}
 
 template <typename TDocSet, typename TOtherDocSet>
 uint32_t Intersection<TDocSet, TOtherDocSet>::advance() {
@@ -190,11 +208,14 @@ Intersection<TDocSet, TOtherDocSet>::docset_mut_specialized(size_t ord) {
 
 template <typename TDocSet, typename TOtherDocSet>
 uint32_t Intersection<TDocSet, TOtherDocSet>::intersect_from(uint32_t candidate) {
+    if (_candidates_lead) {
+        candidate = seek_lead(candidate);
+    }
 left_right_intersection:
     while (true) {
         uint32_t right_doc = _right->seek(candidate);
         if (right_doc != candidate) {
-            candidate = _left->seek(right_doc);
+            candidate = seek_lead(right_doc);
             if (candidate != right_doc) {
                 continue;
             }
@@ -202,24 +223,68 @@ left_right_intersection:
         break;
     }
 
-    for (const auto& docset : _others) {
+    for (size_t i = 0; i < _others.size(); ++i) {
+        if (!_candidates_lead && _candidates_at == i + 2 && !check_candidates(&candidate)) {
+            goto left_right_intersection;
+        }
+        const auto& docset = _others[i];
         if (docset->doc() < candidate) {
             uint32_t seek_doc = docset->seek(candidate);
             if (seek_doc > candidate) {
-                candidate = _left->seek(seek_doc);
+                candidate = seek_lead(seek_doc);
                 goto left_right_intersection;
             }
         }
     }
-
+    if (!_candidates_lead && _candidates_at == _others.size() + 2 &&
+        !check_candidates(&candidate)) {
+        goto left_right_intersection;
+    }
     return candidate;
 }
 
-#define INSTANTIATE_INTERSECTION(T)                                             \
-    template class Intersection<T, T>;                                          \
-    template std::enable_if_t<std::is_same_v<T, T>, IntersectionPtr<T, T>>      \
-    Intersection<T, T>::create<T>(std::vector<T> & docsets, uint32_t num_docs); \
-    template std::enable_if_t<std::is_same_v<T, T>, T&>                         \
+template <typename TDocSet, typename TOtherDocSet>
+uint32_t Intersection<TDocSet, TOtherDocSet>::seek_lead(uint32_t target) {
+    uint32_t doc = _left->seek(target);
+    if (!_candidates_lead) {
+        return doc;
+    }
+    while (doc != TERMINATED) {
+        const uint32_t row = next_candidate_row(doc);
+        if (row == doc) {
+            break;
+        }
+        doc = _left->seek(row);
+    }
+    return doc;
+}
+
+template <typename TDocSet, typename TOtherDocSet>
+bool Intersection<TDocSet, TOtherDocSet>::check_candidates(uint32_t* doc) {
+    const uint32_t row = next_candidate_row(*doc);
+    if (row == *doc) {
+        return true;
+    }
+    *doc = seek_lead(row);
+    return false;
+}
+
+template <typename TDocSet, typename TOtherDocSet>
+uint32_t Intersection<TDocSet, TOtherDocSet>::next_candidate_row(uint32_t doc) {
+    auto& rows = *_candidate_rows;
+    // Targets only grow, so a row at or past `doc` is already the first one for it.
+    if (rows.i.has_value && *rows < doc) {
+        rows.equalorlarger(doc);
+    }
+    return rows.i.has_value ? *rows : TERMINATED;
+}
+
+#define INSTANTIATE_INTERSECTION(T)                                            \
+    template class Intersection<T, T>;                                         \
+    template std::enable_if_t<std::is_same_v<T, T>, IntersectionPtr<T, T>>     \
+    Intersection<T, T>::create<T>(std::vector<T> & docsets, uint32_t num_docs, \
+                                  const roaring::Roaring* candidates);         \
+    template std::enable_if_t<std::is_same_v<T, T>, T&>                        \
     Intersection<T, T>::docset_mut_specialized<T>(size_t ord);
 
 INSTANTIATE_INTERSECTION(PostingsPtr)

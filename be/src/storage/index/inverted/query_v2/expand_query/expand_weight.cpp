@@ -40,6 +40,8 @@
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/exec/collect_postings.h"
+#include "storage/index/query/roaring_docid_sink.h"
 
 CL_NS_USE(index)
 
@@ -104,12 +106,12 @@ ScorerPtr ExpandWeight::scorer(const QueryExecutionContext& context,
                                         index_query::max_expansions(*_context), _context->io_ctx);
         if (!terms.empty()) {
             auto docs = std::make_shared<roaring::Roaring>();
+            index_query::RoaringDocIdSink sink(*docs);
             for (const auto& term : terms) {
                 auto postings = create_term_posting(reader.get(), _field, term, false, nullptr,
                                                     _context->io_ctx);
-                for (uint32_t doc = postings->doc(); doc != TERMINATED; doc = postings->advance()) {
-                    docs->add(doc);
-                }
+                THROW_IF_ERROR(index_query::collect_postings<false>(
+                        postings->doc_set(), nullptr, sink, [](uint32_t, uint32_t, uint32_t) {}));
             }
             scorer = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
                     std::make_shared<BitSetScorer>(std::move(docs)));
