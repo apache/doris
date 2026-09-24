@@ -568,14 +568,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     // Two captures keep the callback inside std::function's inline storage.
     const index_query::logical::AnalyzeValue analyze =
             [analyzer_ctx, &properties](std::string_view value, std::vector<TermInfo>* tokens) {
-                RETURN_IF_ERROR(inverted_index::InvertedIndexAnalyzer::analyze(value, analyzer_ctx,
-                                                                               properties, tokens));
-                // SNII's phrases take one term per position, so tokens an analyzer stacks at one
-                // position run one after another, in the order it emitted them.
-                for (size_t i = 0; i < tokens->size(); ++i) {
-                    (*tokens)[i].position = static_cast<int32_t>(i + 1);
-                }
-                return Status::OK();
+                return inverted_index::InvertedIndexAnalyzer::analyze(value, analyzer_ctx,
+                                                                      properties, tokens);
             };
     SniiQueryRequest request {
             .query_type = query_type,

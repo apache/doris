@@ -84,8 +84,9 @@ using AnalyzeValue = std::function<Status(std::string_view value, std::vector<To
 
 // Lowers a predicate on one index: MATCH_ANY, MATCH_ALL, MATCH_PHRASE, MATCH_PHRASE_PREFIX,
 // MATCH_REGEXP, EQUAL or WILDCARD. The value is analyzed, except a MATCH_REGEXP or WILDCARD
-// pattern, which is taken as written. A MATCH_PHRASE value ending in " ~N" or " ~N+" has slop N,
-// and "+" keeps the tokens in order.
+// pattern, which is taken as written, and its tokens take positions in the order the analyzer
+// emits them. A MATCH_PHRASE value ending in " ~N" or " ~N+" has slop N, and "+" keeps the tokens
+// in order.
 Status lower_match(segment_v2::InvertedIndexQueryType query_type, std::string_view value,
                    const AnalyzeValue& analyze, Node* out);
 

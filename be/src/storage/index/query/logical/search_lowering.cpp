@@ -339,6 +339,11 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
     }
     std::vector<Token> tokens;
     RETURN_IF_ERROR(analyze(value, &tokens));
+    // MATCH places a phrase's tokens by their order, so tokens an analyzer stacks at one position
+    // run one after another.
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        tokens[i].position = static_cast<int32_t>(i + 1);
+    }
     if (tokens.empty()) {
         out->value = Empty {};
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {

@@ -570,23 +570,19 @@ TEST(SearchLoweringTest, MatchPhraseKeepsAnyOtherTildeAsText) {
     }
 }
 
-// One position is any of its terms, whatever the slop.
-TEST(SearchLoweringTest, MatchPhraseOfOnePositionIsAnyOfItsTerms) {
+// MATCH places a phrase's tokens by their order, so tokens an analyzer stacks at one position run
+// one after another. One token is just that term, whatever the slop.
+TEST(SearchLoweringTest, MatchPhraseRunsStackedTokensInOrder) {
     FakeCatalog catalog;
     auto single = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Fox ~3", catalog);
     ASSERT_NE(single.as<TermSet>(), nullptr);
     EXPECT_EQ(single.as<TermSet>()->terms, std::vector<std::string> {"fox"});
 
-    auto stacked = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "brown|red", catalog);
-    ASSERT_NE(stacked.as<TermSet>(), nullptr);
-    EXPECT_EQ(stacked.as<TermSet>()->terms, (std::vector<std::string> {"brown", "red"}));
-    EXPECT_FALSE(stacked.as<TermSet>()->require_all);
-
-    auto phrase = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "quick brown|red", catalog);
-    ASSERT_NE(phrase.as<Phrase>(), nullptr);
-    ASSERT_EQ(phrase.as<Phrase>()->slots.size(), 2U);
-    EXPECT_EQ(phrase.as<Phrase>()->slots[1].get_multi_terms(),
-              (std::vector<std::string> {"brown", "red"}));
+    auto stacked = match(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "quick brown|red", catalog);
+    ASSERT_NE(stacked.as<Phrase>(), nullptr);
+    EXPECT_EQ(terms_of(stacked.as<Phrase>()->slots),
+              (std::vector<std::string> {"quick", "brown", "red"}));
+    EXPECT_EQ(stacked.as<Phrase>()->slots[2].position, 3);
 }
 
 TEST(SearchLoweringTest, MatchPhrasePrefixMarksItsLastSlot) {
@@ -610,8 +606,7 @@ TEST(SearchLoweringTest, MatchPhrasePrefixMarksItsLastSlot) {
 
     auto stacked = match(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "brown|red", catalog);
     ASSERT_NE(stacked.as<Phrase>(), nullptr);
-    ASSERT_EQ(stacked.as<Phrase>()->slots.size(), 1U);
-    EXPECT_TRUE(stacked.as<Phrase>()->slots[0].is_multi_terms());
+    EXPECT_EQ(terms_of(stacked.as<Phrase>()->slots), (std::vector<std::string> {"brown", "red"}));
     EXPECT_TRUE(stacked.as<Phrase>()->prefix);
 }
 
