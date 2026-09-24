@@ -38,6 +38,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
@@ -394,6 +395,33 @@ TEST_F(PaimonRustPredicateConverterTest, InListIsPushed) {
     auto predicate =
             push_expr(in_predicate(false, {slot_ref("a"), int_literal(1), int_literal(2)}));
     EXPECT_NE(predicate.get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, NullAwareRuntimeFilterStaysResidual) {
+    // A null-aware runtime filter (arrived from an EQ_FOR_NULL join) restores
+    // NULL probe rows to true in its residual execution
+    // (RuntimeFilterExpr::change_null_to_true). Unwrapping it to the ordinary
+    // IN set — rebuilt through VDirectInPredicate::get_slot_in_expr — treats
+    // NULL as not-in-set and would prune the NULL probes permanently before
+    // the join sees them. The wrapper is kept instead: it fails every
+    // dispatch, so the conjunct stays in the residual, while a non-null-aware
+    // wrapper still unwraps and pushes its impl (the arrived-IN case).
+    // VExpr(node) derives the wrapper's data type from the node's type
+    // descriptor, so it needs a valid one (a bare node aborts in the thrift
+    // type-vector walk).
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.__set_is_nullable(true);
+    VExprSPtr null_aware_rf = RuntimeFilterExpr::create_shared(
+            node, in_predicate(false, {slot_ref("a"), int_literal(1), int_literal(2)}), 0.0,
+            /*null_aware=*/true, 1);
+    EXPECT_EQ(push_expr(std::move(null_aware_rf)).get(), nullptr);
+
+    VExprSPtr plain_rf = RuntimeFilterExpr::create_shared(
+            node, in_predicate(false, {slot_ref("a"), int_literal(1), int_literal(2)}), 0.0,
+            /*null_aware=*/false, 2);
+    EXPECT_NE(push_expr(std::move(plain_rf)).get(), nullptr);
 }
 
 TEST_F(PaimonRustPredicateConverterTest, CastedInListValueIsNotPushed) {

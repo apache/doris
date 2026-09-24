@@ -105,6 +105,41 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         ) USING paimon;
         INSERT INTO paimon.${dbName}.t_nan VALUES
             (1, 1.5), (2, CAST('NaN' AS DOUBLE)), (3, NULL);
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_dedup_ignore_del;
+        CREATE TABLE paimon.${dbName}.t_dedup_ignore_del (
+            id INT, v INT
+        ) USING paimon TBLPROPERTIES (
+            'primary-key' = 'id',
+            'merge-engine' = 'deduplicate',
+            'deduplicate.ignore-delete' = 'true',
+            'file.format' = 'parquet'
+        );
+        INSERT INTO paimon.${dbName}.t_dedup_ignore_del VALUES (1, 11), (2, 22);
+        DELETE FROM paimon.${dbName}.t_dedup_ignore_del WHERE id = 1;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_pu_remove_record_del;
+        CREATE TABLE paimon.${dbName}.t_pu_remove_record_del (
+            id INT, v INT
+        ) USING paimon TBLPROPERTIES (
+            'primary-key' = 'id',
+            'merge-engine' = 'partial-update',
+            'partial-update.remove-record-on-delete' = 'true',
+            'file.format' = 'parquet'
+        );
+        INSERT INTO paimon.${dbName}.t_pu_remove_record_del VALUES (1, 11), (2, 22);
+        DELETE FROM paimon.${dbName}.t_pu_remove_record_del WHERE id = 1;
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_nested_evo;
+        CREATE TABLE paimon.${dbName}.t_nested_evo (
+            id INT, s STRUCT<a: INT, b: STRING>
+        ) USING paimon TBLPROPERTIES (
+            'primary-key' = 'id',
+            'file.format' = 'parquet'
+        );
+        INSERT INTO paimon.${dbName}.t_nested_evo VALUES (1, struct(10, 'x')), (2, struct(20, 'y'));
+        ALTER TABLE paimon.${dbName}.t_nested_evo ADD COLUMN s.c INT;
+        INSERT INTO paimon.${dbName}.t_nested_evo VALUES (3, struct(30, 'z', 33));
     """
 
     // The s3.region property is required: paimon-rust's S3 client rejects a
@@ -174,6 +209,17 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                 .flatten().join("\n")
         assertTrue(joinExplain.contains("runtime filters") && joinExplain.contains("[in]"),
                 "the join must plan an IN runtime filter on the probe scan")
+        // The null-safe twin: the build side contains a NULL, so the probe's
+        // runtime filter is null-aware (EQ_FOR_NULL) — its residual execution
+        // restores NULL probes to true.
+        def nullAwareJoinExplain = sql(
+                """explain verbose select p.a, p.b from t_eq_null p join
+                   (select a from t_eq_null limit 3) d on p.a <=> d.a
+                   order by p.a nulls last, p.b nulls last""")
+                .flatten().join("\n")
+        assertTrue(nullAwareJoinExplain.contains("runtime filters")
+                && nullAwareJoinExplain.contains("[in]"),
+                "the null-safe join must plan a null-aware IN runtime filter on the probe scan")
 
         def testQueries = [
                 // Column-to-column: the only form that reaches the BE as
@@ -204,12 +250,48 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                 // guarantees the filter has arrived before the split opens.
                 """select p.id from t_frac_ts p join (select ts from t_frac_ts_dim limit 10) d
                      on p.ts = d.ts order by p.id""",
+                // Null-safe join with NULLs on both sides: the arrived runtime
+                // filter is null-aware and its residual execution restores
+                // the NULL probes to true, so (null, null) must survive. The
+                // rust pushdown must not unwrap the wrapper into the ordinary
+                // IN set — the rebuilt set carries only the concrete member
+                // (1) and would prune the NULL probe before the join sees it
+                // (BE unit test: NullAwareRuntimeFilterStaysResidual).
+                """select p.a, p.b from t_eq_null p join (select a from t_eq_null limit 3) d
+                     on p.a <=> d.a order by p.a nulls last, p.b nulls last""",
                 // NaN total-ordering differential (see the t_nan setup): NaN
                 // is greater than every finite value, so `d > 1.0` keeps the
                 // NaN row and `d < 2.0` does not; `d = 'NaN'` matches it.
                 """select id from t_nan where d > 1.0 order by id""",
                 """select id from t_nan where d < 2.0 order by id""",
-                """select id from t_nan where d = cast('NaN' as double) order by id"""
+                """select id from t_nan where d = cast('NaN' as double) order by id""",
+                // deduplicate.ignore-delete=true: the DELETE of (1, 11) writes a
+                // retract record into a new, uncompacted file, and Java's
+                // DeduplicateMergeFunction skips it — the row must survive. The
+                // pinned rust deduplicate merge has no option channel and would
+                // pick the retract as the latest row, silently dropping the key,
+                // so the FE gate keeps this table on JNI (verified through the
+                // profile below).
+                """select id, v from t_dedup_ignore_del order by id""",
+                // partial-update.remove-record-on-delete (non-DV): Java honors
+                // it — the delete removes the whole (1, 11) record — but the
+                // pinned rust PartialUpdateConfig read validation returns
+                // Unsupported for the key, so the FE gate keeps the table on
+                // JNI (verified through the profile below).
+                """select id, v from t_pu_remove_record_del order by id""",
+                // Nested schema evolution: ALTER ADD COLUMN s.c landed after
+                // rows 1-2 were written, so their files predate the child. The
+                // paimon-rust reader reconciles nested children by field id and
+                // NULL-fills the added child — the same semantics as Java's
+                // SchemaEvolutionUtil — since paimon-rust 381a1ad
+                // "fix(read): null-fill nested fields a data file predates
+                // (#805)", first included in the baac87c pin (the previous
+                // cabdeb9 pin cast the whole StructArray through arrow-cast and
+                // failed; reproduced live before the upgrade).
+                // The rust leg must actually run the rust reader (profile
+                // below): this differential is the capability guard for the
+                // crate upgrade.
+                """select id, s from t_nested_evo order by id"""
         ]
         def expectedResults = [
                 [[1, 1], [null, null]],
@@ -217,9 +299,15 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                 [[null, null]],
                 [[2]],
                 [[1], [3]],
+                [[1, 1], [1, 1], [1, 2], [1, 2], [null, null]],
                 [[1], [2]],
                 [[1]],
-                [[2]]
+                [[2]],
+                [[1, 11], [2, 22]],
+                [[2, 22]],
+                [[1, '{"a":10, "b":"x", "c":null}'],
+                 [2, '{"a":20, "b":"y", "c":null}'],
+                 [3, '{"a":30, "b":"z", "c":33}']]
         ]
         // Representative converter query reused for the reader-path checks.
         String pushdownQuery = testQueries[3]
@@ -243,6 +331,30 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         def rustJoinProfile = profileTextOf(testQueries[4])
         assertTrue(rustJoinProfile.contains("PaimonRustReader"),
                 "rust join leg must use the rust reader (profile timer missing)")
+        // Same for the null-safe join leg: its differential only means
+        // something when the rust reader actually scanned the probe table.
+        def rustNullAwareJoinProfile = profileTextOf(testQueries[5])
+        assertTrue(rustNullAwareJoinProfile.contains("PaimonRustReader"),
+                "rust null-safe join leg must use the rust reader (profile timer missing)")
+        // The deduplicate ignore-delete table rides the JNI fallback when
+        // rust is enabled (the FE gate): its profile must not carry the rust
+        // reader's timer, while the differential above still expects the JNI
+        // semantics — the retract of (1, 11) is skipped, so the row survives.
+        def rustDedupIgnoreDeleteProfile = profileTextOf(testQueries[9])
+        assertFalse(rustDedupIgnoreDeleteProfile.contains("PaimonRustReader"),
+                "deduplicate.ignore-delete table must fall back to JNI")
+        // The partial-update remove-record-on-delete table rides the JNI
+        // fallback for the same reason: the rust read validation rejects the
+        // option key outright.
+        def rustPuRemoveRecordProfile = profileTextOf(testQueries[10])
+        assertFalse(rustPuRemoveRecordProfile.contains("PaimonRustReader"),
+                "partial-update.remove-record-on-delete table must fall back to JNI")
+        // The nested-evolution leg is the opposite direction: the rust reader
+        // must genuinely scan it (baac87c's nested reconciliation) — if this
+        // ever rides the JNI fallback, the capability regressed.
+        def rustNestedEvoProfile = profileTextOf(testQueries[11])
+        assertTrue(rustNestedEvoProfile.contains("PaimonRustReader"),
+                "nested-evolution leg must use the rust reader (profile timer missing)")
 
         for (int i = 0; i < testQueries.size(); i++) {
             // The rust reader must agree with the JNI reader on every form.

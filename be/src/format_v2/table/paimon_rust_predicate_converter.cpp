@@ -32,6 +32,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/runtime_filter_expr.h"
 #include "exprs/vcompound_pred.h"
 #include "exprs/vdirect_in_predicate.h"
 #include "exprs/vectorized_fn_call.h"
@@ -125,7 +126,25 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
         auto root = conjunct->root();
         if (root->is_rf_wrapper()) {
             if (auto impl = root->get_impl()) {
-                root = impl;
+                // A null-aware runtime filter (an EQ_FOR_NULL join) must stay
+                // residual: its wrapper execution restores NULL probe rows to
+                // true (RuntimeFilterExpr::change_null_to_true), while the
+                // unwrapped impl — rebuilt as an ordinary IN predicate through
+                // VDirectInPredicate::get_slot_in_expr — treats NULL as
+                // not-in-set and would prune the NULL probes permanently
+                // before the join sees them. Keep the wrapper itself: it fails
+                // every dispatch below, so the conjunct stays in the residual,
+                // and it is safe to execute on selected rows, so later
+                // conjuncts keep pushing. The lance pushdown declines
+                // is_null_aware() filters for the same reason.
+                // is_null_aware() is concrete on RuntimeFilterExpr (the only
+                // class whose is_rf_wrapper() is true), so the dynamic_cast
+                // never fails in practice; the null guard keeps the unwrap for
+                // any future wrapper shape.
+                auto* rf_wrapper = dynamic_cast<RuntimeFilterExpr*>(root.get());
+                if (rf_wrapper == nullptr || !rf_wrapper->is_null_aware()) {
+                    root = impl;
+                }
             }
         }
         // Preserve a safe prefix of the conjunct order: a later pushed
