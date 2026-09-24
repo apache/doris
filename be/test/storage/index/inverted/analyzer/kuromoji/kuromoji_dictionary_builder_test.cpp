@@ -23,7 +23,7 @@
 #include <string>
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
-#include "storage/index/inverted/analyzer/kuromoji/kuromoji_test_base.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::segment_v2::inverted_index::kuromoji {
 
@@ -32,7 +32,11 @@ static bool file_nonempty(const std::string& p) {
     return ::stat(p.c_str(), &st) == 0 && st.st_size > static_cast<off_t>(sizeof(KmjFileHeader));
 }
 
-class KuromojiDictionaryBuilderTest : public KuromojiTestBase {};
+class KuromojiDictionaryBuilderTest : public ::testing::Test {
+protected:
+    doris::test::ScopedTempDirectory _temp_dir {"kuromoji_builder"};
+    std::string _dir = _temp_dir.path().string();
+};
 
 TEST_F(KuromojiDictionaryBuilderTest, WritesFourFiles) {
     SystemDictInput sys;

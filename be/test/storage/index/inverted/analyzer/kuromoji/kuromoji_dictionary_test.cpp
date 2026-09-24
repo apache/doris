@@ -30,15 +30,16 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
-#include "storage/index/inverted/analyzer/kuromoji/kuromoji_test_base.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::segment_v2::inverted_index::kuromoji {
 
-class KuromojiDictionaryTest : public KuromojiTestBase {
+class KuromojiDictionaryTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        ASSERT_NO_FATAL_FAILURE(KuromojiTestBase::SetUp());
+    doris::test::ScopedTempDirectory _temp_dir {"kuromoji_dictionary"};
+    std::string _dir = _temp_dir.path().string();
 
+    void SetUp() override {
         SystemDictInput sys;
         sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "f-east"}}});             // 東
         sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "f-tokyo"}}}); // 東京
