@@ -157,7 +157,12 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
 
             if (dictionary.getLayout() == LayoutType.HASH_MAP) {
                 Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, targetType);
-                if (castType.isPresent() && !castType.get().equals(queryType)) {
+                if (!castType.isPresent()) {
+                    throw new AnalysisException(String.format(
+                            "dict_get_many() query key type %s cannot be implicitly cast to dictionary key type %s",
+                            queryType.toSql(), targetType.toSql()));
+                }
+                if (!castType.get().equals(queryType)) {
                     queryType = castType.get();
                 }
             } else { // IP_TRIE

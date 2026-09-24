@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.dictionary.DictionaryManager;
+import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -30,9 +31,11 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -111,6 +114,7 @@ public class DictGetManyTest {
         Column valueColumn = Mockito.mock(Column.class);
         Mockito.when(env.getDictionaryManager()).thenReturn(dictionaryManager);
         Mockito.when(dictionaryManager.getDictionary("db", "dict")).thenReturn(dictionary);
+        Mockito.when(dictionary.getLayout()).thenReturn(LayoutType.HASH_MAP);
         Mockito.when(dictionary.getDicColumns()).thenReturn(ImmutableList.of());
         Mockito.when(dictionary.getOriginColumn("value")).thenReturn(valueColumn);
         Mockito.when(valueColumn.getName()).thenReturn("value");
@@ -125,6 +129,37 @@ public class DictGetManyTest {
                     function::customSignatureDict);
             Assertions.assertEquals(
                     "dict_get_many() query_key_values field count must match dictionary key count",
+                    exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testRejectQueryKeyWhenImplicitCastIsNotSupported() throws Exception {
+        DictGetMany function = new DictGetMany(new StringLiteral("db.dict"),
+                new ArrayLiteral(ImmutableList.of(new StringLiteral("value"))),
+                new StructLiteral(ImmutableList.of(new Cast(new BigIntLiteral(0), TimeStampNsType.INSTANCE))));
+        Env env = Mockito.mock(Env.class);
+        DictionaryManager dictionaryManager = Mockito.mock(DictionaryManager.class);
+        Dictionary dictionary = Mockito.mock(Dictionary.class);
+        Column valueColumn = Mockito.mock(Column.class);
+        Mockito.when(env.getDictionaryManager()).thenReturn(dictionaryManager);
+        Mockito.when(dictionaryManager.getDictionary("db", "dict")).thenReturn(dictionary);
+        Mockito.when(dictionary.getLayout()).thenReturn(LayoutType.HASH_MAP);
+        Mockito.when(dictionary.getDicColumns()).thenReturn(ImmutableList.of());
+        Mockito.when(dictionary.getOriginColumn("value")).thenReturn(valueColumn);
+        Mockito.when(valueColumn.getName()).thenReturn("value");
+        Mockito.when(valueColumn.getType()).thenReturn(Type.INT);
+        Mockito.when(valueColumn.getComment()).thenReturn("");
+        Mockito.when(dictionary.getKeyColumnTypes()).thenReturn(ImmutableList.of(BigIntType.INSTANCE));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    function::customSignatureDict);
+            Assertions.assertEquals(
+                    "dict_get_many() query key type timestamp_ns cannot be implicitly cast to "
+                            + "dictionary key type bigint",
                     exception.getMessage());
         }
     }
