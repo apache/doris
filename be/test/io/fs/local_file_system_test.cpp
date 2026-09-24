@@ -22,6 +22,7 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -281,6 +282,26 @@ TEST_F(LocalFileSystemTest, Exist) {
     st = file_writer->close();
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(check_exist(fname));
+}
+
+TEST_F(LocalFileSystemTest, GetInodeInfo) {
+    size_t total = 0;
+    size_t available = 0;
+    auto st = io::global_local_filesystem()->get_inode_info(test_dir, &total, &available);
+    ASSERT_TRUE(st.ok()) << st;
+    // Some file systems (e.g. btrfs) allocate inodes dynamically and report a total of 0, so only
+    // the relation between the two values is portable.
+    EXPECT_GE(total, available);
+
+    struct statvfs vfs {};
+    ASSERT_EQ(::statvfs(std::string(test_dir).c_str(), &vfs), 0);
+    // The free inode count changes concurrently, so only cross-check the total.
+    EXPECT_EQ(total, vfs.f_files);
+
+    st = io::global_local_filesystem()->get_inode_info(fmt::format("{}/not_exist", test_dir),
+                                                       &total, &available);
+    ASSERT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
 }
 
 TEST_F(LocalFileSystemTest, List) {

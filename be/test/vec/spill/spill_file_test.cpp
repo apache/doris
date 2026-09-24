@@ -18,6 +18,7 @@
 #include "exec/spill/spill_file.h"
 
 #include <gtest/gtest.h>
+#include <sys/statvfs.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -29,6 +30,8 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -42,6 +45,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
+#include "storage/olap_define.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -951,6 +955,72 @@ TEST_F(SpillFileTest, GCCleansUpFiles) {
     auto st = io::global_local_filesystem()->exists(spill_file_dir, &exists);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(exists);
+}
+
+TEST_F(SpillFileTest, UpdateCapacityTracksInodeUsage) {
+    auto st = _data_dir_ptr->update_capacity();
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    struct statvfs vfs {};
+    ASSERT_EQ(::statvfs(_data_dir_ptr->path().c_str(), &vfs), 0);
+
+    auto entity = DorisMetrics::instance()->metric_registry()->get_entity(
+            "spill_data_dir." + _spill_dir, {{"path", _spill_dir + "/" + SPILL_DIR_PREFIX}});
+    ASSERT_NE(entity, nullptr);
+    auto* inode_total = dynamic_cast<IntGauge*>(entity->get_metric("spill_disk_inode_total"));
+    auto* inode_available =
+            dynamic_cast<IntGauge*>(entity->get_metric("spill_disk_inode_available"));
+    ASSERT_NE(inode_total, nullptr);
+    ASSERT_NE(inode_available, nullptr);
+    // The free inode count changes concurrently, so only cross-check the total.
+    EXPECT_EQ(inode_total->value(), static_cast<int64_t>(vfs.f_files));
+    EXPECT_LE(inode_available->value(), inode_total->value());
+
+    auto debug_string = _data_dir_ptr->debug_string();
+    if (vfs.f_files == 0) {
+        EXPECT_NE(debug_string.find("inodes: unknown"), std::string::npos) << debug_string;
+    } else {
+        EXPECT_NE(debug_string.find(fmt::format("inodes: total: {}, used: ", vfs.f_files)),
+                  std::string::npos)
+                << debug_string;
+        EXPECT_NE(debug_string.find("used pct: "), std::string::npos) << debug_string;
+    }
+}
+
+TEST_F(SpillFileTest, GCCleansUpGcRootBacklog) {
+    ExecEnv::GetInstance()->spill_file_mgr()->stop();
+
+    // A query directory holding both an operator directory with a part file and a loose file,
+    // plus an already empty query directory, mirror what init() and SpillFile::gc() leave behind.
+    const auto gc_root = _data_dir_ptr->get_spill_data_gc_path();
+    const auto pending_query_dir = _data_dir_ptr->get_spill_data_gc_path("pending-query");
+    const auto empty_query_dir = _data_dir_ptr->get_spill_data_gc_path("empty-query");
+    _create_residual_file(pending_query_dir + "/sort-1-2-3/0");
+    _create_residual_file(pending_query_dir + "/loose-file");
+    auto st = io::global_local_filesystem()->create_directory(empty_query_dir, false);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+
+    bool exists = false;
+    st = io::global_local_filesystem()->exists(pending_query_dir + "/sort-1-2-3", &exists);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(exists);
+    st = io::global_local_filesystem()->exists(pending_query_dir + "/loose-file", &exists);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(exists);
+    st = io::global_local_filesystem()->exists(empty_query_dir, &exists);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(exists);
+
+    // The emptied query directory is removed by the next round, the gc root itself stays.
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+    st = io::global_local_filesystem()->exists(pending_query_dir, &exists);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(exists);
+    st = io::global_local_filesystem()->exists(gc_root, &exists);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(exists);
 }
 
 TEST_F(SpillFileTest, QueryContextDeletesEmptySpillDirectory) {
