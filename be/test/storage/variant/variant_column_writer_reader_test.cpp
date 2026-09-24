@@ -8441,6 +8441,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_search_uses_current_parent_uid
     auto& segment = segments.front();
     ASSERT_EQ(segment->tablet_schema()->column(0).unique_id(), 1);
     ASSERT_FALSE(segment->tablet_schema()->has_column_unique_id(2));
+    ASSERT_EQ(segment->_column_reader_cache, nullptr);
 
     OlapReaderStatistics stats;
     StorageReadOptions read_options(stats);
@@ -8497,7 +8498,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_search_uses_current_parent_uid
                 EXPECT_TRUE(bitmap->isEmpty());
                 // This catches same-name rebinding even with CE's disabled NestedGroup provider:
                 // opening the old reader could also return an empty bitmap, but is still wrong.
-                EXPECT_TRUE(segment->_column_reader_cache->get_available_readers(false).empty());
+                // Missing uid=2 returns before lazy cache initialization, so the cache stays null.
+                EXPECT_EQ(segment->_column_reader_cache, nullptr);
 
                 // Exercise the slot -> ReadSchema -> FunctionSearch parameter chain as well.
                 // CE stops at its capability gate; EE continues into the same evaluator above.
@@ -8560,8 +8562,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_search_uses_current_parent_uid
                     } else {
                         EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << st;
                     }
-                    EXPECT_TRUE(
-                            segment->_column_reader_cache->get_available_readers(false).empty());
+                    EXPECT_EQ(segment->_column_reader_cache, nullptr);
                 }
             }
         }
@@ -8588,6 +8589,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_search_uses_current_parent_uid
     present_leaf.set_path_info(PathInData("renamed.items.msg"));
     ASSERT_TRUE(segment->get_variant_root_reader(present_leaf, read_options, &reader).ok());
     ASSERT_NE(reader, nullptr);
+    ASSERT_NE(segment->_column_reader_cache, nullptr);
     EXPECT_TRUE(segment->_column_reader_cache->get_available_readers(false).contains(1));
 }
 
