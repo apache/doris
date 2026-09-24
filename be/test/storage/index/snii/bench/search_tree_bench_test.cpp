@@ -146,6 +146,14 @@ public:
         return query(text, InvertedIndexQueryType::MATCH_PHRASE_QUERY);
     }
 
+    roaring::Roaring prefix(std::string_view text) {
+        return query(text, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
+    }
+
+    roaring::Roaring regexp(std::string_view pattern) {
+        return query(pattern, InvertedIndexQueryType::MATCH_REGEXP_QUERY);
+    }
+
 private:
     roaring::Roaring query(std::string_view text, InvertedIndexQueryType type) {
         QueryRun run;
@@ -165,6 +173,30 @@ struct SearchCase {
     int32_t minimum_should_match = -1;
     std::function<roaring::Roaring(ClauseOracle&)> expected;
 };
+
+// Expansion clauses. Each pattern matches the same terms whether or not a format anchors it.
+// "12*" matches more terms than max_expansions keeps; the leading patterns scan the whole
+// dictionary.
+void append_expansion_cases(std::vector<SearchCase>* cases) {
+    cases->push_back({.label = "prefix",
+                      .root = leaf("PREFIX", "ret*"),
+                      .expected = [](ClauseOracle& o) { return o.prefix("ret"); }});
+    cases->push_back({.label = "prefix_capped",
+                      .root = leaf("PREFIX", "12*"),
+                      .expected = [](ClauseOracle& o) { return o.prefix("12"); }});
+    cases->push_back({.label = "wildcard",
+                      .root = leaf("WILDCARD", "re*y"),
+                      .expected = [](ClauseOracle& o) { return o.regexp("^re.*y$"); }});
+    cases->push_back({.label = "wildcard_leading",
+                      .root = leaf("WILDCARD", "*try"),
+                      .expected = [](ClauseOracle& o) { return o.regexp("^.*try$"); }});
+    cases->push_back({.label = "regexp",
+                      .root = leaf("REGEXP", "ret.*"),
+                      .expected = [](ClauseOracle& o) { return o.regexp("^ret.*$"); }});
+    cases->push_back({.label = "regexp_leading",
+                      .root = leaf("REGEXP", ".*try"),
+                      .expected = [](ClauseOracle& o) { return o.regexp("^.*try$"); }});
+}
 
 // Terms of the corpus: every row is one of four log lines. "retry", "attempt", "job" and "failed"
 // share one quarter, "order", "processed" and "gateway" another, "latency" appears in half of the
@@ -232,6 +264,7 @@ std::vector<SearchCase> search_cases() {
                                        with_occur(leaf("TERM", "1234"), TSearchOccur::SHOULD),
                                        with_occur(leaf("TERM", "failed"), TSearchOccur::SHOULD)}),
                      .expected = [](ClauseOracle& o) { return o.term("retry"); }});
+    append_expansion_cases(&cases);
     return cases;
 }
 
