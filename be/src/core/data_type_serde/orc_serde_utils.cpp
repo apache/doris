@@ -79,8 +79,12 @@ Status orc_timestamp_to_datetime(int64_t seconds, uint64_t microseconds,
         return Status::DataQualityError(
                 "Decoded ORC timestamp is outside the target timezone range");
     }
-    value->unchecked_set_time(civil.year(), civil.month(), civil.day(), civil.hour(),
-                              civil.minute(), civil.second(), microseconds);
+    // Narrow only after the year check; cctz normalizes the other civil fields and ORC rounding
+    // keeps microseconds below one second.
+    value->unchecked_set_time(cast_set<uint16_t>(civil.year()), cast_set<uint8_t>(civil.month()),
+                              cast_set<uint8_t>(civil.day()), cast_set<uint8_t>(civil.hour()),
+                              cast_set<uint8_t>(civil.minute()), cast_set<uint16_t>(civil.second()),
+                              cast_set<uint32_t>(microseconds));
     return Status::OK();
 }
 
