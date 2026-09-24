@@ -26,6 +26,7 @@ import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Partitioning;
 import org.apache.iceberg.Schema;
@@ -197,6 +198,51 @@ public class IcebergPartitionNameConflictTest {
     }
 
     @Test
+    void v1ActiveReplacementKeepsCanonicalName() throws Exception {
+        Table table = createTable(1);
+        append(table, "old.parquet", "record_key=7");
+        table.updateSpec().removeField("record_key").commit();
+        table.updateSpec().addField("RECORD_KEY", Expressions.ref("record_key")).commit();
+        PartitionData current = new PartitionData(table.spec().partitionType());
+        current.set(1, 9L);
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("new.parquet")
+                .withPartition(current).withRecordCount(1).withFileSizeInBytes(10).build()).commit();
+
+        Types.StructType unified = Partitioning.partitionType(table);
+        Assertions.assertEquals("record_key_1000", unified.field(1000).name());
+        Assertions.assertEquals("RECORD_KEY", unified.field(1001).name());
+        Assertions.assertEquals(Types.LongType.get(), unified.field(1000).type());
+        Assertions.assertEquals(Types.LongType.get(), unified.field(1001).type());
+        Assertions.assertEquals(Arrays.asList(1000, 1001), unified.fields().stream()
+                .map(Types.NestedField::fieldId).collect(Collectors.toList()));
+
+        for (MetadataTableType type : Arrays.asList(MetadataTableType.FILES, MetadataTableType.PARTITIONS)) {
+            Table metadata = MetadataTableUtils.createMetadataTableInstance(table, type);
+            Assertions.assertEquals(1001, metadata.schema()
+                    .caseInsensitiveFindField("partition.record_key").fieldId());
+            Assertions.assertEquals(1000, metadata.schema()
+                    .caseInsensitiveFindField("partition.record_key_1000").fieldId());
+            List<List<Long>> partitions = new ArrayList<>();
+            try (CloseableIterable<FileScanTask> tasks = metadata.newScan().select("partition").planFiles()) {
+                for (FileScanTask task : tasks) {
+                    FileScanTask copy = IcebergSystemTableSerialization.deserializeFromBase64(
+                            IcebergSystemTableSerialization.serializeToBase64(task));
+                    try (CloseableIterable<StructLike> rows = copy.asDataTask().rows()) {
+                        for (StructLike row : rows) {
+                            StructLike partition = row.get(0, StructLike.class);
+                            partitions.add(Arrays.asList(partition.get(0, Long.class), partition.get(1, Long.class)));
+                        }
+                    }
+                }
+            }
+            Assertions.assertEquals(2, partitions.size(), type.name());
+            Assertions.assertTrue(partitions.contains(Arrays.asList(7L, null)), type.name());
+            Assertions.assertTrue(partitions.contains(Arrays.asList(null, 9L)), type.name());
+        }
+        assertPredicatesDistinguishHistoricalAndCurrentFields(table, "RECORD_KEY");
+    }
+
+    @Test
     void serializedMetadataTasksPreserveHistoricalAndCurrentValues() throws Exception {
         Table table = createTable(2);
         append(table, "old.parquet", "record_key=7");
@@ -232,15 +278,20 @@ public class IcebergPartitionNameConflictTest {
         evolve(table);
         append(table, "new.parquet", "record_key=9/record_key_trunc_4=8");
 
+        assertPredicatesDistinguishHistoricalAndCurrentFields(table, "record_key");
+    }
+
+    private void assertPredicatesDistinguishHistoricalAndCurrentFields(Table table, String currentField)
+            throws Exception {
         for (MetadataTableType type : Arrays.asList(MetadataTableType.FILES, MetadataTableType.PARTITIONS)) {
             Table metadata = MetadataTableUtils.createMetadataTableInstance(table, type);
-            for (String field : Arrays.asList("record_key_1000", "record_key")) {
+            for (String field : Arrays.asList("record_key_1000", currentField)) {
                 boolean historical = field.equals("record_key_1000");
                 long expected = historical ? 7L : 9L;
                 int count = 0;
                 Expression predicate = Expressions.equal("partition." + field, expected);
                 TableScan scan = metadata.newScan().select("partition").filter(predicate);
-                Evaluator evaluator = new Evaluator(scan.schema().asStruct(), predicate);
+                Evaluator evaluator = new Evaluator(scan.schema().asStruct(), predicate, false);
                 try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
                     for (FileScanTask task : tasks) {
                         try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {

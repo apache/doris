@@ -282,7 +282,13 @@ public class Partitioning {
             .collect(Collectors.toList());
 
     for (PartitionSpec spec : sortedSpecs) {
-      for (PartitionField field : spec.fields()) {
+      // V1 keeps dropped fields as void entries before their active replacements. Give active
+      // fields name priority within each spec before historical type recovery replaces voids.
+      List<PartitionField> sortedFields =
+          spec.fields().stream()
+              .sorted(Comparator.comparing(Partitioning::isVoidTransform))
+              .collect(Collectors.toList());
+      for (PartitionField field : sortedFields) {
         int fieldId = field.fieldId();
 
         if (!projectedFieldIds.contains(fieldId)) {
