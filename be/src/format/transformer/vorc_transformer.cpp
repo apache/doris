@@ -145,14 +145,16 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  std::vector<std::string> column_names, bool output_object_data,
                                  TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema,
-                                 std::shared_ptr<io::FileSystem> fs)
+                                 std::shared_ptr<io::FileSystem> fs,
+                                 const std::vector<int32_t>& nan_count_field_ids)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _fs(fs),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
-          _iceberg_schema(iceberg_schema) {
+          _iceberg_schema(iceberg_schema),
+          _nan_count_field_ids(nan_count_field_ids) {
     _write_options->setTimezoneName(_state->timezone());
     _write_options->setUseTightNumericVector(true);
     set_compression_type(compress_type);
@@ -200,6 +202,9 @@ Status VOrcTransformer::open() {
         return Status::InternalError("failed to create writer: {}", e.what());
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
+    if (_iceberg_schema != nullptr) {
+        _nan_value_counter.emplace(*_iceberg_schema, _nan_count_field_ids);
+    }
     return Status::OK();
 }
 
@@ -483,6 +488,12 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         }
 
         stats->__set_value_counts(value_counts);
+        // ORC statistics carry no NaN count, so it comes from the counter fed during write() rather than
+        // from the footer read above. Left unset when no column was counted, so FE keeps reporting
+        // "unknown" instead of an empty claim -- the same shape an older BE produces.
+        if (_nan_value_counter.has_value() && !_nan_value_counter->empty()) {
+            stats->__set_nan_value_counts(_nan_value_counter->counts());
+        }
         if (has_any_null_count) {
             stats->__set_null_value_counts(null_value_counts);
         }
@@ -627,6 +638,9 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
 Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
+    }
+    if (_nan_value_counter.has_value()) {
+        _nan_value_counter->count(block);
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type

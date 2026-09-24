@@ -117,7 +117,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
-                _compress_type, &_schema, _fs);
+                _compress_type, &_schema, _fs, _nan_count_field_ids);
         open_status = _file_format_transformer->open();
         break;
     }

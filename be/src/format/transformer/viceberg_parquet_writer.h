@@ -18,12 +18,11 @@
 #pragma once
 
 #include <cstdint>
-#include <map>
-#include <unordered_set>
-#include <utility>
+#include <optional>
 #include <vector>
 
 #include "format/table/iceberg/iceberg_arrow_block_convertor.h"
+#include "format/table/iceberg/nan_value_counter.h"
 #include "format/table/iceberg/schema.h"
 #include "format/transformer/vparquet_writer.h"
 
@@ -51,21 +50,12 @@ protected:
             const cctz::time_zone& timezone) const override;
 
 private:
-    void _init_nan_value_counts();
-    void _count_nan_values(const Block& block);
-
     const iceberg::Schema& _iceberg_schema;
     std::string _iceberg_schema_json;
-
-    // Parquet column statistics carry no NaN count, so unlike every other metric reported by
-    // collect_file_statistics_after_close this one cannot be read back from the footer -- it is
-    // accumulated here while the rows go past. See _init_nan_value_counts for why only some fields
-    // are listed, and why a reported zero is a claim and not a default.
-    // FE's metrics policy: the fields whose NaN count it would keep. Empty means count nothing.
-    const std::unordered_set<int32_t> _nan_count_field_ids;
-    // (block column position, iceberg field id) of the columns counted for this file.
-    std::vector<std::pair<size_t, int32_t>> _nan_counted_columns;
-    std::map<int, int64_t> _nan_value_counts;
+    const std::vector<int32_t> _nan_count_field_ids;
+    // Built at open(), once the writer is past schema validation. See iceberg::NanValueCounter for why a
+    // reported zero is a claim and which fields are counted at all.
+    std::optional<iceberg::NanValueCounter> _nan_value_counter;
 };
 
 } // namespace doris
