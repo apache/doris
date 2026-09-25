@@ -205,6 +205,28 @@ public class SQLRelation {
         return sql.toString();
     }
 
+    /**
+     * Whether this relation carries its own query block (SELECT list / WHERE / GROUP BY /
+     * HAVING / ORDER BY / LIMIT / GROUPING SETS / WITH) on top of its FROM. Such a
+     * relation MUST be wrapped as a subquery before another FROM-level clause (e.g.
+     * LATERAL VIEW) is attached: keeping its clauses on the outer relation would move
+     * them AFTER the new clause and change the result (LIMIT 10 would then limit the
+     * exploded rows instead of the lateral-view input, a GROUP BY would regroup the
+     * generator output, ...).
+     *
+     * @return true when a subquery wrapper is required to stay semantically identical
+     */
+    public boolean hasOwnBlock() {
+        return !selects.isEmpty()
+                || !where.isEmpty()
+                || !groupBy.isEmpty()
+                || !having.isEmpty()
+                || !orderBy.isEmpty()
+                || !limit.isEmpty()
+                || !groupings.isEmpty()
+                || (cte != null && !cte.isEmpty());
+    }
+
     // ==================== getters / setters (used by SPMPlan2SQLBuilder) ====================
 
     public Map<ExprId, String> getColumnNames() {

@@ -266,6 +266,64 @@ public class PlanCaptureTest {
         Assertions.assertTrue(PlanCaptureManager.getInstance().getStats().failed >= 0);
     }
 
+    /**
+     * A FAILED capture must stay retryable for the next overlapping scan: marking the
+     * query id before processCandidate() would make a transient failure permanent (the
+     * dedup map only evicts after 10,000 ids, long after the watermark passed the row).
+     * Retries are bounded so a permanently broken row is given up on instead of burning
+     * every cycle.
+     */
+    @Test
+    public void testFailedCaptureStaysRetryableThenGivesUp() {
+        PlanCaptureManager captureManager = PlanCaptureManager.getInstance();
+        captureManager.resetForTest();
+        // two one-part table names pass the existence gate (unverifiable names are
+        // assumed to exist), but the query itself cannot be planned in this environment
+        // -> a transient capture failure
+        CapturedQuery transientFailure = new CapturedQuery(
+                "SELECT t1.a FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.b = 1",
+                5000, 100000, 0, "digest-retry", "hash", "db", "internal", "qid-retry");
+
+        // attempts 1 + 2: the id stays retryable (NOT consumed) and the attempt counter
+        // advances
+        Assertions.assertFalse(captureManager.processCandidateForTest(transientFailure),
+                "a candidate that cannot be planned must report a retryable failure");
+        captureManager.handleCandidateForTest(transientFailure);
+        Assertions.assertFalse(captureManager.isQueryIdTrackedForTest("qid-retry"),
+                "a failed capture must not consume the query id");
+        Assertions.assertEquals(1, captureManager.failedAttemptsForTest("qid-retry"));
+        captureManager.handleCandidateForTest(transientFailure);
+        Assertions.assertFalse(captureManager.isQueryIdTrackedForTest("qid-retry"),
+                "the second failure is still retryable");
+        Assertions.assertEquals(2, captureManager.failedAttemptsForTest("qid-retry"));
+
+        // attempt 3: bounded retry gives up and marks the id terminal
+        captureManager.handleCandidateForTest(transientFailure);
+        Assertions.assertTrue(captureManager.isQueryIdTrackedForTest("qid-retry"),
+                "a permanently failing row must be given up after bounded attempts");
+        Assertions.assertEquals(0, captureManager.failedAttemptsForTest("qid-retry"),
+                "the attempt counter is cleared once the id is terminal");
+
+        // a terminal id is skipped WITHOUT another attempt
+        long failuresBefore = captureManager.getStats().failed;
+        captureManager.handleCandidateForTest(transientFailure);
+        Assertions.assertEquals(failuresBefore, captureManager.getStats().failed,
+                "a consumed id must be skipped by the next overlapping scan");
+    }
+
+    @Test
+    public void testSuccessfulCandidateIsConsumedImmediately() {
+        PlanCaptureManager captureManager = PlanCaptureManager.getInstance();
+        captureManager.resetForTest();
+        // single-table candidate: terminally filtered (never retried) and consumed
+        CapturedQuery singleTable = new CapturedQuery("SELECT k FROM t1", 5000, 100000, 0,
+                "digest-one", "hash", "db", "internal", "qid-one");
+        captureManager.handleCandidateForTest(singleTable);
+        Assertions.assertTrue(captureManager.isQueryIdTrackedForTest("qid-one"),
+                "a terminally filtered candidate is consumed");
+        Assertions.assertEquals(0, captureManager.failedAttemptsForTest("qid-one"));
+    }
+
     @Test
     public void testCapturedQueryToAuditEvent() {
         CapturedQuery query = new CapturedQuery("SELECT 1", 5000, 100000, 0,

@@ -40,9 +40,15 @@ public class AuditLogScannerCursorTest {
     /** One raw audit_log row in the SELECT-column order of AuditLogScanner. */
     private static ResultRow row(String stmt, long queryTime, String digest,
             String db, String catalog, String queryId, String time) {
+        return rowRaw(stmt, String.valueOf(queryTime), digest, db, catalog, queryId, time);
+    }
+
+    /** One raw audit_log row with a RAW query_time value (may be null). */
+    private static ResultRow rowRaw(String stmt, String queryTimeRaw, String digest,
+            String db, String catalog, String queryId, String time) {
         List<String> values = new ArrayList<>();
         values.add(stmt);                        // 0 stmt
-        values.add(String.valueOf(queryTime));   // 1 query_time
+        values.add(queryTimeRaw);                // 1 query_time
         values.add("100");                       // 2 scan_rows
         values.add("10");                        // 3 return_rows
         values.add(digest);                      // 4 sql_digest
@@ -161,5 +167,75 @@ public class AuditLogScannerCursorTest {
         Assertions.assertEquals(500L,
                 PlanCaptureManager.nextScanTimestamp(100L, 500L, true),
                 "an exhausted window advances the watermark to the window end");
+    }
+
+    // ==================== zero / NULL query_time cursors ====================
+
+    /**
+     * query_time is nullable and eligibility also accepts large scan_rows alone, so a
+     * full page can legitimately end with a row whose query_time is 0. The old guard
+     * (cursorQueryTime <= 0) cleared the resume predicate, restarted at the first page and
+     * every row beyond the LIMIT stayed unreachable.
+     */
+    @Test
+    public void testZeroQueryTimeCursorIsPresent() {
+        ResultRow zeroRow = rowRaw("select * from t", "0", "d1", "db1", "internal",
+                "qZero", "2026-01-01 00:00:00");
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(List.of(zeroRow), 10);
+        Assertions.assertEquals(0L, batch.getCursorQueryTime(),
+                "a zero query_time is a VALID cursor value");
+
+        String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId());
+        Assertions.assertNotEquals("", predicate,
+                "a zero query_time must not clear the resume predicate");
+        Assertions.assertTrue(predicate.contains("`query_time` = 0"), predicate);
+        String resumed = AuditLogScanner.buildScanSql("2026-01-01 00:00:00",
+                "2026-01-01 03:00:00", 500, 1000, 10000, predicate);
+        Assertions.assertTrue(resumed.contains("`query_time` = 0"),
+                "the resumed page continues after the zero-query_time cursor: " + resumed);
+    }
+
+    /**
+     * A NULL query_time must stay distinguishable from a zero one: the resume predicate
+     * compares it three-valued through IS NULL, so the rows after a NULL cursor are
+     * neither skipped nor re-scanned.
+     */
+    @Test
+    public void testNullQueryTimeCursorIsPresent() {
+        ResultRow nullRow = rowRaw("select * from t", null, "d1", "db1", "internal",
+                "qNull", "2026-01-01 00:00:01");
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(List.of(nullRow), 10);
+        Assertions.assertEquals(AuditLogScanner.CURSOR_QUERY_TIME_NULL,
+                batch.getCursorQueryTime(),
+                "a NULL query_time must stay distinguishable from a zero value");
+
+        String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId());
+        Assertions.assertNotEquals("", predicate, "a NULL cursor is a real cursor");
+        Assertions.assertTrue(predicate.contains("`query_time` IS NULL"), predicate);
+        Assertions.assertTrue(predicate.contains("`time` < '2026-01-01 00:00:01'"), predicate);
+        Assertions.assertFalse(predicate.contains("`query_time` < "),
+                "the NULL branch must not compare numerically: " + predicate);
+
+        // a numeric cursor also covers the NULL rows: NULLs sort after every non-null
+        // value under the scan's raw `query_time` DESC order
+        Assertions.assertTrue(AuditLogScanner.cursorPredicate(100, "t", "q")
+                        .contains("`query_time` IS NULL"),
+                "rows with NULL query_time must be reachable behind a numeric cursor");
+    }
+
+    /**
+     * Presence is tracked by the CURSOR_ABSENT sentinel, NOT by the numeric value: only
+     * the sentinel means "no cursor".
+     */
+    @Test
+    public void testAbsentCursorSentinel() {
+        Assertions.assertEquals("", AuditLogScanner.cursorPredicate(
+                AuditLogScanner.CURSOR_ABSENT, "2026-01-01 00:00:00", "q"),
+                "the sentinel means 'no cursor': start at the top of the window");
+        Assertions.assertEquals(AuditLogScanner.CURSOR_ABSENT,
+                AuditLogScanner.toBatch(List.of(), 10).getCursorQueryTime(),
+                "an empty page reports the absent sentinel");
     }
 }
