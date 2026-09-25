@@ -34,7 +34,7 @@ import java.util.Objects;
  * expr is false predicate.
  */
 public class IsFalse extends Expression
-        implements UnaryExpression, AlwaysNotNullable, NullToNonNullFunction {
+        implements UnaryExpression, AlwaysNotNullable {
 
     public IsFalse(Expression e) {
         super(ImmutableList.of(e));
