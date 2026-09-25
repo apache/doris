@@ -2093,6 +2093,46 @@ TEST_P(VariantWriterCompatibilityTest, ordinary_materialized_sparse_round_trip) 
     }
 }
 
+TEST_F(VariantColumnWriterReaderTest, UntypedUuidPathRoundTrip) {
+    init_variant_tablet(10100, 1);
+    const std::array<uint8_t, 16> bytes {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                         0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    VariantBatchBuilder builder;
+    for (int i = 0; i < 3; ++i) {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(StringRef("u"));
+        if (i == 1) {
+            row.add_null();
+        } else {
+            row.add_uuid(bytes);
+        }
+        object.finish();
+        row.finish();
+    }
+    const auto batch = builder.finish_batch();
+    auto source = ColumnVariantV2::create();
+    source->insert_encoded_batch(batch);
+    ASSERT_FALSE(source->is_typed());
+
+    SegmentFooterPB footer;
+    std::string file_path;
+    const auto type = std::make_shared<DataTypeVariantV2>(1, false);
+    const auto status =
+            write_variant_segment(source->get_ptr(), type, "untyped_uuid", &footer, &file_path, 1);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto* meta = find_footer_column_meta_by_relative_path(footer, "u");
+    ASSERT_NE(meta, nullptr);
+    EXPECT_EQ(meta->type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_UUID));
+    EXPECT_EQ(meta->length(), 16);
+
+    std::vector<std::optional<std::string>> actual;
+    ASSERT_TRUE(read_variant_root_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, (std::vector<std::optional<std::string>> {
+                              R"({"u":"00112233-4455-6677-8899-aabbccddeeff"})", "{}",
+                              R"({"u":"00112233-4455-6677-8899-aabbccddeeff"})"}));
+}
+
 TEST_P(VariantWriterCompatibilityTest, materialized_array_preserves_middle_row_gap) {
     init_variant_tablet(10021 + static_cast<int>(GetParam()), 1);
 
