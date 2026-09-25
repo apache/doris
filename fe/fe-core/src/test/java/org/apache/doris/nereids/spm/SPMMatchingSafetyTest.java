@@ -491,9 +491,59 @@ public class SPMMatchingSafetyTest {
                 "GROUP_CONCAT(" + valueSql + " ORDER BY " + keySql + " DESC NULLS LAST)",
                 builder.renderGroupConcat(orderedOnly, relation));
 
-        // multi-distinct values combined with ORDER BY have no faithful rendering
+        // two NON-constant value arguments cannot be written down in SQL at all (the
+        // analyzer requires the second non-order argument to be a constant separator):
+        // such a programmatically-built shape keeps failing the decompile
         MultiDistinctGroupConcat multiDistinct = new MultiDistinctGroupConcat(value, key, order);
         Assertions.assertNull(builder.renderGroupConcat(multiDistinct, relation));
+    }
+
+    @Test
+    public void testGroupConcatDistinctOrderRendering() {
+        LogicalProject<?> project = (LogicalProject<?>) parse("SELECT v, k FROM t").child(0);
+        Expression value = project.getProjects().get(0);
+        Expression key = project.getProjects().get(1);
+        SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
+        SQLRelation relation = new SQLRelation();
+        String valueSql = builder.print(value, relation);
+        String keySql = builder.print(key, relation);
+        OrderExpression order = new OrderExpression(new OrderKey(key, false, false));
+
+        // the execution shape of GROUP_CONCAT(DISTINCT v ORDER BY k)
+        // (GroupConcat.mustUseMultiDistinctAgg converts it to MultiDistinctGroupConcat):
+        // it must be RENDERED - the old implementation returned null here and forced the
+        // whole decompile to fall back to the user-supplied plan text
+        String distinctOrder = builder.renderGroupConcat(
+                new MultiDistinctGroupConcat(value, order), relation);
+        Assertions.assertEquals("GROUP_CONCAT(DISTINCT " + valueSql
+                + " ORDER BY " + keySql + " DESC NULLS LAST)", distinctOrder);
+        // the frozen text must parse and survive the post-reload rebuild
+        new NereidsParser().parseSingle("SELECT " + distinctOrder + " FROM t");
+        Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
+                "SELECT " + distinctOrder + " FROM t", "SELECT " + distinctOrder + " FROM t");
+        Assertions.assertNotNull(trees.first);
+
+        // without ORDER BY the dedup contract must still be emitted: the class name is
+        // the distinct contract while isDistinct() is false, and GROUP_CONCAT(v) would
+        // concatenate the duplicates at replay ("1,1,2" instead of "1,2")
+        Assertions.assertEquals("GROUP_CONCAT(DISTINCT " + valueSql + ")",
+                builder.renderGroupConcat(new MultiDistinctGroupConcat(value), relation));
+
+        // constant SEPARATOR + ORDER BY
+        Assertions.assertEquals("GROUP_CONCAT(DISTINCT " + valueSql
+                        + " ORDER BY " + keySql + " DESC NULLS LAST SEPARATOR ',')",
+                builder.renderGroupConcat(
+                        new MultiDistinctGroupConcat(value, new StringLiteral(","), order), relation));
+
+        // ... while a NON-distinct group_concat keeps its duplicates: no DISTINCT is
+        // invented for it
+        Assertions.assertEquals("GROUP_CONCAT(" + valueSql + ")",
+                builder.renderGroupConcat(new GroupConcat(value), relation));
+
+        // two NON-constant value arguments cannot be written down in SQL at all (the
+        // analyzer requires a constant separator): keep rejecting them
+        Assertions.assertNull(builder.renderGroupConcat(
+                new MultiDistinctGroupConcat(value, key, order), relation));
     }
 
     // ==================== audit scan SQL: OR-threshold pushdown + internal filter ====================

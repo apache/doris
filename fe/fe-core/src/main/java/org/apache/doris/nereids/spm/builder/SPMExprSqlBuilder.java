@@ -434,6 +434,29 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * @return the SQL text, or null when the shape (multi-distinct values combined with
      *         an ORDER BY) cannot be represented by the dedicated grammar
      */
+    /**
+     * Renders a GROUP_CONCAT / MULTI_DISTINCT_GROUP_CONCAT into the dedicated
+     * GROUP_CONCAT grammar.
+     *
+     * Doris's analyzer admits ONE value expression next to an optional CONSTANT separator
+     * (the second non-order argument must be constant - a non-constant one is rejected by
+     * checkLegalityBeforeTypeCoercion), with an optional trailing ORDER BY. That covers
+     * every SQL-reachable shape:
+     *
+     * - GROUP_CONCAT(DISTINCT v ORDER BY k): the physical plan carries the execution
+     *   shape MultiDistinctGroupConcat(v, ORDER BY k) (GroupConcat.mustUseMultiDistinctAgg
+     *   converts it). The DISTINCT form re-analyzes to exactly that node, so it is
+     *   rendered - previously it returned null and forced the whole decompile to fall
+     *   back to the user-supplied plan text;
+     * - MULTI_DISTINCT_GROUP_CONCAT(v[, sep]): the function NAME carries the dedup
+     *   contract while its isDistinct() flag is false, so the DISTINCT keyword must be
+     *   re-emitted - GROUP_CONCAT(v) would keep the duplicates ("1,1,2" instead of
+     *   "1,2").
+     *
+     * @param fn      the aggregate function (GroupConcat or MultiDistinctGroupConcat)
+     * @param context the relation carrying the column mapping
+     * @return the SQL text, or null when the shape has no faithful rendering
+     */
     public String renderGroupConcat(AggregateFunction fn, SQLRelation context) {
         List<Expression> children = fn.children();
         int firstOrder = children.size();
@@ -445,21 +468,29 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         }
         List<Expression> values = children.subList(0, firstOrder);
         List<Expression> orders = children.subList(firstOrder, children.size());
+        // the dedicated grammar carries one value expression plus an optional CONSTANT
+        // separator; two NON-constant value arguments cannot be written down at all (the
+        // analyzer rejects them: "requires separator must be a constant"), so such a
+        // programmatically-built shape keeps failing the decompile instead of freezing
+        // SQL that cannot be re-parsed
         boolean separatorArgument = values.size() == 2 && values.get(1).isConstant();
-        boolean multiDistinctValues = fn instanceof MultiDistinctGroupConcat
-                || values.size() > 2
-                || (values.size() == 2 && !separatorArgument);
-        if (values.isEmpty() || (!orders.isEmpty() && multiDistinctValues)) {
-            // the dedicated grammar accepts a single value expression next to ORDER BY;
-            // multi-distinct values combined with ORDER BY have no faithful rendering
+        if (values.isEmpty() || (values.size() > 1 && !separatorArgument)) {
             return null;
         }
+        // MultiDistinctGroupConcat is the execution shape of GROUP_CONCAT(DISTINCT ...):
+        // its constructor keeps isDistinct() = false, but the dedup contract must survive
+        // the freeze
+        boolean distinct = fn.isDistinct() || fn instanceof MultiDistinctGroupConcat;
         StringBuilder sb = new StringBuilder("GROUP_CONCAT(");
-        if (fn.isDistinct()) {
+        if (distinct) {
             sb.append("DISTINCT ");
         }
         sb.append(print(values.get(0), context));
         if (!orders.isEmpty()) {
+            // GROUP_CONCAT(DISTINCT v ORDER BY k) re-analyzes to the very
+            // MultiDistinctGroupConcat(v, k) execution shape it was rendered from, so the
+            // ORDER BY form is faithful; a verifier may also compare it against the
+            // alternative spelling MULTI_DISTINCT_GROUP_CONCAT(v ORDER BY k)
             sb.append(" ORDER BY ");
             sb.append(orders.stream().map(order -> {
                 OrderExpression orderExpression = (OrderExpression) order;
@@ -470,12 +501,6 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         }
         if (separatorArgument) {
             sb.append(" SEPARATOR ").append(print(values.get(1), context));
-        } else if (values.size() > 1) {
-            // multi-distinct / extra value arguments: the generic call form is unambiguous
-            // for them (no ORDER BY in this branch)
-            for (int i = 1; i < values.size(); i++) {
-                sb.append(", ").append(print(values.get(i), context));
-            }
         }
         return sb.append(")").toString();
     }
