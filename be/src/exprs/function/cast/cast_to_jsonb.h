@@ -24,6 +24,7 @@
 #include "core/value/jsonb_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
+#include "util/jsonb_parser_simd.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
@@ -162,7 +163,8 @@ struct ParseJsonbFromString {
         auto st = (value.from_json_string(str.data, str.size));
         if (!st.ok()) {
             return Status::InvalidArgument("Failed to parse json string: {}, error: {}",
-                                           str.to_string(), st.msg());
+                                           JsonbParser::bounded_quote(str.to_string_view()),
+                                           st.msg());
         }
         column_string.insert_data(value.value(), value.size());
         return Status::OK();

@@ -61,6 +61,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <string_view>
 
 #include "common/status.h"
@@ -129,6 +130,19 @@ struct JsonbParser {
             return Status::InvalidArgument(fmt::format("simdjson parse exception: {}", e.what()));
         }
         return Status::OK();
+    }
+
+    // Error messages quote the offending input so that the bad value can be located, but
+    // the input may be a multi-megabyte value (e.g. a malformed digit run) and tolerant
+    // callers such as json_valid, the error-to-null variants or non-strict CAST discard the
+    // message right away. Keep the quoted part bounded and report the full length instead.
+    static std::string bounded_quote(std::string_view text) {
+        constexpr size_t kMaxQuotedLen = 64;
+        if (text.size() <= kMaxQuotedLen) {
+            return std::string(text);
+        }
+        return fmt::format("{}... (truncated, {} bytes)", text.substr(0, kMaxQuotedLen),
+                           text.size());
     }
 
 private:
@@ -243,18 +257,8 @@ private:
         return token;
     }
 
-    // Error messages quote the offending token so that the bad value can be located, but
-    // the token is as long as the input (a malformed row may be a multi-megabyte digit run)
-    // and tolerant callers such as json_valid or the error-to-null variants discard the
-    // message right away. Keep the quoted part bounded and report the full length instead.
     static std::string quote_token(std::string_view token) {
-        constexpr size_t kMaxQuotedTokenLen = 64;
-        token = trim_trailing_whitespace(token);
-        if (token.size() <= kMaxQuotedTokenLen) {
-            return std::string(token);
-        }
-        return fmt::format("{}... (truncated, {} bytes)", token.substr(0, kMaxQuotedTokenLen),
-                           token.size());
+        return bounded_quote(trim_trailing_whitespace(token));
     }
 
     // Matches the JSON number grammar exactly:
