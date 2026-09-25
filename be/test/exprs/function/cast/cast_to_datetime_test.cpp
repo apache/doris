@@ -411,7 +411,25 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
                 {{Null()}, Null()}};
         check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 6);
     }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 6}};
+        DataSet data_set = {
+                {{std::string("12:34:56.123556")}, std::string("2019-08-06 12:34:56.124")},
+                {{std::string("23:59:59.999499")}, std::string("2019-08-06 23:59:59.999")},
+                {{std::string("23:59:59.999500")}, std::string("2019-08-07 00:00:00.000")},
+                {{Null()}, Null()}};
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 3);
+    }
+
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 6}};
+        DataSet data_set = {{{std::string("12:34:56.499999")}, std::string("2019-08-06 12:34:56")},
+                            {{std::string("12:34:56.500000")}, std::string("2019-08-06 12:34:57")},
+                            {{std::string("23:59:59.999999")}, std::string("2019-08-07 00:00:00")},
+                            {{Null()}, Null()}};
+        check_function_for_cast<DataTypeDateTimeV2>(input_types, data_set, 0);
+    }
 }
-//FIXME: fix cast with different scale then add cases about datetime to datetime
 
 } // namespace doris
