@@ -49,6 +49,7 @@ public class JdbcClientConfig implements Cloneable {
 
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
+    private Map<String, Boolean> includeInternalDatabaseMap;
     private Map<String, String> customizedProperties;
 
     public JdbcClientConfig() {
@@ -67,6 +68,7 @@ public class JdbcClientConfig implements Cloneable {
                 JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
         this.includeDatabaseMap = Maps.newHashMap();
         this.excludeDatabaseMap = Maps.newHashMap();
+        this.includeInternalDatabaseMap = Maps.newHashMap();
         this.customizedProperties = Maps.newHashMap();
         this.enableMappingVarbinary = Boolean.parseBoolean(
                 JdbcResource.getDefaultPropertyValue(CatalogProperty.ENABLE_MAPPING_VARBINARY));
@@ -86,6 +88,7 @@ public class JdbcClientConfig implements Cloneable {
             cloned.connectionPoolKeepAlive = connectionPoolKeepAlive;
             cloned.includeDatabaseMap = Maps.newHashMap(includeDatabaseMap);
             cloned.excludeDatabaseMap = Maps.newHashMap(excludeDatabaseMap);
+            cloned.includeInternalDatabaseMap = Maps.newHashMap(includeInternalDatabaseMap);
             cloned.customizedProperties = Maps.newHashMap(customizedProperties);
             return cloned;
         } catch (CloneNotSupportedException e) {
@@ -234,6 +237,15 @@ public class JdbcClientConfig implements Cloneable {
 
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
+        return this;
+    }
+
+    public Map<String, Boolean> getIncludeInternalDatabaseMap() {
+        return includeInternalDatabaseMap;
+    }
+
+    public JdbcClientConfig setIncludeInternalDatabaseMap(Map<String, Boolean> includeInternalDatabaseMap) {
+        this.includeInternalDatabaseMap = includeInternalDatabaseMap;
         return this;
     }
 

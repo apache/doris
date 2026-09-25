@@ -131,6 +131,7 @@ public class JdbcResource extends Resource {
             ExternalCatalog.META_NAMES_MAPPING,
             ExternalCatalog.INCLUDE_DATABASE_LIST,
             ExternalCatalog.EXCLUDE_DATABASE_LIST,
+            ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
             CONNECTION_POOL_MAX_SIZE,
             CONNECTION_POOL_MAX_LIFE_TIME,
@@ -152,6 +153,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.META_NAMES_MAPPING, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.EXCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_SIZE, "30");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MAX_LIFE_TIME, "1800000");
@@ -235,6 +237,17 @@ public class JdbcResource extends Resource {
                 configs.put(s, OPTIONAL_PROPERTIES_DEFAULT_VALUE.get(s));
             }
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        super.gsonPostProcess();
+        // Older images do not contain optional JDBC properties added after the resource was
+        // persisted. Backfill them here so image loading has the same shape as resource replay.
+        if (configs == null) {
+            configs = Maps.newHashMap();
+        }
+        applyDefaultProperties();
     }
 
     @Override
@@ -605,6 +618,7 @@ public class JdbcResource extends Resource {
                 throw new DdlException("JDBC resource Property of " + key + " is unknown");
             }
         }
+        checkInternalDatabaseListProperty(properties.get(ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST));
     }
 
     public static void checkBooleanProperty(String propertyName, String propertyValue) throws DdlException {
@@ -621,6 +635,21 @@ public class JdbcResource extends Resource {
                 throw new DdlException(
                         "include_database_list and exclude_database_list "
                                 + "cannot be set when only_specified_database is false");
+            }
+        }
+    }
+
+    public static void checkInternalDatabaseListProperty(String internalDatabaseList)
+            throws DdlException {
+        if (internalDatabaseList == null || internalDatabaseList.trim().isEmpty()) {
+            return;
+        }
+        for (String database : internalDatabaseList.split(",")) {
+            String trimmedDatabase = database.trim();
+            if (trimmedDatabase.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)
+                    || trimmedDatabase.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+                throw new DdlException("include_internal_database_list does not support reserved database "
+                        + trimmedDatabase);
             }
         }
     }

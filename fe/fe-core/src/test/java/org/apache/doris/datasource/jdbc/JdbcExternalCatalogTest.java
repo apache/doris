@@ -113,6 +113,25 @@ public class JdbcExternalCatalogTest {
     }
 
     @Test
+    public void testRejectsReservedInternalDatabaseNames() {
+        jdbcExternalCatalog.getCatalogProperty().addProperty(
+                ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST, "performance_schema,mysql");
+        DdlException exception = Assert.assertThrows(DdlException.class,
+                () -> jdbcExternalCatalog.checkProperties());
+        Assert.assertTrue(exception.getMessage().contains("mysql"));
+    }
+
+    @Test
+    public void testRejectsInternalOnlyDatabaseSelection() {
+        jdbcExternalCatalog.getCatalogProperty().addProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, "true");
+        jdbcExternalCatalog.getCatalogProperty().addProperty(
+                ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST, "performance_schema");
+        DdlException exception = Assert.assertThrows(DdlException.class,
+                () -> jdbcExternalCatalog.checkProperties());
+        Assert.assertTrue(exception.getMessage().contains("requires include_database_list"));
+    }
+
+    @Test
     public void testDriverUrlSecurityRule() throws DdlException {
         Assert.assertThrows(DdlException.class,
                 () -> JdbcExternalCatalog.checkDriverUrlSecurityRule("../evil.jar"));

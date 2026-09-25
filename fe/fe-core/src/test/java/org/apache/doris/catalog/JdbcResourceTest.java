@@ -21,14 +21,18 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -140,6 +144,23 @@ public class JdbcResourceTest {
         Assert.assertEquals("3600000", properties.get("connection_pool_max_life_time"));
         Assert.assertEquals("10000", properties.get("connection_pool_max_wait_time"));
         Assert.assertEquals("true", properties.get("connection_pool_keep_alive"));
+    }
+
+    @Test
+    public void testJdbcResourceImageLoadBackfillsOptionalProperties() {
+        JdbcResource jdbcResource = new JdbcResource("jdbc_resource_pg_14", jdbcProperties);
+        JsonObject resourceJson = JsonParser.parseString(
+                GsonUtils.GSON.toJson(jdbcResource, Resource.class)).getAsJsonObject();
+        resourceJson.getAsJsonObject("configs").remove(ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST);
+        JsonObject image = new JsonObject();
+        JsonObject resources = new JsonObject();
+        resources.add(jdbcResource.getName(), resourceJson);
+        image.add("nameToResource", resources);
+
+        ResourceMgr loadedResourceMgr = GsonUtils.GSON.fromJson(image, ResourceMgr.class);
+        JdbcResource loadedJdbcResource = (JdbcResource) loadedResourceMgr.getResource(jdbcResource.getName());
+        Assert.assertEquals("", loadedJdbcResource.getProperty(ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST));
+        Assert.assertEquals("1", loadedJdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE));
     }
 
     @Test

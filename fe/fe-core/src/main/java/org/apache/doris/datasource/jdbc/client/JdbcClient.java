@@ -44,7 +44,9 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -67,6 +69,7 @@ public abstract class JdbcClient {
     protected boolean isOnlySpecifiedDatabase;
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
+    protected Map<String, Boolean> includeInternalDatabaseMap;
     protected boolean enableMappingVarbinary;
     protected boolean enableMappingTimestampTz;
 
@@ -109,6 +112,8 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getIncludeDatabaseMap()).orElse(Collections.emptyMap());
         this.excludeDatabaseMap =
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
+        this.includeInternalDatabaseMap = normalizeDatabaseNames(
+                jdbcClientConfig.getIncludeInternalDatabaseMap());
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
         initializeClassLoader(jdbcClientConfig);
@@ -119,6 +124,17 @@ public abstract class JdbcClient {
 
     protected void setJdbcDriverSystemProperties() {
         System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
+    }
+
+    private static Map<String, Boolean> normalizeDatabaseNames(Map<String, Boolean> databaseMap) {
+        if (databaseMap == null || databaseMap.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, Boolean> normalizedDatabaseMap = new HashMap<>();
+        for (Map.Entry<String, Boolean> entry : databaseMap.entrySet()) {
+            normalizedDatabaseMap.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+        }
+        return normalizedDatabaseMap;
     }
 
     // Initialize DataSource
@@ -510,15 +526,18 @@ public abstract class JdbcClient {
         Set<String> filterInternalDatabases = getFilterInternalDatabases();
         List<String> filteredDatabaseNames = Lists.newArrayList();
         for (String databaseName : remoteDbNames) {
+            String normalizedDatabaseName = databaseName.toLowerCase(Locale.ROOT);
+            boolean explicitlyIncludedInternal = includeInternalDatabaseMap.containsKey(normalizedDatabaseName);
             if (isOnlySpecifiedDatabase) {
                 if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(databaseName)) {
                     continue;
                 }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(databaseName)) {
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(databaseName)
+                        && !explicitlyIncludedInternal) {
                     continue;
                 }
             }
-            if (filterInternalDatabases.contains(databaseName.toLowerCase())) {
+            if (filterInternalDatabases.contains(normalizedDatabaseName) && !explicitlyIncludedInternal) {
                 continue;
             }
             filteredDatabaseNames.add(databaseName);

@@ -27,10 +27,49 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.Types;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class JdbcClientTest {
+
+    @Test
+    public void testFilterDatabaseNamesIncludesConfiguredInternalDatabase() {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        client.isOnlySpecifiedDatabase = false;
+        client.includeDatabaseMap = Collections.emptyMap();
+        client.excludeDatabaseMap = Collections.emptyMap();
+        client.includeInternalDatabaseMap = Collections.singletonMap("performance_schema", true);
+
+        Assert.assertEquals(Arrays.asList("PERFORMANCE_SCHEMA", "application"),
+                client.filterDatabaseNames(
+                        Arrays.asList("information_schema", "PERFORMANCE_SCHEMA", "application")));
+    }
+
+    @Test
+    public void testFilterDatabaseNamesAllowsInternalOptInWithOrdinaryInclude() {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        client.isOnlySpecifiedDatabase = true;
+        client.includeDatabaseMap = Collections.singletonMap("application", true);
+        client.excludeDatabaseMap = Collections.emptyMap();
+        client.includeInternalDatabaseMap = Collections.singletonMap("performance_schema", true);
+
+        Assert.assertEquals(Arrays.asList("application", "performance_schema"),
+                client.filterDatabaseNames(Arrays.asList("application", "performance_schema", "other")));
+    }
+
+    @Test
+    public void testFilterDatabaseNamesExcludeTakesPrecedenceOverInternalOptIn() {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        client.isOnlySpecifiedDatabase = true;
+        client.includeDatabaseMap = Collections.emptyMap();
+        client.excludeDatabaseMap = Collections.singletonMap("performance_schema", true);
+        client.includeInternalDatabaseMap = Collections.singletonMap("performance_schema", true);
+
+        Assert.assertEquals(Collections.singletonList("application"),
+                client.filterDatabaseNames(Arrays.asList("application", "performance_schema")));
+    }
 
     @Test
     public void testGetJdbcColumnsInfoFiltersWildcardSiblingTable() throws Exception {
