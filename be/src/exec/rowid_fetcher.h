@@ -105,7 +105,7 @@ public:
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
     static const std::string LanceDatasetOpenTimeProfile;
-    static const std::string LanceRowIdTakeReadTimeProfile;
+    static const std::string LanceRowIdReadTimeProfile;
     static const std::string LanceArrowToDorisBlockTimeProfile;
     static const std::string LanceRowIdFetchTotalTimeProfile;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
@@ -183,6 +183,7 @@ private:
         int64_t init_reader_ms = 0;
         int64_t get_block_ms = 0;
         std::map<std::string, int64_t> lance_fetch_times_ns;
+        std::map<std::string, int64_t> lance_fetch_counters;
         std::string file_read_bytes;
         std::string file_read_times;
     };

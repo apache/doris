@@ -1251,13 +1251,12 @@ DECLARE_Bool(enable_debug_points);
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Int32(blocking_pipeline_executor_size);
 
-// Lance shared session and optional Foyer data-file cache.
+// Lance shared session with index/metadata memory caches and one optional data/index disk cache.
 DECLARE_Int64(lance_index_cache_size_bytes);
 DECLARE_Int64(lance_metadata_cache_size_bytes);
-DECLARE_Bool(enable_lance_data_cache);
-DECLARE_String(lance_data_cache_path);
-DECLARE_Int64(lance_data_cache_disk_capacity_bytes);
-DECLARE_Int64(lance_data_cache_read_block_size_bytes);
+DECLARE_Bool(enable_lance_foyer_cache);
+DECLARE_String(lance_foyer_cache_path);
+DECLARE_Int64(lance_foyer_cache_disk_capacity_bytes);
 
 // I/O buffering budget per Lance scanner, applied when a new scanner is created.
 DECLARE_mInt64(lance_io_buffer_size_bytes);

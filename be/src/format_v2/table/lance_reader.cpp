@@ -28,6 +28,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <string_view>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -82,18 +83,16 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     RETURN_IF_ERROR(_resolve_search_kind());
 
     const auto& lance_scan_params = _scan_params->lance_scan_params;
-    ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, LANCE_READER_PROFILE,
-                               file_scan_profile::TABLE_READER, 1);
-    _dataset_open_time = ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceDatasetOpenTime",
-                                                    LANCE_READER_PROFILE, 1);
-    _arrow_to_doris_block_time = ADD_CHILD_TIMER_WITH_LEVEL(
-            _scanner_profile, "LanceArrowToDorisBlockTime", LANCE_READER_PROFILE, 1);
-    _data_cache_bytes_read_from_cache =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceDataCacheBytesReadFromCache",
-                                         TUnit::BYTES, LANCE_READER_PROFILE, 1);
-    _data_cache_bytes_read_from_remote =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceDataCacheBytesReadFromRemote",
-                                         TUnit::BYTES, LANCE_READER_PROFILE, 1);
+    ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, LANCE_READER_PROFILE, TUnit::NONE,
+                                 file_scan_profile::TABLE_READER, 1);
+    _dataset_open_time = add_lance_counter(_scanner_profile, "LanceDatasetOpenTime", TUnit::TIME_NS,
+                                           LANCE_TIMING_PROFILE);
+    _arrow_to_doris_block_time = add_lance_counter(_scanner_profile, "LanceArrowToDorisBlockTime",
+                                                   TUnit::TIME_NS, LANCE_TIMING_PROFILE);
+    _data_cache_hit_bytes = add_lance_counter(_scanner_profile, "LanceDataCacheHitBytes",
+                                              TUnit::BYTES, LANCE_DATA_CACHE_PROFILE);
+    _data_cache_miss_bytes = add_lance_counter(_scanner_profile, "LanceDataCacheMissBytes",
+                                               TUnit::BYTES, LANCE_DATA_CACHE_PROFILE);
     if (_search_kind != SearchKind::NORMAL) {
         RETURN_IF_ERROR(_validate_external_search_request());
         const auto& request = lance_scan_params.external_search_request;
@@ -128,7 +127,6 @@ Status LanceTableReader::init(TableReadOptions&& options) {
         }
         _scanner_profile->add_info_string("LanceTopK", std::to_string(top_k));
         _scanner_profile->add_info_string("LanceOffset", std::to_string(offset));
-        _scanner_profile->add_info_string("LanceTopKPlusOffset", std::to_string(top_k + offset));
     }
     if (_scan_params->__isset.lance_scan_params &&
         lance_scan_params.__isset.lance_substrait_filter) {
@@ -247,13 +245,13 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
     if (row_ids.empty()) {
         return Status::OK();
     }
-    if (_row_id_take_read_time == nullptr) {
-        _row_id_take_read_time = ADD_CHILD_TIMER_WITH_LEVEL(
-                _scanner_profile, "LanceRowIdTakeReadTime", LANCE_READER_PROFILE, 1);
+    if (_row_id_read_time == nullptr) {
+        _row_id_read_time = ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceRowIdReadTime",
+                                                       LANCE_TIMING_PROFILE, 1);
     }
     if (_row_id_fetch_total_time == nullptr) {
         _row_id_fetch_total_time = ADD_CHILD_TIMER_WITH_LEVEL(
-                _scanner_profile, "LanceRowIdFetchTotalTime", LANCE_READER_PROFILE, 1);
+                _scanner_profile, "LanceRowIdFetchTotalTime", LANCE_TIMING_PROFILE, 1);
     }
     SCOPED_TIMER(_row_id_fetch_total_time);
 
@@ -270,7 +268,7 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
     ArrowArrayStream stream {};
     int32_t take_rows_status = 0;
     {
-        SCOPED_TIMER(_row_id_take_read_time);
+        SCOPED_TIMER(_row_id_read_time);
         take_rows_status = lance_dataset_take_rows(_dataset, row_ids.data(), row_ids.size(),
                                                    columns.data(), &stream);
     }
@@ -296,7 +294,7 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
         arrow::Status read_status;
         {
             // Lance may materialize take_rows lazily while its Arrow stream is consumed.
-            SCOPED_TIMER(_row_id_take_read_time);
+            SCOPED_TIMER(_row_id_read_time);
             read_status = batch_reader->ReadNext(&record_batch);
         }
         if (!read_status.ok()) {
@@ -633,83 +631,36 @@ void LanceTableReader::_init_scanner_profile() {
         return;
     }
 
-    _scanner_configure_time = ADD_CHILD_TIMER_WITH_LEVEL(
-            _scanner_profile, "LanceScannerConfigureTime", LANCE_READER_PROFILE, 1);
-    _runtime_filter_sql_time = ADD_CHILD_TIMER_WITH_LEVEL(
-            _scanner_profile, "LanceRuntimeFilterSqlTime", LANCE_READER_PROFILE, 1);
-    _scanner_read_time = ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceScannerReadTime",
-                                                    LANCE_READER_PROFILE, 1);
-    _execution_iops = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceExecutionIOOps",
-                                                   TUnit::UNIT, LANCE_READER_PROFILE, 1);
-    _execution_requests = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceExecutionIORequests",
-                                                       TUnit::UNIT, LANCE_READER_PROFILE, 1);
-    _execution_bytes_read = ADD_CHILD_COUNTER_WITH_LEVEL(
-            _scanner_profile, "LanceExecutionIOBytesRead", TUnit::BYTES, LANCE_READER_PROFILE, 1);
-    _index_partition_cache_miss_loads =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIndexPartitionCacheMissLoads",
-                                         TUnit::UNIT, LANCE_READER_PROFILE, 1);
-    _index_comparisons = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIndexComparisons",
-                                                      TUnit::UNIT, LANCE_READER_PROFILE, 1);
-
-    // These scan counts are emitted by Lance's FilteredRead execution node. For vector searches
-    // with an explicit fragment set, they normally describe the fragments, ranges, and rows read
-    // while applying the row-id prefilter. They are scan input counts, not ANN result counts.
-    _lance_count_metrics = {
-            {"fragments_scanned",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceFragmentsScanned", TUnit::UNIT,
-                                          LANCE_READER_PROFILE, 1)},
-            {"ranges_scanned",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceRowOffsetRangesScanned",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"rows_scanned", ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceRowsScanned",
-                                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"partitions_ranked",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIVFPartitionsRanked", TUnit::UNIT,
-                                          LANCE_READER_PROFILE, 1)},
-            {"partitions_searched",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIVFPartitionsSearched",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"deltas_searched",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceVectorIndexSegmentsSearched",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"scalar_segments_requested",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentsRequested",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"scalar_segments_searched",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentsSearched",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"scalar_segment_fallbacks",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentFallbacks",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-            {"scalar_segment_candidate_rows",
-             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexCandidateRows",
-                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
-    };
-    _lance_time_metrics = {
-            // This is wait time reported by the same Lance scan execution node described above,
-            // rather than Doris scanner scheduling wait time.
-            {"task_wait_time", ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceTaskWaitTime",
-                                                          LANCE_READER_PROFILE, 1)},
-            {"find_partitions_elapsed",
-             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceIVFPartitionRankingTime",
-                                        LANCE_READER_PROFILE, 1)},
-            {"scalar_segment_prepare_time",
-             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentPrepareTime",
-                                        LANCE_READER_PROFILE, 1)},
-            {"scalar_segment_search_time",
-             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceScalarIndexSegmentSearchTime",
-                                        LANCE_READER_PROFILE, 1)},
-    };
+    _scanner_configure_time = add_lance_counter(_scanner_profile, "LanceScannerConfigureTime",
+                                                TUnit::TIME_NS, LANCE_TIMING_PROFILE);
+    _runtime_filter_sql_time = add_lance_counter(_scanner_profile, "LanceRuntimeFilterBuildTime",
+                                                 TUnit::TIME_NS, LANCE_TIMING_PROFILE);
+    _scanner_read_time = add_lance_counter(_scanner_profile, "LanceScannerReadTime", TUnit::TIME_NS,
+                                           LANCE_TIMING_PROFILE);
+    _execution_iops =
+            add_lance_counter(_scanner_profile, "LanceIOReadOps", TUnit::UNIT, LANCE_IO_PROFILE);
+    _execution_requests = add_lance_counter(_scanner_profile, "LanceIOReadRequests", TUnit::UNIT,
+                                            LANCE_IO_PROFILE);
+    _execution_bytes_read =
+            add_lance_counter(_scanner_profile, "LanceIOReadBytes", TUnit::BYTES, LANCE_IO_PROFILE);
+    _index_object_loads = add_lance_counter(_scanner_profile, "LanceIndexObjectLoads", TUnit::UNIT,
+                                            LANCE_INDEX_PROFILE);
+    _index_page_loads = add_lance_counter(_scanner_profile, "LanceIndexPageLoads", TUnit::UNIT,
+                                          LANCE_INDEX_PROFILE);
+    _index_comparisons = add_lance_counter(_scanner_profile, "LanceIndexComparisons", TUnit::UNIT,
+                                           LANCE_INDEX_PROFILE);
     if (_search_kind != SearchKind::NORMAL) {
         _planned_index_segment_count =
-                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePlannedIndexSegmentCount",
-                                             TUnit::UNIT, LANCE_READER_PROFILE, 1);
+                add_lance_counter(_scanner_profile, "LancePlannedIndexSegmentCount", TUnit::UNIT,
+                                  LANCE_SEARCH_PLAN_PROFILE);
         _planned_indexed_fragment_count =
-                ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePlannedIndexedFragmentCount",
-                                             TUnit::UNIT, LANCE_READER_PROFILE, 1);
-        _planned_flat_search_fragment_count = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _scanner_profile, "LancePlannedFlatSearchFragmentCount", TUnit::UNIT,
-                LANCE_READER_PROFILE, 1);
+                add_lance_counter(_scanner_profile, "LancePlannedIndexedFragmentCount", TUnit::UNIT,
+                                  LANCE_SEARCH_PLAN_PROFILE);
+        if (_search_kind == SearchKind::VECTOR) {
+            _planned_flat_search_fragment_count =
+                    add_lance_counter(_scanner_profile, "LancePlannedFlatSearchFragmentCount",
+                                      TUnit::UNIT, LANCE_SEARCH_PLAN_PROFILE);
+        }
     }
 }
 
@@ -1095,7 +1046,8 @@ void LanceTableReader::_collect_scan_statistics(void* callback_ctx, const void* 
     update_counter(reader->_execution_iops, statistics->iops, "iops");
     update_counter(reader->_execution_requests, statistics->requests, "requests");
     update_counter(reader->_execution_bytes_read, statistics->bytes_read, "bytes_read");
-    update_counter(reader->_index_partition_cache_miss_loads, statistics->index_partitions_loaded,
+    update_counter(reader->_index_object_loads, statistics->indices_loaded, "indices_loaded");
+    update_counter(reader->_index_page_loads, statistics->index_partitions_loaded,
                    "index_partitions_loaded");
     update_counter(reader->_index_comparisons, statistics->index_comparisons, "index_comparisons");
 
@@ -1112,37 +1064,19 @@ void LanceTableReader::_collect_scan_statistics(void* callback_ctx, const void* 
             continue;
         }
         const std::string_view name(metric.name == nullptr ? "" : metric.name, metric.name_len);
-        RuntimeProfile::Counter* counter = nullptr;
-        switch (metric.kind) {
-        case LANCE_SCAN_METRIC_COUNT: {
-            const auto found = reader->_lance_count_metrics.find(name);
-            if (found != reader->_lance_count_metrics.end()) {
-                counter = found->second;
+        for (const auto& definition : LANCE_SCAN_METRICS) {
+            if (definition.native_name != name) {
+                continue;
+            }
+            const auto expected_kind = definition.unit == TUnit::TIME_NS
+                                               ? LANCE_SCAN_METRIC_TIME_NANOSECONDS
+                                               : LANCE_SCAN_METRIC_COUNT;
+            if (metric.kind == expected_kind) {
+                auto* counter = add_lance_counter(reader->_scanner_profile, definition.profile_name,
+                                                  definition.unit, definition.group);
+                update_counter(counter, metric.value, name);
             }
             break;
-        }
-        case LANCE_SCAN_METRIC_TIME_NANOSECONDS: {
-            const auto found = reader->_lance_time_metrics.find(name);
-            if (found != reader->_lance_time_metrics.end()) {
-                counter = found->second;
-            } else if (name == "search_time") {
-                // Scalar-index metrics exist only when Lance includes the corresponding
-                // execution node in this scan plan.
-                counter = ADD_CHILD_TIMER_WITH_LEVEL(reader->_scanner_profile,
-                                                     "LanceScalarIndexQueryTime",
-                                                     LANCE_READER_PROFILE, 1);
-            } else if (name == "serialization_time") {
-                counter = ADD_CHILD_TIMER_WITH_LEVEL(reader->_scanner_profile,
-                                                     "LanceScalarIndexResultSerializationTime",
-                                                     LANCE_READER_PROFILE, 1);
-            }
-            break;
-        }
-        default:
-            break;
-        }
-        if (counter != nullptr) {
-            update_counter(counter, metric.value, name);
         }
     }
 }
@@ -1170,8 +1104,7 @@ void LanceTableReader::_close_dataset() {
 }
 
 void LanceTableReader::_collect_data_cache_statistics() {
-    if (_dataset == nullptr || (_data_cache_bytes_read_from_cache == nullptr &&
-                                _data_cache_bytes_read_from_remote == nullptr)) {
+    if (_dataset == nullptr) {
         return;
     }
 
@@ -1194,9 +1127,8 @@ void LanceTableReader::_collect_data_cache_statistics() {
         }
         COUNTER_SET(counter, static_cast<int64_t>(value));
     };
-    set_counter(_data_cache_bytes_read_from_cache, statistics.bytes_read_from_cache,
-                "bytes_read_from_cache");
-    set_counter(_data_cache_bytes_read_from_remote, statistics.bytes_read_from_remote,
+    set_counter(_data_cache_hit_bytes, statistics.bytes_read_from_cache, "bytes_read_from_cache");
+    set_counter(_data_cache_miss_bytes, statistics.bytes_read_from_remote,
                 "bytes_read_from_remote");
 }
 
