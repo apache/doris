@@ -85,9 +85,7 @@ public:
 
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
 
-    void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
-        _segments_for_tablet.insert(segments_for_tablet.cbegin(), segments_for_tablet.cend());
-    }
+    void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet);
 
     // Return true if the last instance is just released.
     bool release();

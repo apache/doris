@@ -27,6 +27,7 @@
 #include "event2/http.h"
 #include "event2/http_struct.h"
 #include "evhttp.h"
+#include "gen_cpp/FrontendService_types.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
@@ -42,6 +43,16 @@
 #include "util/defer_op.h"
 
 namespace doris {
+
+TEST(StreamLoadRequestTest, SinkUploadPreservesOptionalPresence) {
+    TStreamLoadPutRequest request;
+    EXPECT_FALSE(request.__isset.cloud_memtable_sink_upload);
+    for (bool enabled : {false, true}) {
+        request.__set_cloud_memtable_sink_upload(enabled);
+        EXPECT_TRUE(request.__isset.cloud_memtable_sink_upload);
+        EXPECT_EQ(request.cloud_memtable_sink_upload, enabled);
+    }
+}
 
 class StreamLoadTest : public testing::Test {
 public:

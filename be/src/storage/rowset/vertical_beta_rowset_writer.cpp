@@ -205,7 +205,7 @@ Status VerticalBetaRowsetWriter<T>::build(RowsetSharedPtr& rowset) {
     const int32_t next_segment_id = T::get_allocated_segment_id();
     const int32_t segment_num = this->_num_segment.load(std::memory_order_relaxed);
     DORIS_CHECK_EQ(next_segment_id - this->_segment_start_id, segment_num);
-    if (this->_segment_start_id != 0) {
+    if (this->_context.is_partial_output_writer || this->_segment_start_id != 0) {
         std::vector<int64_t> segment_ids;
         segment_ids.reserve(segment_num);
         for (int32_t segment_id = this->_segment_start_id; segment_id < next_segment_id;

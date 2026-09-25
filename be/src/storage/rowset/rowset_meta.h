@@ -467,9 +467,11 @@ public:
     }
 
     // If `aggregate_into_single` is true, collapse per-segment bounds into a single
-    // [rowset_min, rowset_max] entry and mark this rowset as aggregated.
+    // [rowset_min, rowset_max] entry and mark this rowset as aggregated. Partial distributed
+    // compaction outputs can disable truncation so the coordinator can validate adjacent bounds.
     void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds,
-                                 bool aggregate_into_single = false);
+                                 bool aggregate_into_single = false,
+                                 bool truncate_key_bounds = true);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
@@ -534,6 +536,11 @@ public:
     // Because the member field '_handle' is a raw pointer, use member func 'init' to replace copy ctor
     RowsetMeta(const RowsetMeta&) = delete;
     RowsetMeta operator=(const RowsetMeta&) = delete;
+
+    // Collect only completed files; interim rowsets may still have open writers.
+    // file_path is the logical path used at creation, not the S3 writer's absolute path.
+    Status collect_packed_slice_location(const io::FileWriter& file_writer,
+                                         const std::string& file_path);
 
     void add_packed_slice_location(const std::string& segment_path,
                                    const std::string& packed_file_path, int64_t offset,

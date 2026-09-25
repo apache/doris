@@ -33,6 +33,7 @@
 #include <functional>
 #include <memory>
 
+#include "cloud/cloud_rowset_builder.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
@@ -1418,6 +1419,252 @@ TEST_F(LoadStreamMgrTest, incremental_close_race_orhpans_streams) {
 
     debug_points->remove(debug_point_name);
     config::enable_debug_points = saved_debug_points;
+}
+
+TEST_F(LoadStreamMgrTest, SinkUploadDuplicateAndMissingWriterResults) {
+    WriteRequest req;
+    req.tablet_id = NORMAL_TABLET_ID;
+    RuntimeProfile profile("sink-upload-test");
+    LoadStreamWriter writer(&req, &profile);
+    writer._rowset_builder->_tablet = engine_ref->tablet_manager()->get_tablet(NORMAL_TABLET_ID);
+    writer._writer_segment_start_ids.emplace("writer", 100);
+    RowsetMetaPB meta;
+    meta.set_num_segments(1);
+    meta.add_segment_ids(100);
+    // Seed an already accepted result to exercise retries without uploading a file.
+    writer._partial_rowset_metas.emplace(100, meta);
+    int64_t added = -1;
+    ASSERT_TRUE(writer.add_partial_rowset("writer", meta, &added).ok());
+    EXPECT_EQ(0, added);
+    EXPECT_FALSE(writer.add_partial_rowset("unknown", meta, &added).ok());
+    meta.set_num_rows(7);
+    EXPECT_FALSE(writer.add_partial_rowset("writer", meta, &added).ok());
+    writer._is_init = true;
+    writer._sink_upload = true;
+    writer._partial_rowset_metas.clear();
+    EXPECT_FALSE(writer.pre_close().ok());
+    writer._pre_closed = true;
+    EXPECT_FALSE(writer.add_partial_rowset("writer", meta, &added).ok());
+}
+
+class CloudSinkUploadMetaTest : public testing::Test {
+protected:
+    RowsetMetaPB base_meta() {
+        RowsetMetaPB meta;
+        meta.set_rowset_id(0);
+        meta.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+        meta.set_tablet_id(10);
+        meta.set_txn_id(20);
+        meta.set_resource_id("vault");
+        meta.set_index_id(30);
+        meta.set_partition_id(40);
+        meta.mutable_load_id()->set_hi(50);
+        meta.mutable_load_id()->set_lo(60);
+        meta.mutable_tablet_schema()->set_keys_type(DUP_KEYS);
+        meta.mutable_tablet_schema()->set_num_short_key_columns(0);
+        meta.mutable_tablet_schema()->set_num_rows_per_row_block(1024);
+        meta.mutable_tablet_schema()->set_compress_kind(COMPRESS_LZ4);
+        return meta;
+    }
+
+    RowsetMetaPB partial(int id) {
+        auto meta = base_meta();
+        meta.set_num_segments(1);
+        meta.add_segment_ids(id);
+        meta.add_num_segment_rows(id + 1);
+        meta.set_num_rows(id + 1);
+        meta.add_segments_file_size(100 + id);
+        meta.set_data_disk_size(100 + id);
+        meta.set_index_disk_size(10);
+        meta.set_total_disk_size(110 + id);
+        auto* bounds = meta.add_segments_key_bounds();
+        bounds->set_min_key("a");
+        bounds->set_max_key("z");
+        meta.add_inverted_index_file_info()->set_index_size(10);
+        return meta;
+    }
+};
+
+TEST_F(CloudSinkUploadMetaTest, AssembleSparseSegmentsAndPackedLocations) {
+    auto first = partial(0);
+    auto* location = &(*first.mutable_packed_slice_locations())["data/10/rowset_0.dat"];
+    location->set_packed_file_path("packed/object");
+    location->set_offset(64);
+    location->set_size(100);
+    RowsetMetaPB merged;
+    // A writer can finish first even though its allocated range is last.
+    std::map<int32_t, RowsetMetaPB> partials;
+    partials.emplace(100, partial(102));
+    partials.emplace(0, first);
+    ASSERT_TRUE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(base_meta(), partials, 100,
+                                                                       &merged)
+                        .ok());
+    EXPECT_EQ(2, merged.num_segments());
+    EXPECT_EQ(0, merged.segment_ids(0));
+    EXPECT_EQ(102, merged.segment_ids(1));
+    EXPECT_EQ(1, merged.num_segment_rows(0));
+    EXPECT_EQ(103, merged.num_segment_rows(1));
+    EXPECT_EQ(202, merged.segments_file_size(1));
+    EXPECT_EQ(104, merged.num_rows());
+    EXPECT_EQ(322, merged.total_disk_size());
+    EXPECT_EQ(2, merged.inverted_index_file_info_size());
+    EXPECT_EQ(COMMITTED, merged.rowset_state());
+    RowsetMetaPB restored;
+    ASSERT_TRUE(restored.ParseFromString(merged.SerializeAsString()));
+    EXPECT_EQ(64, restored.packed_slice_locations().at("data/10/rowset_0.dat").offset());
+    EXPECT_EQ(102, restored.segment_ids(1));
+}
+
+TEST_F(CloudSinkUploadMetaTest, RejectInvalidPartialResults) {
+    RowsetMetaPB merged;
+    auto check = [&](const RowsetMetaPB& meta) {
+        EXPECT_FALSE(
+                CloudRowsetBuilder::validate_partial_rowset_meta(base_meta(), meta, 100, 100).ok());
+    };
+    check(partial(99)); // Outside this writer's range.
+    check(partial(200));
+    auto meta = partial(100);
+    meta.set_rowset_id_v2("different-rowset");
+    check(meta);
+    meta = partial(100);
+    meta.clear_segments_file_size();
+    check(meta);
+    meta = partial(100);
+    meta.set_num_rows(1);
+    check(meta);
+    meta = partial(100);
+    meta.set_total_disk_size(1);
+    check(meta);
+    meta = partial(100);
+    meta.set_segments_key_bounds_aggregated(true);
+    check(meta);
+    meta = partial(100);
+    meta.mutable_tablet_schema()->add_index()->set_index_type(INVERTED);
+    meta.clear_inverted_index_file_info();
+    check(meta);
+    EXPECT_FALSE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                         base_meta(), {{0, partial(0)}, {1, partial(1)}}, 1, &merged)
+                         .ok());
+}
+
+TEST_F(CloudSinkUploadMetaTest, EmptyWriter) {
+    RowsetMetaPB merged;
+    ASSERT_TRUE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                        base_meta(), {{0, base_meta()}}, 100, &merged)
+                        .ok());
+    EXPECT_EQ(0, merged.num_segments());
+    EXPECT_TRUE(merged.empty());
+}
+
+TEST_F(CloudSinkUploadMetaTest, AssembleVariantSchemaWithoutDuplicateFields) {
+    auto base = base_meta();
+    auto* schema = base.mutable_tablet_schema();
+    auto* key = schema->add_column();
+    key->set_unique_id(1);
+    key->set_name("k");
+    key->set_type("INT");
+    key->set_is_key(true);
+    key->set_is_nullable(false);
+    auto* variant = schema->add_column();
+    variant->set_unique_id(2);
+    variant->set_name("v");
+    variant->set_type("VARIANT");
+    variant->set_is_key(false);
+    variant->set_is_nullable(true);
+    auto* index = schema->add_index();
+    index->set_index_id(3);
+    index->set_index_name("idx_k");
+    index->set_index_type(INVERTED);
+    index->add_col_unique_id(1);
+    schema->add_cluster_key_uids(1);
+
+    auto first = partial(0);
+    auto second = partial(100);
+    *first.mutable_tablet_schema() = *schema;
+    *second.mutable_tablet_schema() = *schema;
+    RowsetMetaPB merged;
+    ASSERT_TRUE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                        base, {{0, first}, {100, second}}, 100, &merged)
+                        .ok());
+    const auto& merged_schema = merged.tablet_schema();
+    ASSERT_EQ(2, merged_schema.column_size());
+    EXPECT_EQ(1, merged_schema.column(0).unique_id());
+    EXPECT_EQ(2, merged_schema.column(1).unique_id());
+    EXPECT_EQ("VARIANT", merged_schema.column(1).type());
+    ASSERT_EQ(1, merged_schema.index_size());
+    EXPECT_EQ(3, merged_schema.index(0).index_id());
+    ASSERT_EQ(1, merged_schema.cluster_key_uids_size());
+    EXPECT_EQ(1, merged_schema.cluster_key_uids(0));
+}
+
+TEST_F(CloudSinkUploadMetaTest, PreserveAggregateAndMorOverlappingLayout) {
+    for (auto type : {AGG_KEYS, UNIQUE_KEYS}) {
+        auto base = base_meta();
+        base.mutable_tablet_schema()->set_keys_type(type);
+        auto first = partial(0);
+        auto second = partial(100);
+        first.mutable_tablet_schema()->set_keys_type(type);
+        second.mutable_tablet_schema()->set_keys_type(type);
+        RowsetMetaPB merged;
+        ASSERT_TRUE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                            base, {{0, first}, {100, second}}, 100, &merged)
+                            .ok());
+        EXPECT_EQ(type, merged.tablet_schema().keys_type());
+        EXPECT_EQ(OVERLAPPING, merged.segments_overlap_pb());
+        EXPECT_EQ(100, merged.segment_ids(1));
+        EXPECT_EQ(102, merged.num_rows());
+    }
+}
+
+TEST_F(CloudSinkUploadMetaTest, PreserveDisjointKeyRanges) {
+    auto first = partial(0);
+    auto second = partial(100);
+    first.mutable_segments_key_bounds(0)->set_max_key("b");
+    second.mutable_segments_key_bounds(0)->set_min_key("c");
+    RowsetMetaPB merged;
+    auto base = base_meta();
+    ASSERT_TRUE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                        base, {{0, first}, {100, second}}, 100, &merged)
+                        .ok());
+    EXPECT_EQ(NONOVERLAPPING, merged.segments_overlap_pb());
+
+    // Primary-key bounds cannot establish the ordering of cluster keys.
+    base.mutable_tablet_schema()->add_cluster_key_uids(1);
+    ASSERT_TRUE(CloudRowsetBuilder::assemble_rowset_meta_from_partials(
+                        base, {{0, first}, {100, second}}, 100, &merged)
+                        .ok());
+    EXPECT_EQ(OVERLAPPING, merged.segments_overlap_pb());
+}
+
+TEST(CloudSinkMowTest, RequireMatchingSnapshotAndCompleteBitmap) {
+    PCloudLoadMowResult result;
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    result.set_snapshot_version(5);
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    auto* bitmap = result.mutable_delete_bitmap();
+    EXPECT_TRUE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 6).ok());
+    bitmap->add_rowset_ids("020000000000000100000000000000020000000000000003");
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    bitmap->add_segment_ids(1000);
+    bitmap->add_versions(0);
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    roaring::Roaring rows;
+    rows.add(7);
+    std::string bytes(rows.getSizeInBytes(), '\0');
+    rows.write(bytes.data());
+    bitmap->add_segment_delete_bitmaps(bytes);
+    ASSERT_TRUE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    auto decoded = DeleteBitmap::from_pb(*bitmap, 1);
+    RowsetId rowset_id;
+    rowset_id.init(bitmap->rowset_ids(0));
+    EXPECT_TRUE(decoded.contains({rowset_id, 1000, 0}, 7));
+    EXPECT_FALSE(decoded.contains({rowset_id, 0, 0}, 7));
+    bitmap->set_versions(0, 5);
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
+    bitmap->set_versions(0, 0);
+    bitmap->set_segment_delete_bitmaps(0, "invalid");
+    EXPECT_FALSE(CloudRowsetBuilder::validate_sink_mow_result(result, 5).ok());
 }
 
 } // namespace doris

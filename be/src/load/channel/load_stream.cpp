@@ -26,8 +26,10 @@
 #include <sstream>
 
 #include "bvar/bvar.h"
+#include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/signal_handler.h"
+#include "cpp/sync_point.h"
 #include "load/channel/load_channel.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/channel/load_stream_writer.h"
@@ -57,11 +59,16 @@ bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
 bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
 TabletStream::TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
-                           LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
+                           LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile,
+                           int64_t txn_expiration, std::string storage_vault_id,
+                           bool write_file_cache)
         : _id(id),
           _next_segid(0),
           _load_id(load_id),
           _txn_id(txn_id),
+          _txn_expiration(txn_expiration),
+          _storage_vault_id(std::move(storage_vault_id)),
+          _write_file_cache(write_file_cache),
           _load_stream_mgr(load_stream_mgr) {
     load_stream_mgr->create_token(_flush_token);
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
@@ -77,16 +84,17 @@ inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_s
 }
 
 Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
-                          int64_t partition_id) {
+                          int64_t partition_id, bool is_empty) {
     WriteRequest req {
             .tablet_id = _id,
             .txn_id = _txn_id,
+            .txn_expiration = _txn_expiration,
             .index_id = index_id,
             .partition_id = partition_id,
             .load_id = _load_id,
             .table_schema_param = schema,
-            // TODO(plat1ko): write_file_cache
-            .storage_vault_id {},
+            .write_file_cache = _write_file_cache,
+            .storage_vault_id = _storage_vault_id,
     };
 
     _load_stream_writer = std::make_shared<LoadStreamWriter>(&req, _profile);
@@ -94,16 +102,39 @@ Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t 
         _status.update(Status::Uninitialized("fault injection"));
         return _status.status();
     });
-    _status.update(_load_stream_writer->init());
+    _status.update(_load_stream_writer->init(is_empty));
     if (!_status.ok()) {
         LOG(INFO) << "failed to init rowset builder due to " << *this;
     }
     return _status.status();
 }
 
-Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
+Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data,
+                                 PCloudLoadWriteContext* context) {
     if (!_status.ok()) {
         return _status.status();
+    }
+
+    if (header.opcode() == PStreamHeader::GET_WRITE_CONTEXT) {
+        std::lock_guard lock(_lock);
+        if (!_segids_mapping.empty()) {
+            _status.update(Status::InvalidArgument("cannot switch streamed tablet to sink upload"));
+            return _status.status();
+        }
+        auto st = _load_stream_writer->register_sink_upload_writer(header.writer_id(), context);
+        _status.update(st);
+        return st;
+    }
+    if (header.opcode() == PStreamHeader::ADD_PARTIAL_ROWSET) {
+        std::lock_guard lock(_lock);
+        int64_t num_added_segments = 0;
+        auto st = _load_stream_writer->add_partial_rowset(
+                header.writer_id(), header.partial_rowset_meta(), &num_added_segments,
+                header.has_mow_result() ? &header.mow_result() : nullptr);
+        // Sink uploads use this as the accepted segment count for close validation, not ID allocation.
+        _next_segid += cast_set<uint32_t>(num_added_segments);
+        _status.update(st);
+        return st;
     }
 
     // dispatch add_segment request
@@ -119,6 +150,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     SegIdMapping* mapping = nullptr;
     {
         std::lock_guard lock_guard(_lock);
+        if (_load_stream_writer->is_sink_upload()) {
+            _status.update(
+                    Status::InvalidArgument("cannot stream files into a sink-upload rowset"));
+            return _status.status();
+        }
         if (!_segids_mapping.contains(src_id)) {
             _segids_mapping[src_id] = std::make_unique<SegIdMapping>();
         }
@@ -346,10 +382,15 @@ Status TabletStream::close() {
 
 IndexStream::IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                          std::shared_ptr<OlapTableSchemaParam> schema,
-                         LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
+                         LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile,
+                         int64_t txn_expiration, std::string storage_vault_id,
+                         bool write_file_cache)
         : _id(id),
           _load_id(load_id),
           _txn_id(txn_id),
+          _txn_expiration(txn_expiration),
+          _storage_vault_id(std::move(storage_vault_id)),
+          _write_file_cache(write_file_cache),
           _schema(schema),
           _load_stream_mgr(load_stream_mgr) {
     _profile = profile->create_child(fmt::format("IndexStream {}", id), true, true);
@@ -367,7 +408,8 @@ IndexStream::~IndexStream() {
     }
 }
 
-Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data) {
+Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data,
+                                PCloudLoadWriteContext* context) {
     SCOPED_TIMER(_append_data_timer);
     int64_t tablet_id = header.tablet_id();
     TabletStreamSharedPtr tablet_stream;
@@ -375,21 +417,22 @@ Status IndexStream::append_data(const PStreamHeader& header, butil::IOBuf* data)
         std::lock_guard lock_guard(_lock);
         auto it = _tablet_streams_map.find(tablet_id);
         if (it == _tablet_streams_map.end()) {
-            _init_tablet_stream(tablet_stream, tablet_id, header.partition_id());
+            _init_tablet_stream(tablet_stream, tablet_id, header.partition_id(), false);
         } else {
             tablet_stream = it->second;
         }
     }
 
-    return tablet_stream->append_data(header, data);
+    return tablet_stream->append_data(header, data, context);
 }
 
 void IndexStream::_init_tablet_stream(TabletStreamSharedPtr& tablet_stream, int64_t tablet_id,
-                                      int64_t partition_id) {
-    tablet_stream = std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr,
-                                                   _profile);
+                                      int64_t partition_id, bool is_empty) {
+    tablet_stream =
+            std::make_shared<TabletStream>(_load_id, tablet_id, _txn_id, _load_stream_mgr, _profile,
+                                           _txn_expiration, _storage_vault_id, _write_file_cache);
     _tablet_streams_map[tablet_id] = tablet_stream;
-    auto st = tablet_stream->init(_schema, _id, partition_id);
+    auto st = tablet_stream->init(_schema, _id, partition_id, is_empty);
     if (!st.ok()) {
         LOG(WARNING) << "tablet stream init failed " << *tablet_stream;
     }
@@ -414,7 +457,8 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         TabletStreamSharedPtr tablet_stream;
         auto it = _tablet_streams_map.find(tablet.tablet_id());
         if (it == _tablet_streams_map.end()) {
-            _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id());
+            // A tablet first seen at close received no files from any sender.
+            _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id(), true);
         } else {
             tablet_stream = it->second;
         }
@@ -430,8 +474,28 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         tablet_stream->pre_close();
     }
 
+    const bool is_cloud = config::is_cloud_mode();
+    std::vector<Status> close_statuses;
+    if (is_cloud) {
+        close_statuses.resize(_tablet_streams_map.size());
+        std::vector<std::function<Status()>> tasks;
+        tasks.reserve(_tablet_streams_map.size());
+        size_t i = 0;
+        for (auto& [_, tablet_stream] : _tablet_streams_map) {
+            tasks.emplace_back([tablet_stream, &close_statuses, i] {
+                close_statuses[i] = tablet_stream->close();
+                // A tablet failure must not stop the remaining tablets from closing.
+                return Status::OK();
+            });
+            ++i;
+        }
+        auto st = cloud::bthread_fork_join(tasks, 10);
+        DORIS_CHECK(st.ok()) << st;
+    }
+
+    size_t i = 0;
     for (auto& [_, tablet_stream] : _tablet_streams_map) {
-        auto st = tablet_stream->close();
+        auto st = is_cloud ? std::move(close_statuses[i++]) : tablet_stream->close();
         if (st.ok()) {
             success_tablet_ids->push_back(tablet_stream->id());
         } else {
@@ -489,7 +553,9 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     RETURN_IF_ERROR(_schema->init(request->schema()));
     for (auto& index : request->schema().indexes()) {
         _index_streams_map[index.id()] = std::make_shared<IndexStream>(
-                _load_id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get());
+                _load_id, index.id(), _txn_id, _schema, _load_stream_mgr, _profile.get(),
+                request->txn_expiration(), request->storage_vault_id(),
+                request->write_file_cache());
     }
     LOG(INFO) << "succeed to init load stream " << *this;
     return Status::OK();
@@ -689,11 +755,13 @@ Status LoadStream::_write_stream(StreamId stream, butil::IOBuf& buf) {
 
 void LoadStream::_parse_header(butil::IOBuf* const message, PStreamHeader& hdr) {
     butil::IOBufAsZeroCopyInputStream wrapper(*message);
+    TEST_SYNC_POINT_CALLBACK("LoadStream::before_parse");
     hdr.ParseFromZeroCopyStream(&wrapper);
     VLOG_DEBUG << "header parse result: " << hdr.DebugString();
 }
 
-Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data) {
+Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data,
+                                PCloudLoadWriteContext* context) {
     SCOPED_TIMER(_append_data_timer);
     IndexStreamSharedPtr index_stream;
 
@@ -707,10 +775,11 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
         index_stream = it->second;
     }
 
-    return index_stream->append_data(header, data);
+    return index_stream->append_data(header, data, context);
 }
 
 int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) {
+    SCOPED_ATTACH_TASK(_resource_ctx);
     VLOG_DEBUG << "on_received_messages " << id << " " << size;
     for (size_t i = 0; i < size; ++i) {
         while (messages[i]->size() > 0) {
@@ -739,7 +808,6 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
-    SCOPED_ATTACH_TASK(_resource_ctx);
     // CLOSE_LOAD message should not be fault injected,
     // otherwise the message will be ignored and causing close wait timeout
     if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
@@ -772,6 +840,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     }
 
     switch (hdr.opcode()) {
+    case PStreamHeader::ADD_PARTIAL_ROWSET:
     case PStreamHeader::ADD_SEGMENT: {
         auto st = _append_data(hdr, data);
         if (!st.ok()) {
@@ -821,6 +890,19 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         auto streams_to_close = mark_eos_sent_and_collect(id, is_incremental);
         for (auto& closing_id : streams_to_close) {
             brpc::StreamClose(closing_id);
+        }
+    } break;
+    case PStreamHeader::GET_WRITE_CONTEXT: {
+        PLoadStreamResponse response;
+        auto* context = response.mutable_write_context();
+        context->set_writer_id(hdr.writer_id());
+        auto st = _append_data(hdr, data, context);
+        st.to_protobuf(response.mutable_status());
+        butil::IOBuf buf;
+        buf.append(response.SerializeAsString());
+        auto write_status = _write_stream(id, buf);
+        if (!write_status.ok()) {
+            LOG(WARNING) << "failed to return cloud write context: " << write_status;
         }
     } break;
     case PStreamHeader::GET_SCHEMA: {

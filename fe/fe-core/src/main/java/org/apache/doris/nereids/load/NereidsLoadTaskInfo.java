@@ -19,6 +19,7 @@ package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TFileCompressType;
@@ -145,6 +146,10 @@ public interface NereidsLoadTaskInfo {
 
     default boolean isMemtableOnSinkNode() {
         return false;
+    }
+
+    default boolean isCloudMemtableSinkUpload() {
+        return Config.cloud_stream_load_default_memtable_sink_upload;
     }
 
     default int getStreamPerNode() {
