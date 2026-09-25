@@ -1816,6 +1816,17 @@ DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query
 DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable exact range read-ahead for query data pages
+DECLARE_mBool(enable_query_read_ahead);
+// Opt-in interval/lifecycle diagnostics, buffered and written to separate JSONL files.
+DECLARE_mBool(enable_read_io_trace);
+DECLARE_String(read_io_trace_dir);
+DECLARE_Int64(read_io_trace_flush_bytes);
+DECLARE_Int32(read_io_trace_flush_interval_ms);
+// Query-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_query);
+// BE-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_be);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction

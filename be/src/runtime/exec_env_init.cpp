@@ -62,8 +62,10 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/file_range_read_scheduler.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
+#include "io/fs/read_io_trace.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/group_commit/group_commit_mgr.h"
@@ -313,6 +315,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(config::max_peer_race_s3_thread_num)
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
+
+    if (config::is_cloud_mode()) {
+        io::FileRangeReadSchedulerOptions options {
+                .max_bytes_per_query = cast_set<size_t>(config::read_ahead_max_bytes_per_query),
+                .max_bytes_per_be = cast_set<size_t>(config::read_ahead_max_bytes_per_be),
+        };
+        RETURN_IF_ERROR(io::FileRangeReadScheduler::create(
+                options, _segment_prefetch_thread_pool.get(), &_file_range_read_scheduler));
+    }
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -885,6 +896,7 @@ void ExecEnv::destroy() {
 
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
+    SAFE_SHUTDOWN(_file_range_read_scheduler);
     SAFE_STOP(_runtime_filter_timer_queue);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
@@ -923,6 +935,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
+    io::ReadIOTrace::shutdown();
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
@@ -981,6 +994,7 @@ void ExecEnv::destroy() {
     _peer_race_s3_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _file_range_read_scheduler.reset(nullptr);
     _segment_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
