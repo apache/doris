@@ -171,6 +171,14 @@ suite("test_adbc_predicate_pushdown", "p0,external") {
             return q
         }
 
+        // The table itself is addressed through the REMOTE coordinates the handle carries -- the source's
+        // database and table name -- and not through the Doris catalog the user wrote. The backend that runs
+        // this statement has no Doris catalog in scope, so a statement carrying those names, or none at all,
+        // addresses nothing. Quoting is left free: only the two-level shape is pinned here.
+        String qualified = statementFor("id = 1")
+        assertTrue((qualified =~ /FROM\s+.?${dbName}.?\s*\.\s*.?t_pred.?/).find(),
+                "the remote statement does not address the source's database and table: ${qualified}")
+
         // Correctness, entirely independent of the above: the source evaluates the same predicate itself.
         // If pushdown ever translates a predicate WRONGLY -- as opposed to not at all -- this is what
         // catches it, and no baseline can absorb the difference.
