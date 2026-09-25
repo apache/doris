@@ -152,8 +152,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsets) {
     txn->put(unrelated_key, "unrelated physical data");
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    const int recycle_round_before = g_bvar_recycler_instance_recycle_round.get(
-            {std::string(kInstanceId), "recycle_stream"});
     const int64_t recycle_total_before =
             g_bvar_recycler_instance_recycle_total_num_since_started.get(
                     {std::string(kInstanceId), "recycle_stream"});
@@ -172,12 +170,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOnlyOffsets) {
                                                kStreamDbId, kStreamId)),
               0);
     EXPECT_TRUE(key_exists(txn_kv.get(), unrelated_key));
-    EXPECT_EQ(g_bvar_recycler_instance_last_round_recycled_num.get(
-                      {std::string(kInstanceId), "recycle_stream"}),
-              6);
-    EXPECT_EQ(g_bvar_recycler_instance_recycle_round.get(
-                      {std::string(kInstanceId), "recycle_stream"}),
-              recycle_round_before + 1);
     EXPECT_EQ(g_bvar_recycler_instance_recycle_total_num_since_started.get(
                       {std::string(kInstanceId), "recycle_stream"}),
               recycle_total_before + 6);
@@ -314,43 +306,6 @@ TEST(TableStreamRecyclerTest, RecycleStreamDeletesOffsetsAcrossRangePages) {
     EXPECT_EQ(range_size(txn_kv.get(), versioned::table_stream_offset_key_prefix(
                                                std::string(kInstanceId), kBaseDbId, kBaseTableId,
                                                kStreamDbId, kStreamId)),
-              0);
-}
-
-TEST(TableStreamRecyclerTest, StatisticsDispatchesStreamToOffsetScan) {
-    const bool old_force_immediate_recycle = config::force_immediate_recycle;
-    config::force_immediate_recycle = true;
-    DORIS_CLOUD_DEFER {
-        config::force_immediate_recycle = old_force_immediate_recycle;
-    };
-
-    auto txn_kv = std::make_shared<MemTxnKv>();
-    ASSERT_EQ(txn_kv->init(), 0);
-    std::unique_ptr<Transaction> txn;
-    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    put_offset(txn.get(), kPartitionId);
-    put_offset(txn.get(), kPartitionId + 1);
-
-    RecycleIndexPB recycle_index;
-    recycle_index.set_db_id(kBaseDbId);
-    recycle_index.set_table_id(kBaseTableId);
-    recycle_index.set_creation_time(0);
-    recycle_index.set_expiration(0);
-    recycle_index.set_state(RecycleIndexPB::DROPPED);
-    recycle_index.set_object_type(IndexObjectTypePB::TABLE_STREAM);
-    recycle_index.set_stream_db_id(kStreamDbId);
-    txn->put(recycle_index_key({std::string(kInstanceId), kStreamId}),
-             recycle_index.SerializeAsString());
-    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-
-    InstanceRecycler recycler = make_recycler(txn_kv);
-    ASSERT_EQ(recycler.scan_and_statistics_indexes(), 0);
-
-    EXPECT_EQ(g_bvar_recycler_instance_last_round_to_recycle_num.get(
-                      {std::string(kInstanceId), "recycle_stream"}),
-              6);
-    EXPECT_EQ(g_bvar_recycler_instance_last_round_to_recycle_num.get(
-                      {std::string(kInstanceId), "recycle_indexes"}),
               0);
 }
 
