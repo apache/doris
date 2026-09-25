@@ -550,6 +550,25 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[0]), 0);
     ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[1]), 0);
 
+    // Give the child its own signal environment instead of the inherited one: all of the suites run
+    // in one process, so any case that leaves SIGTERM ignored or blocked behind it decides whether
+    // this child can act on the signal at all. A non-interactive shell silently refuses to trap a
+    // signal that was ignored on entry, and a blocked one is never delivered; both leave the report
+    // below empty, which is indistinguishable from the forced kill. SIGTERM therefore starts at its
+    // default disposition and unblocked, and SIGCHLD the same so that the child's own `wait` works.
+    posix_spawnattr_t attr;
+    ASSERT_EQ(posix_spawnattr_init(&attr), 0);
+    Defer destroy_attr {[&]() { posix_spawnattr_destroy(&attr); }};
+    sigset_t no_signals;
+    sigemptyset(&no_signals);
+    sigset_t default_signals;
+    sigemptyset(&default_signals);
+    sigaddset(&default_signals, SIGTERM);
+    sigaddset(&default_signals, SIGCHLD);
+    ASSERT_EQ(posix_spawnattr_setsigmask(&attr, &no_signals), 0);
+    ASSERT_EQ(posix_spawnattr_setsigdefault(&attr, &default_signals), 0);
+    ASSERT_EQ(posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF), 0);
+
     // The shell reports readiness and then reports that SIGTERM reached it, so the graceful half of
     // the reap sequence is observable: a child taken out by the forced-kill fallback reports
     // nothing, and then the pipe is at EOF rather than blocking, because the background sleep is
@@ -561,7 +580,7 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
                                             "sleep 10 </dev/null >/dev/null 2>&1 & wait $!"),
                           nullptr};
     char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
-    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", &actions, nullptr, argv, envp), 0);
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", &actions, &attr, argv, envp), 0);
     ASSERT_GT(pid, 0);
     close(report_pipe[1]);
     report_pipe[1] = -1;
@@ -599,7 +618,8 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
 
     char handled = 0;
     EXPECT_EQ(read(report_pipe[0], &handled, 1), 1)
-            << "stop() never delivered SIGTERM to the published child";
+            << "the published child was collected without reporting the SIGTERM trap: it either "
+               "never got to run it, or was not scheduled inside the grace window";
     EXPECT_EQ(handled, 'T') << "stop() fell through the grace window to the forced kill";
 }
 
