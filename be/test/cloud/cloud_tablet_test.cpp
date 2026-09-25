@@ -903,7 +903,7 @@ protected:
 // Test sync_meta syncs disable_auto_compaction from false to true
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
     // Verify initial state: disable_auto_compaction = false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -926,7 +926,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionFalseToTrue) {
     EXPECT_TRUE(st.ok());
 
     // Verify disable_auto_compaction has been synced to true
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->disable_auto_compaction());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -956,7 +956,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
             std::make_shared<CloudTablet>(_engine, std::make_shared<TabletMeta>(*tablet_meta_true));
 
     // Verify initial state: disable_auto_compaction = true
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -994,7 +994,55 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
     EXPECT_TRUE(st.ok());
 
     // Verify disable_auto_compaction has been synced to false
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// Regression test: disable_auto_compaction false -> true -> false on the SAME tablet.
+//
+// TabletSchema objects are shared across tablets through TabletSchemaCache, keyed by the
+// serialized schema (which includes disable_auto_compaction), so the tablet meta fetched from
+// Meta Service resolves to the cached object for that schema content. Mutating the shared schema
+// in place used to pollute the cache entry of the original (false) schema: the second sync then
+// read "true" from the fetched meta and never re-enabled compaction. The effective value now lives
+// on CloudTablet and the shared schema must stay untouched.
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionRoundTrip) {
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
+
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    // Step 1: ALTER TABLE ... SET ("disable_auto_compaction" = "true") reaches BE
+    auto meta_true = createMockTabletMeta(true);
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [meta_true](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = meta_true;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    EXPECT_TRUE(_tablet->sync_meta().ok());
+    EXPECT_TRUE(_tablet->disable_auto_compaction());
+    // sync_meta must not touch the shared TabletSchema object
     EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+
+    // Step 2: ALTER TABLE ... SET ("disable_auto_compaction" = "false") reaches BE. The schema
+    // content is identical to the one used at tablet creation, so it resolves to the same
+    // TabletSchemaCache entry.
+    auto meta_false = createMockTabletMeta(false);
+    EXPECT_FALSE(meta_false->tablet_schema()->disable_auto_compaction())
+            << "TabletSchemaCache entry for the disable_auto_compaction=false schema was mutated "
+               "in place";
+    sp->clear_all_call_backs();
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [meta_false](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = meta_false;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    EXPECT_TRUE(_tablet->sync_meta().ok());
+    EXPECT_FALSE(_tablet->disable_auto_compaction())
+            << "compaction was not re-enabled after false -> true -> false round trip";
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -1003,7 +1051,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionTrueToFalse) {
 // Test sync_meta when disable_auto_compaction is unchanged
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     // Verify initial state: disable_auto_compaction = false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -1026,7 +1074,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaDisableAutoCompactionUnchanged) {
     EXPECT_TRUE(st.ok());
 
     // Verify disable_auto_compaction remains false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -1038,7 +1086,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
     config::enable_file_cache = false;
 
     // Set initial state: disable_auto_compaction = false
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
 
     auto sp = SyncPoint::get_instance();
     sp->clear_all_call_backs();
@@ -1058,7 +1106,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(callback_called);
 
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
     sp->disable_processing();
@@ -1068,7 +1116,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaWhenFileCacheDisabled) {
 // Test sync_meta syncs compaction_policy together with disable_auto_compaction
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     // Verify initial states
-    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_FALSE(_tablet->disable_auto_compaction());
     // Default compaction_policy is "size_based"
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "size_based");
 
@@ -1101,7 +1149,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     EXPECT_TRUE(st.ok());
 
     // Verify both properties are synced
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
     EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_goal_size_mbytes(), 1234);
     EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_file_count_threshold(), 17);
@@ -1163,7 +1211,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
 
     EXPECT_EQ(3600, _tablet->tablet_meta()->ttl_seconds());
     EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
+    EXPECT_TRUE(_tablet->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
     sp->disable_processing();
