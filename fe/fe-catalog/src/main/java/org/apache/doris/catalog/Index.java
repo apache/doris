@@ -75,15 +75,21 @@ public class Index implements Writable {
         this.comment = comment;
         if (indexType == IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
-                if (this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY)
-                        || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS)
-                        || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY)
-                        || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_NORMALIZER_NAME_KEY)) {
-                    String supportPhraseKey = InvertedIndexProperties
-                            .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+                String supportPhraseKey = InvertedIndexProperties.INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+                if (isTokenizedInvertedIndex(this.properties)) {
                     if (!this.properties.containsKey(supportPhraseKey)) {
                         this.properties.put(supportPhraseKey, "true");
                     }
+                } else {
+                    // No analyzer on either side, so the query string is never split
+                    // either: InvertedIndexAnalyzer::get_analyse_result returns the
+                    // whole search string as ONE term, and every phrase variant takes
+                    // its terms from there. A single-term phrase is a term query, so
+                    // no query against this index can observe a position. Drop the
+                    // option instead of carrying it down to the BE, where it would ask
+                    // for position data nobody can read and make the index look
+                    // scoreable to IndexReaderHelper::is_need_similarity_score.
+                    this.properties.remove(supportPhraseKey);
                 }
                 if (this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY)
                         || this.properties.containsKey(InvertedIndexProperties.INVERTED_INDEX_PARSER_KEY_ALIAS)) {
@@ -94,6 +100,30 @@ public class Index implements Writable {
                 }
             }
         }
+    }
+
+    // True when the BE will run an analyzer over this index, i.e. when it serves the
+    // column with a FULLTEXT reader rather than the keyword lane. This has to mirror
+    // InvertedIndexAnalyzer::should_analyzer EXACTLY, so it is composed from the same
+    // two resolvers the BE uses rather than re-reading the keys by hand:
+    //
+    //   getPreferredAnalyzer   <-> get_analyzer_name_from_properties
+    //                              (note both fall back to the NORMALIZER key)
+    //   getInvertedIndexParser <-> get_parser_string_from_properties
+    //                              (both default to "none", both accept the
+    //                               "built_in_analyzer" alias)
+    //
+    // A normalizer therefore counts as analyzed even though it emits a single token:
+    // the BE gives such an index a FULLTEXT reader, and match.cpp rejects
+    // MATCH_PHRASE outright on a FULLTEXT-served index whose support_phrase is
+    // absent. Dropping the key there would turn a working (degenerate, single-term)
+    // phrase query into a hard error.
+    private static boolean isTokenizedInvertedIndex(Map<String, String> properties) {
+        if (!InvertedIndexProperties.getPreferredAnalyzer(properties).isEmpty()) {
+            return true;
+        }
+        return !InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE
+                .equalsIgnoreCase(InvertedIndexProperties.getInvertedIndexParser(properties));
     }
 
     public Index() {

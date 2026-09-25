@@ -25,6 +25,8 @@
 
 #include "common/be_mock_util.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/inverted/abstract_analysis_factory.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -380,6 +382,10 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithInvertedIndexQueryTypeTes
     index_meta_pb->add_col_unique_id(1);
 
     auto* properties = index_meta_pb->mutable_properties();
+    // These cases pin the QUERY TYPE filter, so the index has to be one that can
+    // actually be scored: tokenizing, with positions. support_phrase alone is not
+    // enough -- see the ...WithoutTokenizer cases below.
+    (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_ENGLISH;
     (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
             INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 
@@ -396,6 +402,121 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithInvertedIndexQueryTypeTes
             InvertedIndexQueryType::LESS_THAN_QUERY, &index_meta));
 }
 
+// support_phrase asks for term positions, and a position is only observable when
+// a query can supply a second term to match against it. should_analyzer() is the
+// exact line: below it the query string is never split, so a phrase degenerates
+// to a term query and the index can neither serve a phrase nor be ranked --
+// exactly as on V1/V2/V3, where such an index is served by a reader with no
+// similarity path at all. Index.java now drops the option before it reaches the
+// BE, but tablet metadata already on disk still carries it, which is what these
+// cases cover. Note a NORMALIZER sits ABOVE that line: should_analyzer() reads it
+// through get_analyzer_name_from_properties, so it stays scoreable.
+TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreRequiresATokenizer) {
+    const auto meta_with = [](const std::vector<std::pair<std::string, std::string>>& props) {
+        auto pb = std::make_unique<TabletIndexPB>();
+        pb->set_index_type(IndexType::INVERTED);
+        pb->set_index_id(1);
+        pb->set_index_name("test_index");
+        pb->add_col_unique_id(1);
+        auto* properties = pb->mutable_properties();
+        for (const auto& [key, value] : props) {
+            (*properties)[key] = value;
+        }
+        TabletIndex meta;
+        meta.init_from_pb(*pb);
+        return meta;
+    };
+
+    // Keyword index: no parser, no analyzer.
+    const TabletIndex keyword = meta_with(
+            {{INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY, INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES}});
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_ANY_QUERY, &keyword));
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_ANY, &keyword));
+
+    // parser=none is the untokenized lane spelled out.
+    const TabletIndex parser_none = meta_with(
+            {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE},
+             {INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY, INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES}});
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_PHRASE_QUERY, &parser_none));
+    EXPECT_FALSE(
+            IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_PHRASE, &parser_none));
+
+    // A real parser with positions is the shape that does get ranked.
+    const TabletIndex tokenized = meta_with(
+            {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH},
+             {INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY, INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES}});
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_PHRASE_QUERY, &tokenized));
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_PHRASE, &tokenized));
+
+    // A NORMALIZER counts as analyzed on this side: get_analyzer_name_from_properties
+    // falls back to the normalizer key, so should_analyzer() is true and the column
+    // gets a FULLTEXT reader. Index.java must therefore KEEP support_phrase for it --
+    // this case is the BE half of that contract.
+    const TabletIndex normalizer = meta_with(
+            {{INVERTED_INDEX_NORMALIZER_NAME_KEY, "my_normalizer"},
+             {INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY, INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES}});
+    EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_PHRASE_QUERY, &normalizer));
+    EXPECT_TRUE(
+            IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_PHRASE, &normalizer));
+
+    // ... and dropping positions takes it back out, tokenizer or not.
+    const TabletIndex no_positions =
+            meta_with({{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH}});
+    EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(
+            InvertedIndexQueryType::MATCH_PHRASE_QUERY, &no_positions));
+}
+
+// The invariant persists_scoring_inputs() rests on. Dropping support_phrase from a
+// non-tokenizing index is only safe because no query against such an index can ever
+// produce a second term to match a position against: get_analyse_result() short-circuits
+// on !should_analyzer() and hands back the whole search string as one term, for every
+// analysis purpose including the phrase ones. Every phrase variant (MATCH_PHRASE,
+// _PREFIX, _EDGE) sources its terms from here, so a single-term phrase degenerates to a
+// term query and positions become unobservable.
+//
+// This matters most for ARRAY: an ARRAY column is forced to parser=none by
+// InvertedIndexUtil::checkInvertedIndexParser, yet it emits one term per element and the
+// writer does advance positions between them. "One term per document" is therefore the
+// wrong reason; the query side is the right one, and this test is what pins it.
+TEST_F(IndexReaderHelperTest, UntokenizedQueriesCannotObserveAPosition) {
+    using inverted_index::InvertedIndexAnalyzer;
+    const std::string phrase = "quick brown fox";
+
+    const std::vector<AnalysisPurpose> purposes = {AnalysisPurpose::kPlainQuery,
+                                                   AnalysisPurpose::kExactPhraseQuery,
+                                                   AnalysisPurpose::kPhrasePrefixQuery};
+
+    const std::vector<std::map<std::string, std::string>> untokenized = {
+            {},                                                        // keyword
+            {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_NONE}}, // ARRAY's only option
+    };
+
+    for (const auto& properties : untokenized) {
+        ASSERT_FALSE(InvertedIndexAnalyzer::should_analyzer(properties));
+        for (auto purpose : purposes) {
+            const auto terms =
+                    InvertedIndexAnalyzer::get_analyse_result(phrase, properties, purpose);
+            ASSERT_EQ(terms.size(), 1U) << "purpose=" << static_cast<int>(purpose);
+            EXPECT_TRUE(terms[0].is_single_term());
+            EXPECT_EQ(terms[0].get_single_term(), phrase);
+        }
+    }
+
+    // Contrast: a tokenizing index really does yield several terms, which is what makes
+    // positions -- and therefore support_phrase -- meaningful there.
+    const std::map<std::string, std::string> tokenizing = {
+            {INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_ENGLISH}};
+    ASSERT_TRUE(InvertedIndexAnalyzer::should_analyzer(tokenizing));
+    EXPECT_GT(InvertedIndexAnalyzer::get_analyse_result(phrase, tokenizing,
+                                                        AnalysisPurpose::kExactPhraseQuery)
+                      .size(),
+              1U);
+}
+
 TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
     TabletIndex index_meta;
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -405,6 +526,10 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
     index_meta_pb->add_col_unique_id(1);
 
     auto* properties = index_meta_pb->mutable_properties();
+    // These cases pin the QUERY TYPE filter, so the index has to be one that can
+    // actually be scored: tokenizing, with positions. support_phrase alone is not
+    // enough -- see the ...WithoutTokenizer cases below.
+    (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_ENGLISH;
     (*properties)[INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY] =
             INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
 
