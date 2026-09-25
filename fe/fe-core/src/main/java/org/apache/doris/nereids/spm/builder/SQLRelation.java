@@ -95,9 +95,6 @@ public class SQLRelation {
     /** All column names of the table (to avoid JOIN column-name conflicts; reserved in Phase 1). */
     private List<String> reserveNames = null;
 
-    /** Whether to wrap with ASSERT_ROWS (for PhysicalAssertNumRows; reserved in Phase 1). */
-    private boolean assertRows = false;
-
     /**
      * Registers an explicit reference name (e.g. a local aggregate registers
      * "sum(c_2)" under the id of column 10).
@@ -174,10 +171,9 @@ public class SQLRelation {
 
     /**
      * Returns the SQL fragment that a parent operator can reference; this is where
-     * subquery nesting is generated. Three branches (design doc 6.2.1):
+     * subquery nesting is generated. Two branches (design doc 6.2.1):
      *
      * - relationName == null: inline, return from directly (e.g. "t1")
-     * - assertRows: ASSERT_ROWS (SELECT ...) t_N
      * - otherwise: wrap as the (SELECT ...) t_N subquery
      *
      * @return the fragment that can be embedded into a parent FROM clause
@@ -193,9 +189,6 @@ public class SQLRelation {
                 return "(" + toSQL() + ") " + relationName;
             }
             return from;
-        }
-        if (assertRows) {
-            return "ASSERT_ROWS (" + toSQL() + ") " + relationName;
         }
         return "(" + toSQL() + ") " + relationName;
     }
@@ -363,14 +356,6 @@ public class SQLRelation {
 
     public void setReserveNames(List<String> reserveNames) {
         this.reserveNames = reserveNames;
-    }
-
-    public boolean isAssertRows() {
-        return assertRows;
-    }
-
-    public void setAssertRows(boolean assertRows) {
-        this.assertRows = assertRows;
     }
 
     // ==================== table alias counter ====================

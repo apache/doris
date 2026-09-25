@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -812,5 +813,45 @@ public class SPMManagerAndPlannerTest {
         for (Expression child : expr.children()) {
             collectSubquerySqls(child, sb);
         }
+    }
+
+    // ==================== review round: authoritative reload & hint parsing ====================
+
+    /**
+     * A forced authoritative reload must clear the PUBLISHED maps together with the
+     * {@code loaded} flag: if the reload read fails, matching must not keep reading the
+     * old store (it may contain baselines the previous master already disabled / dropped).
+     */
+    @Test
+    public void testInvalidationHidesTheOldStore() {
+        manager.createBaseline(remoteBaseline(0L, "digest_inv", 0x11L, BaselineStatus.ENABLED));
+        Assertions.assertTrue(manager.hasBaselines());
+
+        manager.invalidatePublishedStoreForTest();
+
+        Assertions.assertFalse(manager.hasBaselines(), "the old store must be invisible");
+        Assertions.assertTrue(manager.getAllBaselines().isEmpty());
+        Assertions.assertTrue(manager.findCandidateBaselines("digest_inv", 0x11L).isEmpty(),
+                "lookups must not read the stale maps");
+    }
+
+    /**
+     * A persisted row whose bindSql carries an allowed SET_VAR hint must be rebuildable
+     * OUTSIDE a session: the refresh daemon has no thread-local ConnectContext, and the
+     * hint parse previously threw an NPE - the row was skipped and the authoritative diff
+     * REMOVED the still-valid baseline from the cache.
+     */
+    @Test
+    public void testHintBearingRowRebuildsWithoutSession() throws Exception {
+        String hintSql = "SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */ k1 FROM t1 WHERE k1 = 1";
+        // column order = SPM_BASELINES_SCHEMA: id, bind_sql, bind_sql_digest, bind_sql_hash,
+        // plan_sql, query_id, cost, query_time_ms, source, status, create_time, update_time
+        ResultRow row = new ResultRow(List.of(
+                "77", hintSql, "digest_hint", "34", hintSql, "", "1.0", "-1",
+                "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00"));
+
+        BaselinePlan rebuilt = BaselineManager.parsePersistedRowForTest(row);
+        Assertions.assertNotNull(rebuilt.getParameterizedBindPlan(),
+                "the hint-bearing bindSql must rebuild without a session");
     }
 }

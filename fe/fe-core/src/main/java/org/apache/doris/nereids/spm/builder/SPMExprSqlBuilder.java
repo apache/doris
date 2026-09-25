@@ -61,12 +61,16 @@ import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -305,7 +309,17 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitLike(Like like, SQLRelation context) {
-        return like.left().accept(this, context) + " LIKE " + like.right().accept(this, context);
+        String rendered = like.left().accept(this, context)
+                + " LIKE " + like.right().accept(this, context);
+        if (like.children().size() > 2) {
+            // The third child is the ESCAPE character. Dropping it froze a three-argument
+            // LIKE as a two-child predicate: parameterizing the escape literal fails
+            // LIKE's literal-only legality check, so creation fell back to the raw plan and
+            // persisted the ALTERED predicate - a column-pattern LIKE replayed without
+            // ESCAPE can match different rows. Render the child recursively.
+            rendered += " ESCAPE " + like.child(2).accept(this, context);
+        }
+        return rendered;
     }
 
     // ==================== function calls ====================
@@ -329,7 +343,24 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         String args = boundFunction.children().stream()
                 .map(a -> a.accept(this, context))
                 .collect(Collectors.joining(", "));
-        return boundFunction.getName() + "(" + args + ")";
+        return functionName(boundFunction) + "(" + args + ")";
+    }
+
+    /**
+     * Name of a bound function call for the frozen SQL. A user-defined function keeps its
+     * database qualifier (Java / Python UDF, UDAF and UDTF nodes retain dbName): a frozen
+     * db1.f(k) must not resolve to db2.f(k) when the replayed SQL runs under another
+     * default database. Package-visible for tests.
+     */
+    @VisibleForTesting
+    public static String functionName(Function function) {
+        if (function instanceof Udf) {
+            String dbName = ((Udf) function).getDbName();
+            if (dbName != null && !dbName.isEmpty()) {
+                return dbName + "." + function.getName();
+            }
+        }
+        return function.getName();
     }
 
     @Override
@@ -366,7 +397,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         String args = fn.children().stream()
                 .map(a -> a.accept(this, context))
                 .collect(Collectors.joining(", "));
-        return fn.getName() + "(" + distinct + args + ")";
+        return functionName(fn) + "(" + distinct + args + ")";
     }
 
     @Override
@@ -388,12 +419,12 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
                 fnSql = rendered;
             } else {
                 String distinct = aggFn.isDistinct() ? "DISTINCT " : "";
-                fnSql = aggFn.getName() + "(" + distinct
+                fnSql = functionName(aggFn) + "(" + distinct
                         + fn.children().stream().map(c -> print(c, context))
                                 .collect(Collectors.joining(", ")) + ")";
             }
         } else if (fn instanceof BoundFunction) {
-            fnSql = ((BoundFunction) fn).getName() + "("
+            fnSql = functionName((BoundFunction) fn) + "("
                     + fn.children().stream().map(c -> print(c, context))
                             .collect(Collectors.joining(", ")) + ")";
         } else {
@@ -505,12 +536,16 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // CAST (isExplicitType = true) is preserved verbatim.
             return cast.child().accept(this, context);
         }
-        return "CAST(" + cast.child().accept(this, context) + " AS " + cast.getDataType().toString() + ")";
+        return "CAST(" + cast.child().accept(this, context) + " AS " + cast.getDataType().toSql() + ")";
     }
 
     @Override
     public String visitTryCast(TryCast tryCast, SQLRelation context) {
-        return "TRY_CAST(" + tryCast.child().accept(this, context) + " AS " + tryCast.getDataType().toString() + ")";
+        // toSql() renders a grammar-parseable type name (e.g. STRUCT<name:type>);
+        // toString() emits a diagnostic form (STRUCT<StructField[...]>) that cannot be
+        // re-parsed by the frozen SQL after a reload.
+        return "TRY_CAST(" + tryCast.child().accept(this, context) + " AS "
+                + tryCast.getDataType().toSql() + ")";
     }
 
     @Override

@@ -22,6 +22,8 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
@@ -37,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -47,17 +50,21 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -79,7 +86,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -489,9 +500,13 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(assertNumRows.child(0)).thenReturn(scan);
         stubAccept(assertNumRows);
 
-        String sql = new SPMPlan2SQLBuilder().toSQL(assertNumRows);
-        Assertions.assertTrue(sql.startsWith("ASSERT_ROWS ("),
-                "assert-num-rows must be decompiled as ASSERT_ROWS: " + sql);
+        // The Nereids grammar has NO ASSERT_ROWS relation production, so rendering one
+        // produced frozen texts that cannot be re-parsed - after a restart such a baseline
+        // had no plan tree to fall back to and silently stopped applying. The node must
+        // therefore be REJECTED, which makes the freeze keep the user planSql text.
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().toSQL(assertNumRows),
+                "ASSERT_ROWS has no SQL representation and must fail the decompile");
     }
 
     // ==================== test helpers ====================
@@ -627,6 +642,9 @@ public class SPMPlan2SQLBuilderTest {
         }
         if (plan instanceof PhysicalAssertNumRows) {
             return builder.visitPhysicalAssertNumRows((PhysicalAssertNumRows<?>) plan, null);
+        }
+        if (plan instanceof PhysicalEmptyRelation) {
+            return builder.visitPhysicalEmptyRelation((PhysicalEmptyRelation) plan, null);
         }
         if (plan instanceof PhysicalCTEAnchor) {
             return builder.visitPhysicalCTEAnchor(
@@ -1173,6 +1191,38 @@ public class SPMPlan2SQLBuilderTest {
                 new SPMPlan2SQLBuilder().visitPhysicalRelation(listed, null).getFrom(),
                 "scan parameters must survive the freeze in list form");
 
+        // Semantic string values are decoded before rendering: a backslash must be DOUBLED
+        // (the DEFAULT sql_mode treats it as an escape introducer - release\next would
+        // reparse as release + newline + ext) and a quote doubled. The SPM re-parses pin
+        // the DEFAULT mode, so the round trip is exact no matter which mode the session
+        // carried.
+        PhysicalFileScan semantic = mockFileScan();
+        Mockito.when(semantic.getScanParams()).thenReturn(Optional.of(
+                new TableScanParams("options",
+                        Map.of("path", "release\\next", "quote", "a'b"), List.of())));
+        String semanticFrom = new SPMPlan2SQLBuilder().visitPhysicalRelation(semantic, null).getFrom();
+        Assertions.assertTrue(semanticFrom.contains("'release\\\\next'"),
+                "a backslash must be doubled so the value cannot change meaning: " + semanticFrom);
+        Assertions.assertTrue(semanticFrom.contains("'a''b'"),
+                "a quote must stay doubled: " + semanticFrom);
+        for (long sessionMode : new long[] {SqlModeHelper.MODE_DEFAULT,
+                SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES}) {
+            Map<String, String> decoded = SqlModeHelper.withSqlMode(sessionMode, () -> {
+                LogicalPlan parsed = (LogicalPlan) SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+                        () -> new NereidsParser().parseSingle("SELECT * FROM " + semanticFrom));
+                final UnboundRelation[] found = new UnboundRelation[1];
+                SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, (Plan node) -> {
+                    if (found[0] == null && node instanceof UnboundRelation) {
+                        found[0] = (UnboundRelation) node;
+                    }
+                });
+                return found[0].getScanParams().getMapParams();
+            });
+            Assertions.assertEquals("release\\next", decoded.get("path"),
+                    "the pinned re-parse must decode the value back (session mode " + sessionMode + ")");
+            Assertions.assertEquals("a'b", decoded.get("quote"));
+        }
+
         // partition pruning state has a predicate-derivable origin: replay re-prunes, so
         // it is not a modifier and the scan decompiles as the bare table
         PhysicalFileScan pruned = mockFileScan();
@@ -1409,5 +1459,86 @@ public class SPMPlan2SQLBuilderTest {
             index = sql.indexOf(fragment, index + fragment.length());
         }
         return count;
+    }
+
+    // ==================== typed empty relation ====================
+
+    /**
+     * A pruned empty branch must keep every output column's DECLARED type: emitting INT 1
+     * for all columns makes a reanalyzed placeholder-bearing UNION widen the branch (INT +
+     * DATEV2 -> DATETIMEV2) and changes the result metadata.
+     */
+    @Test
+    public void testEmptyRelationKeepsDeclaredTypes() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference d = new SlotReference("d", DateV2Type.INSTANCE);
+        PhysicalEmptyRelation empty = Mockito.mock(PhysicalEmptyRelation.class);
+        Mockito.doReturn(List.of((NamedExpression) a, (NamedExpression) d))
+                .when(empty).getProjects();
+        stubAccept(empty);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(empty);
+        Assertions.assertTrue(sql.contains("CAST(NULL AS INT)"),
+                "the INT column keeps its type: " + sql);
+        Assertions.assertTrue(sql.contains("CAST(NULL AS DATEV2)"),
+                "the DATEV2 column keeps its type: " + sql);
+        Assertions.assertTrue(sql.contains("FALSE"), "the branch stays filtered out: " + sql);
+    }
+
+    // ==================== LIKE ... ESCAPE ====================
+
+    /** A three-argument LIKE keeps its ESCAPE child (dropping it changes the match). */
+    @Test
+    public void testLikeEscapeIsRendered() {
+        SlotReference s = new SlotReference("s", org.apache.doris.nereids.types.VarcharType.SYSTEM_DEFAULT);
+        Like like = new Like(s, new StringLiteral("a!%"), new StringLiteral("!"));
+        SQLRelation relation = new SQLRelation();
+        relation.registerRef(s.getExprId(), "s");
+
+        String rendered = new SPMExprSqlBuilder().print(like, relation);
+        Assertions.assertTrue(rendered.contains("LIKE"), rendered);
+        Assertions.assertTrue(rendered.contains("ESCAPE '!'"),
+                "the escape character must survive the decompile: " + rendered);
+    }
+
+    // ==================== explicit target types ====================
+
+    /**
+     * An explicit CAST keeps the type's SQL form (toSql), not its diagnostic toString: a
+     * STRUCT frozen as STRUCT&lt;StructField[...]&gt; cannot be re-parsed after a reload.
+     */
+    @Test
+    public void testExplicitStructCastUsesSqlTypeForm() {
+        SlotReference s = new SlotReference("s", IntegerType.INSTANCE);
+        StructType structType = new StructType(List.of(
+                new StructField("a", IntegerType.INSTANCE, true, "")));
+        Cast cast = new Cast(s, structType, true);
+        SQLRelation relation = new SQLRelation();
+        relation.registerRef(s.getExprId(), "s");
+
+        String rendered = new SPMExprSqlBuilder().print(cast, relation);
+        Assertions.assertTrue(rendered.contains("STRUCT<a:INT>"),
+                "the grammar-parseable STRUCT form must be used: " + rendered);
+        Assertions.assertFalse(rendered.contains("StructField"),
+                "the diagnostic toString form must not leak: " + rendered);
+    }
+
+    // ==================== user-defined function qualifier ====================
+
+    /**
+     * A bound user-defined function keeps its database qualifier: a frozen db1.f(k) must
+     * not resolve to db2.f(k) when the replayed SQL runs under another default database.
+     */
+    @Test
+    public void testUserDefinedFunctionKeepsDbQualifier() {
+        JavaUdf udf = Mockito.mock(JavaUdf.class);
+        Mockito.when(udf.getDbName()).thenReturn("db1");
+        Mockito.when(udf.getName()).thenReturn("f");
+        Assertions.assertEquals("db1.f", SPMExprSqlBuilder.functionName(udf),
+                "a bound UDF must render with its creation database");
+
+        Mockito.when(udf.getDbName()).thenReturn("");
+        Assertions.assertEquals("f", SPMExprSqlBuilder.functionName(udf),
+                "an empty qualifier renders the bare name");
     }
 }

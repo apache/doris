@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -30,21 +31,27 @@ import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
 import org.apache.doris.nereids.spm.capture.AuditLogScanner;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
+import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -56,6 +63,7 @@ import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -893,5 +901,189 @@ public class SPMMatchingSafetyTest {
                             ? Mockito.mock(View.class) : Mockito.mock(TableIf.class);
                 });
         return ctx;
+    }
+
+    // ==================== review round: mixed IN / ASOF / conjunct order / sink ====================
+
+    /** Parameterizes a parsed tree with the SPM placeholder builder. */
+    private static LogicalPlan param(String sql) {
+        LogicalPlan plan = parse(sql);
+        return SPMPlanTreeSupport.transform(plan,
+                expr -> expr.accept(new SPMPlaceholderBuilder(), null));
+    }
+
+    /**
+     * The two filter conjunct SETS are unordered, and the bind side renders placeholders
+     * while the user side carries the concrete literal text: a lexical (toSql) sort can
+     * pair the wrong expressions when the literal ordering reverses the structural order,
+     * rejecting a VALID baseline. The multiset match must accept the reversal.
+     */
+    @Test
+    public void testConjunctLiteralOrderReversalMatches() {
+        LogicalPlan bind = param("SELECT * FROM t1 WHERE a > 5 AND b < 10");
+        LogicalPlan user = parse("SELECT * FROM t1 WHERE b < 20 AND a > 6");
+        Map<Long, Expression> values = new HashMap<>();
+        Assertions.assertTrue(SPMPlanTreeSupport.check(bind, user, values),
+                "a literal-order reversal must not reject the baseline");
+        Assertions.assertEquals(2, values.size(), "both literals are extracted: " + values);
+
+        LogicalPlan differentSlot = parse("SELECT * FROM t1 WHERE b < 20 AND c > 6");
+        Assertions.assertFalse(SPMPlanTreeSupport.check(bind, differentSlot, new HashMap<>()),
+                "a conjunct on a different slot must not match");
+    }
+
+    /**
+     * ASOF ... MATCH_CONDITION(...) USING(k) stores the temporal boundary in a field that
+     * is outside children() and getExpressions(): the transform must parameterize it and
+     * the match must compare it, otherwise a user variant keeps the captured boundary.
+     */
+    @Test
+    public void testAsofMatchConditionTakesPartInTheMatch() {
+        LogicalPlan bind = param(
+                "SELECT * FROM t1 ASOF JOIN t2 MATCH_CONDITION(t1.ts >= 5) USING(k)");
+        LogicalUsingJoin<?, ?> parameterized = findUsingJoin(bind);
+        Assertions.assertNotNull(parameterized,
+                "ASOF ... USING(k) must parse to a using join");
+        Assertions.assertTrue(parameterized.getMatchCondition().isPresent(),
+                "the ASOF boundary must be present");
+        Assertions.assertTrue(SPMPlanTreeSupport.containsPlaceholder(
+                        parameterized.getMatchCondition().get()),
+                "the boundary literal must be parameterized: " + parameterized.getMatchCondition());
+
+        Map<Long, Expression> values = new HashMap<>();
+        Assertions.assertTrue(SPMPlanTreeSupport.check(bind,
+                        parse("SELECT * FROM t1 ASOF JOIN t2 MATCH_CONDITION(t1.ts >= 9) USING(k)"),
+                        values),
+                "a different boundary VALUE must match (the value is substituted)");
+        Assertions.assertFalse(values.isEmpty(), "the boundary value must be extracted");
+
+        Assertions.assertFalse(SPMPlanTreeSupport.check(bind,
+                        parse("SELECT * FROM t1 ASOF JOIN t2 MATCH_CONDITION(t1.other >= 9) USING(k)"),
+                        new HashMap<>()),
+                "a boundary on a different slot must NOT match: replay would keep the captured one");
+    }
+
+    /** A SELECT ... INTO OUTFILE statement must be detected as sink-bearing. */
+    @Test
+    public void testFileSinkStatementsAreRejected() {
+        Assertions.assertTrue(SPMPlanTreeSupport.containsFileSink(parse(
+                        "SELECT a FROM t1 INTO OUTFILE 'file:///tmp/spm_sink.out' FORMAT AS csv")),
+                "an INTO OUTFILE statement must be detected: its destination is not comparable");
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFileSink(parse("SELECT a FROM t1")),
+                "a plain SELECT is not sink-bearing");
+    }
+
+    /**
+     * A derived (nameFromChild) alias must STAY derived when a child is rewritten, and the
+     * match must require alias-kind parity: otherwise a derived side could pair with an
+     * explicitly named side and replay the captured result header.
+     */
+    @Test
+    public void testDerivedAliasProvenanceSurvivesAndIsEnforced() {
+        LogicalPlan bind = param("SELECT k + 1 FROM t1");
+        UnboundAlias alias = findUnboundAlias(bind);
+        Assertions.assertNotNull(alias, "the select item must carry an alias node");
+        Assertions.assertTrue(alias.isNameFromChild(),
+                "the transform must preserve nameFromChild");
+
+        LogicalPlan user = parse("SELECT k + 2 FROM t1");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(bind, user, new HashMap<>()),
+                "two derived aliases over different literals must match");
+
+        LogicalPlan explicitBind = SPMPlanTreeSupport.transform(bind, expr ->
+                expr instanceof UnboundAlias
+                        ? new UnboundAlias(((UnboundAlias) expr).child(), "total") : expr);
+        Assertions.assertFalse(SPMPlanTreeSupport.check(explicitBind, user, new HashMap<>()),
+                "explicit vs derived alias must not match");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(explicitBind,
+                        parse("SELECT k + 2 AS total FROM t1"), new HashMap<>()),
+                "the same explicit alias still matches");
+    }
+
+    /**
+     * TableScanParams has no value-based equals / toString and every parse builds a fresh
+     * instance: a baseline using @branch / @options syntax could never hit unless the type
+     * and payloads are compared explicitly.
+     */
+    @Test
+    public void testTableScanParamsCompareByValue() {
+        Assertions.assertTrue(SPMPlanTreeSupport.check(
+                        parse("SELECT * FROM t1 @incr(branch = 'main')"),
+                        parse("SELECT * FROM t1 @incr(branch = 'main')"), new HashMap<>()),
+                "identical scan parameters must hit");
+        Assertions.assertFalse(SPMPlanTreeSupport.check(
+                        parse("SELECT * FROM t1 @incr(branch = 'main')"),
+                        parse("SELECT * FROM t1 @incr(branch = 'dev')"), new HashMap<>()),
+                "differing scan parameters must not match");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(
+                        parse("SELECT * FROM t1 @options('k' = 'v')"),
+                        parse("SELECT * FROM t1 @options('k' = 'v')"), new HashMap<>()));
+        Assertions.assertFalse(SPMPlanTreeSupport.check(
+                        parse("SELECT * FROM t1 @options('k' = 'v')"),
+                        parse("SELECT * FROM t1 @options('k' = 'w')"), new HashMap<>()));
+        Assertions.assertTrue(SPMPlanTreeSupport.check(
+                        parse("SELECT * FROM t1 @snapshot(a, b)"),
+                        parse("SELECT * FROM t1 @snapshot(a, b)"), new HashMap<>()),
+                "the identifier-list form compares by value too");
+    }
+
+    /**
+     * The MATCH analyzer decides how the pattern is tokenized and lives outside children():
+     * different analyzers must neither share a digest nor match each other.
+     */
+    @Test
+    public void testMatchAnalyzerIsPartOfIdentity() {
+        MatchPhrase standard = new MatchPhrase(
+                new SlotReference("k", VarcharType.SYSTEM_DEFAULT), new StringLiteral("abc"), "standard");
+        MatchPhrase other = new MatchPhrase(
+                new SlotReference("k", VarcharType.SYSTEM_DEFAULT), new StringLiteral("abc"), "other");
+        Assertions.assertNotEquals(standard.toDigest(), other.toDigest(),
+                "the analyzer must take part in the digest");
+
+        LogicalPlan bind = parse(
+                "SELECT * FROM t1 WHERE k MATCH_PHRASE 'abc' USING ANALYZER standard");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(bind, parse(
+                        "SELECT * FROM t1 WHERE k MATCH_PHRASE 'abc' USING ANALYZER standard"),
+                        new HashMap<>()),
+                "identical analyzers must match");
+        Assertions.assertFalse(SPMPlanTreeSupport.check(bind, parse(
+                        "SELECT * FROM t1 WHERE k MATCH_PHRASE 'abc' USING ANALYZER english"),
+                        new HashMap<>()),
+                "a different analyzer must NOT match: replay would keep the captured one");
+    }
+
+    /** First LogicalUsingJoin reachable from the plan (null when there is none). */
+    private static LogicalUsingJoin<?, ?> findUsingJoin(LogicalPlan plan) {
+        final LogicalUsingJoin<?, ?>[] found = new LogicalUsingJoin[1];
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (found[0] == null && node instanceof LogicalUsingJoin) {
+                found[0] = (LogicalUsingJoin<?, ?>) node;
+            }
+        });
+        return found[0];
+    }
+
+    /** First UnboundAlias reachable through the plan's expressions (null when none). */
+    private static UnboundAlias findUnboundAlias(LogicalPlan plan) {
+        final UnboundAlias[] found = new UnboundAlias[1];
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            for (Expression expression : node.getExpressions()) {
+                findUnboundAlias(expression, found);
+            }
+        });
+        return found[0];
+    }
+
+    private static void findUnboundAlias(Expression expression, UnboundAlias[] found) {
+        if (found[0] != null) {
+            return;
+        }
+        if (expression instanceof UnboundAlias) {
+            found[0] = (UnboundAlias) expression;
+            return;
+        }
+        for (Expression child : expression.children()) {
+            findUnboundAlias(child, found);
+        }
     }
 }
