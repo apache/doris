@@ -27,6 +27,7 @@ import org.apache.doris.nereids.spm.capture.PlanCaptureFilter;
 import org.apache.doris.nereids.spm.capture.PlanCaptureManager;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +35,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -376,5 +379,53 @@ public class PlanCaptureTest {
         // store it and the source audit row stays reachable by query id
         Assertions.assertEquals("qid-1", query.getQueryId());
         Assertions.assertEquals("qid-1", event.queryId);
+    }
+
+    // ==================== durable capture checkpoint (#16) ====================
+
+    /**
+     * The window / cursor / retry state must survive a leader handoff: the checkpoint row
+     * is encoded and decoded field by field, and the decoded queue keeps a retryable
+     * candidate complete enough to retry without re-reading the audit row.
+     */
+    @Test
+    public void testCheckpointRoundTrip() {
+        Map<String, Integer> attempts = new LinkedHashMap<>();
+        attempts.put("qid-a", 2);
+        attempts.put("qid-b", 1);
+        Assertions.assertEquals(attempts,
+                PlanCaptureManager.decodeFailedAttempts(
+                        PlanCaptureManager.encodeFailedAttempts(attempts)));
+        Assertions.assertTrue(PlanCaptureManager.decodeFailedAttempts("not-json").isEmpty(),
+                "a broken payload must decode to empty, never fail the cycle");
+
+        Map<String, CapturedQuery> queue = new LinkedHashMap<>();
+        queue.put("qid-a", new CapturedQuery("SELECT a FROM t1 JOIN t2 ON t1.a = t2.a",
+                5000, 100000, 0, "digest", "hash", "db", "internal", "qid-a"));
+        Map<String, CapturedQuery> decoded = PlanCaptureManager.decodeRetryQueue(
+                PlanCaptureManager.encodeRetryQueue(queue));
+        Assertions.assertEquals(1, decoded.size());
+        Assertions.assertEquals("SELECT a FROM t1 JOIN t2 ON t1.a = t2.a",
+                decoded.get("qid-a").getStmt());
+        Assertions.assertEquals(5000, decoded.get("qid-a").getQueryTimeMs());
+        Assertions.assertEquals("db", decoded.get("qid-a").getDb());
+
+        // a checkpoint row installs the SAME state the daemon would have kept
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        manager.applyCheckpointRow(new ResultRow(List.of(
+                "123456", "100", "200", "7", "2026-01-01 00:00:00", "qid-cursor",
+                PlanCaptureManager.encodeFailedAttempts(attempts),
+                PlanCaptureManager.encodeRetryQueue(queue))));
+        Assertions.assertEquals(2, manager.failedAttemptsForTest("qid-a"));
+        Assertions.assertTrue(manager.isQueuedForTest("qid-a"),
+                "the retry queue must survive the checkpoint");
+        Object[] fields = manager.checkpointFieldsForTest();
+        Assertions.assertEquals(123456L, fields[0]);
+        Assertions.assertEquals(100L, fields[1]);
+        Assertions.assertEquals(200L, fields[2]);
+        Assertions.assertEquals(7L, fields[3]);
+        Assertions.assertEquals("2026-01-01 00:00:00", fields[4]);
+        Assertions.assertEquals("qid-cursor", fields[5]);
     }
 }

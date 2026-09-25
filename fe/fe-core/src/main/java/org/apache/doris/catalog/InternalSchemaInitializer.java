@@ -406,6 +406,7 @@ public class InternalSchemaInitializer extends Thread {
          */
         createTable(getAuditLogCreateSql());
         createTable(getSpmBaselinesCreateSql());
+        createTable(getSpmCaptureCheckpointCreateSql());
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
@@ -503,6 +504,35 @@ public class InternalSchemaInitializer extends Thread {
                         + "COMMENT \"Doris internal SPM baselines table, DO NOT MODIFY IT\"\n"
                         + "DISTRIBUTED BY HASH(`id`)\n"
                         + "BUCKETS 10\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    /**
+     * CREATE SQL of the SPM plan-capture checkpoint table: one durable row (id = 1) holding
+     * the truncated scan window, the resume cursor and the retry state.
+     */
+    private static String getSpmCaptureCheckpointCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM capture checkpoint table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 1\n"
                         + "PROPERTIES (%s)";
         return String.format(template, catalogName, dbName, tableName,
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
@@ -607,6 +637,13 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
+        // 4b. check the SPM plan-capture checkpoint table the same way: an upgraded cluster
+        // has spm_baselines already, so without its own check the table would never be
+        // created and the capture checkpoint could not be persisted / resumed.
+        if (isSpmCaptureCheckpointTableMissing(db)) {
+            return false;
+        }
+
         // 5. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
@@ -625,6 +662,18 @@ public class InternalSchemaInitializer extends Thread {
     @VisibleForTesting
     static boolean isSpmBaselinesTableMissing(Database db) {
         return !db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME).isPresent();
+    }
+
+    /**
+     * Whether the SPM plan-capture checkpoint internal table is absent. Package-visible for
+     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     *
+     * @param db the internal schema database
+     * @return true when spm_capture_checkpoint does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmCaptureCheckpointTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME).isPresent();
     }
 
     private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {

@@ -286,6 +286,18 @@ class InternalSchemaInitializerTest {
                 .thenReturn(Optional.of(Mockito.mock(Table.class)));
         Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesTableMissing(db),
                 "an existing spm_baselines table must not block completion");
+
+        // the capture checkpoint table gates completion the same way: without its own
+        // check an upgraded cluster (which already HAS spm_baselines) would never create
+        // it, and a leader handoff could not resume a truncated capture window
+        Mockito.when(db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmCaptureCheckpointTableMissing(db),
+                "a cluster where only spm_capture_checkpoint is absent must not count as initialized");
+        Mockito.when(db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmCaptureCheckpointTableMissing(db),
+                "an existing spm_capture_checkpoint table must not block completion");
     }
 
     /**
