@@ -34,12 +34,21 @@ public class InternalSchema {
     /** Name of the SPM baselines internal table (design doc 6.14.1). */
     public static final String SPM_BASELINES_TBL_NAME = "spm_baselines";
 
+    /**
+     * Name of the SPM plan-capture checkpoint internal table: the single durable row keeps
+     * the truncated scan window, the total-order cursor and the retry state, so a leader
+     * handoff / FE restart resumes the SAME window instead of excluding its unconsumed tail
+     * forever.
+     */
+    public static final String SPM_CAPTURE_CHECKPOINT_TBL_NAME = "spm_capture_checkpoint";
+
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> TABLE_STATS_SCHEMA;
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
     public static final List<ColumnDef> SPM_BASELINES_SCHEMA;
+    public static final List<ColumnDef> SPM_CAPTURE_CHECKPOINT_SCHEMA;
 
     static {
         // table statistics table
@@ -266,6 +275,32 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+
+        // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
+        // the (query_time, time, query_id) cursor and the retry state survive a leader
+        // handoff / FE restart. JSON text for the two maps keeps the encoding trivial and
+        // bounded (the writer caps the entry count).
+        SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("last_scan_timestamp",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("pending_window_start",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("pending_window_end",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_query_time",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_time",
+                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_query_id",
+                ScalarType.createVarchar(1024), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("failed_attempts",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("retry_queue",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -287,6 +322,9 @@ public class InternalSchema {
                 break;
             case SPM_BASELINES_TBL_NAME:
                 schema = SPM_BASELINES_SCHEMA;
+                break;
+            case SPM_CAPTURE_CHECKPOINT_TBL_NAME:
+                schema = SPM_CAPTURE_CHECKPOINT_SCHEMA;
                 break;
             default:
                 throw new UserException("Unknown internal table name: " + tblName);

@@ -4982,7 +4982,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 }
                             }
                             SelectHintSetVar setVar = new SelectHintSetVar(hintName, parameters);
-                            setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
+                            // Parsing WITHOUT a session (an FE-internal re-parse such as the
+                            // SPM baseline rebuild) must be side-effect free: the SET_VAR
+                            // hint is kept on the LogicalSelectHint node but must not be
+                            // applied to a session variable here - and there may be no
+                            // session at all, which previously threw an NPE and made the
+                            // caller drop the whole statement.
+                            ConnectContext parseContext = ConnectContext.get();
+                            if (parseContext != null && parseContext.getStatementContext() != null) {
+                                setVar.setVarOnceInSql(parseContext.getStatementContext());
+                            }
                             hints.add(setVar);
                             break;
                         case "leading":

@@ -58,14 +58,21 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
     }
 
     private Expression rewrite(InPredicate inPredicate) {
+        // An SPM IN-list placeholder (SpmConstVar / SpmConstList) is a hidden value
+        // marker: its substituted value must survive into the frozen planSql. In a MIXED
+        // list such as a IN (1, b) the literal arm becomes a SpmConstVar whose
+        // isConstant() is deliberately false, so extracting the non-constant arm(s)
+        // would DROP it (the constants filter only keeps isConstant() options) and the
+        // frozen predicate would silently lose the user's literal arm. Keep the whole
+        // predicate untouched whenever any option carries a placeholder.
+        for (Expression option : inPredicate.getOptions()) {
+            if (SPMPlanTreeSupport.containsPlaceholder(option)) {
+                return inPredicate;
+            }
+        }
         Set<Expression> nonConstants = Sets.newLinkedHashSetWithExpectedSize(inPredicate.arity());
         for (Expression option : inPredicate.getOptions()) {
-            // An SPM IN-list placeholder (SpmConstList) is a hidden multi-value list
-            // marker: it must stay inside the IN predicate (it is substituted by id at
-            // rewrite time), never be extracted as a non-constant equal option. Type
-            // coercion wraps the placeholder in a CAST, so the check detects the
-            // placeholder THROUGH the wrapper.
-            if (!option.isConstant() && !SPMPlanTreeSupport.containsPlaceholder(option)) {
+            if (!option.isConstant()) {
                 nonConstants.add(option);
             }
         }

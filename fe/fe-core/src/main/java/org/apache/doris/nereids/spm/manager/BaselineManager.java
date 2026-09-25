@@ -979,6 +979,20 @@ public class BaselineManager {
     }
 
     /**
+     * For tests: rebuilds one persisted row exactly like the startup load / periodic
+     * refresh does (including the hint-bearing bindSql path, which must be parsed WITHOUT a
+     * session and without executing the hint's SET_VAR side effects).
+     *
+     * @param row the internal-table row
+     * @return the parsed row
+     * @throws Exception when the row's bindSql cannot be parsed
+     */
+    @VisibleForTesting
+    public static BaselinePlan parsePersistedRowForTest(ResultRow row) throws Exception {
+        return parsePersistedRow(row);
+    }
+
+    /**
      * Reads every durable row with the given (bind_sql_digest, plan_sql) key. A read
      * failure is rethrown as a retryable error: createBaseline must not fall through to
      * an INSERT while the durable duplicate state is unknown.
@@ -1051,13 +1065,37 @@ public class BaselineManager {
         if (!persistenceEnabled()) {
             return;
         }
+        invalidatePublishedStore();
+        loadFromInternalTable();
+    }
+
+    /**
+     * Invalidates the published store for an authoritative reload: clears the maps
+     * together with {@code loaded}. Clearing ONLY {@code loaded} left the OLD maps visible:
+     * if the internal-table read failed, hasBaselines / findCandidateBaselines would retry
+     * the load and then still read the populated maps - a newly promoted FE could apply a
+     * baseline the previous master had already disabled or dropped. Matching now sees an
+     * EMPTY store until a fresh snapshot is atomically published.
+     */
+    private void invalidatePublishedStore() {
         stateLock.writeLock().lock();
         try {
             loaded = false;
+            baselines.clear();
+            hashIndex.clear();
+            stateVersion++;
         } finally {
             stateLock.writeLock().unlock();
         }
-        loadFromInternalTable();
+    }
+
+    /**
+     * For tests: the invalidation half of {@link #forceReloadFromInternalTable} (the
+     * production caller follows it with the reload).
+     */
+    @VisibleForTesting
+    public void invalidatePublishedStoreForTest() {
+        invalidatePublishedStore();
     }
 
     /**

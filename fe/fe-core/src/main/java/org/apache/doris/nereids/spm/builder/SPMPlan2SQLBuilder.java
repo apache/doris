@@ -705,11 +705,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             merged.addAll(cteDefinitions);
             relation.setCte(merged);
         }
-        // A top-level ASSERT_ROWS (e.g. EXISTS / single-row assertion) renders the
-        // ASSERT_ROWS wrapper; nested ones are already handled by toRelationSQL().
-        if (relation.isAssertRows()) {
-            return "ASSERT_ROWS (" + relation.toSQL() + ") " + relation.getRelationAlias();
-        }
+        // A top-level ASSERT_ROWS (e.g. EXISTS / single-row assertion) has no SQL
+        // representation and is rejected by visitPhysicalAssertNumRows; the decompile then
+        // falls back to the user planSql.
         return relation.toSQL();
     }
 
@@ -1173,11 +1171,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * A single-quoted SQL string literal: embedded single quotes are doubled so the value
-     * cannot terminate the literal and change the frozen SQL structure.
+     * A single-quoted SQL string literal: embedded single quotes are doubled AND
+     * backslashes are doubled, so the value cannot terminate the literal, change the frozen
+     * SQL structure, or decode to a DIFFERENT value. The DEFAULT sql_mode treats a backslash
+     * as an escape introducer (a semantic value such as release\next would otherwise
+     * reparse as release + newline + ext under that mode and select another external ref),
+     * so the literal doubles it; the SPM re-parses pin the DEFAULT mode (see
+     * SPMPlanner.parseStoredSelect), which makes the round trip exact under default AND
+     * NO_BACKSLASH_ESCAPES sessions alike.
      */
     private static String quoteSqlString(String value) {
-        return "'" + value.replace("'", "''") + "'";
+        return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'";
     }
 
     // ==================== Generate (LATERAL VIEW) ====================
@@ -1522,8 +1526,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * PhysicalEmptyRelation: a relation that is statically known to return no rows.
-     * Rendered as SELECT [projects] FROM (SELECT 1) WHERE FALSE so parent operators
-     * can still reference its output columns.
+     * Rendered as SELECT CAST(NULL AS &lt;type&gt;) ... FROM (SELECT 1) WHERE FALSE so parent
+     * operators can still reference its output columns AND each column keeps its DECLARED
+     * type: defaulting every column to INT 1 (a) makes the frozen text fail to analyze once
+     * the placeholder substitution types another branch (e.g. DATEV2), and (b) lets a
+     * reanalyzed placeholder-bearing UNION widen the branch (INT + DATEV2 -> DATETIMEV2)
+     * and change the result metadata. WHERE FALSE still filters the row out, and CAST(NULL
+     * AS type) is grammar-parseable for every type.
      */
     @Override
     public SQLRelation visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
@@ -1532,7 +1541,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         for (NamedExpression project : emptyRelation.getProjects()) {
             ExprId id = project.getExprId();
             String name = generatedColumnName(id);
-            selects.add(Pair.of(id, "1 AS " + name));
+            selects.add(Pair.of(id, "CAST(NULL AS " + project.getDataType().toSql() + ") AS " + name));
             relation.registerRef(id, name);
         }
         relation.setSelects(selects);
@@ -2962,20 +2971,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     // ==================== ASSERT_ROWS (PhysicalAssertNumRows) ====================
 
     /**
-     * PhysicalAssertNumRows: marks the child relation with assertRows so toRelationSQL()
-     * renders ASSERT_ROWS (SELECT ...) t_N (single-row assertion semantics, e.g.
-     * SELECT ... WHERE EXISTS).
+     * PhysicalAssertNumRows (single-row assertion, e.g. a scalar subquery): the Nereids
+     * grammar has NO ASSERT_ROWS relation production, so the previous
+     * "ASSERT_ROWS (SELECT ...) t_N" rendering produced frozen texts that cannot be
+     * re-parsed - after a restart such a baseline had no plan tree to fall back to and
+     * silently stopped applying. Reject the node: the decompile falls back to the user's
+     * planSql text, which re-parses and replays through the parameterized tree.
      */
     @Override
     public SQLRelation visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, Void context) {
-        SQLRelation child = process(assertNumRows.child(0));
-        child.setAssertRows(true);
-        if (child.getSelects().isEmpty() && child.getColumnNames().size() == 1) {
-            Map.Entry<ExprId, String> only = child.getColumnNames().entrySet().iterator().next();
-            child.setSelects(Lists.newArrayList(Pair.of(only.getKey(), only.getValue())));
-        }
-        child.newAlias();
-        return child;
+        throw new UnsupportedOperationException(
+                "SPM decompile: ASSERT_ROWS has no SQL representation; the baseline keeps the"
+                        + " user planSql and replays through the parameterized tree");
     }
 
     // ==================== helper methods ====================

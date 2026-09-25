@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
@@ -111,6 +112,16 @@ public class SPMPlanner {
     public LogicalPlan tryRewritePlan(LogicalPlan userPlan, long deadline) {
         if (System.currentTimeMillis() > deadline) {
             LOG.info("SPM tryRewritePlan: timeout before matching, degrade to the original plan");
+            return null;
+        }
+        // SELECT ... INTO OUTFILE writes to a destination that lives OUTSIDE the plan
+        // expressions: the generic match cannot see a different path / format and the
+        // rewritten tree keeps the CAPTURED sink fields, so a replay would export to the
+        // baseline's destination. SPM refuses to rewrite such statements (the original
+        // query runs normally, which is always correct).
+        if (SPMPlanTreeSupport.containsFileSink(userPlan)) {
+            LOG.info("SPM tryRewritePlan: the statement writes to a file sink (OUTFILE); keeping"
+                    + " the original plan");
             return null;
         }
         ConnectContext ctx = ConnectContext.get();
@@ -256,7 +267,13 @@ public class SPMPlanner {
             return null;
         }
         try {
-            Plan parsed = new NereidsParser().parseSingle(planSql);
+            // The frozen text is SPM's own rendering, produced for the DEFAULT sql_mode
+            // (backslash escapes active - see SPMPlan2SQLBuilder.quoteSqlString). Pin that
+            // mode for this re-parse: inheriting a NO_BACKSLASH_ESCAPES session would
+            // decode the doubled backslashes to a different value and could select
+            // another external ref.
+            Plan parsed = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+                    () -> new NereidsParser().parseSingle(planSql));
             if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
                 return null;
             }
@@ -402,6 +419,14 @@ public class SPMPlanner {
         LogicalPlan bindPlan = parseSelect(bindSql, "SPM bindSql must be a SELECT statement: " + bindSql);
         LogicalPlan planPlan = bindSql.equals(planSql)
                 ? bindPlan : parseSelect(planSql, "SPM planSql must be a SELECT statement: " + planSql);
+        // The destination of SELECT ... INTO OUTFILE lives outside the plan expressions:
+        // the match cannot compare it and the rewritten tree keeps the captured sink, so
+        // replay would export to the baseline's destination. Reject instead of freezing.
+        if (SPMPlanTreeSupport.containsFileSink(bindPlan)
+                || SPMPlanTreeSupport.containsFileSink(planPlan)) {
+            throw new AnalysisException(
+                    "SPM does not support SELECT ... INTO OUTFILE statements: " + bindSql);
+        }
         // Parameterize both whole trees with ONE shared builder (placeholder ids aligned
         // across bind / plan), then optimize the PARAMETERIZED plan tree so the frozen
         // planSql keeps the placeholder ids for the rewrite-time value substitution.
@@ -559,7 +584,7 @@ public class SPMPlanner {
             String bindSql, String planSql) {
         LogicalPlan bindPlan;
         try {
-            bindPlan = parseSelect(bindSql, "SPM rebuild parameterized bind tree: " + bindSql);
+            bindPlan = parseStoredSelect(bindSql);
         } catch (Throwable t) {
             LOG.warn("SPM rebuild parameterized bind tree failed: {}", t.getMessage());
             bindPlan = null;
@@ -575,8 +600,7 @@ public class SPMPlanner {
             return Pair.of(parameterizedBind, parameterizedBind);
         }
         try {
-            LogicalPlan planPlan =
-                    parseSelect(planSql, "SPM rebuild parameterized plan tree: " + planSql);
+            LogicalPlan planPlan = parseStoredSelect(planSql);
             LogicalPlan parameterizedPlan = SPMPlanTreeSupport.transform(
                     planPlan, expr -> expr.accept(builder, null));
             return Pair.of(parameterizedBind, parameterizedPlan);
@@ -585,5 +609,21 @@ public class SPMPlanner {
             LogicalPlan noPlanTree = null;
             return Pair.of(parameterizedBind, noPlanTree);
         }
+    }
+
+    /**
+     * Parses a STORED SQL text (frozen planSql, persisted bindSql / planSql). SPM renders
+     * its own semantic string literals for the DEFAULT sql_mode (backslash escapes
+     * active), so a stored text must be read with that mode: under NO_BACKSLASH_ESCAPES the
+     * doubled backslashes would decode to a different value. The mode is PINNED instead of
+     * inherited - the text is SPM's, not the user's (user SQL is parsed unchanged).
+     */
+    private static LogicalPlan parseStoredSelect(String sql) {
+        Plan parsed = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+                () -> new NereidsParser().parseSingle(sql));
+        if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
+            throw new RuntimeException("SPM stored SQL is not a SELECT statement: " + sql);
+        }
+        return (LogicalPlan) parsed;
     }
 }

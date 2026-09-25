@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -53,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -62,6 +64,7 @@ import org.apache.doris.qe.GlobalVariable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -141,6 +144,13 @@ public final class SPMPlanTreeSupport {
     private static class TreeTransformer extends PlanVisitor<Plan, ExprTransform> {
         @Override
         public Plan visit(Plan plan, ExprTransform transform) {
+            // LogicalUsingJoin.accept() dispatches to this generic visit (PlanVisitor has no
+            // using-join overload), so the ASOF MATCH_CONDITION is handled here: it is
+            // stored OUTSIDE children() and getExpressions() and would otherwise keep its
+            // literal concrete.
+            if (plan instanceof LogicalUsingJoin) {
+                return visitUsingJoin((LogicalUsingJoin<?, ?>) plan, transform);
+            }
             List<Plan> children = plan.children();
             boolean changed = false;
             List<Plan> newChildren = new ArrayList<>(children.size());
@@ -258,9 +268,30 @@ public final class SPMPlanTreeSupport {
                     new JoinReorderContext());
         }
 
-        @Override
-        public Plan visitLogicalHaving(LogicalHaving<? extends Plan> having,
+        /**
+         * Rebuilds an ASOF / USING join, transforming the MATCH_CONDITION. The condition is
+         * stored in {@code matchCondition}, OUTSIDE both children() and
+         * getExpressions() (which returns the USING slots), so the generic pass would
+         * leave its literal concrete on the bind side - the Level 3 match would then
+         * compare only the USING slots and accept a user variant with a different
+         * temporal boundary, replaying the captured one.
+         */
+        private Plan visitUsingJoin(LogicalUsingJoin<? extends Plan, ? extends Plan> join,
                 ExprTransform transform) {
+            Plan left = join.left().accept(this, transform);
+            Plan right = join.right().accept(this, transform);
+            Optional<Expression> match = join.getMatchCondition();
+            Optional<Expression> newMatch = match.isPresent()
+                    ? Optional.of(transform.apply(match.get())) : match;
+            if (left == join.left() && right == join.right() && newMatch.equals(match)) {
+                return join;
+            }
+            return new LogicalUsingJoin<>(join.getJoinType(), left, right,
+                    join.getUsingSlots(), newMatch, join.getDistributeHint());
+        }
+
+        @Override
+        public Plan visitLogicalHaving(LogicalHaving<? extends Plan> having, ExprTransform transform) {
             Plan child = having.child().accept(this, transform);
             boolean changed = child != having.child();
             Set<Expression> newConjuncts = transformConjuncts(having.getConjuncts(), transform);
@@ -1003,6 +1034,21 @@ public final class SPMPlanTreeSupport {
                 }
             }
         }
+        // USING / ASOF join: getExpressions() returns the USING slots only, so the
+        // MATCH_CONDITION (a temporal boundary on ASOF joins) would never take part in the
+        // match - a user variant with a different boundary would replay the captured one
+        // and select another right-side row. Compare the optional condition explicitly.
+        if (bind instanceof LogicalUsingJoin && user instanceof LogicalUsingJoin) {
+            Optional<Expression> bindMatch = ((LogicalUsingJoin<?, ?>) bind).getMatchCondition();
+            Optional<Expression> userMatch = ((LogicalUsingJoin<?, ?>) user).getMatchCondition();
+            if (bindMatch.isPresent() != userMatch.isPresent()) {
+                return false;
+            }
+            if (bindMatch.isPresent()
+                    && !checkExpression(bindMatch.get(), userMatch.get(), placeholderValues)) {
+                return false;
+            }
+        }
         if (bind instanceof LogicalFilter || bind instanceof LogicalHaving) {
             Set<Expression> bindConjuncts;
             Set<Expression> userConjuncts;
@@ -1013,17 +1059,33 @@ public final class SPMPlanTreeSupport {
                 bindConjuncts = ((LogicalHaving<?>) bind).getConjuncts();
                 userConjuncts = ((LogicalHaving<?>) user).getConjuncts();
             }
-            List<Expression> sortedBind = new ArrayList<>(bindConjuncts);
-            List<Expression> sortedUser = new ArrayList<>(userConjuncts);
-            sortedBind.sort(Comparator.comparing(Expression::toSql));
-            sortedUser.sort(Comparator.comparing(Expression::toSql));
-            if (sortedBind.size() != sortedUser.size()) {
+            if (bindConjuncts.size() != userConjuncts.size()) {
                 return false;
             }
-            for (int i = 0; i < sortedBind.size(); i++) {
-                if (!checkExpression(sortedBind.get(i), sortedUser.get(i), placeholderValues)) {
+            // The conjunct SETS are unordered, and the two sides render differently: the
+            // bind side carries "_spm_const_var(id)" placeholders while the user side
+            // carries the concrete literal text, so a lexical (toSql) sort can pair the
+            // WRONG expressions whenever the literal ordering reverses the structural
+            // order - rejecting a valid baseline. Match the two conjunct multisets
+            // structurally instead: every tentative pairing extracts placeholder values
+            // transactionally and rolls them back on failure, so a pairing that only
+            // looked compatible cannot poison the rest of the match.
+            List<Expression> remaining = new ArrayList<>(userConjuncts);
+            for (Expression bindConjunct : bindConjuncts) {
+                int matched = -1;
+                for (int i = 0; i < remaining.size(); i++) {
+                    Map<Long, Expression> snapshot = new HashMap<>(placeholderValues);
+                    if (checkExpression(bindConjunct, remaining.get(i), placeholderValues)) {
+                        matched = i;
+                        break;
+                    }
+                    placeholderValues.clear();
+                    placeholderValues.putAll(snapshot);
+                }
+                if (matched < 0) {
                     return false;
                 }
+                remaining.remove(matched);
             }
             return true;
         }
@@ -1088,7 +1150,27 @@ public final class SPMPlanTreeSupport {
                 && !bindAliasName.equals(userAliasName)) {
             return false;
         }
+        // Alias KIND parity: an explicit alias is part of the result contract, a
+        // nameFromChild alias is the parser's fallback from the expression text (and may
+        // carry the captured literal). One side explicit + the other derived is not the
+        // same contract - replay would expose the captured header. Now that the
+        // transforms preserve nameFromChild, this only fires on genuinely different
+        // spellings, but the parity requirement keeps the comparison symmetric.
+        if (isDerivedAlias(bindExpr) != isDerivedAlias(userExpr)) {
+            return false;
+        }
         return new SPMAstCheckVisitor().checkExpression(bindExpr, userExpr, placeholderValues);
+    }
+
+    /** Whether the expression is a nameFromChild (derived) alias. */
+    private static boolean isDerivedAlias(Expression expr) {
+        if (expr instanceof Alias) {
+            return ((Alias) expr).isNameFromChild();
+        }
+        if (expr instanceof UnboundAlias) {
+            return ((UnboundAlias) expr).isNameFromChild();
+        }
+        return false;
     }
 
     /**
@@ -1224,6 +1306,25 @@ public final class SPMPlanTreeSupport {
         void visit(Plan plan) throws E;
     }
 
+    /**
+     * Whether the statement writes to a file destination (SELECT ... INTO OUTFILE). The
+     * destination (path / format / properties) and the sink's metadata live OUTSIDE the
+     * expression list, so the generic SPM comparison would accept a user export targeting
+     * a different destination - and the rewritten tree keeps the CAPTURED sink fields
+     * (LogicalSink.withChildren preserves them), so the replay would write to the
+     * baseline's destination. SPM rejects such statements at freeze and never rewrites
+     * them.
+     */
+    public static boolean containsFileSink(Plan plan) {
+        final boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof LogicalFileSink) {
+                found[0] = true;
+            }
+        });
+        return found[0];
+    }
+
     private static boolean isViewRelation(ConnectContext ctx, UnboundRelation relation) {
         try {
             TableIf table = ctx.getStatementContext().getAndCacheTable(
@@ -1246,13 +1347,17 @@ public final class SPMPlanTreeSupport {
                 || Objects.equals(bind.get().toString(), user.get().toString());
     }
 
-    /** TableScanParams equality (the analysis type has no value-based equals). */
     private static boolean sameScanParams(TableScanParams bind, TableScanParams user) {
         if (bind == null || user == null) {
             return bind == user;
         }
-        return bind == user || bind.equals(user)
-                || Objects.equals(bind.toString(), user.toString());
+        // TableScanParams overrides neither equals nor toString and every parse creates a
+        // fresh instance, so identity and default equality / string comparison are all
+        // false even for identical @branch / @tag / @options / @incr syntax - a baseline
+        // using scan parameters could never hit. Compare the type and the payloads.
+        return Objects.equals(bind.getParamType(), user.getParamType())
+                && Objects.equals(bind.getMapParams(), user.getMapParams())
+                && Objects.equals(bind.getListParams(), user.getListParams());
     }
 
     // ==================== non-expression literal merge (LIMIT / OFFSET) ====================

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.spm.capture;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
@@ -27,13 +28,18 @@ import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -87,6 +93,31 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     private static final int MAX_CAPTURE_ATTEMPTS = 3;
 
+    /** Durable checkpoint key: the internal table holds exactly one row. */
+    private static final long CHECKPOINT_ID = 1L;
+
+    /** Upper bound for the retry entries written into the checkpoint row (row size). */
+    private static final int MAX_PERSISTED_RETRIES = 64;
+
+    /** Table of the durable capture checkpoint (see InternalSchema). */
+    private static final String CHECKPOINT_TABLE =
+            "`__internal_schema`.`spm_capture_checkpoint`";
+
+    private static final String CHECKPOINT_SELECT_SQL =
+            "SELECT `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
+                    + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
+                    + " `failed_attempts`, `retry_queue` FROM " + CHECKPOINT_TABLE
+                    + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
+
+    private static final String CHECKPOINT_DELETE_SQL =
+            "DELETE FROM " + CHECKPOINT_TABLE + " WHERE `id` = " + CHECKPOINT_ID;
+
+    private static final String CHECKPOINT_INSERT_SQL =
+            "INSERT INTO " + CHECKPOINT_TABLE
+                    + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
+                    + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}',"
+                    + " '${failedAttempts}', '${retryQueue}', NOW())";
+
     private AuditLogScanner scanner = new AuditLogScanner();
 
     /** Capture filter, refreshed from the global session variables each cycle. */
@@ -133,6 +164,9 @@ public class PlanCaptureManager extends MasterDaemon {
     private long cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
     private String cursorTime = "";
     private String cursorQueryId = "";
+
+    /** Whether the durable checkpoint was already consulted in this process. */
+    private boolean checkpointLoaded = false;
 
     /** Whether the cloud-mode warning was already logged (the gate fires every cycle). */
     private boolean cloudModeWarned = false;
@@ -217,6 +251,12 @@ public class PlanCaptureManager extends MasterDaemon {
             // refresh the filter so SET GLOBAL changes take effect this cycle
             this.filter = newFilter;
 
+            // A restarted / newly promoted leader must NOT start from a fresh
+            // interval-derived window: a truncated window from the previous leader is
+            // checkpointed here, and skipping it would permanently exclude its unconsumed
+            // tail (the overlap only reaches rows younger than the NEW watermark).
+            loadCheckpointIfNeeded();
+
             long currentTime = System.currentTimeMillis();
             // a non-positive interval / batch size can never be written through SQL SET
             // (see SessionVariable), but clamp defensively: an interval of 0 would make
@@ -270,6 +310,8 @@ public class PlanCaptureManager extends MasterDaemon {
                 cursorTime = batch.getCursorTime();
                 cursorQueryId = batch.getCursorQueryId();
             }
+            // Make the progress durable for the NEXT process (leader handoff / restart).
+            persistCheckpoint();
 
             LOG.info("PlanCapture cycle finished: captured={}, dup={}, singleTable={}, filtered={}, fail={}",
                     successCount.get(), skipDuplicateCount.get(), skipSingleTableCount.get(),
@@ -448,6 +490,214 @@ public class PlanCaptureManager extends MasterDaemon {
         }
     }
 
+    // ==================== durable checkpoint (design doc 7.2.4) ====================
+
+    /** Whether the durable checkpoint store can be used (internal schema db enabled). */
+    static boolean checkpointPersistenceEnabled() {
+        return FeConstants.enableInternalSchemaDb;
+    }
+
+    /**
+     * Reads the durable checkpoint ONCE per process, before the first window is derived.
+     * The checkpoint fields are process-local otherwise: a truncated [T-3h, T) window
+     * advances one page per daemon cycle, so a leader handoff / FE restart near T+3h would
+     * start at [T, T+3h) and permanently exclude the unconsumed tail - the later overlap is
+     * relative to the NEW watermark and cannot recover it.
+     */
+    private void loadCheckpointIfNeeded() {
+        if (checkpointLoaded || !checkpointPersistenceEnabled()) {
+            return;
+        }
+        checkpointLoaded = true;
+        if (lastScanTimestamp != 0 || pendingWindowEnd > 0
+                || cursorQueryTime != AuditLogScanner.CURSOR_ABSENT) {
+            return; // progress already exists (e.g. a unit test): never override it
+        }
+        try {
+            List<ResultRow> rows = StatisticsUtil.executeQuery(
+                    CHECKPOINT_SELECT_SQL, Collections.emptyMap());
+            if (rows == null || rows.isEmpty()) {
+                return;
+            }
+            applyCheckpointRow(rows.get(0));
+            if (lastScanTimestamp != 0 || pendingWindowEnd > 0
+                    || cursorQueryTime != AuditLogScanner.CURSOR_ABSENT) {
+                LOG.info("SPM capture resumed from the durable checkpoint: lastScan={},"
+                                + " pending=[{}, {}), cursorQueryTime={}",
+                        lastScanTimestamp, pendingWindowStart, pendingWindowEnd, cursorQueryTime);
+            }
+        } catch (Exception e) {
+            LOG.warn("SPM capture checkpoint read failed (starting from the default window): {}",
+                    e.getMessage());
+        }
+    }
+
+    /** Applies one checkpoint row (column order = CHECKPOINT_SELECT_SQL). */
+    @VisibleForTesting
+    public void applyCheckpointRow(ResultRow row) {
+        lastScanTimestamp = parseLongValue(row.get(0));
+        pendingWindowStart = parseLongValue(row.get(1));
+        pendingWindowEnd = parseLongValue(row.get(2));
+        cursorQueryTime = parseLongValue(row.get(3));
+        cursorTime = row.get(4) == null ? "" : row.get(4);
+        cursorQueryId = row.get(5) == null ? "" : row.get(5);
+        failedCaptureAttempts.clear();
+        failedCaptureAttempts.putAll(decodeFailedAttempts(row.get(6)));
+        failedCaptureQueue.clear();
+        failedCaptureQueue.putAll(decodeRetryQueue(row.get(7)));
+    }
+
+    /**
+     * Persists the current capture progress (window bounds + total-order cursor + retry
+     * state) for the NEXT process. A failed write is logged and skipped - the checkpoint is
+     * a best-effort resume aid and must never break the cycle.
+     */
+    private void persistCheckpoint() {
+        if (!checkpointPersistenceEnabled()) {
+            return;
+        }
+        try {
+            Map<String, String> params = new HashMap<>();
+            params.put("lastScan", String.valueOf(lastScanTimestamp));
+            params.put("pendingStart", String.valueOf(pendingWindowStart));
+            params.put("pendingEnd", String.valueOf(pendingWindowEnd));
+            params.put("cursorQueryTime", String.valueOf(cursorQueryTime));
+            params.put("cursorTime", StatisticsUtil.escapeSQL(cursorTime == null ? "" : cursorTime));
+            params.put("cursorQueryId",
+                    StatisticsUtil.escapeSQL(cursorQueryId == null ? "" : cursorQueryId));
+            params.put("failedAttempts",
+                    StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
+            params.put("retryQueue",
+                    StatisticsUtil.escapeSQL(encodeRetryQueue(failedCaptureQueue)));
+            // delete-then-insert: the table is DUPLICATE-key, and this daemon is the only
+            // writer, so a single full-row replacement keeps the read side trivial
+            StatisticsUtil.execUpdate(CHECKPOINT_DELETE_SQL, Collections.emptyMap());
+            StatisticsUtil.execUpdate(CHECKPOINT_INSERT_SQL, params);
+        } catch (Exception e) {
+            LOG.warn("SPM capture checkpoint write failed (will retry next cycle): {}",
+                    e.getMessage());
+        }
+    }
+
+    private static long parseLongValue(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(text.trim());
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * JSON of the failed-attempt counters, bounded to the most recent entries so the
+     * checkpoint row stays small. Package-visible for tests.
+     */
+    @VisibleForTesting
+    public static String encodeFailedAttempts(Map<String, Integer> attempts) {
+        return new Gson().toJson(boundedTail(attempts, MAX_PERSISTED_RETRIES));
+    }
+
+    /** Decodes {@link #encodeFailedAttempts}; blank / broken input decodes to empty. */
+    @VisibleForTesting
+    public static Map<String, Integer> decodeFailedAttempts(String text) {
+        return decodeJsonMap(text, new TypeToken<Map<String, Integer>>() { });
+    }
+
+    /**
+     * JSON of the queued retry candidates, bounded to the most recent entries. The whole
+     * candidate is persisted so a resumed process can retry it without re-reading the
+     * audit row (the keyset cursor has already moved past it).
+     */
+    @VisibleForTesting
+    public static String encodeRetryQueue(Map<String, CapturedQuery> queue) {
+        List<Map<String, String>> encoded = new ArrayList<>();
+        int skip = Math.max(0, queue.size() - MAX_PERSISTED_RETRIES);
+        int index = 0;
+        for (Map.Entry<String, CapturedQuery> entry : queue.entrySet()) {
+            if (index++ < skip) {
+                continue;
+            }
+            CapturedQuery candidate = entry.getValue();
+            Map<String, String> row = new HashMap<>();
+            row.put("queryId", entry.getKey());
+            row.put("stmt", candidate.getStmt() == null ? "" : candidate.getStmt());
+            row.put("queryTimeMs", String.valueOf(candidate.getQueryTimeMs()));
+            row.put("scanRows", String.valueOf(candidate.getScanRows()));
+            row.put("returnRows", String.valueOf(candidate.getReturnRows()));
+            row.put("sqlDigest", candidate.getSqlDigest() == null ? "" : candidate.getSqlDigest());
+            row.put("sqlHash", candidate.getSqlHash() == null ? "" : candidate.getSqlHash());
+            row.put("db", candidate.getDb() == null ? "" : candidate.getDb());
+            row.put("catalog", candidate.getCatalog() == null ? "" : candidate.getCatalog());
+            encoded.add(row);
+        }
+        return new Gson().toJson(encoded);
+    }
+
+    /** Decodes {@link #encodeRetryQueue}; blank / broken input decodes to empty. */
+    @VisibleForTesting
+    public static Map<String, CapturedQuery> decodeRetryQueue(String text) {
+        Map<String, CapturedQuery> queue = new LinkedHashMap<>();
+        if (text == null || text.trim().isEmpty()) {
+            return queue;
+        }
+        try {
+            List<Map<String, String>> decoded = new Gson().fromJson(text,
+                    new TypeToken<List<Map<String, String>>>() { }.getType());
+            if (decoded == null) {
+                return queue;
+            }
+            for (Map<String, String> row : decoded) {
+                String queryId = row.get("queryId");
+                CapturedQuery candidate = new CapturedQuery(
+                        row.getOrDefault("stmt", ""),
+                        parseLongValue(row.get("queryTimeMs")),
+                        parseLongValue(row.get("scanRows")),
+                        parseLongValue(row.get("returnRows")),
+                        row.getOrDefault("sqlDigest", ""),
+                        row.getOrDefault("sqlHash", ""),
+                        row.getOrDefault("db", ""),
+                        row.getOrDefault("catalog", ""),
+                        queryId == null ? "" : queryId);
+                queue.put(queryId == null ? "" : queryId, candidate);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("SPM capture retry-queue decode failed: {}", e.getMessage());
+        }
+        return queue;
+    }
+
+    private static Map<String, Integer> decodeJsonMap(String text, TypeToken<Map<String, Integer>> token) {
+        if (text == null || text.trim().isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+        try {
+            Map<String, Integer> decoded = new Gson().fromJson(text, token.getType());
+            return decoded == null ? new LinkedHashMap<>() : decoded;
+        } catch (RuntimeException e) {
+            LOG.warn("SPM capture checkpoint JSON decode failed: {}", e.getMessage());
+            return new LinkedHashMap<>();
+        }
+    }
+
+    /** The most recent {@code limit} entries of an insertion-ordered map. */
+    private static <V> Map<String, V> boundedTail(Map<String, V> source, int limit) {
+        if (source.size() <= limit) {
+            return source;
+        }
+        Map<String, V> tail = new LinkedHashMap<>();
+        int skip = source.size() - limit;
+        int index = 0;
+        for (Map.Entry<String, V> entry : source.entrySet()) {
+            if (index++ < skip) {
+                continue;
+            }
+            tail.put(entry.getKey(), entry.getValue());
+        }
+        return tail;
+    }
+
     // ==================== statistics (design doc 7.2.6) ====================
 
     /**
@@ -527,6 +777,7 @@ public class PlanCaptureManager extends MasterDaemon {
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
+        checkpointLoaded = false;
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
@@ -578,6 +829,16 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void handleCandidateForTest(CapturedQuery candidate) {
         handleCandidate(candidate);
+    }
+
+    /**
+     * For tests: the live checkpoint fields
+     * (lastScan, pendingStart, pendingEnd, cursorQueryTime, cursorTime, cursorQueryId).
+     */
+    @VisibleForTesting
+    public Object[] checkpointFieldsForTest() {
+        return new Object[] {lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
+                cursorQueryTime, cursorTime, cursorQueryId};
     }
 
     /**

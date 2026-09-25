@@ -23,10 +23,12 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -35,6 +37,9 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -128,6 +133,46 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
                     && !Objects.equals(bindFrame.computeToSql(), userFrame.computeToSql())) {
                 return false;
             }
+        }
+        // Match: the analyzer (the tokenizer named in "USING ANALYZER ...") decides how the
+        // pattern is read and is stored outside children(); BinaryOperator.toDigest()
+        // omits it as well. Two MATCH variants with different analyzers must not match:
+        // the replay keeps the baseline analyzer and can return different matches.
+        if (bindExpr instanceof Match
+                && !Objects.equals(((Match) bindExpr).getAnalyzer(),
+                        ((Match) userExpr).getAnalyzer())) {
+            return false;
+        }
+
+        // A WHERE clause is collected into ONE n-ary AND (OR) node, whose operands are an
+        // UNORDERED multiset: the bind side renders placeholders while the user side
+        // carries the literal text, so a positional comparison rejects a valid baseline
+        // whenever the literal values reverse the textual order. Match the operands
+        // transactionally: a tentative pairing rolls its extractions back on failure.
+        if (bindExpr instanceof CompoundPredicate) {
+            List<Expression> bindChildren = bindExpr.children();
+            List<Expression> userChildren = userExpr.children();
+            if (bindChildren.size() != userChildren.size()) {
+                return false;
+            }
+            List<Expression> remaining = new ArrayList<>(userChildren);
+            for (Expression bindChild : bindChildren) {
+                int matched = -1;
+                for (int i = 0; i < remaining.size(); i++) {
+                    Map<Long, Expression> snapshot = new HashMap<>(context.placeholderValues);
+                    if (checkExpression(bindChild, remaining.get(i), context.placeholderValues)) {
+                        matched = i;
+                        break;
+                    }
+                    context.placeholderValues.clear();
+                    context.placeholderValues.putAll(snapshot);
+                }
+                if (matched < 0) {
+                    return false;
+                }
+                remaining.remove(matched);
+            }
+            return true;
         }
 
         // Column references are compared by name (a = 100 must not match b = 42)
