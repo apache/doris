@@ -70,6 +70,11 @@ public:
     // For testing only: pause after inspect's WNOHANG=0 observation and before claim release.
     static void pause_child_inspection_after_running_for_test(bool pause);
     static bool child_inspection_paused_for_test();
+    // Pause a handler before claiming a copied identity, and after claiming a stale identity.
+    static void pause_sigchld_before_claim_for_test(bool pause);
+    static bool sigchld_before_claim_paused_for_test();
+    static void pause_stale_child_claim_for_test(bool pause);
+    static bool stale_child_claim_paused_for_test();
     // For testing only: inspect / drive the adopt-external flag
     bool get_adopted_external_for_test() const { return _adopted_external.load(); }
     void set_adopted_external_for_test(bool v) { _adopted_external.store(v); }
