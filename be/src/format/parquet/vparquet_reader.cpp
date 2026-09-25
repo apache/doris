@@ -1653,11 +1653,22 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         return Status::OK();
     }
 
+    // The v1 Parquet reader is being removed, so it does not take on the new slot-vs-slot pruning.
+    // Restrict this path to single-slot conjuncts, mirroring the page path's single-column
+    // requirement above; a two-slot shape falls back to no pruning here. Native and v2 keep it.
     std::set<int> column_ids;
+    VExprContextSPtrs single_slot_conjuncts;
     for (const auto& conjunct : all_conjuncts) {
-        if (conjunct->root() != nullptr && conjunct->root()->can_evaluate_zonemap_filter()) {
-            conjunct->root()->collect_slot_column_ids(column_ids);
+        if (conjunct->root() == nullptr || !conjunct->root()->can_evaluate_zonemap_filter()) {
+            continue;
         }
+        std::set<int> conjunct_column_ids;
+        conjunct->root()->collect_slot_column_ids(conjunct_column_ids);
+        if (conjunct_column_ids.size() != 1) {
+            continue;
+        }
+        single_slot_conjuncts.emplace_back(conjunct);
+        column_ids.insert(*conjunct_column_ids.begin());
     }
     if (column_ids.empty()) {
         return Status::OK();
@@ -1719,7 +1730,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         ctx.slots.emplace(cid, std::move(slot_zone_map));
     }
 
-    const auto result = VExprContext::evaluate_zonemap_filter(all_conjuncts, ctx);
+    const auto result = VExprContext::evaluate_zonemap_filter(single_slot_conjuncts, ctx);
     ctx.stats.accumulate_to(&_reader_statistics);
     if (result == ZoneMapFilterResult::kNoMatch) {
         *filter_group = true;
