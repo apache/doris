@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.window;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -131,6 +136,33 @@ public class NtileBucketTest {
         Assertions.assertTrue(unfoldedException.getMessage().contains(POSITIVE_INTEGER_MESSAGE));
         AnalysisException zeroException = Assertions.assertThrows(
                 AnalysisException.class, zero::checkLegalityAfterRewrite);
+        Assertions.assertTrue(zeroException.getMessage().contains(POSITIVE_INTEGER_MESSAGE));
+    }
+
+    @Test
+    public void testConstantExpressionNotFoldableOnFeIsLeftToRewrite() {
+        // FE has no executor for `%`, but BE can fold it when enable_fold_constant_by_be is set,
+        // so it is accepted at binding time and must be a positive literal after rewrite.
+        Ntile ntile = new Ntile(new Mod(new IntegerLiteral(3), new IntegerLiteral(2)));
+
+        Assertions.assertDoesNotThrow(ntile::checkLegalityBeforeTypeCoercion);
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, ntile::checkLegalityAfterRewrite);
+        Assertions.assertTrue(exception.getMessage().contains(POSITIVE_INTEGER_MESSAGE));
+    }
+
+    @Test
+    public void testTranslateChecksBucket() {
+        FunctionCallExpr translated = (FunctionCallExpr) ExpressionTranslator.translate(
+                new Ntile(new BigIntLiteral(3)), new PlanTranslatorContext());
+        Assertions.assertEquals("ntile", translated.getFnName().getFunction());
+
+        AnalysisException unfoldedException = Assertions.assertThrows(AnalysisException.class,
+                () -> ExpressionTranslator.translate(new Ntile(new Mod(new BigIntLiteral(3), new BigIntLiteral(3))),
+                        new PlanTranslatorContext()));
+        Assertions.assertTrue(unfoldedException.getMessage().contains(POSITIVE_INTEGER_MESSAGE));
+        AnalysisException zeroException = Assertions.assertThrows(AnalysisException.class,
+                () -> ExpressionTranslator.translate(new Ntile(new BigIntLiteral(0)), new PlanTranslatorContext()));
         Assertions.assertTrue(zeroException.getMessage().contains(POSITIVE_INTEGER_MESSAGE));
     }
 

@@ -109,6 +109,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -476,6 +477,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 inPredicate.getCompareExpr().accept(this, context),
                 inList, false, allConstant, inPredicate.nullable());
         return in;
+    }
+
+    @Override
+    public Expr visitNtile(Ntile ntile, PlanTranslatorContext context) {
+        // The rewrite rules that fold the bucket and run checkLegalityAfterRewrite on window expressions can be
+        // disabled, so check again before the bucket reaches the backend, which uses it as a divisor.
+        ntile.checkLegalityAfterRewrite();
+        return visitWindowFunction(ntile, context);
     }
 
     @Override

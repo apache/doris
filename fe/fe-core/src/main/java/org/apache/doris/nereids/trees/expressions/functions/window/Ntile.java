@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -82,16 +83,21 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
                 "The bucket of NTILE must be a constant value: " + this.toSql());
         }
         // The bucket may be a constant expression such as `1 + 1`, which is folded to a literal only by the
-        // rewrite phase after this check runs. Evaluate it here so that any constant expression yielding a
-        // positive integer is accepted, while a non-positive or unevaluable bucket is still rejected.
-        checkPositiveBucket(FoldConstantRuleOnFE.evaluateWithoutContext(buckets));
+        // rewrite phase after this check runs. Reject early a bucket that FE already evaluates to a non-positive
+        // or NULL value. A bucket FE can not evaluate, e.g. `3 % 2`, may still be folded by BE when
+        // enable_fold_constant_by_be is set, so it is left to checkLegalityAfterRewrite.
+        Expression evaluated = FoldConstantRuleOnFE.evaluateWithoutContext(buckets);
+        if (evaluated instanceof Literal) {
+            checkPositiveBucket(evaluated);
+        }
     }
 
     @Override
     public void checkLegalityAfterRewrite() {
         // The backend reads the bucket from the argument column and registers ntile only for a non-nullable
         // integer argument, so the bucket must have been folded to a literal before the plan is translated.
-        // That does not happen when constant folding is skipped, e.g. with debug_skip_fold_constant=true.
+        // That does not happen when constant folding is skipped, e.g. with debug_skip_fold_constant=true, or
+        // when the configured folding can not evaluate the bucket.
         checkPositiveBucket(getArgument(0));
     }
 
