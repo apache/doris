@@ -38,6 +38,18 @@
 -- !nan_payload_cast --
 NaN	NaN	\N
 
+-- !signed_nan_and_float_midpoint --
+true	true	false	true	false
+
+-- !bit_derived_level --
+9	9
+
+-- !bit_derived_level --
+0	0
+
+-- !bit_derived_level --
+0	0
+
 -- !decimalv2_divide --
 0E-9	\N
 
@@ -94,4 +106,19 @@ NaN	NaN	\N
 
 -- !skip_fold_decimalv3_quotient_level --
 5.9999400000000005
+
+-- !skip_fold_signed_nan_and_float_midpoint --
+true	true	false	true	false
+
+-- !skip_fold_bit_derived_level --
+9	9
+
+-- !skip_fold_bit_derived_level --
+0	0
+
+-- !skip_fold_bit_derived_level --
+0	0
+
+-- !skip_fold_bit_derived_level_state_merge --
+9
 

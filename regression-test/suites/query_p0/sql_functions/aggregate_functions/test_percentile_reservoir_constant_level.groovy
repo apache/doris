@@ -140,6 +140,28 @@ suite("test_percentile_reservoir_constant_level") {
         }
     }
 
+    // FE casts a string to FLOAT/DOUBLE with the exact bits BE produces: a leading '-' gives a
+    // negative NaN, and FLOAT is parsed as a double first and then narrowed with a single rounding,
+    // so a value just above the midpoint between 1 and the next float ties to 1. A level derived
+    // from those bits is the same whether FE folds it or BE executes it, see the skip-fold block below
+    qt_signed_nan_and_float_midpoint """
+        SELECT signbit(cast('-nan(foo)' as double)), signbit(cast(' -nan ' as double)),
+               signbit(cast('nan(foo)' as double)), signbit(cast(cast('-nan(foo)' as float) as double)),
+               cast('1.00000005960464483090177623170427978038787841796875' as float) > cast(1 as float)
+    """
+    for (String level : ["cast(signbit(cast('-nan(foo)' as double)) as double)",
+            "cast((cast('1.00000005960464483090177623170427978038787841796875' as float) > cast(1 as float)) as double)",
+            "cast((cast(cast('1.0000000596046448' as double) as float) > cast(1 as float)) as double)"]) {
+        qt_bit_derived_level """
+            SELECT percentile_reservoir(number, ${level}), percentile_reservoir(DISTINCT number, ${level})
+            FROM numbers('number' = '10')
+        """
+    }
+    sql """
+        INSERT INTO test_percentile_reservoir_constant_level_state
+        VALUES (4, percentile_reservoir_state(cast(7 as double), cast(signbit(cast('-nan(foo)' as double)) as double)))
+    """
+
     // DECIMALV2 division folds on FE the way BE executes it: NULL only for a zero divisor
     qt_decimalv2_divide """
         SELECT cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)),
@@ -265,5 +287,30 @@ suite("test_percentile_reservoir_constant_level") {
         sql "SELECT percentile_reservoir(number, 4.0 / 3) FROM numbers('number' = '10')"
         exception "percentile_reservoir level must be in [0, 1], but got 1.33333"
     }
+    qt_skip_fold_signed_nan_and_float_midpoint """
+        SELECT signbit(cast('-nan(foo)' as double)), signbit(cast(' -nan ' as double)),
+               signbit(cast('nan(foo)' as double)), signbit(cast(cast('-nan(foo)' as float) as double)),
+               cast('1.00000005960464483090177623170427978038787841796875' as float) > cast(1 as float)
+    """
+    for (String level : ["cast(signbit(cast('-nan(foo)' as double)) as double)",
+            "cast((cast('1.00000005960464483090177623170427978038787841796875' as float) > cast(1 as float)) as double)",
+            "cast((cast(cast('1.0000000596046448' as double) as float) > cast(1 as float)) as double)"]) {
+        qt_skip_fold_bit_derived_level """
+            SELECT percentile_reservoir(number, ${level}), percentile_reservoir(DISTINCT number, ${level})
+            FROM numbers('number' = '10')
+        """
+    }
+    // a state whose level BE computes merges with the stored state whose level FE folded above;
+    // INSERT ... VALUES always folds on FE, so the BE-computed state is built inline, and coalesce
+    // keeps its level NOT NULL like the stored AGG_STATE type
+    qt_skip_fold_bit_derived_level_state_merge """
+        SELECT percentile_reservoir_merge(s) FROM (
+            SELECT s FROM test_percentile_reservoir_constant_level_state WHERE k = 4
+            UNION ALL
+            SELECT percentile_reservoir_state(cast(9 as double),
+                    coalesce(cast(signbit(cast('-nan(foo)' as double)) as double), 0))
+            FROM numbers('number' = '1')
+        ) states
+    """
     sql "SET debug_skip_fold_constant = false"
 }
