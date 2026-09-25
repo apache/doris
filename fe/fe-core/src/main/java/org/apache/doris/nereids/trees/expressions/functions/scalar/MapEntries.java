@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
-import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -43,7 +45,8 @@ import java.util.List;
  * fields 'key' and 'value'.
  */
 public class MapEntries extends ScalarFunction
-        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject {
+        implements UnaryExpression, PreserveChildTypePrecision, CustomSignature, PropagateNullable,
+        PreferPushDownProject, ChildDerivedSignature {
 
     /**
      * constructor with 1 argument.
@@ -99,7 +102,23 @@ public class MapEntries extends ScalarFunction
     // Prevent MAP<DECIMAL(38,0), DECIMAL(38,38)> from being resolved as
     // MAP<DECIMAL(38,6), DECIMAL(38,6)>, and nested DATETIMEV2(6) as DATETIMEV2(0).
     @Override
-    public FunctionSignature computePrecision(FunctionSignature signature) {
-        return signature;
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        DataType inputType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
+                immediateOriginArguments.get(0).getDataType());
+        if (inputType instanceof NullType) {
+            return resolvedSignature.withArgumentType(0, inputType);
+        }
+        if (!(inputType instanceof MapType)) {
+            throw new AnalysisException("Cannot safely reuse map_entries signature with a non-map argument");
+        }
+        MapType mapType = (MapType) inputType;
+        StructType entryType = new StructType(ImmutableList.of(
+                new StructField("key", mapType.getKeyType(), true, ""),
+                new StructField("value", mapType.getValueType(), true, "")));
+        return resolvedSignature.withArgumentType(0, inputType)
+                .withReturnType(ArrayType.of(entryType));
     }
 }
