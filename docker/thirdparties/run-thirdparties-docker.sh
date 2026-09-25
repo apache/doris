@@ -1612,7 +1612,8 @@ start_kerberos() {
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.keytab
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.jks
         rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.conf
-        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans -d
+        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" pull
+        compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --remove-orphans -d
         trap 'cleanup_kerberos_readiness_jobs "${readiness_pids[@]}"' EXIT
         trap 'exit 143' TERM
         trap 'exit 130' INT
