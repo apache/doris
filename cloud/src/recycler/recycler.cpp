@@ -3571,9 +3571,6 @@ int InstanceRecycler::recycle_orphan_partitions() {
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                                       RecyclerMetricsContext& metrics_context,
                                       int64_t partition_id) {
-    bool is_multi_version =
-            instance_info_.has_multi_version_status() &&
-            instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED;
     int64_t num_scanned = 0;
     std::atomic_long num_recycled = 0;
 
@@ -3710,7 +3707,37 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 }
             }
         }
-        if (is_multi_version) {
+        if (should_recycle_versioned_keys()) {
+            // Remove tablet indexes in the same transaction as tablet metadata.
+            for (const auto& tablet_info : tablets_info) {
+                std::string versioned_idx_key =
+                        versioned::tablet_index_key({instance_id_, tablet_info.tablet_id});
+                std::string tablet_index_val;
+                TxnErrorCode err = txn->get(versioned_idx_key, &tablet_index_val);
+                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    continue;
+                }
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG_WARNING("failed to get tablet index kv")
+                            .tag("instance_id", instance_id_)
+                            .tag("tablet_id", tablet_info.tablet_id)
+                            .tag("err", err);
+                    return -1;
+                }
+                TabletIndexPB tablet_index_pb;
+                if (!tablet_index_pb.ParseFromString(tablet_index_val)) {
+                    LOG_WARNING("failed to parse tablet index pb")
+                            .tag("instance_id", instance_id_)
+                            .tag("tablet_id", tablet_info.tablet_id);
+                    return -1;
+                }
+                std::string versioned_inverted_idx_key = versioned::tablet_inverted_index_key(
+                        {instance_id_, tablet_index_pb.db_id(), tablet_index_pb.table_id(),
+                         tablet_index_pb.index_id(), tablet_index_pb.partition_id(),
+                         tablet_info.tablet_id});
+                txn->remove(versioned_inverted_idx_key);
+                txn->remove(versioned_idx_key);
+            }
             for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet compact stats for recycled tablet
                 auto k = versioned::tablet_compact_stats_key({instance_id_, tablet_info.tablet_id});
@@ -3744,6 +3771,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
         for (auto& k : init_rs_keys) {
             txn->remove(k);
         }
+        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablets.before_commit", txn.get());
         if (TxnErrorCode err = txn->commit(); err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to delete kvs related to tablets, instance_id=" << instance_id_
                          << ", err=" << err;
@@ -5698,32 +5726,6 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
     txn->remove(dbm_start_key, dbm_end_key);
     LOG(INFO) << "remove delete bitmap kv, tablet=" << tablet_id << ", begin=" << hex(dbm_start_key)
               << " end=" << hex(dbm_end_key);
-
-    std::string versioned_idx_key = versioned::tablet_index_key({instance_id_, tablet_id});
-    std::string tablet_index_val;
-    err = txn->get(versioned_idx_key, &tablet_index_val);
-    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to get tablet index kv")
-                .tag("instance_id", instance_id_)
-                .tag("tablet_id", tablet_id)
-                .tag("err", err);
-        ret = -1;
-    } else if (err == TxnErrorCode::TXN_OK) {
-        // If the tablet index kv exists, we need to delete it
-        TabletIndexPB tablet_index_pb;
-        if (!tablet_index_pb.ParseFromString(tablet_index_val)) {
-            LOG_WARNING("failed to parse tablet index pb")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id);
-            ret = -1;
-        } else {
-            std::string versioned_inverted_idx_key = versioned::tablet_inverted_index_key(
-                    {instance_id_, tablet_index_pb.db_id(), tablet_index_pb.table_id(),
-                     tablet_index_pb.index_id(), tablet_index_pb.partition_id(), tablet_id});
-            txn->remove(versioned_inverted_idx_key);
-            txn->remove(versioned_idx_key);
-        }
-    }
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
