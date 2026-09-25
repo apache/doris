@@ -1173,8 +1173,8 @@ public class SessionVariable implements Serializable, Writable {
     public int localExchangeFreeBlocksLimit = 4;
 
     @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency of "
-            + "Scanner, default 1")
-    public int minScannersConcurrency = 1;
+            + "Scanner, default 4")
+    public int minScannersConcurrency = 4;
 
     @VarAttrDef.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency "
             + "of Remote Scanner, default 1")
