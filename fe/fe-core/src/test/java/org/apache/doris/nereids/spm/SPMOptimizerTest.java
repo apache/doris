@@ -19,11 +19,17 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.BitSet;
 import java.util.HashSet;
@@ -157,5 +163,48 @@ public class SPMOptimizerTest {
                 "implementation rules must stay enabled for an ordinary statement");
         Assertions.assertEquals(session.getDisableNereidsRules(), mask,
                 "the statement mask is exactly the disable list again");
+    }
+
+    // ==================== protected SET_VAR hints in nested plans (#3) ====================
+
+    /**
+     * A protected SET_VAR hint must be rejected wherever it sits. A hint inside a CTE
+     * definition or a subquery is applied by EliminateLogicalSelectHint AFTER the SPM
+     * CTE / TopN serialization overrides were installed, so the pre-scan must follow the
+     * plans held outside children() (extraPlans() / SubqueryExpr.queryPlan) - otherwise
+     * the frozen plan could be produced without those guards.
+     */
+    @Test
+    public void testProtectedSetVarHintsInNestedPlansAreRejected() {
+        // hint parsing records the SET_VAR once-in-SQL marker on the statement context,
+        // so a thread-local ConnectContext must be available while parsing
+        try (MockedStatic<ConnectContext> mockedConnectContext =
+                Mockito.mockStatic(ConnectContext.class)) {
+            ConnectContext ctx = new ConnectContext();
+            ctx.setSessionVariable(new SessionVariable());
+            ctx.setStatementContext(new StatementContext(ctx, new OriginStatement("", 0)));
+            mockedConnectContext.when(ConnectContext::get).thenReturn(ctx);
+
+            LogicalPlan ctePlan = (LogicalPlan) new NereidsParser().parseSingle(
+                    "WITH c AS (SELECT /*+ SET_VAR(enable_nereids_rules='') */ k FROM t1)"
+                            + " SELECT k FROM c");
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> SPMOptimizer.checkProtectedSetVarHints(ctePlan),
+                    "a protected hint inside a CTE body must be rejected");
+
+            LogicalPlan subqueryPlan = (LogicalPlan) new NereidsParser().parseSingle(
+                    "SELECT k FROM t1 WHERE k IN"
+                            + " (SELECT /*+ SET_VAR(topn_lazy_materialization_threshold=1) */"
+                            + " k FROM t2)");
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> SPMOptimizer.checkProtectedSetVarHints(subqueryPlan),
+                    "a protected hint inside a subquery must be rejected");
+
+            // a nested hint that targets an UNPROTECTED variable stays allowed
+            LogicalPlan allowed = (LogicalPlan) new NereidsParser().parseSingle(
+                    "WITH c AS (SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */ k FROM t1)"
+                            + " SELECT k FROM c");
+            Assertions.assertDoesNotThrow(() -> SPMOptimizer.checkProtectedSetVarHints(allowed));
+        }
     }
 }

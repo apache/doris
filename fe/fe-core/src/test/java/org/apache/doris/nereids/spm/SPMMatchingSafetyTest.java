@@ -57,6 +57,7 @@ import org.mockito.Mockito;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Regression tests for the matching-safety / rendering fixes: every node state that
@@ -826,5 +827,71 @@ public class SPMMatchingSafetyTest {
         LogicalView<?> view = Mockito.mock(LogicalView.class);
         Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctx, view),
                 "an analyzed LogicalView node must be reported as a view reference");
+    }
+
+    // ==================== view guard: nested statements (#2) ====================
+
+    /**
+     * A view behind a CTE body must be reported: the CTE body lives in
+     * LogicalCTE.getAliasQueries() / extraPlans(), NOT in children(), so a walk over
+     * children() alone would miss it and SPM would freeze the expanded base-table scans -
+     * replay would then authorize those base tables instead of the view.
+     */
+    @Test
+    public void testViewBehindCteIsDetected() {
+        LogicalPlan ctePlan = parse(
+                "WITH c AS (SELECT v.a AS x FROM cat.db.v AS v) SELECT c.x FROM c");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctxResolving(Set.of("v")), ctePlan),
+                "a view inside a CTE body must be reported as a view reference");
+        Assertions.assertFalse(SPMPlanTreeSupport.referencesView(ctxResolving(Set.of()), ctePlan),
+                "a CTE over base tables is not a view reference");
+
+        LogicalPlan nestedCte = parse("SELECT x FROM (WITH c AS (SELECT v.a AS x FROM cat.db.v AS v)"
+                + " SELECT c.x FROM c) s");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctxResolving(Set.of("v")), nestedCte),
+                "a view in a CTE inside a derived table must be reported");
+    }
+
+    /**
+     * IN / EXISTS / scalar subqueries hold their plan in SubqueryExpr.queryPlan (surfaced
+     * through extraPlans() and through the node's expressions, coercions included) - a
+     * view behind any of them must reach the view guard as well.
+     */
+    @Test
+    public void testViewBehindSubqueriesIsDetected() {
+        ConnectContext viewCtx = ctxResolving(Set.of("v"));
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(viewCtx,
+                parse("SELECT t.a FROM cat.db.t AS t WHERE t.a IN (SELECT v.a FROM cat.db.v AS v)")),
+                "a view behind an IN subquery must be reported");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(viewCtx,
+                parse("SELECT t.a FROM cat.db.t AS t WHERE EXISTS (SELECT 1 FROM cat.db.v AS v"
+                        + " WHERE v.a = t.a)")),
+                "a view behind an EXISTS subquery must be reported");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(viewCtx,
+                parse("SELECT (SELECT max(v.a) FROM cat.db.v AS v) AS m FROM cat.db.t AS t")),
+                "a view behind a scalar select-list subquery must be reported");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(viewCtx,
+                parse("SELECT t.a FROM cat.db.t AS t WHERE t.a >"
+                        + " (SELECT max(v.a) FROM cat.db.v AS v) + 1")),
+                "a view behind a subquery nested in an expression (coercion) must be reported");
+
+        Assertions.assertFalse(SPMPlanTreeSupport.referencesView(ctxResolving(Set.of()),
+                parse("SELECT t.a FROM cat.db.t AS t WHERE t.a IN (SELECT u.a FROM cat.db.u AS u)")),
+                "a subquery over base tables is not a view reference");
+    }
+
+    /** A mocked ConnectContext whose relation resolution reports the given names as views. */
+    private static ConnectContext ctxResolving(Set<String> viewNames) {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+                Mockito.any())).thenAnswer(invocation -> {
+                    List<String> qualifier = invocation.getArgument(0);
+                    String name = qualifier.get(qualifier.size() - 1);
+                    return viewNames.contains(name)
+                            ? Mockito.mock(View.class) : Mockito.mock(TableIf.class);
+                });
+        return ctx;
     }
 }

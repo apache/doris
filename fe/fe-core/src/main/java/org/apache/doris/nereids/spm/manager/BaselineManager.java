@@ -747,37 +747,82 @@ public class BaselineManager {
         if (!persistenceEnabled()) {
             return; // internal schema db disabled (or a unit test): nothing to merge
         }
-        if (!loaded) {
-            // The first load doubles as the first refresh (downloads the whole table).
-            loadFromInternalTable();
-            return;
-        }
-        long versionAtRead;
-        stateLock.readLock().lock();
-        try {
+        // Serialize refresh with the WRITERS (writerLock, never stateLock): a local
+        // mutation publishes its durable write and its in-memory state under this lock,
+        // so the read-outside-the-lock + version-guarded apply below cannot interleave
+        // with it. Without the serialization updateStatus can persist the new row, a
+        // refresh that started BEFORE that write applies the OLD row while the version is
+        // still unchanged, and the version bump that follows only records the mutation - it
+        // does not republish the status, so this FE keeps matching the stale in-memory
+        // row until another refresh. Matching queries are unaffected: they never take
+        // writerLock (only stateLock read).
+        synchronized (writerLock) {
             if (!loaded) {
-                return; // raced with a concurrent first load: retry next cycle
+                // The first load doubles as the first refresh (downloads the whole table).
+                loadFromInternalTable();
+                return;
             }
-            versionAtRead = stateVersion; // writers cannot run while the read lock is held
-        } finally {
-            stateLock.readLock().unlock();
+            long versionAtRead;
+            stateLock.readLock().lock();
+            try {
+                if (!loaded) {
+                    return; // raced with a concurrent first load: retry next cycle
+                }
+                versionAtRead = stateVersion; // no writer publishes while writerLock is held
+            } finally {
+                stateLock.readLock().unlock();
+            }
+            final Map<Long, BaselinePlan> snapshot;
+            try {
+                snapshot = readPersistedSnapshot();
+            } catch (Throwable t) {
+                LOG.warn("SPM baseline refresh read failed (will retry next cycle): {}", t.getMessage());
+                return;
+            }
+            if (!applyRefreshedSnapshotIfUnchanged(versionAtRead, snapshot)) {
+                LOG.debug("SPM baseline refresh skipped: local state changed while reading");
+            }
         }
-        final Map<Long, BaselinePlan> snapshot;
-        try {
-            snapshot = readPersistedSnapshot();
-        } catch (Throwable t) {
-            LOG.warn("SPM baseline refresh read failed (will retry next cycle): {}", t.getMessage());
-            return;
-        }
+    }
+
+    /**
+     * Applies a snapshot read by a refresh IF no local mutation published since the read
+     * started (the version guard). The guard is what makes a stale snapshot harmless:
+     * updateStatus publishes its in-memory flip and its version bump before a refresh can
+     * reach this point, so the older row read before that update is rejected instead of
+     * overwriting the newer status. Public for unit tests; production callers use
+     * {@link #refreshFromInternalTable}, which additionally serializes with the writers.
+     *
+     * @param versionAtRead the state version observed when the snapshot read started
+     * @param persisted     the snapshot to apply
+     * @return whether the snapshot was applied
+     */
+    public boolean applyRefreshedSnapshotIfUnchanged(long versionAtRead,
+            Map<Long, BaselinePlan> persisted) {
         stateLock.writeLock().lock();
         try {
             if (stateVersion != versionAtRead) {
-                LOG.debug("SPM baseline refresh skipped: local state changed while reading");
-                return;
+                return false;
             }
-            applyRefreshedBaselinesLocked(snapshot);
+            applyRefreshedBaselinesLocked(persisted);
+            return true;
         } finally {
             stateLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * The current in-memory state version: bumped by every local mutation that changes
+     * the published store. Public for unit tests (the stale-snapshot guard).
+     *
+     * @return the state version
+     */
+    public long getStateVersion() {
+        stateLock.readLock().lock();
+        try {
+            return stateVersion;
+        } finally {
+            stateLock.readLock().unlock();
         }
     }
 

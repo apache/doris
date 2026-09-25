@@ -52,16 +52,19 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -591,6 +594,12 @@ public class SPMPlan2SQLBuilderTest {
         if (plan instanceof PhysicalUnion) {
             return builder.visitPhysicalUnion((PhysicalUnion) plan, null);
         }
+        if (plan instanceof PhysicalExcept) {
+            return builder.visitPhysicalExcept((PhysicalExcept) plan, null);
+        }
+        if (plan instanceof PhysicalIntersect) {
+            return builder.visitPhysicalIntersect((PhysicalIntersect) plan, null);
+        }
         if (plan instanceof PhysicalLimit) {
             return builder.visitPhysicalLimit((PhysicalLimit<? extends Plan>) plan, null);
         }
@@ -847,6 +856,7 @@ public class SPMPlan2SQLBuilderTest {
         PhysicalOlapScan scan = mockScan("t1", List.of(x));
 
         PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(Qualifier.ALL);
         Mockito.when(union.children()).thenReturn(List.of(scan));
         Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of(List.of(x)));
         Mockito.when(union.getOutput()).thenReturn(List.of(setOutput));
@@ -866,6 +876,7 @@ public class SPMPlan2SQLBuilderTest {
     public void testUnionConstantOnlyBranchIsEmitted() {
         SlotReference setOutput = new SlotReference("k1", IntegerType.INSTANCE);
         PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(Qualifier.ALL);
         Mockito.when(union.children()).thenReturn(List.of());
         Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of());
         Mockito.when(union.getOutput()).thenReturn(List.of(setOutput));
@@ -884,6 +895,7 @@ public class SPMPlan2SQLBuilderTest {
     public void testUnionConstantArityMismatchRejected() {
         SlotReference setOutput = new SlotReference("k1", IntegerType.INSTANCE);
         PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(Qualifier.ALL);
         Mockito.when(union.children()).thenReturn(List.of());
         Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of());
         Mockito.when(union.getOutput()).thenReturn(List.of(setOutput));
@@ -895,6 +907,94 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> new SPMPlan2SQLBuilder().toSQL(union),
                 "a constant row that does not match the set arity must fail the decompile");
+    }
+
+    // ==================== set-operation quantifier ====================
+
+    /**
+     * The keyword comes from the PHYSICAL qualifier: the parser maps an omitted
+     * quantifier (and an explicit DISTINCT) to Qualifier.DISTINCT, so the decompiler must
+     * not emit ALL for it. A DISTINCT union frozen as UNION ALL returns duplicate rows at
+     * replay (and EXCEPT ALL / INTERSECT ALL lose their multiplicity when ALL is
+     * dropped).
+     */
+    @Test
+    public void testUnionQuantifierIsPreserved() {
+        String allSql = new SPMPlan2SQLBuilder().toSQL(mockUnion(Qualifier.ALL));
+        Assertions.assertTrue(allSql.contains(" UNION ALL "), allSql);
+
+        String distinctSql = new SPMPlan2SQLBuilder().toSQL(mockUnion(Qualifier.DISTINCT));
+        Assertions.assertFalse(distinctSql.contains("UNION ALL"),
+                "a DISTINCT union must not be frozen as UNION ALL: " + distinctSql);
+        Assertions.assertTrue(distinctSql.contains(" UNION "), distinctSql);
+    }
+
+    @Test
+    public void testExceptQuantifierIsPreserved() {
+        String distinctSql = new SPMPlan2SQLBuilder().toSQL(mockExcept(Qualifier.DISTINCT));
+        Assertions.assertTrue(distinctSql.contains(" EXCEPT "), distinctSql);
+        Assertions.assertFalse(distinctSql.contains("EXCEPT ALL"), distinctSql);
+
+        String allSql = new SPMPlan2SQLBuilder().toSQL(mockExcept(Qualifier.ALL));
+        Assertions.assertTrue(allSql.contains(" EXCEPT ALL "),
+                "EXCEPT ALL must keep its ALL, otherwise multiplicity is lost: " + allSql);
+    }
+
+    @Test
+    public void testIntersectQuantifierIsPreserved() {
+        String distinctSql = new SPMPlan2SQLBuilder().toSQL(mockIntersect(Qualifier.DISTINCT));
+        Assertions.assertTrue(distinctSql.contains(" INTERSECT "), distinctSql);
+        Assertions.assertFalse(distinctSql.contains("INTERSECT ALL"), distinctSql);
+
+        String allSql = new SPMPlan2SQLBuilder().toSQL(mockIntersect(Qualifier.ALL));
+        Assertions.assertTrue(allSql.contains(" INTERSECT ALL "),
+                "INTERSECT ALL must keep its ALL, otherwise multiplicity is lost: " + allSql);
+    }
+
+    private PhysicalUnion mockUnion(Qualifier qualifier) {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(x));
+        PhysicalOlapScan right = mockScan("t2", List.of(x));
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(qualifier);
+        Mockito.when(union.children()).thenReturn(List.of(left, right));
+        Mockito.when(union.getRegularChildrenOutputs())
+                .thenReturn(List.of(List.of(x), List.of(x)));
+        Mockito.when(union.getOutput()).thenReturn(List.of(
+                new SlotReference("k1", IntegerType.INSTANCE)));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of());
+        stubAccept(union);
+        return union;
+    }
+
+    private PhysicalExcept mockExcept(Qualifier qualifier) {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(x));
+        PhysicalOlapScan right = mockScan("t2", List.of(x));
+        PhysicalExcept except = Mockito.mock(PhysicalExcept.class);
+        Mockito.when(except.getQualifier()).thenReturn(qualifier);
+        Mockito.when(except.children()).thenReturn(List.of(left, right));
+        Mockito.when(except.getRegularChildrenOutputs())
+                .thenReturn(List.of(List.of(x), List.of(x)));
+        Mockito.when(except.getOutput()).thenReturn(List.of(
+                new SlotReference("k1", IntegerType.INSTANCE)));
+        stubAccept(except);
+        return except;
+    }
+
+    private PhysicalIntersect mockIntersect(Qualifier qualifier) {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(x));
+        PhysicalOlapScan right = mockScan("t2", List.of(x));
+        PhysicalIntersect intersect = Mockito.mock(PhysicalIntersect.class);
+        Mockito.when(intersect.getQualifier()).thenReturn(qualifier);
+        Mockito.when(intersect.children()).thenReturn(List.of(left, right));
+        Mockito.when(intersect.getRegularChildrenOutputs())
+                .thenReturn(List.of(List.of(x), List.of(x)));
+        Mockito.when(intersect.getOutput()).thenReturn(List.of(
+                new SlotReference("k1", IntegerType.INSTANCE)));
+        stubAccept(intersect);
+        return intersect;
     }
 
     // ==================== FROM-less projection aliases (PhysicalOneRowRelation) ====================

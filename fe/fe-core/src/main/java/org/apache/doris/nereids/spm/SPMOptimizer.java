@@ -387,14 +387,23 @@ public class SPMOptimizer {
         }
     }
 
-    /** Walks the plan tree and rejects any SELECT hint targeting a protected variable. */
-    private static void checkProtectedSetVarHints(Plan node) throws AnalysisException {
-        if (node instanceof LogicalSelectHint) {
-            rejectProtectedSetVarHints(((LogicalSelectHint<?>) node).getHints());
-        }
-        for (Plan child : node.children()) {
-            checkProtectedSetVarHints(child);
-        }
+    /**
+     * Walks the WHOLE statement and rejects any SELECT hint targeting a protected
+     * variable. The walk must follow the plans held outside children() (CTE bodies via
+     * extraPlans(), IN / EXISTS / scalar subquery plans via SubqueryExpr.queryPlan and
+     * through expression coercions): a hint inside a CTE definition or a subquery would
+     * otherwise escape the pre-scan and EliminateLogicalSelectHint would apply it AFTER
+     * the SPM CTE / TopN serialization overrides were installed, letting CTE inlining or
+     * TopN materialization change the frozen plan.
+     *
+     * Package-visible for tests.
+     */
+    static void checkProtectedSetVarHints(Plan node) throws AnalysisException {
+        SPMPlanTreeSupport.<AnalysisException>walkPlans(node, (Plan current) -> {
+            if (current instanceof LogicalSelectHint) {
+                rejectProtectedSetVarHints(((LogicalSelectHint<?>) current).getHints());
+            }
+        });
     }
 
     /**

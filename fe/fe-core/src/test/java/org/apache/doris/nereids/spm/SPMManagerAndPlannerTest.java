@@ -229,6 +229,37 @@ public class SPMManagerAndPlannerTest {
         Assertions.assertEquals(501L, id);
     }
 
+    /**
+     * A refresh reads its snapshot OUTSIDE the state lock, so a status update can land
+     * while that read is in flight. updateStatus writes the durable row and bumps the
+     * version, but it does not republish the in-memory row - applying the STALE snapshot
+     * (the OLD status) would therefore leave this FE matching a disabled baseline until
+     * the next refresh. The version guard must reject the stale snapshot.
+     */
+    @Test
+    public void testStaleRefreshSnapshotCannotOverwriteStatusUpdate() {
+        long id = manager.createBaseline(
+                remoteBaseline(0L, "digest_race", 0xE5L, BaselineStatus.ENABLED));
+        // the snapshot was read while the baseline was still ENABLED
+        long versionAtRead = manager.getStateVersion();
+        BaselinePlan staleRow = remoteBaseline(id, "digest_race", 0xE5L, BaselineStatus.ENABLED);
+
+        Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED));
+
+        Assertions.assertFalse(manager.applyRefreshedSnapshotIfUnchanged(versionAtRead,
+                Map.of(id, staleRow)),
+                "a snapshot read before the status update must be rejected");
+        Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                "the local status update must survive the stale refresh snapshot");
+
+        // the guard is not a blanket rejection: with the current version a content-equal
+        // snapshot is applied (nothing changes, the status stays DISABLED)
+        Assertions.assertTrue(manager.applyRefreshedSnapshotIfUnchanged(
+                manager.getStateVersion(),
+                Map.of(id, remoteBaseline(id, "digest_race", 0xE5L, BaselineStatus.DISABLED))));
+        Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
+    }
+
     /** Builds a baseline as it would come back from a refresh (no transient trees needed). */
     private static BaselinePlan remoteBaseline(long id, String digest, long hash,
             BaselineStatus status) {

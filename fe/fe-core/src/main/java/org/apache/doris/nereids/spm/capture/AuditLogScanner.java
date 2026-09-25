@@ -137,8 +137,8 @@ public class AuditLogScanner {
      * @param cursorQueryTime query_time of the last consumed row (CURSOR_ABSENT = start
      *                        from the top; CURSOR_QUERY_TIME_NULL = that row's value was
      *                        NULL; any other value - including 0 - is a real cursor)
-     * @param cursorTime     time (event time) of the last consumed row
-     * @param cursorQueryId  query_id of the last consumed row
+     * @param cursorTime     time (event time) of the last consumed row; empty = SQL NULL
+     * @param cursorQueryId  query_id of the last consumed row; empty = SQL NULL
      * @return the scan batch (candidates + resume cursor)
      */
     public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
@@ -257,28 +257,54 @@ public class AuditLogScanner {
      * "after" the last consumed row, so a truncated batch continues exactly where it
      * stopped without re-reading or skipping rows.
      *
-     * Zero and NULL query_time rows are legitimate cursors: presence is decided by the
-     * CURSOR_ABSENT sentinel (a zero query_time is NOT "no cursor"), and a NULL cursor
-     * compares through IS NULL (Doris orders NULLs after every value under DESC, which
-     * the raw ORDER BY of the scan relies on).
+     * Presence is decided SOLELY by the CURSOR_ABSENT sentinel: query_time, time and
+     * query_id are all nullable, and an empty value means SQL NULL (NOT "no cursor").
+     * Treating an empty time / query_id as "no cursor" restarted a truncated window at its
+     * FIRST page on every cycle, so a full page whose last raw row carried a NULL
+     * tie-breaker never reached the later eligible rows. NULL is therefore encoded
+     * explicitly: NULLs are the LAST value of their key under DESC, which is exactly what
+     * the raw scan ORDER BY produces.
      */
     static String cursorPredicate(long cursorQueryTime, String cursorTime, String cursorQueryId) {
-        if (cursorQueryTime == CURSOR_ABSENT
-                || cursorTime == null || cursorTime.isEmpty()
-                || cursorQueryId == null || cursorQueryId.isEmpty()) {
+        if (cursorQueryTime == CURSOR_ABSENT) {
             return "";
         }
-        String time = escapeSQLString(cursorTime);
-        String queryId = escapeSQLString(cursorQueryId);
-        String strictlyAfter = "(`time` < '" + time
-                + "' OR (`time` = '" + time + "' AND `query_id` < '" + queryId + "'))";
+        String strictlyAfterTime = strictlyAfterTime(cursorTime, cursorQueryId);
         if (cursorQueryTime == CURSOR_QUERY_TIME_NULL) {
-            return " AND (`query_time` IS NULL AND " + strictlyAfter + ") ";
+            return " AND (`query_time` IS NULL AND " + strictlyAfterTime + ") ";
         }
         return " AND (`query_time` < " + cursorQueryTime
                 + " OR `query_time` IS NULL"
                 + " OR (`query_time` = " + cursorQueryTime
-                + " AND " + strictlyAfter + ")) ";
+                + " AND " + strictlyAfterTime + ")) ";
+    }
+
+    /**
+     * Strictly-after predicate of the (time, query_id) tail of the total order. A NULL
+     * time is the LAST time under DESC, so its group is entered through IS NULL and
+     * ordered by the query_id predicate; a non-NULL time keeps the three-valued shape
+     * (smaller value, then NULL, then the equal-time group).
+     */
+    private static String strictlyAfterTime(String cursorTime, String cursorQueryId) {
+        if (cursorTime == null || cursorTime.isEmpty()) {
+            return "(`time` IS NULL AND " + strictlyAfterQueryId(cursorQueryId) + ")";
+        }
+        String time = escapeSQLString(cursorTime);
+        return "(`time` < '" + time
+                + "' OR `time` IS NULL"
+                + " OR (`time` = '" + time + "' AND " + strictlyAfterQueryId(cursorQueryId) + "))";
+    }
+
+    /**
+     * Strictly-after predicate of the query_id tail. A NULL query_id is the LAST value of
+     * its (query_time, time) group: the group's NULL-query_id rows continue after the
+     * cursor (the cursor row itself is re-read once and deduplicated by query id).
+     */
+    private static String strictlyAfterQueryId(String cursorQueryId) {
+        if (cursorQueryId == null || cursorQueryId.isEmpty()) {
+            return "`query_id` IS NULL";
+        }
+        return "`query_id` < '" + escapeSQLString(cursorQueryId) + "'";
     }
 
     private static String escapeSQLString(String value) {
