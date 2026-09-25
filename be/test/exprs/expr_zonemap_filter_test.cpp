@@ -381,6 +381,28 @@ private:
     std::string _expr_name = "unsupported_single_slot_expr";
 };
 
+// A stand-in for a binary comparison predicate node (`a < b`, `a = 5`, ...).
+// contains_slot_slot_comparison inspects only children(), so the concrete node type does not matter:
+// a comparison's two operands are its children.
+class BinaryLeafExpr final : public VExpr {
+public:
+    BinaryLeafExpr(VExprSPtr left, VExprSPtr right)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false) {
+        add_child(std::move(left));
+        add_child(std::move(right));
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("BinaryLeafExpr is only used by zonemap tests");
+    }
+
+private:
+    std::string _expr_name = "binary_leaf_expr";
+};
+
 VExprSPtr make_fixed_zonemap_expr(ZoneMapFilterResult result) {
     return std::make_shared<FixedZonemapExpr>(result);
 }
@@ -2124,6 +2146,42 @@ TEST(ExprZonemapFilterTest, SlotSlotHandlesTheSameSlotOnBothSides) {
     auto range = make_context(make_int_zonemap(7, 8), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               not_equals.evaluate_zonemap_filter(range, {slot, slot}));
+}
+
+TEST(ExprZonemapFilterTest, ContainsSlotSlotComparisonFindsSlotPairsAnywhere) {
+    auto type = int_type();
+    auto slot_a = make_slot(0, type);
+    auto slot_b = make_slot(1, type);
+
+    EXPECT_FALSE(expr_zonemap::contains_slot_slot_comparison(nullptr));
+
+    // `a < b`: two distinct slots at the root.
+    EXPECT_TRUE(expr_zonemap::contains_slot_slot_comparison(
+            std::make_shared<BinaryLeafExpr>(slot_a, slot_b)));
+
+    // `a < a`: same column on both sides. This is the case a distinct-column count misses -- one
+    // column id, still a slot-vs-slot leaf -- and the regression this gate has to catch.
+    EXPECT_TRUE(expr_zonemap::contains_slot_slot_comparison(
+            std::make_shared<BinaryLeafExpr>(slot_a, slot_a)));
+
+    // `a < 5`: slot versus literal is not a slot-vs-slot comparison.
+    EXPECT_FALSE(expr_zonemap::contains_slot_slot_comparison(
+            std::make_shared<BinaryLeafExpr>(slot_a, make_int_literal(5))));
+
+    // `a < 5 AND c < d`: the slot pair is nested on the second child of the AND.
+    auto slot_c = make_slot(2, type);
+    auto slot_d = make_slot(3, type);
+    auto and_pred =
+            std::make_shared<VCompoundPred>(make_compound_node(TExprOpcode::COMPOUND_AND, 2));
+    and_pred->add_child(std::make_shared<BinaryLeafExpr>(slot_a, make_int_literal(5)));
+    and_pred->add_child(std::make_shared<BinaryLeafExpr>(slot_c, slot_d));
+    EXPECT_TRUE(expr_zonemap::contains_slot_slot_comparison(and_pred));
+
+    // `a < 5 OR b < 6`: only slot-vs-literal leaves, so no slot pair anywhere in the tree.
+    auto or_pred = std::make_shared<VCompoundPred>(make_compound_node(TExprOpcode::COMPOUND_OR, 2));
+    or_pred->add_child(std::make_shared<BinaryLeafExpr>(slot_a, make_int_literal(5)));
+    or_pred->add_child(std::make_shared<BinaryLeafExpr>(slot_b, make_int_literal(6)));
+    EXPECT_FALSE(expr_zonemap::contains_slot_slot_comparison(or_pred));
 }
 
 TEST(ExprZonemapFilterTest, SlotSlotWidensOnlyTheZonemapGateNotDictionaryOrBloom) {

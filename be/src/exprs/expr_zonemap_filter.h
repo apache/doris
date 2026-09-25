@@ -139,6 +139,12 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
 // holds raw stored values, so comparing across a cast would need the cast applied to the bounds.
 std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args);
 
+// True if the expression tree contains a slot-vs-slot comparison leaf (two VSlotRef operands),
+// at the root or nested under AND/OR, including two references to the same column (`a < a`). The v1
+// Parquet reader uses this to exclude slot-vs-slot pruning entirely: counting distinct columns is
+// not enough because a same-column pair still has one column id.
+bool contains_slot_slot_comparison(const VExprSPtr& expr);
+
 std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSPtrs& args);
 
 ZoneMapFilterResult evaluate_array_contains_zonemap(const ZoneMapEvalContext& ctx,

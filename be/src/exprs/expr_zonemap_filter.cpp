@@ -265,6 +265,24 @@ std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args) {
                      .right_type = right->data_type()};
 }
 
+bool contains_slot_slot_comparison(const VExprSPtr& expr) {
+    if (expr == nullptr) {
+        return false;
+    }
+    // A comparison node's two operands are its children, so a slot-vs-slot leaf is a node whose
+    // children are two VSlotRef. extract_slot_and_slot accepts a same-column pair too, which is the
+    // point: `a < a` has one column id but is still slot-vs-slot.
+    if (extract_slot_and_slot(expr->children()).has_value()) {
+        return true;
+    }
+    for (const auto& child : expr->children()) {
+        if (contains_slot_slot_comparison(child)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSPtrs& args) {
     if (args.size() != 2) {
         return std::nullopt;
