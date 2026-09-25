@@ -735,7 +735,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         // Drop table column stats after schema change finished.
         if (!FeConstants.runningUnitTest) {
             AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
-            manager.removeTableStats(tbl.getId());
+            manager.removeTableStatsAndLog(tbl.getId());
             manager.dropStats(tbl, null);
         }
     }

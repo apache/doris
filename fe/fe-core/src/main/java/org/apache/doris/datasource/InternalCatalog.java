@@ -1058,6 +1058,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof BaseTableStream) {
             Env.getCurrentEnv().getTableStreamManager().removeTableStream((BaseTableStream) table);
         }
+        // NOTICE: this removal is not journaled on its own. unprotectDropTable() is reached by
+        // replayDropTable() and replayDropDb() with isReplay, and a follower must not append to the edit log
+        // (BDBJE treats a replica side write as fatal). The entry of the enclosing DROP owns this transition:
+        // its replay runs this same code again on every frontend.
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
@@ -3903,19 +3907,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             long versionTimeMs = Config.isNotCloudMode() ? System.currentTimeMillis() : 0L;
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
                     truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTimeMs);
-            if (truncateEntireTable) {
-                Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
-            } else {
-                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
-                        updateRecords, db.getId(), olapTable.getId(), 0);
-            }
-
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
                             rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs);
-            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+            if (truncateEntireTable) {
+                // The stats record is reset and the entry which describes the transition is written together,
+                // so that this transition cannot be ordered differently from a concurrent record deletion,
+                // which journals under the same monitor.
+                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable, info);
+            } else {
+                Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
+                        updateRecords, db.getId(), olapTable.getId(), 0);
+                Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+            }
         } catch (DdlException e) {
             failedCleanCallback.run();
             throw e;
@@ -3983,6 +3989,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
                                     recyclePartitionParamMap, isForceDrop,
                                     info.getVersion(), info.getVersionTimeMs());
+            if (info.isEntireTable()) {
+                // Keep the stats record of the truncated table instead of dropping it, so that the rows
+                // loaded after the truncation are still accounted for. The entry carries what the truncate
+                // did to the record, so every frontend reproduces the same transition.
+                Env.getCurrentEnv().getAnalysisManager()
+                        .replayResetTableStats(olapTable, info.isTableStatsRecordCreated());
+            }
 
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();

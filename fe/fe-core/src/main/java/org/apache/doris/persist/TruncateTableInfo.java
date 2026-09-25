@@ -64,6 +64,12 @@ public class TruncateTableInfo implements Writable {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTimeMs;
+    // Whether the truncation had to create the statistics record of the table, i.e. the table had none.
+    // The replay uses it to reproduce the transition instead of guessing, so that a truncate entry cannot
+    // resurrect a record which a concurrent journaled transition removed. False for entries written before
+    // this field existed.
+    @SerializedName(value = "statsRecordCreated")
+    private boolean tableStatsRecordCreated;
 
     public TruncateTableInfo() {
 
@@ -73,6 +79,14 @@ public class TruncateTableInfo implements Writable {
     public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
             boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force,
             Map<Long, Long> updateRecords, long version, long versionTimeMs) {
+        this(dbId, db, tblId, table, partitions, isEntireTable, rawSql, oldPartitions, force, updateRecords,
+                version, versionTimeMs, false);
+    }
+
+    // for internal table
+    public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
+            boolean isEntireTable, String rawSql, List<Partition> oldPartitions, boolean force,
+            Map<Long, Long> updateRecords, long version, long versionTimeMs, boolean tableStatsRecordCreated) {
         this.dbId = dbId;
         this.db = db;
         this.tblId = tblId;
@@ -87,6 +101,7 @@ public class TruncateTableInfo implements Writable {
         this.updateRecords = updateRecords;
         this.version = version;
         this.versionTimeMs = versionTimeMs;
+        this.tableStatsRecordCreated = tableStatsRecordCreated;
     }
 
     // for external table
@@ -148,6 +163,14 @@ public class TruncateTableInfo implements Writable {
 
     public long getUpdateTime() {
         return updateTime;
+    }
+
+    public boolean isTableStatsRecordCreated() {
+        return tableStatsRecordCreated;
+    }
+
+    public void setTableStatsRecordCreated(boolean tableStatsRecordCreated) {
+        this.tableStatsRecordCreated = tableStatsRecordCreated;
     }
 
     public long getVersion() {

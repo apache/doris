@@ -28,7 +28,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
@@ -140,8 +139,7 @@ public class StatisticsCleaner extends MasterDaemon {
                 }
                 LOG.info("Table {}.{}.{} with id {} not exist, remove its table stats record.",
                         stats.ctlName, stats.dbName, stats.tblName, id);
-                analysisManager.removeTableStats(id);
-                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(id));
+                analysisManager.removeTableStatsAndLog(id);
             } catch (Exception e) {
                 LOG.info("Fail to remove table stats for table {}", id, e);
             }
