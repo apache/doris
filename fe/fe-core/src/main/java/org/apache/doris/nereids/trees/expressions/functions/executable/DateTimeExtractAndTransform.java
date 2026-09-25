@@ -109,8 +109,7 @@ public class DateTimeExtractAndTransform {
         DAY_OF_WEEK.put("SUNDAY", 7);
     }
 
-    // Maximum valid timestamp value (UTC 9999-12-31 23:59:59 - 24 * 3600 for all timezones)
-    private static final long TIMESTAMP_VALID_MAX = 32536771199L;
+    private static final LocalDateTime MAX_TIME_FIELD_DATETIME = LocalDateTime.of(9999, 12, 31, 23, 59, 59);
 
     /**
      * datetime arithmetic function date-v2
@@ -1978,16 +1977,20 @@ public class DateTimeExtractAndTransform {
         return year * 100 + month % 12 + 1;
     }
 
+    private static void checkTimeFieldFromUnixtimeRange(long seconds) {
+        long maxTimestamp = MAX_TIME_FIELD_DATETIME.atZone(DateUtils.getTimeZone()).toEpochSecond();
+        if (seconds < 0 || seconds > maxTimestamp) {
+            throw new AnalysisException("Time field from_unixtime of " + seconds + " out of range");
+        }
+    }
+
     /**
      * date extract function hour_from_unixtime
      */
     @ExecFunction(name = "hour_from_unixtime")
     public static Expression hourFromUnixtime(BigIntLiteral unixTime) {
         long epochSecond = unixTime.getValue();
-        if (epochSecond < 0 || epochSecond > TIMESTAMP_VALID_MAX) {
-            throw new AnalysisException("Function hour_from_unixtime out of range(between 0 and "
-                            + TIMESTAMP_VALID_MAX + "): " + epochSecond);
-        }
+        checkTimeFieldFromUnixtimeRange(epochSecond);
 
         ZoneId timeZone = DateUtils.getTimeZone();
         ZonedDateTime zonedDateTime = Instant.ofEpochSecond(epochSecond).atZone(timeZone);
@@ -2000,10 +2003,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "minute_from_unixtime")
     public static Expression minuteFromUnixtime(BigIntLiteral unixTime) {
         long localTime = unixTime.getValue();
-        if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
-            throw new AnalysisException("Function minute_from_unixtime out of range(between 0 and "
-                    + TIMESTAMP_VALID_MAX + "): " + localTime);
-        }
+        checkTimeFieldFromUnixtimeRange(localTime);
 
         localTime = localTime - (localTime / 3600) * 3600;
 
@@ -2017,10 +2017,7 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "second_from_unixtime")
     public static Expression secondFromUnixtime(BigIntLiteral unixTime) {
         long localTime = unixTime.getValue();
-        if (localTime < 0 || localTime > TIMESTAMP_VALID_MAX) {
-            throw new AnalysisException("Function second_from_unixtime out of range(between 0 and "
-                    + TIMESTAMP_VALID_MAX + "): " + localTime);
-        }
+        checkTimeFieldFromUnixtimeRange(localTime);
 
         long remainder;
         if (localTime >= 0) {
@@ -2042,10 +2039,7 @@ public class DateTimeExtractAndTransform {
         BigDecimal value = unixTime.getValue();
 
         long seconds = value.longValue();
-        if (seconds < 0 || seconds > TIMESTAMP_VALID_MAX) {
-            throw new AnalysisException("Function microsecond_from_unixtime out of range(between 0 and "
-                    + TIMESTAMP_VALID_MAX + "): " + seconds);
-        }
+        checkTimeFieldFromUnixtimeRange(seconds);
 
         DecimalV3Type dataType = (DecimalV3Type) unixTime.getDataType();
         int scale = dataType.getScale();
