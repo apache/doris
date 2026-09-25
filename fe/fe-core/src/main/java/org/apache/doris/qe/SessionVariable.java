@@ -413,6 +413,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PROJECTION = "enable_projection";
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY = "enable_short_circuit_query";
+    public static final String ENABLE_BATCH_POINT_QUERY = "enable_batch_point_query";
+    public static final String BATCH_POINT_QUERY_CONCURRENCY = "batch_point_query_concurrency";
 
     public static final String ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE
                     = "enable_short_circuit_query_access_column_store";
@@ -2010,6 +2012,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY)
     private boolean enableShortCircuitQuery = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_BATCH_POINT_QUERY, needForward = true, affectQueryResultInPlan = true,
+            description = "Enable bounded literal IN point queries on single VARCHAR-key row-store tables")
+    private boolean enableBatchPointQuery = false;
+
+    @VarAttrDef.VarAttr(name = BATCH_POINT_QUERY_CONCURRENCY, needForward = true,
+            checker = "checkBatchPointQueryConcurrency",
+            description = "Maximum concurrent tablet lookup requests per batch point query, from 1 to 100")
+    private int batchPointQueryConcurrency = 100;
 
     @VarAttrDef.VarAttr(name = ENABLE_SHORT_CIRCUIT_QUERY_ACCESS_COLUMN_STORE)
     private boolean enableShortCircuitQueryAcessColumnStore = true;
@@ -5024,6 +5035,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean isEnableBatchPointQuery() {
+        return enableBatchPointQuery;
+    }
+
+    public int getBatchPointQueryConcurrency() {
+        return batchPointQueryConcurrency;
+    }
+
     public boolean isEnableShortCircuitQuery() {
         return enableShortCircuitQuery;
     }
@@ -6185,6 +6204,14 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+    public void checkBatchPointQueryConcurrency(String value) {
+        long concurrency = Long.parseLong(value);
+        if (concurrency < 1 || concurrency > BatchPointQueryExecutor.MAX_KEYS) {
+            throw new InvalidParameterException("batch_point_query_concurrency should be between 1 and "
+                    + BatchPointQueryExecutor.MAX_KEYS);
         }
     }
 

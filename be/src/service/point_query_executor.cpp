@@ -26,6 +26,7 @@
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -69,9 +70,14 @@ class PointQueryResultBlockBuffer final : public MySQLResultBlockBuffer {
 public:
     PointQueryResultBlockBuffer(RuntimeState* state) : MySQLResultBlockBuffer(state) {}
     ~PointQueryResultBlockBuffer() override = default;
-    std::shared_ptr<TFetchDataResult> get_block() {
+    Result<std::shared_ptr<TFetchDataResult>> get_block() {
         std::lock_guard<std::mutex> l(_lock);
-        DCHECK_EQ(_result_batch_queue.size(), 1);
+        // The point-query protocol has a single response, while the writer splits large blocks.
+        if (_result_batch_queue.size() != 1) {
+            return ResultError(Status::NotSupported(
+                    "Point query result exceeds a single response; disable short circuit query "
+                    "for this query"));
+        }
         auto result = std::move(_result_batch_queue.front());
         _result_batch_queue.pop_front();
         return result;
@@ -366,13 +372,26 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     if (request->has_time_zone() && !request->time_zone().empty()) {
         _reusable->runtime_state()->set_timezone(request->time_zone());
     }
-    if (request->has_version() && request->version() >= 0) {
-        _version = request->version();
-    }
+    RETURN_IF_ERROR(_init_read_version(request));
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
     CHECK(_result_block != nullptr);
 
+    return Status::OK();
+}
+
+Status PointQueryExecutor::_init_read_version(const PTabletKeyLookupRequest* request) {
+    if (request->has_version() && request->version() >= 0) {
+        _version = request->version();
+    }
+    if (request->has_snapshot_version()) {
+        if (request->snapshot_version() < 0) {
+            return Status::InvalidArgument("Invalid point query snapshot version: {}",
+                                           request->snapshot_version());
+        }
+        _version = request->snapshot_version();
+        _snapshot_read = true;
+    }
     return Status::OK();
 }
 
@@ -477,16 +496,39 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
-    if (_version >= 0) {
-        CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
+    if (_version >= 0 && config::is_cloud_mode()) {
         SyncOptions options;
         options.query_version = _version;
         RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
+    DeleteBitmapPtr snapshot_delete_bitmap;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
-        specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
+        if (_snapshot_read) {
+            auto captured = DORIS_TRY(_tablet->capture_consistent_rowsets_unlocked(
+                    {0, _version}, CaptureRowsetOps {}));
+            specified_rowsets = std::move(captured.rowsets);
+            snapshot_delete_bitmap = std::move(captured.delete_bitmap);
+            // Pin the captured version path before compaction can retire its rowsets.
+            for (const auto& rowset : specified_rowsets) {
+                rowset->acquire();
+            }
+        } else {
+            specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
+        }
+    }
+    Defer release_snapshot([&] {
+        if (_snapshot_read) {
+            for (const auto& rowset : specified_rowsets) {
+                rowset->release();
+            }
+        }
+    });
+    if (_snapshot_read) {
+        std::ranges::sort(specified_rowsets, [](const auto& lhs, const auto& rhs) {
+            return lhs->end_version() > rhs->end_version();
+        });
     }
     io::IOContext io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -495,22 +537,24 @@ Status PointQueryExecutor::_lookup_row_key() {
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        if (!config::disable_storage_row_cache) {
+        // The row cache is not versioned and can contain a value newer than this snapshot.
+        if (!_snapshot_read && !config::disable_storage_row_cache) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
             if (hit_cache) {
                 _row_read_ctxs[i]._cached_row_data = std::move(cache_handle);
                 ++_profile_metrics.row_cache_hits;
+                ++_row_hits;
                 continue;
             }
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
-                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
-                                      segment_caches, rowset_ptr.get(), false, nullptr,
-                                      &_profile_metrics.read_stats, nullptr, &io_ctx));
+        st = (_tablet->lookup_row_key(
+                _row_read_ctxs[i]._primary_key, nullptr, false, specified_rowsets, &location,
+                _snapshot_read ? _version : INT32_MAX, segment_caches, rowset_ptr.get(), false,
+                nullptr, &_profile_metrics.read_stats, snapshot_delete_bitmap, &io_ctx));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -548,7 +592,7 @@ Status PointQueryExecutor::_lookup_row_data() {
             std::string value;
             // fill block by row store
             if (_reusable->rs_column_uid() != -1) {
-                bool use_row_cache = !config::disable_storage_row_cache;
+                bool use_row_cache = !_snapshot_read && !config::disable_storage_row_cache;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
                 io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
@@ -649,28 +693,25 @@ Status PointQueryExecutor::_lookup_row_data() {
             }
         }
     }
-    // filter rows by delete sign
-    if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
-        size_t filtered = 0;
-        size_t total = 0;
-        {
-            // clear_column_data will check reference of ColumnPtr, so we need to release
-            // reference before clear_column_data
-            ColumnPtr delete_filter_columns =
-                    _result_block->get_columns()[_reusable->delete_sign_idx()];
-            const auto& filter =
-                    assert_cast<const ColumnInt8*>(delete_filter_columns.get())->get_data();
-            filtered = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
-            total = filter.size();
-        }
-
-        if (filtered == total) {
-            _result_block->clear_column_data();
-        } else if (filtered > 0) {
-            return Status::NotSupported("Not implemented since only single row at present");
-        }
-    }
+    _filter_deleted_rows(*_result_block, _reusable->delete_sign_idx());
     return Status::OK();
+}
+
+void PointQueryExecutor::_filter_deleted_rows(Block& block, int delete_sign_idx) {
+    if (block.rows() == 0 || delete_sign_idx == -1) {
+        return;
+    }
+    const auto& deleted =
+            assert_cast<const ColumnInt8&>(*block.get_by_position(delete_sign_idx).column)
+                    .get_data();
+    if (simd::count_zero_num(deleted.data(), deleted.size()) == deleted.size()) {
+        return;
+    }
+    IColumn::Filter keep(deleted.size());
+    for (size_t i = 0; i < deleted.size(); ++i) {
+        keep[i] = deleted[i] == 0;
+    }
+    Block::filter_block_internal(&block, keep);
 }
 
 Status serialize_block(std::shared_ptr<TFetchDataResult> res, PTabletKeyLookupResponse* response) {
@@ -685,6 +726,9 @@ Status serialize_block(std::shared_ptr<TFetchDataResult> res, PTabletKeyLookupRe
 Status PointQueryExecutor::_output_data() {
     // 4. exprs exec and serialize to mysql row batches
     SCOPED_TIMER(&_profile_metrics.output_data_ns);
+    if (_snapshot_read) {
+        _response->set_snapshot_version(_version);
+    }
     if (_result_block->rows()) {
         RuntimeState state;
         auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
@@ -694,7 +738,8 @@ Status PointQueryExecutor::_output_data() {
         RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
         _result_block->clear_names();
         RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
-        RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
+        auto result = DORIS_TRY(buffer->get_block());
+        RETURN_IF_ERROR(serialize_block(result, _response));
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {
         _response->set_empty_batch(true);
