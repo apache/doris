@@ -80,10 +80,22 @@ suite("test_adbc_catalog_scan", "p0,external") {
 
     String catalogName = "test_adbc_catalog_scan_catalog"
     String dbName = "test_adbc_catalog_scan_db"
+    // A second database in the SOURCE, so the listing has a namespace it must not mix into the other one.
+    // Created up front, so nothing below depends on a database appearing behind Doris's back.
+    String otherDbName = "${dbName}_other"
 
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
     sql """DROP DATABASE IF EXISTS ${dbName} FORCE"""
+    sql """DROP DATABASE IF EXISTS ${otherDbName} FORCE"""
     sql """CREATE DATABASE ${dbName}"""
+    sql """CREATE DATABASE ${otherDbName}"""
+    sql """
+        CREATE TABLE ${otherDbName}.t_other (
+          `id` int NOT NULL
+        ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${otherDbName}.t_other VALUES (7)"""
 
     sql """
         CREATE TABLE ${dbName}.t1 (
@@ -125,6 +137,15 @@ suite("test_adbc_catalog_scan", "p0,external") {
     def tableNames = sql("""SHOW TABLES FROM ${catalogName}.${dbName}""").collect { it[0] } as Set
     assertTrue(tableNames.contains("t1"), "t1 missing from ${tableNames}")
     assertFalse(tableNames.contains("v1"), "the view v1 was surfaced as a table: ${tableNames}")
+    // getObjects filters are advisory, so a driver may answer a narrower request with rows of another
+    // database too, and a reader that took the rows at face value would offer that table as one of THIS
+    // database. The sibling's own listing is the other half of the same rule: exactly its table, and none
+    // of this one's.
+    assertFalse(tableNames.contains("t_other"),
+            "a table of another database was listed under ${dbName}: ${tableNames}")
+    def otherTableNames = sql("""SHOW TABLES FROM ${catalogName}.${otherDbName}""").collect { it[0] } as Set
+    assertEquals(["t_other"] as Set, otherTableNames,
+            "the sibling database did not list exactly its own table: ${otherTableNames}")
 
     // ---- scan ----
 
@@ -219,4 +240,5 @@ suite("test_adbc_catalog_scan", "p0,external") {
     sql """DROP CATALOG ${singleRangeCatalog}"""
     sql """DROP CATALOG ${catalogName}"""
     sql """DROP DATABASE ${dbName} FORCE"""
+    sql """DROP DATABASE ${otherDbName} FORCE"""
 }

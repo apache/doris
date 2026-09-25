@@ -195,6 +195,9 @@ EXTRA_FE_MODULES="${EXTRA_FE_MODULES:-}"
 parse_extra_fe_modules "${EXTRA_FE_MODULES}"
 
 FE_MODULES=("fe-common" "fe-core")
+# fe-connector-adbc is not upstream of fe-core, so -am cannot discover its tests
+# unless the module is named explicitly.
+FE_MODULES+=("fe-connector/fe-connector-adbc")
 # The BE Java plugin modules. Nothing else runs these tests: no be-java-extensions module is
 # upstream of fe-core, so -am never reaches one, build.sh builds the reactor with -DskipTests, and
 # no GitHub workflow mentions the directory at all. What is in there is the evidence that the
