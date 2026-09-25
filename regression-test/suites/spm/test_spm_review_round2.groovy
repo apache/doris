@@ -221,6 +221,102 @@ suite("test_spm_review_round2", "spm") {
     assertEquals(patternBefore,
             sql("""SHOW VARIABLES LIKE 'plan_capture_include_pattern'""")[0][1].toString())
 
+    // ==================== set-operation quantifier survives the freeze ====================
+    // The frozen keyword must come from the PHYSICAL qualifier: the parser maps an
+    // omitted quantifier (and explicit DISTINCT) to DISTINCT, so a DISTINCT union frozen
+    // as UNION ALL returns duplicate rows, while EXCEPT ALL / INTERSECT ALL lose their
+    // multiplicity when ALL is dropped.
+    sql """DROP TABLE IF EXISTS spm_r2_setop"""
+    sql """
+        CREATE TABLE spm_r2_setop (k INT)
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO spm_r2_setop VALUES (1), (2), (2), (3)"""
+    sql """DROP TABLE IF EXISTS spm_r2_setop2"""
+    sql """
+        CREATE TABLE spm_r2_setop2 (k INT)
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """INSERT INTO spm_r2_setop2 VALUES (2), (2), (3)"""
+
+    // UNION (DISTINCT): {1,2,3} - a wrongly frozen UNION ALL would return the 7 raw rows
+    String unionDistinctSetopSql = "select k from spm_r2_setop union select k from spm_r2_setop2 order by k"
+    long unionDistinctSetopId = createBaseline(unionDistinctSetopSql)
+    assertTrue(explainOf(unionDistinctSetopSql).contains("SPM baseline hit: id=${unionDistinctSetopId}"),
+            "the UNION query must hit its baseline: " + explainOf(unionDistinctSetopSql))
+    order_qt_setop_union_distinct """select k from spm_r2_setop union select k from spm_r2_setop2 order by k"""
+
+    // UNION ALL: all 7 rows - a wrongly frozen DISTINCT union would collapse them
+    String unionAllSetopSql = "select k from spm_r2_setop union all select k from spm_r2_setop2 order by k"
+    long unionAllSetopId = createBaseline(unionAllSetopSql)
+    assertTrue(explainOf(unionAllSetopSql).contains("SPM baseline hit: id=${unionAllSetopId}"),
+            "the UNION ALL query must hit its baseline: " + explainOf(unionAllSetopSql))
+    order_qt_setop_union_all """select k from spm_r2_setop union all select k from spm_r2_setop2 order by k"""
+
+    // EXCEPT (DISTINCT): {1,3}
+    String exceptSetopSql = "select k from spm_r2_setop except select 2 as k order by k"
+    long exceptSetopId = createBaseline(exceptSetopSql)
+    assertTrue(explainOf(exceptSetopSql).contains("SPM baseline hit: id=${exceptSetopId}"),
+            "the EXCEPT query must hit its baseline: " + explainOf(exceptSetopSql))
+    order_qt_setop_except """select k from spm_r2_setop except select 2 as k order by k"""
+
+    // INTERSECT (DISTINCT): {2,3}
+    String intersectSetopSql = "select k from spm_r2_setop intersect select k from spm_r2_setop2 order by k"
+    long intersectSetopId = createBaseline(intersectSetopSql)
+    assertTrue(explainOf(intersectSetopSql).contains("SPM baseline hit: id=${intersectSetopId}"),
+            "the INTERSECT query must hit its baseline: " + explainOf(intersectSetopSql))
+    order_qt_setop_intersect """select k from spm_r2_setop intersect select k from spm_r2_setop2 order by k"""
+
+    // The engine currently rejects ALL-qualified EXCEPT / INTERSECT at analysis time, so
+    // such a shape can never reach the decompiler today; the frozen keyword is still
+    // derived from the PHYSICAL qualifier (unit-tested: EXCEPT ALL / INTERSECT ALL keep
+    // their ALL) instead of being hardcoded, so the rendering stays correct if that
+    // restriction is ever lifted.
+    test {
+        sql """select k from spm_r2_setop except all select 2 as k order by k"""
+        exception "does not support ALL"
+    }
+    test {
+        sql """select k from spm_r2_setop intersect all select k from spm_r2_setop2 order by k"""
+        exception "does not support ALL"
+    }
+
+    // ==================== the view guard covers NESTED statements ====================
+    // A view behind a CTE body or a subquery must neither be frozen nor replayed: SPM
+    // would replay the expanded base-table plan, authorizing those base tables instead of
+    // the view (a view-only user is denied, a base-table user skips the view check).
+    sql """DROP VIEW IF EXISTS spm_r2_v"""
+    sql """CREATE VIEW spm_r2_v AS SELECT k1 AS k FROM spm_r2_t1"""
+
+    String cteViewSql = "with c as (select k from spm_r2_v) select k from c order by k"
+    long cteViewId = createBaseline(cteViewSql)
+    assertFalse(explainOf(cteViewSql).contains("SPM baseline hit"),
+            "a CTE over a view must not be replayed: " + explainOf(cteViewSql))
+    def cteViewPlanSql = sql """SELECT plan_sql FROM __internal_schema.spm_baselines WHERE id = ${cteViewId}"""
+    assertTrue(cteViewPlanSql[0][0].toString().contains("spm_r2_v"),
+            "a view baseline must keep the user plan_sql text: ${cteViewPlanSql}")
+    assertFalse(cteViewPlanSql[0][0].toString().contains("internal."),
+            "a view baseline must not freeze a decompiled base-table plan: ${cteViewPlanSql}")
+    // the query still runs correctly through normal planning (view resolved + authorized)
+    order_qt_view_cte """with c as (select k from spm_r2_v) select k from c order by k"""
+
+    String subqueryViewSql = "select k1 from spm_r2_t2 where k1 in (select k from spm_r2_v)"
+    long subqueryViewId = createBaseline(subqueryViewSql)
+    assertFalse(explainOf(subqueryViewSql).contains("SPM baseline hit"),
+            "an IN-subquery over a view must not be replayed: " + explainOf(subqueryViewSql))
+    order_qt_view_subquery """select k1 from spm_r2_t2 where k1 in (select k from spm_r2_v)"""
+
+    // control: the same shapes over BASE tables still rewrite
+    String cteBaseSql = "with c as (select k1 from spm_r2_t1) select k1 from c order by k1"
+    long cteBaseId = createBaseline(cteBaseSql)
+    assertTrue(explainOf(cteBaseSql).contains("SPM baseline hit: id=${cteBaseId}"),
+            "a CTE over base tables must still hit its baseline: " + explainOf(cteBaseSql))
+    order_qt_cte_base """with c as (select k1 from spm_r2_t1) select k1 from c order by k1"""
+
     // leave no baselines behind for other runs
     dropOwnBaselines()
     assertEquals(0, ownBaselines().size(), "all spm_r2_ baselines must be dropped")

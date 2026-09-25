@@ -125,10 +125,19 @@ public class AuditLogScannerCursorTest {
 
     @Test
     public void testCursorPredicateIsStrictlyAfterAndEscaped() {
-        Assertions.assertEquals("", AuditLogScanner.cursorPredicate(0, "", ""),
-                "no cursor: start at the top of the window");
-        Assertions.assertEquals("", AuditLogScanner.cursorPredicate(100, "", "q"),
-                "a partial cursor must fall back to the top of the window");
+        Assertions.assertEquals("", AuditLogScanner.cursorPredicate(
+                AuditLogScanner.CURSOR_ABSENT, "", ""),
+                "only the absent sentinel means 'no cursor': start at the top of the window");
+        // an empty time / query_id means SQL NULL, NOT "no cursor": clearing the
+        // predicate here restarted a truncated window at its first page on every cycle
+        String nullTime = AuditLogScanner.cursorPredicate(100, "", "q");
+        Assertions.assertNotEquals("", nullTime,
+                "an empty time is a NULL tie-breaker, not a missing cursor");
+        Assertions.assertTrue(nullTime.contains("`time` IS NULL"), nullTime);
+        Assertions.assertTrue(nullTime.contains("`query_id` < 'q'"), nullTime);
+        String nullQueryId = AuditLogScanner.cursorPredicate(100, "t", "");
+        Assertions.assertTrue(nullQueryId.contains("`time` = 't'")
+                && nullQueryId.contains("`query_id` IS NULL"), nullQueryId);
 
         String predicate = AuditLogScanner.cursorPredicate(
                 123, "2026-01-01 00:00:00", "q'1");
@@ -138,6 +147,48 @@ public class AuditLogScannerCursorTest {
         Assertions.assertTrue(predicate.contains("`query_id` < 'q''1'"),
                 "a quote inside the query id must be escaped: " + predicate);
         Assertions.assertTrue(predicate.startsWith(" AND "), predicate);
+    }
+
+    /**
+     * A FULL page whose last raw row carries a NULL time (or a NULL query_id) must still
+     * resume: the NULL is encoded in the total-order predicate, otherwise the fixed
+     * pending window restarts at its first page every cycle and the later eligible rows
+     * are never reached.
+     */
+    @Test
+    public void testNullTieBreakersResumePastFirstPage() {
+        List<ResultRow> nullTimePage = List.of(
+                rowRaw("select * from t", "100", "d1", "db1", "internal",
+                        "q1", "2026-01-01 00:00:02"),
+                rowRaw("select * from t", "100", "d2", "db1", "internal",
+                        "q2", null));
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(nullTimePage, 2);
+        Assertions.assertFalse(batch.isWindowExhausted(), "a full page is truncated");
+        Assertions.assertEquals("", batch.getCursorTime(),
+                "a NULL time must stay distinguishable (empty means NULL)");
+        String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId());
+        Assertions.assertNotEquals("", predicate,
+                "a NULL time must not clear the resume predicate (window restart)");
+        Assertions.assertTrue(predicate.contains("`time` IS NULL"), predicate);
+        Assertions.assertTrue(predicate.contains("`query_id` < 'q2'"), predicate);
+
+        List<ResultRow> nullQueryIdPage = List.of(
+                rowRaw("select * from t", "100", "d3", "db1", "internal",
+                        "q3", "2026-01-01 00:00:03"),
+                rowRaw("select * from t", "100", "d4", "db1", "internal",
+                        null, "2026-01-01 00:00:03"));
+        batch = AuditLogScanner.toBatch(nullQueryIdPage, 2);
+        predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId());
+        Assertions.assertNotEquals("", predicate,
+                "a NULL query_id must not clear the resume predicate (window restart)");
+        Assertions.assertTrue(predicate.contains("`query_id` IS NULL"), predicate);
+
+        String resumed = AuditLogScanner.buildScanSql("2026-01-01 00:00:00",
+                "2026-01-01 03:00:00", 500, 1000, 100000, predicate);
+        Assertions.assertTrue(resumed.contains("`query_id` IS NULL"),
+                "the resumed page carries the NULL tie-breaker: " + resumed);
     }
 
     @Test

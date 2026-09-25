@@ -33,9 +33,12 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -111,6 +114,15 @@ public class PlanCaptureManager extends MasterDaemon {
      * processed-id map so a long-running failure burst cannot grow unbounded.
      */
     private final Map<String, Integer> failedCaptureAttempts = new LinkedHashMap<>();
+
+    /**
+     * Candidates whose capture failed and that still have retry budget: keyset pagination
+     * advances the scan cursor past their audit rows and the window overlap only re-reads
+     * recent rows, so they are REPLAYED one attempt per cycle from here. Bounded like the
+     * other query-id maps; entries leave on success, on give-up, or when the id turns
+     * terminal elsewhere.
+     */
+    private final Map<String, CapturedQuery> failedCaptureQueue = new LinkedHashMap<>();
 
     /**
      * Resume cursor of a TRUNCATED scan window: (query_time, time, query_id) of the last
@@ -225,9 +237,16 @@ public class PlanCaptureManager extends MasterDaemon {
 
             AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, scanEnd,
                     batchSize, cursorQueryTime, cursorTime, cursorQueryId);
+            Set<String> scannedQueryIds = new HashSet<>();
             for (CapturedQuery candidate : batch.getCandidates()) {
+                scannedQueryIds.add(candidate.getQueryId());
                 handleCandidate(candidate);
             }
+            // Rows whose capture failed stay queued: keyset pagination moved the cursor
+            // past their raw rows and the five-minute overlap only re-reads recent ones,
+            // so without this replay attempts 2..N would be unreachable for older
+            // failures. An id that ALSO appeared in this page was already retried above.
+            replayQueuedFailures(scannedQueryIds);
             if (batch.isWindowExhausted()) {
                 // The whole window was scanned: advance the watermark to the CONSUMED
                 // window end (not to `now` - rows that arrived between a resumed pending
@@ -264,11 +283,13 @@ public class PlanCaptureManager extends MasterDaemon {
      * Handles one candidate with query-id tracking (see MAX_CAPTURE_ATTEMPTS): the id is
      * marked as consumed only when the candidate reached a TERMINAL state - filtered out,
      * deduplicated, persisted, or given up on after bounded failures. A transient failure
-     * therefore stays retryable for the next overlapping scan instead of being lost.
+     * therefore stays retryable: it enters the failed-candidate queue and is replayed one
+     * attempt per cycle (the page cursor has already moved past its row).
      *
      * @param candidate the audit candidate
      */
-    private void handleCandidate(CapturedQuery candidate) {
+    @VisibleForTesting
+    void handleCandidate(CapturedQuery candidate) {
         String queryId = candidate.getQueryId();
         boolean trackId = queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId);
         if (trackId && processedQueryIds.containsKey(queryId)) {
@@ -280,6 +301,7 @@ public class PlanCaptureManager extends MasterDaemon {
         }
         if (terminal) {
             failedCaptureAttempts.remove(queryId);
+            failedCaptureQueue.remove(queryId);
             markQueryIdProcessed(queryId);
             return;
         }
@@ -289,12 +311,46 @@ public class PlanCaptureManager extends MasterDaemon {
             LOG.warn("Plan capture gave up on query id {} after {} failed attempts",
                     queryId, attempts);
             failedCaptureAttempts.remove(queryId);
+            failedCaptureQueue.remove(queryId);
             markQueryIdProcessed(queryId);
         } else {
-            LOG.info("Plan capture failed for query id {} (attempt {}/{}), will retry",
+            LOG.info("Plan capture failed for query id {} (attempt {}/{}), queued for retry",
                     queryId, attempts, MAX_CAPTURE_ATTEMPTS);
+            failedCaptureQueue.put(queryId, candidate);
             if (failedCaptureAttempts.size() > MAX_TRACKED_QUERY_IDS) {
                 evictOldest(failedCaptureAttempts, MAX_TRACKED_QUERY_IDS / 10);
+            }
+            if (failedCaptureQueue.size() > MAX_TRACKED_QUERY_IDS) {
+                evictOldest(failedCaptureQueue, MAX_TRACKED_QUERY_IDS / 10);
+            }
+        }
+    }
+
+    /**
+     * Replays the queued transient failures, one attempt each per cycle. A queued id that
+     * ALSO appeared in this cycle's page was already retried by the page loop (and stays
+     * queued when it failed again); every other queued id is retried here, so a failure
+     * stays reachable regardless of where the keyset cursor has moved.
+     *
+     * @param scannedQueryIds the query ids this cycle's page already processed
+     */
+    @VisibleForTesting
+    void replayQueuedFailures(Set<String> scannedQueryIds) {
+        if (failedCaptureQueue.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, CapturedQuery> entry
+                : new ArrayList<>(failedCaptureQueue.entrySet())) {
+            String queryId = entry.getKey();
+            if (scannedQueryIds.contains(queryId)) {
+                continue; // already retried by this cycle's page
+            }
+            failedCaptureQueue.remove(queryId);
+            handleCandidate(entry.getValue());
+            if (processedQueryIds.containsKey(queryId)) {
+                // consumed elsewhere (e.g. by the page): never replay it again
+                failedCaptureQueue.remove(queryId);
+                failedCaptureAttempts.remove(queryId);
             }
         }
     }
@@ -470,6 +526,7 @@ public class PlanCaptureManager extends MasterDaemon {
         cursorQueryId = "";
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
+        failedCaptureQueue.clear();
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
@@ -521,6 +578,27 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void handleCandidateForTest(CapturedQuery candidate) {
         handleCandidate(candidate);
+    }
+
+    /**
+     * For tests: replays the queued failures exactly like one capture cycle does.
+     *
+     * @param scannedQueryIds the query ids this cycle's page already processed
+     */
+    @VisibleForTesting
+    public void replayQueuedFailuresForTest(Set<String> scannedQueryIds) {
+        replayQueuedFailures(scannedQueryIds);
+    }
+
+    /**
+     * For tests: whether the candidate is queued for a later retry attempt.
+     *
+     * @param queryId the audit query id
+     * @return true when the id is queued
+     */
+    @VisibleForTesting
+    public boolean isQueuedForTest(String queryId) {
+        return failedCaptureQueue.containsKey(queryId);
     }
 
     /**
