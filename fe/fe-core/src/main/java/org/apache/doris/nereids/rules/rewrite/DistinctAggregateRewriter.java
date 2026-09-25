@@ -154,7 +154,7 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
 
         double gbyNdv = aggStats.getRowCount();
         Expression dstKey = dstArgs.iterator().next();
-        ColumnStatistic dstKeyStats = aggChildStats.findColumnStatistics(dstKey);
+        ColumnStatistic dstKeyStats = aggChildStats.findColumnStatisticsOrNull(dstKey);
         if (dstKeyStats == null) {
             dstKeyStats = ExpressionEstimation.estimate(dstKey, aggChildStats);
         }

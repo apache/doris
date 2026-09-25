@@ -89,8 +89,8 @@ public class SkewJoin extends OneRewriteRuleFactory {
 
         if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()) {
             Expression leftEqHand = equal.child(0);
-            if (left.getStats().findColumnStatistics(leftEqHand) != null) {
-                ColumnStatistic leftColStats = left.getStats().findColumnStatistics(leftEqHand);
+            ColumnStatistic leftColStats = left.getStats().findColumnStatisticsOrNull(leftEqHand);
+            if (leftColStats != null) {
                 Map<Literal, Float> filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
                         leftColStats.getHotValues(), leftColStats.ndv);
                 if (filtered != null) {
@@ -100,8 +100,8 @@ public class SkewJoin extends OneRewriteRuleFactory {
             }
         } else if (join.getJoinType().isRightOuterJoin()) {
             Expression rightEqHand = equal.child(1);
-            if (right.getStats().findColumnStatistics(rightEqHand) != null) {
-                ColumnStatistic rightColStats = right.getStats().findColumnStatistics(rightEqHand);
+            ColumnStatistic rightColStats = right.getStats().findColumnStatisticsOrNull(rightEqHand);
+            if (rightColStats != null) {
                 Map<Literal, Float> filtered = StatisticsUtil.getHotValuesWithOriginalThreshold(
                         rightColStats.getHotValues(), rightColStats.ndv);
                 if (filtered != null) {

@@ -249,6 +249,7 @@ public class StatsCalculatorTest {
         Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
         Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of(selectedPartitionId));
         Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slot));
+        Mockito.when(scan.getOperativeSlots()).thenReturn(ImmutableList.of());
         Mockito.when(scan.getVirtualColumns()).thenReturn(ImmutableList.of());
         Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
         Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
@@ -273,6 +274,145 @@ public class StatsCalculatorTest {
             Assertions.assertEquals(1, result.numNulls, 0.001);
             Assertions.assertEquals("2", result.minExpr.getStringValue());
             Assertions.assertEquals("2", result.maxExpr.getStringValue());
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testComputeOlapScanOnlyFetchesOperativeSlotsColumnStats() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+
+        Env env = Mockito.mock(Env.class);
+        AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
+        StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
+        StatisticsCache.OlapTableStatistics olapTableStatistics
+                = Mockito.mock(StatisticsCache.OlapTableStatistics.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
+
+        long baseIndexId = 10L;
+        Column columnA = new Column("a", PrimitiveType.INT);
+        Column columnB = new Column("b", PrimitiveType.INT);
+        SlotReference slotA = new SlotReference(new ExprId(1), "a", IntegerType.INSTANCE, true,
+                ImmutableList.of("test", "tbl"), table, columnA, table, columnA);
+        SlotReference slotB = new SlotReference(new ExprId(2), "b", IntegerType.INSTANCE, true,
+                ImmutableList.of("test", "tbl"), table, columnB, table, columnB);
+        ColumnStatistic statA = new ColumnStatisticBuilder(12)
+                .setNdv(3)
+                .setMinValue(1)
+                .setMaxValue(10)
+                .setNumNulls(0)
+                .build();
+
+        Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
+        Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
+        Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
+        Mockito.when(olapTableStatistics.getColumnStatistics("a", connectContext)).thenReturn(statA);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of());
+        Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slotA, slotB));
+        Mockito.when(scan.getOperativeSlots()).thenReturn(ImmutableList.of(slotA));
+        Mockito.when(scan.isOperativeSlotsDerived()).thenReturn(true);
+        Mockito.when(scan.getVirtualColumns()).thenReturn(ImmutableList.of());
+        Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
+        Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
+        Mockito.when(table.getPartitionNum()).thenReturn(0);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            Statistics statistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+
+            // operative slot's column stats are fetched
+            ColumnStatistic resultA = statistics.findColumnStatistics(slotA);
+            Assertions.assertNotNull(resultA);
+            Assertions.assertEquals(3, resultA.ndv, 0.001);
+            // the non-operative slot's statistics are neither loaded nor read from the cache: they
+            // are unknown and as wide as their data type, whatever another query loaded before
+            ColumnStatistic resultB = statistics.findColumnStatistics(slotB);
+            Assertions.assertTrue(resultB.isUnKnown());
+            Assertions.assertEquals(IntegerType.INSTANCE.width(), resultB.avgSizeByte);
+            // only the operative slot triggers a column stats cache load
+            Mockito.verify(olapTableStatistics, Mockito.times(1))
+                    .getColumnStatistics("a", connectContext);
+            Mockito.verify(olapTableStatistics, Mockito.times(0))
+                    .getColumnStatistics("b", connectContext);
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testComputeOlapScanWithDerivedEmptyOperativeSlotsFetchesNoColumnStats() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+
+        Env env = Mockito.mock(Env.class);
+        AnalysisManager analysisManager = Mockito.mock(AnalysisManager.class);
+        StatisticsCache statisticsCache = Mockito.mock(StatisticsCache.class);
+        StatisticsCache.OlapTableStatistics olapTableStatistics
+                = Mockito.mock(StatisticsCache.OlapTableStatistics.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        LogicalOlapScan scan = Mockito.mock(LogicalOlapScan.class);
+
+        long baseIndexId = 10L;
+        Column columnA = new Column("a", PrimitiveType.INT);
+        Column columnB = new Column("b", PrimitiveType.INT);
+        SlotReference slotA = new SlotReference(new ExprId(1), "a", IntegerType.INSTANCE, true,
+                ImmutableList.of("test", "tbl"), table, columnA, table, columnA);
+        SlotReference slotB = new SlotReference(new ExprId(2), "b", IntegerType.INSTANCE, true,
+                ImmutableList.of("test", "tbl"), table, columnB, table, columnB);
+
+        Mockito.when(env.getAnalysisManager()).thenReturn(analysisManager);
+        Mockito.when(env.getStatisticsCache()).thenReturn(statisticsCache);
+        Mockito.when(statisticsCache.getOlapTableStats(scan)).thenReturn(olapTableStatistics);
+        Mockito.when(olapTableStatistics.getColumnStatistics(Mockito.anyString(), Mockito.any()))
+                .thenReturn(ColumnStatistic.UNKNOWN);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(baseIndexId);
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(ImmutableList.of());
+        Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(slotA, slotB));
+        Mockito.when(scan.getOperativeSlots()).thenReturn(ImmutableList.of());
+        Mockito.when(scan.getVirtualColumns()).thenReturn(ImmutableList.of());
+        Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
+        Mockito.when(table.getRowCountForIndex(baseIndexId, true)).thenReturn(12L);
+        Mockito.when(table.getPartitionNum()).thenReturn(0);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            // "a" and "b" are both not operative and the operative slots have been derived, which
+            // means the query needs no column of this table at all: no column stats are loaded, and
+            // the columns are as wide as their data type whatever the cache holds.
+            Mockito.when(scan.isOperativeSlotsDerived()).thenReturn(true);
+            Statistics statistics = new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+            Assertions.assertTrue(statistics.findColumnStatistics(slotA).isUnKnown());
+            Assertions.assertEquals(IntegerType.INSTANCE.width(),
+                    statistics.findColumnStatistics(slotA).avgSizeByte);
+            Assertions.assertTrue(statistics.findColumnStatistics(slotB).isUnKnown());
+            Assertions.assertEquals(IntegerType.INSTANCE.width(),
+                    statistics.findColumnStatistics(slotB).avgSizeByte);
+            Mockito.verify(olapTableStatistics, Mockito.never())
+                    .getColumnStatistics(Mockito.anyString(), Mockito.any());
+
+            // without a derivation the same empty list means "not derived yet", so every output
+            // slot is fetched, as it was before the operative slots existed.
+            Mockito.clearInvocations(olapTableStatistics);
+            Mockito.when(scan.isOperativeSlotsDerived()).thenReturn(false);
+            new StatsCalculator((CascadesContext) null).computeOlapScan(scan);
+            Mockito.verify(olapTableStatistics, Mockito.times(2))
+                    .getColumnStatistics(Mockito.anyString(), Mockito.any());
         } finally {
             ConnectContext.remove();
             if (previousContext != null) {

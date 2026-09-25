@@ -82,6 +82,14 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
     @Override
     public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             CascadesContext cascadesContext) {
+        // Derive the operative slots of the producer before the statistics of the consumer are
+        // derived below: StatsCalculator.computeOlapScan fetches the column stats of the slots that
+        // are marked as operative, and without this derivation every column of every scan of the
+        // producer would be fetched. The derived producer is the plan whose statistics are derived
+        // and which is rewritten below, so that those statistics are not computed on a discarded
+        // copy of it.
+        Plan derivedProducer = cteAnchor.child(0).accept(
+                new OperativeColumnDerive(), new OperativeColumnDerive.DeriveContext());
         LogicalPlan outer;
         if (cascadesContext.getStatementContext().getRewrittenCteConsumer().containsKey(cteAnchor.getCteId())) {
             outer = cascadesContext.getStatementContext().getRewrittenCteConsumer().get(cteAnchor.getCteId());
@@ -91,7 +99,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
             AtomicReference<LogicalPlan> outerResult = new AtomicReference<>();
             StatsDerive statsDerive = new StatsDerive(false);
-            cteAnchor.child(0).accept(statsDerive, new StatsDerive.DeriveContext());
+            derivedProducer.accept(statsDerive, new StatsDerive.DeriveContext());
             outerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
                 outerResult.set((LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx));
             });
@@ -113,7 +121,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         if (cteConsumers.isEmpty()) {
             return outer;
         }
-        Plan producer = cteAnchor.child(0).accept(this, cascadesContext);
+        Plan producer = derivedProducer.accept(this, cascadesContext);
         return cteAnchor.withChildren(producer, outer);
     }
 
