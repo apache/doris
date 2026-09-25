@@ -144,8 +144,10 @@ TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
     EXPECT_EQ(mgr.get_child_pid(), 0);
 }
 
-// Test stop with real process that exits gracefully (covers lines 98-111: graceful shutdown)
-TEST_F(CdcClientMgrTest, StopWithRealProcessGraceful) {
+// Test stop when the published pid cannot be reaped as this process's own child. The
+// generation-qualified cleanup observes ECHILD there, which counts as success, so stop() must
+// revoke ownership without signalling: a pid this process cannot reap is not one it may operate on.
+TEST_F(CdcClientMgrTest, StopDoesNotSignalANonChildPid) {
     CdcClientMgr mgr;
 
     // Use popen to start a background sleep process and get its PID
@@ -161,12 +163,17 @@ TEST_F(CdcClientMgrTest, StopWithRealProcessGraceful) {
                 // Set the PID in the manager
                 mgr.set_child_pid_for_test(real_pid);
 
-                // Call stop - process will respond to SIGTERM and exit
-                // This covers the graceful shutdown path
+                // pclose() already reaped the shell, so the background sleep is not this process's
+                // child and stop() reaches terminate_and_reap_child only to find ECHILD.
                 mgr.stop();
 
                 // Verify PID is reset
                 EXPECT_EQ(mgr.get_child_pid(), 0);
+
+                // The early return on ECHILD is what keeps stop() off a pid it does not own; without
+                // it this kill() would report ESRCH.
+                EXPECT_EQ(kill(real_pid, 0), 0)
+                        << "stop() signalled a pid it could not reap as its own child";
 
                 // Clean up: make sure child is dead
                 kill(real_pid, SIGKILL);
@@ -519,7 +526,6 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
     CdcClientMgr::pause_sigchld_handler_for_test(false);
     handler.join();
     stopper.join();
-    EXPECT_TRUE(stop_finished.load());
     EXPECT_EQ(mgr.get_child_pid(), 0);
 
     errno = 0;
@@ -528,12 +534,38 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
 }
 
 TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
+    int report_pipe[2];
+    ASSERT_EQ(pipe(report_pipe), 0);
+    Defer close_pipe {[&]() {
+        close(report_pipe[0]);
+        if (report_pipe[1] >= 0) {
+            close(report_pipe[1]);
+        }
+    }};
+
+    posix_spawn_file_actions_t actions;
+    ASSERT_EQ(posix_spawn_file_actions_init(&actions), 0);
+    Defer destroy_actions {[&]() { posix_spawn_file_actions_destroy(&actions); }};
+    ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, report_pipe[1], STDOUT_FILENO), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[0]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[1]), 0);
+
+    // The shell reports readiness and then reports that SIGTERM reached it, so the graceful half of
+    // the reap sequence is observable: a child taken out by the forced-kill fallback reports
+    // nothing, and then the pipe is at EOF rather than blocking, because the background sleep is
+    // detached from it. `wait` keeps the trap prompt - a shell blocked on a foreground child defers
+    // traps until that child exits, which is longer than the grace window.
     pid_t pid = 0;
     char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
-                          const_cast<char*>("sleep 10"), nullptr};
+                          const_cast<char*>("trap 'printf T; exit 0' TERM; printf R; "
+                                            "sleep 10 </dev/null >/dev/null 2>&1 & wait $!"),
+                          nullptr};
     char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
-    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", &actions, nullptr, argv, envp), 0);
     ASSERT_GT(pid, 0);
+    close(report_pipe[1]);
+    report_pipe[1] = -1;
+
     // Declare the manager before the cleanup guard so that a fatal assertion destroys the guard
     // first: it kills and reaps this direct child, and the manager's stop() then observes ECHILD
     // instead of signalling a numeric pid whose ownership it has already given up.
@@ -545,6 +577,10 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
             waitpid(pid, nullptr, 0);
         }
     }};
+
+    char ready = 0;
+    ASSERT_EQ(read(report_pipe[0], &ready, 1), 1);
+    ASSERT_EQ(ready, 'R');
 
     const uint64_t old_identity = mgr.set_child_pid_for_test(pid);
     // Republish the same numeric pid under a new generation. This deterministically models the
@@ -560,6 +596,11 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     mgr.stop();
     child_needs_cleanup = false;
     EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+
+    char handled = 0;
+    EXPECT_EQ(read(report_pipe[0], &handled, 1), 1)
+            << "stop() never delivered SIGTERM to the published child";
+    EXPECT_EQ(handled, 'T') << "stop() fell through the grace window to the forced kill";
 }
 
 TEST_F(CdcClientMgrTest, ConcurrentHandlersHaveOneExclusiveProcessOperator) {
@@ -587,13 +628,10 @@ TEST_F(CdcClientMgrTest, ConcurrentHandlersHaveOneExclusiveProcessOperator) {
         FAIL() << "the first handler did not acquire and pause its process operation";
     }
 
-    std::atomic<bool> second_finished {false};
-    std::thread second([&]() {
-        CdcClientMgr::invoke_sigchld_handler_for_test();
-        second_finished.store(true);
-    });
+    // The second handler must return instead of blocking on the claim the first one holds, so
+    // join() returning is the proof; a flag written before the thread returns would assert itself.
+    std::thread second([]() { CdcClientMgr::invoke_sigchld_handler_for_test(); });
     second.join();
-    EXPECT_TRUE(second_finished.load());
     EXPECT_EQ(kill(pid, 0), 0);
 
     CdcClientMgr::pause_sigchld_handler_for_test(false);
