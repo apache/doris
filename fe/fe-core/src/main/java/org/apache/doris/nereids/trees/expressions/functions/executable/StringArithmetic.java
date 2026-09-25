@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 
@@ -52,7 +53,9 @@ import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -70,6 +73,8 @@ import java.util.regex.Pattern;
  */
 public class StringArithmetic {
     private static final long MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS = 16L * 1024L * 1024L;
+    private static final List<String> SUPPORTED_CHARACTER_SETS = ImmutableList.of(
+            "US-ASCII", "ISO-8859-1", "UTF-8", "UTF-16BE", "UTF-16LE", "UTF-16");
 
     private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
@@ -1146,6 +1151,67 @@ public class StringArithmetic {
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Executable arithmetic function encode
+     */
+    @ExecFunction(name = "encode")
+    public static Expression encode(StringLikeLiteral source, StringLikeLiteral characterSet) {
+        Charset charset = supportedCharacterSet(characterSet.getValue());
+        try {
+            ByteBuffer encoded = charset.newEncoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .encode(CharBuffer.wrap(source.getValue()));
+            byte[] bytes = new byte[encoded.remaining()];
+            encoded.get(bytes);
+            return new VarBinaryLiteral(bytes);
+        } catch (CharacterCodingException e) {
+            throw new IllegalArgumentException("Failed to encode value using " + characterSet.getValue(), e);
+        }
+    }
+
+    /**
+     * Executable arithmetic function decode
+     */
+    @ExecFunction(name = "decode")
+    public static Expression decode(VarBinaryLiteral binary, StringLikeLiteral characterSet) {
+        Charset charset = supportedCharacterSet(characterSet.getValue());
+        try {
+            CharBuffer decoded = charset.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap((byte[]) binary.getValue()));
+            return new StringLiteral(decoded.toString());
+        } catch (CharacterCodingException e) {
+            throw new IllegalArgumentException("Failed to decode value using " + characterSet.getValue(), e);
+        }
+    }
+
+    private static Charset supportedCharacterSet(String name) {
+        for (String supportedCharacterSet : SUPPORTED_CHARACTER_SETS) {
+            if (equalsIgnoreAsciiCase(name, supportedCharacterSet)) {
+                return Charset.forName(supportedCharacterSet);
+            }
+        }
+        throw new IllegalArgumentException("Unsupported character set: " + name);
+    }
+
+    private static boolean equalsIgnoreAsciiCase(String value, String expected) {
+        if (value.length() != expected.length()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (current >= 'a' && current <= 'z') {
+                current -= 'a' - 'A';
+            }
+            if (current != expected.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

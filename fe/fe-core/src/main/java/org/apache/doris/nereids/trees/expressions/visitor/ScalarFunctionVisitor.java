@@ -200,6 +200,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Decode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
@@ -216,6 +217,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dsqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Elt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Encode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLargeInt;
@@ -1087,6 +1089,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(cutToFirstSignificantSubdomain, context);
     }
 
+    default R visitEncode(Encode encode, C context) {
+        return visitScalarFunction(encode, context);
+    }
+
     default R visitEncodeAsSmallInt(EncodeAsSmallInt encode, C context) {
         return visitScalarFunction(encode, context);
     }
@@ -1290,6 +1296,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDigitalMasking(DigitalMasking digitalMasking, C context) {
         return visitScalarFunction(digitalMasking, context);
+    }
+
+    default R visitDecode(Decode decode, C context) {
+        return visitScalarFunction(decode, context);
     }
 
     default R visitDecodeAsVarchar(DecodeAsVarchar decode, C context) {
