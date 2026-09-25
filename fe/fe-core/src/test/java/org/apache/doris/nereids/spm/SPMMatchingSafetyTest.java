@@ -609,6 +609,63 @@ public class SPMMatchingSafetyTest {
                 "the invalid value must never be written");
     }
 
+    // ==================== capture interval / batch size ranges ====================
+
+    @Test
+    public void testCaptureRangeValidatedThroughVariableMgr() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                org.apache.doris.analysis.SetType.SESSION,
+                SessionVariable.PLAN_CAPTURE_INTERVAL_SECONDS,
+                new org.apache.doris.analysis.IntLiteral(300)));
+        Assertions.assertEquals(300, variable.getPlanCaptureIntervalSeconds());
+
+        // a non-positive interval makes every cycle compute an empty window (scanStart >=
+        // currentTime) and return without scanning a single row
+        org.apache.doris.common.DdlException intervalError = Assertions.assertThrows(
+                org.apache.doris.common.DdlException.class,
+                () -> VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                        org.apache.doris.analysis.SetType.SESSION,
+                        SessionVariable.PLAN_CAPTURE_INTERVAL_SECONDS,
+                        new org.apache.doris.analysis.IntLiteral(0))),
+                "SET with a zero interval must fail instead of disabling the daemon silently");
+        Assertions.assertTrue(intervalError.getMessage().contains("must be a positive"),
+                "the error must name the invalid interval: " + intervalError.getMessage());
+        Assertions.assertEquals(300, variable.getPlanCaptureIntervalSeconds(),
+                "the invalid value must never be written");
+
+        // ... the negative form fails as well, and the Java setter validates direct
+        // callers (the daemon reads the values every cycle)
+        Assertions.assertThrows(org.apache.doris.common.DdlException.class,
+                () -> VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                        org.apache.doris.analysis.SetType.SESSION,
+                        SessionVariable.PLAN_CAPTURE_INTERVAL_SECONDS,
+                        new org.apache.doris.analysis.IntLiteral(-5))));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> variable.setPlanCaptureIntervalSeconds(0));
+
+        // batch size: zero would produce LIMIT 0, mark the window exhausted and advance
+        // the watermark over every eligible row
+        VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                org.apache.doris.analysis.SetType.SESSION,
+                SessionVariable.PLAN_CAPTURE_MAX_BATCH_SIZE,
+                new org.apache.doris.analysis.IntLiteral(10)));
+        Assertions.assertEquals(10, variable.getPlanCaptureMaxBatchSize());
+        org.apache.doris.common.DdlException batchError = Assertions.assertThrows(
+                org.apache.doris.common.DdlException.class,
+                () -> VariableMgr.setVar(variable, new org.apache.doris.analysis.SetVar(
+                        org.apache.doris.analysis.SetType.SESSION,
+                        SessionVariable.PLAN_CAPTURE_MAX_BATCH_SIZE,
+                        new org.apache.doris.analysis.IntLiteral(0))),
+                "SET with a zero batch size must fail");
+        Assertions.assertTrue(batchError.getMessage().contains("must be positive"),
+                "the error must name the invalid batch size: " + batchError.getMessage());
+        Assertions.assertEquals(10, variable.getPlanCaptureMaxBatchSize(),
+                "the invalid value must never be written");
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> variable.setPlanCaptureMaxBatchSize(-1));
+    }
+
     // ==================== ALTER to the same status is a no-op ====================
 
     @Test

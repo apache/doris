@@ -32,7 +32,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Optional;
 
 class InternalSchemaInitializerTest {
     @Test
@@ -261,5 +263,43 @@ class InternalSchemaInitializerTest {
                 "The system should not generate AlterClause for the scan_bytes_from_local_storage column that already exists");
         Assertions.assertFalse(hasRemoteStorageClause,
                 "The system should not generate AlterClause for the scan_bytes_from_remote_storage column that already exists");
+    }
+
+    // ==================== SPM baselines table: upgrade path ====================
+
+    /**
+     * An UPGRADED cluster already contains every legacy statistics/audit table, so the
+     * SPM baselines table must gate created() itself: otherwise run() exits before ever
+     * calling createTbl(), the missing spm_baselines table is never created and every
+     * BaselineManager load keeps failing (global CREATE/ALTER/DROP report "store not
+     * ready" forever). Simulate the upgrade: only this one table is absent.
+     */
+    @Test
+    public void testSpmBaselinesTableGatesCompletion() {
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmBaselinesTableMissing(db),
+                "a cluster where only spm_baselines is absent must not count as initialized");
+
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesTableMissing(db),
+                "an existing spm_baselines table must not block completion");
+    }
+
+    /**
+     * The completion gate re-runs createTbl() on an upgraded cluster: the create text it
+     * issues must cover the SPM table (CREATE TABLE IF NOT EXISTS makes the other legacy
+     * tables a no-op).
+     */
+    @Test
+    public void testCreateTblCoversSpmBaselinesTable() throws Exception {
+        Method method = InternalSchemaInitializer.class.getDeclaredMethod("getSpmBaselinesCreateSql");
+        method.setAccessible(true);
+        String sql = (String) method.invoke(null);
+        Assertions.assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS"
+                        + " `internal`.`__internal_schema`.`spm_baselines`"),
+                "the SPM completion gate re-runs createTbl(): it must create the table: " + sql);
     }
 }

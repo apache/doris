@@ -2181,11 +2181,13 @@ public class SessionVariable implements Serializable, Writable {
                     + "baselines for high-value queries (multi-table, slow or heavy scan).")
     private boolean enablePlanCapture = false;
 
-    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_INTERVAL_SECONDS, needForward = false, description =
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_INTERVAL_SECONDS, needForward = false,
+            checker = "checkPlanCaptureIntervalSeconds", description =
             "The interval (in seconds) between two SPM auto-capture cycles. Default is 10800 (3 hours).")
     private int planCaptureIntervalSeconds = 10800;
 
-    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_MAX_BATCH_SIZE, needForward = false, description =
+    @VarAttrDef.VarAttr(name = PLAN_CAPTURE_MAX_BATCH_SIZE, needForward = false,
+            checker = "checkPlanCaptureMaxBatchSize", description =
             "The max number of audit records processed in a single SPM capture cycle.")
     private int planCaptureMaxBatchSize = 500;
 
@@ -2229,7 +2231,27 @@ public class SessionVariable implements Serializable, Writable {
         return planCaptureIntervalSeconds;
     }
 
+    /**
+     * Validates a SET value of plan_capture_interval_seconds through the SQL SET path.
+     * A non-positive interval makes every capture cycle compute an empty scan window
+     * (scanStart >= currentTime) and return without ever scanning a row.
+     *
+     * @param value the raw SET value
+     */
+    public void checkPlanCaptureIntervalSeconds(String value) {
+        int seconds = Integer.parseInt(value);
+        if (seconds <= 0) {
+            throw new IllegalArgumentException("Invalid plan capture interval '" + value
+                    + "': the interval must be a positive number of seconds");
+        }
+    }
+
     public void setPlanCaptureIntervalSeconds(int planCaptureIntervalSeconds) {
+        if (planCaptureIntervalSeconds <= 0) {
+            throw new IllegalArgumentException("Invalid plan capture interval '"
+                    + planCaptureIntervalSeconds
+                    + "': the interval must be a positive number of seconds");
+        }
         this.planCaptureIntervalSeconds = planCaptureIntervalSeconds;
     }
 
@@ -2237,7 +2259,26 @@ public class SessionVariable implements Serializable, Writable {
         return planCaptureMaxBatchSize;
     }
 
+    /**
+     * Validates a SET value of plan_capture_max_batch_size through the SQL SET path.
+     * A zero batch size produces LIMIT 0, marks the window exhausted and advances the
+     * watermark over every eligible row (which are then permanently skipped).
+     *
+     * @param value the raw SET value
+     */
+    public void checkPlanCaptureMaxBatchSize(String value) {
+        int size = Integer.parseInt(value);
+        if (size <= 0) {
+            throw new IllegalArgumentException("Invalid plan capture batch size '" + value
+                    + "': the batch size must be positive");
+        }
+    }
+
     public void setPlanCaptureMaxBatchSize(int planCaptureMaxBatchSize) {
+        if (planCaptureMaxBatchSize <= 0) {
+            throw new IllegalArgumentException("Invalid plan capture batch size '"
+                    + planCaptureMaxBatchSize + "': the batch size must be positive");
+        }
         this.planCaptureMaxBatchSize = planCaptureMaxBatchSize;
     }
 

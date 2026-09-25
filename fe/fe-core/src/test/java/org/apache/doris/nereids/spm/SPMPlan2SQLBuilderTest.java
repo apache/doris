@@ -38,9 +38,11 @@ import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -54,8 +56,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -534,6 +538,21 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
+     * Builds a PhysicalGenerate (LATERAL VIEW) mock: one generator, one output column
+     * qualified with "t" (the SQL alias of the lateral view).
+     */
+    private static PhysicalGenerate<?> mockGenerate(Plan child, Function generator) {
+        PhysicalGenerate<?> generate = Mockito.mock(PhysicalGenerate.class);
+        Mockito.when(generate.child(0)).thenReturn(child);
+        Mockito.when(generate.getGenerators()).thenReturn(List.of(generator));
+        Mockito.when(generate.getGeneratorOutput()).thenReturn(List.of(
+                (Slot) new SlotReference("x", IntegerType.INSTANCE, true, List.of("t"))));
+        Mockito.when(generate.getConjuncts()).thenReturn(List.of());
+        stubAccept(generate);
+        return generate;
+    }
+
+    /**
      * Routes the accept() of a mock to the matching visit method of SPMPlan2SQLBuilder so
      * the test walks the real dispatch + recursion logic instead of hand-written traversal.
      */
@@ -558,6 +577,12 @@ public class SPMPlan2SQLBuilderTest {
         }
         if (plan instanceof PhysicalUnion) {
             return builder.visitPhysicalUnion((PhysicalUnion) plan, null);
+        }
+        if (plan instanceof PhysicalLimit) {
+            return builder.visitPhysicalLimit((PhysicalLimit<? extends Plan>) plan, null);
+        }
+        if (plan instanceof PhysicalGenerate) {
+            return builder.visitPhysicalGenerate((PhysicalGenerate<? extends Plan>) plan, null);
         }
         if (plan instanceof PhysicalFilter) {
             return builder.visitPhysicalFilter((PhysicalFilter<?>) plan, null);
@@ -1022,6 +1047,52 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(project);
         Assertions.assertTrue(sql.contains("`a-b`"),
                 "the frozen projection must keep the identifier quoted (no subtraction): " + sql);
+    }
+
+    // ==================== LATERAL VIEW (PhysicalGenerate) ====================
+
+    /**
+     * A wrapped Generate child (derived table with WHERE / LIMIT) must keep its COMPLETE
+     * query block inside the lateral-view input: attaching the LATERAL VIEW to the bare
+     * FROM fragment leaves the child's clauses on the OUTER relation, where they apply
+     * AFTER the explode - LIMIT would then limit the exploded rows and frozen replay
+     * could return rows the captured plan filtered out.
+     */
+    @Test
+    public void testGenerateKeepsWrappedChildQueryBlock() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference arr = new SlotReference("arr", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, arr));
+        PhysicalFilter filter = mockFilter(new GreaterThan(k, new IntegerLiteral(0)), scan);
+        PhysicalLimit<?> limit = Mockito.mock(PhysicalLimit.class);
+        Mockito.when(limit.child(0)).thenReturn(filter);
+        Mockito.when(limit.getLimit()).thenReturn(1L);
+        Mockito.when(limit.getOffset()).thenReturn(0L);
+        stubAccept(limit);
+        PhysicalGenerate<?> generate = mockGenerate(limit, new Explode(arr));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(generate);
+        Assertions.assertTrue(sql.contains(
+                        "(SELECT * FROM t1 WHERE (k > 0) LIMIT 1) t_0 LATERAL VIEW"),
+                "the child's WHERE + LIMIT must stay inside the lateral-view input: " + sql);
+        Assertions.assertTrue(sql.indexOf("WHERE") < sql.indexOf("LATERAL VIEW"),
+                "no child clause may be rendered after the lateral view: " + sql);
+        Assertions.assertFalse(sql.endsWith("LIMIT 1"),
+                "the LIMIT must not apply to the exploded rows: " + sql);
+    }
+
+    @Test
+    public void testGenerateOverPlainScanStaysInline() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference arr = new SlotReference("arr", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, arr));
+        PhysicalGenerate<?> generate = mockGenerate(scan, new Explode(arr));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(generate);
+        Assertions.assertTrue(sql.contains("FROM t1 LATERAL VIEW"),
+                "a plain scan child stays inline: " + sql);
+        Assertions.assertFalse(sql.contains("(SELECT * FROM t1)"),
+                "a plain scan child needs no subquery wrapper: " + sql);
     }
 
     /** Counts the occurrences of a literal fragment in a string. */

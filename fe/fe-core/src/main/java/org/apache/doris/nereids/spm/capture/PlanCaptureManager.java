@@ -84,15 +84,32 @@ public class PlanCaptureManager extends MasterDaemon {
     /** Upper bound for the processed-query-id dedup map. */
     private static final int MAX_TRACKED_QUERY_IDS = 10000;
 
+    /**
+     * Bounded retries for a FAILED capture: the query id stays retryable for later
+     * overlapping scans until it either succeeds or reaches this attempt count. Marking
+     * the id before processing would make a transient failure permanent - the
+     * overlapping scans would skip the row and the watermark passes it long before the
+     * dedup map evicts the entry.
+     */
+    private static final int MAX_CAPTURE_ATTEMPTS = 3;
+
     /** Query ids already handled in earlier (overlapping) windows. */
     private final Map<String, Boolean> processedQueryIds = new LinkedHashMap<>();
 
     /**
-     * Resume cursor of a TRUNCATED scan window: (query_time, time, query_id) of the last
-     * consumed row. Empty while no partial window is pending - a short batch advances
-     * the watermark instead.
+     * Failure attempts per query id (bounded retry, see MAX_CAPTURE_ATTEMPTS). An id is
+     * removed here when it succeeds or is given up on; the map is capped like the
+     * processed-id map so a long-running failure burst cannot grow unbounded.
      */
-    private long cursorQueryTime = 0;
+    private final Map<String, Integer> failedCaptureAttempts = new LinkedHashMap<>();
+
+    /**
+     * Resume cursor of a TRUNCATED scan window: (query_time, time, query_id) of the last
+     * consumed row. CURSOR_ABSENT while no partial window is pending - a short batch
+     * advances the watermark instead. Zero and NULL query_time are VALID cursors (see
+     * AuditLogScanner.CURSOR_QUERY_TIME_NULL).
+     */
+    private long cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
     private String cursorTime = "";
     private String cursorQueryId = "";
 
@@ -108,7 +125,8 @@ public class PlanCaptureManager extends MasterDaemon {
 
     private PlanCaptureManager() {
         super("PlanCaptureManager",
-                VariableMgr.getDefaultSessionVariable().getPlanCaptureIntervalSeconds() * 1000L);
+                Math.max(1, VariableMgr.getDefaultSessionVariable().getPlanCaptureIntervalSeconds())
+                        * 1000L);
         this.filter = buildFilterFromGlobal();
     }
 
@@ -179,41 +197,32 @@ public class PlanCaptureManager extends MasterDaemon {
             this.filter = newFilter;
 
             long currentTime = System.currentTimeMillis();
+            // a non-positive interval / batch size can never be written through SQL SET
+            // (see SessionVariable), but clamp defensively: an interval of 0 would make
+            // every window empty and a batch size of 0 would return LIMIT 0, mark the
+            // window exhausted and advance the watermark over every eligible row
+            long intervalMs = Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L;
+            int batchSize = Math.max(1, global.getPlanCaptureMaxBatchSize());
             // overlap the window so audit rows loaded late (whose event time is older
             // than the last watermark) are still scanned; duplicates are filtered by
             // query id below
             long scanStart = (lastScanTimestamp == 0)
-                    ? currentTime - (long) global.getPlanCaptureIntervalSeconds() * 1000L
+                    ? currentTime - intervalMs
                     : Math.max(0L, lastScanTimestamp - SCAN_WINDOW_OVERLAP_MS);
             if (scanStart >= currentTime) {
                 return;
             }
 
             AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, currentTime,
-                    global.getPlanCaptureMaxBatchSize(), cursorQueryTime, cursorTime, cursorQueryId);
+                    batchSize, cursorQueryTime, cursorTime, cursorQueryId);
             for (CapturedQuery candidate : batch.getCandidates()) {
-                String queryId = candidate.getQueryId();
-                if (queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId)) {
-                    if (processedQueryIds.containsKey(queryId)) {
-                        continue; // already handled in an earlier overlapping window
-                    }
-                    processedQueryIds.put(queryId, Boolean.TRUE);
-                    if (processedQueryIds.size() > MAX_TRACKED_QUERY_IDS) {
-                        java.util.Iterator<String> it = processedQueryIds.keySet().iterator();
-                        int drop = MAX_TRACKED_QUERY_IDS / 10;
-                        while (it.hasNext() && drop-- > 0) {
-                            it.next();
-                            it.remove();
-                        }
-                    }
-                }
-                processCandidate(candidate);
+                handleCandidate(candidate);
             }
             if (batch.isWindowExhausted()) {
                 // The whole window was scanned: advance the watermark (the overlap keeps
                 // late-arriving audit rows capturable) and drop the resume cursor.
                 lastScanTimestamp = nextScanTimestamp(lastScanTimestamp, currentTime, true);
-                cursorQueryTime = 0;
+                cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
                 cursorTime = "";
                 cursorQueryId = "";
             } else {
@@ -236,11 +245,70 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Filters and captures a single candidate query.
+     * Handles one candidate with query-id tracking (see MAX_CAPTURE_ATTEMPTS): the id is
+     * marked as consumed only when the candidate reached a TERMINAL state - filtered out,
+     * deduplicated, persisted, or given up on after bounded failures. A transient failure
+     * therefore stays retryable for the next overlapping scan instead of being lost.
      *
      * @param candidate the audit candidate
      */
-    private void processCandidate(CapturedQuery candidate) {
+    private void handleCandidate(CapturedQuery candidate) {
+        String queryId = candidate.getQueryId();
+        boolean trackId = queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId);
+        if (trackId && processedQueryIds.containsKey(queryId)) {
+            return; // already handled in an earlier overlapping window
+        }
+        boolean terminal = processCandidate(candidate);
+        if (!trackId) {
+            return;
+        }
+        if (terminal) {
+            failedCaptureAttempts.remove(queryId);
+            markQueryIdProcessed(queryId);
+            return;
+        }
+        int attempts = failedCaptureAttempts.merge(queryId, 1, Integer::sum);
+        if (attempts >= MAX_CAPTURE_ATTEMPTS) {
+            // bounded retry: a permanently broken row must not burn every cycle
+            LOG.warn("Plan capture gave up on query id {} after {} failed attempts",
+                    queryId, attempts);
+            failedCaptureAttempts.remove(queryId);
+            markQueryIdProcessed(queryId);
+        } else {
+            LOG.info("Plan capture failed for query id {} (attempt {}/{}), will retry",
+                    queryId, attempts, MAX_CAPTURE_ATTEMPTS);
+            if (failedCaptureAttempts.size() > MAX_TRACKED_QUERY_IDS) {
+                evictOldest(failedCaptureAttempts, MAX_TRACKED_QUERY_IDS / 10);
+            }
+        }
+    }
+
+    /** Marks a query id as consumed and keeps the dedup map bounded. */
+    private void markQueryIdProcessed(String queryId) {
+        processedQueryIds.put(queryId, Boolean.TRUE);
+        if (processedQueryIds.size() > MAX_TRACKED_QUERY_IDS) {
+            evictOldest(processedQueryIds, MAX_TRACKED_QUERY_IDS / 10);
+        }
+    }
+
+    /** Evicts the {@code count} oldest entries of an insertion-ordered map. */
+    private static void evictOldest(Map<String, ?> map, int count) {
+        java.util.Iterator<String> it = map.keySet().iterator();
+        int drop = count;
+        while (it.hasNext() && drop-- > 0) {
+            it.next();
+            it.remove();
+        }
+    }
+
+    /**
+     * Filters and captures a single candidate query.
+     *
+     * @param candidate the audit candidate
+     * @return true when the candidate reached a terminal state (no retry needed),
+     *         false when the capture FAILED and should be retried
+     */
+    private boolean processCandidate(CapturedQuery candidate) {
         try {
             // Level 3/5 filter: multi-table + table-name regex (pure logic)
             List<String> tables = PlanCaptureFilter.extractTableNames(candidate.getStmt());
@@ -250,13 +318,13 @@ public class PlanCaptureManager extends MasterDaemon {
                 } else {
                     skipFilterCount.incrementAndGet();
                 }
-                return;
+                return true;
             }
             // Level 4 filter: tables must still exist in the CAPTURED namespace (external
             // tables resolve through their own catalog, not InternalCatalog)
             if (!filter.allTablesExist(tables, candidate.getCatalog(), candidate.getDb())) {
                 skipFilterCount.incrementAndGet();
-                return;
+                return true;
             }
 
             // Build the baseline through the Phase 1 flow (bindSql = planSql = stmt,
@@ -299,9 +367,12 @@ public class PlanCaptureManager extends MasterDaemon {
             } else {
                 skipDuplicateCount.incrementAndGet();
             }
+            return true;
         } catch (Exception e) {
             failCount.incrementAndGet();
             LOG.warn("Failed to capture baseline for query: {}", candidate.getStmt(), e);
+            // NOT terminal: the query id stays retryable (bounded by MAX_CAPTURE_ATTEMPTS)
+            return false;
         }
     }
 
@@ -350,10 +421,11 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     public void resetForTest() {
         lastScanTimestamp = 0;
-        cursorQueryTime = 0;
+        cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
         cursorTime = "";
         cursorQueryId = "";
         processedQueryIds.clear();
+        failedCaptureAttempts.clear();
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
@@ -390,9 +462,44 @@ public class PlanCaptureManager extends MasterDaemon {
      * For tests: processes a single candidate without touching the scanner.
      *
      * @param candidate the candidate query
+     * @return true when the candidate reached a terminal state (see processCandidate)
      */
-    public void processCandidateForTest(CapturedQuery candidate) {
-        processCandidate(candidate);
+    public boolean processCandidateForTest(CapturedQuery candidate) {
+        return processCandidate(candidate);
+    }
+
+    /**
+     * For tests: runs one candidate through the query-id tracking AND the capture
+     * pipeline, exactly like one cycle's loop body does.
+     *
+     * @param candidate the candidate query
+     */
+    @VisibleForTesting
+    public void handleCandidateForTest(CapturedQuery candidate) {
+        handleCandidate(candidate);
+    }
+
+    /**
+     * For tests: whether the query id is tracked as consumed (the next overlapping scan
+     * would skip it).
+     *
+     * @param queryId the audit query id
+     * @return true when the id is terminal
+     */
+    @VisibleForTesting
+    public boolean isQueryIdTrackedForTest(String queryId) {
+        return processedQueryIds.containsKey(queryId);
+    }
+
+    /**
+     * For tests: the failed-attempt count of a query id.
+     *
+     * @param queryId the audit query id
+     * @return the number of failed attempts so far
+     */
+    @VisibleForTesting
+    public int failedAttemptsForTest(String queryId) {
+        return failedCaptureAttempts.getOrDefault(queryId, 0);
     }
 
     /**
