@@ -101,6 +101,27 @@ public class PaimonPredicateConverterTest {
     }
 
     @Test
+    public void precisionRepairDropsOnlyTimestampPredicates() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("ts", DataTypes.TIMESTAMP(6))
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType, true);
+
+        ConnectorComparison idComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ANY),
+                new ConnectorLiteral(ANY, 7));
+        ConnectorComparison timestampComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("ts", ANY),
+                new ConnectorLiteral(ANY, LocalDateTime.of(2025, 1, 1, 0, 0)));
+
+        Assertions.assertEquals(1, converter.convert(idComparison).size(),
+                "non-timestamp predicates must remain pushable during precision repair");
+        Assertions.assertTrue(converter.convert(timestampComparison).isEmpty(),
+                "timestamp predicates must remain Doris residuals during precision repair");
+    }
+
+    @Test
     public void nanosecondTimestampComparisonsRemainResidual() {
         RowType rowType = RowType.builder().field("ts", DataTypes.TIMESTAMP(9)).build();
         LocalDateTime stored = LocalDateTime.of(2024, 1, 1, 0, 0, 0, 123_456_789);
