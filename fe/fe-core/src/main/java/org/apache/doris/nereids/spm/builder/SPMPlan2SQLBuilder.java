@@ -1011,18 +1011,33 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      */
     @Override
     public SQLRelation visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, Void context) {
-        SQLRelation relation = process(generate.child(0));
+        SQLRelation childRelation = process(generate.child(0));
         if (generate.getGenerators().size() != 1) {
             throw new UnsupportedOperationException("SPM decompile generate: expected one generator, got "
                     + generate.getGenerators().size());
         }
-        // a FROM-less child (e.g. LATERAL VIEW over "SELECT 1 AS x") has no FROM text;
-        // force the subquery wrapping so the LATERAL VIEW has a relation to attach to
+        // The LATERAL VIEW must attach to the child's COMPLETE query block. Attaching it
+        // to the bare FROM fragment (getFrom()) would keep the child's WHERE / GROUP BY /
+        // HAVING / ORDER BY / LIMIT clauses on the OUTER relation, where they apply AFTER
+        // the explode: a derived table with LIMIT 10 would limit the exploded rows
+        // instead of the lateral-view input, a GROUP BY would regroup the generator
+        // output, and frozen replay could return rows the captured plan filtered out.
+        // A FROM-less child (e.g. LATERAL VIEW over "SELECT 1 AS x") needs the wrapper
+        // for the same reason.
+        SQLRelation relation;
         String baseSql;
-        if (relation.getFrom().isEmpty()) {
-            relation.newAlias();
-            baseSql = relation.toRelationSQL();
+        if (childRelation.getFrom().isEmpty() || childRelation.hasOwnBlock()) {
+            if (childRelation.getRelationName() == null) {
+                childRelation.newAlias();
+            }
+            baseSql = childRelation.toRelationSQL();
+            // the wrapper carries the child's column mapping only; the child's clauses
+            // stay inside baseSql (moving them onto this relation would re-apply them
+            // after the lateral view)
+            relation = new SQLRelation();
+            relation.getColumnNames().putAll(childRelation.getColumnNames());
         } else {
+            relation = childRelation;
             baseSql = relation.getFrom();
         }
         List<Slot> outputs = generate.getGeneratorOutput();

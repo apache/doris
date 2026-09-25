@@ -598,11 +598,33 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
-        // 4. check and update audit table schema
+        // 4. check the SPM baselines table: an UPGRADED cluster already has every legacy
+        // table above, so without this check created() returns true before run() ever
+        // reaches createTbl() - the missing spm_baselines table would never be created,
+        // every load attempt would fail, BaselineManager would stay unloaded and global
+        // CREATE/ALTER/DROP BASELINE would keep reporting that the store is not ready.
+        if (isSpmBaselinesTableMissing(db)) {
+            return false;
+        }
+
+        // 5. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
-        // 5. check if we need to add new columns
+        // 6. check if we need to add new columns
         return alterAuditSchemaIfNeeded(auditTable);
+    }
+
+    /**
+     * Whether the SPM baselines internal table is absent. Package-visible for the
+     * upgrade test: a cluster where only this table is missing must NOT be considered
+     * initialized.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME).isPresent();
     }
 
     private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {
