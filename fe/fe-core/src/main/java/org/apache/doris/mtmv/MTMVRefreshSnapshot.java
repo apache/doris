@@ -97,12 +97,14 @@ public class MTMVRefreshSnapshot {
                 + '}';
     }
 
-    public void compatible(MTMV mtmv) throws Exception {
+    public boolean compatible(MTMV mtmv) throws Exception {
         if (MapUtils.isEmpty(partitionSnapshots)) {
-            return;
+            return false;
         }
+        boolean changed = false;
         for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
-            snapshot.compatible(mtmv);
+            changed |= snapshot.compatible(mtmv);
         }
+        return changed;
     }
 }
