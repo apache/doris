@@ -575,7 +575,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // ADD PARTITION KEY year(ts) then month(ts)) would raise "Multiple entries with same key" and fail
             // the query at plan time. listPartitions() emits its per-partition value tuple over the SAME
             // deduped column sequence, so the two stay index-aligned (the arity checkState in
-            // PluginDrivenMvccExternalTable.toListPartitionItem).
+            // PluginDrivenExternalTable.toListPartitionItem).
             Set<String> partitionColumns = new LinkedHashSet<>();
             for (PartitionField field : table.spec().fields()) {
                 Types.NestedField source = table.schema().findField(field.sourceId());

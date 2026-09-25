@@ -42,6 +42,8 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -694,6 +696,137 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testConnectorPartitionPruningLatestSnapshotDefersPartitionEnumeration() {
+        Fixture f = Fixture.connectorPartitionPruning();
+
+        Assertions.assertTrue(f.table.supportsLatestSnapshotPreload(),
+                "the lightweight connector snapshot must be preloaded before internal table locks are taken");
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID, pin.getConnectorSnapshot().getSnapshotId());
+        Assertions.assertTrue(pin.isPartitionViewDeferred());
+        Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
+                "a connector-filtered table must not enumerate every partition while binding the latest snapshot");
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testConnectorPartitionPruningMaterializesFullViewForExplicitConsumer() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Map<String, PartitionItem> partitions = f.table.getNameToPartitionItems(Optional.empty());
+
+        Assertions.assertEquals(2, partitions.size());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
+    public void testConnectorPartitionPruningMaterializesMtmvSnapshotBeforeLock() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                f.table.materializePartitionViewForMtmv(lightweight);
+
+        Assertions.assertEquals(2, materialized.getNameToPartitionItem().size());
+        Assertions.assertEquals(materialized.getNameToPartitionItem(),
+                f.table.getNameToPartitionItems(Optional.of(materialized)));
+        // The full view must be enumerated from the SNAPSHOT-PINNED handle: the MTMV alignment then sees the
+        // generation this statement pinned, not whatever the latest handle happens to list.
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
+    public void testMaterializedEmptyMtmvSnapshotIsNotRehydrated() {
+        Fixture f = Fixture.connectorPartitionPruning(Type.DATEV2, Collections.emptyList());
+        PluginDrivenMvccSnapshot lightweight = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+
+        PluginDrivenMvccSnapshot materialized = (PluginDrivenMvccSnapshot)
+                f.table.materializePartitionViewForMtmv(lightweight);
+
+        org.junit.jupiter.api.Assertions.assertTrue(materialized.getNameToPartitionItem().isEmpty(),
+                "a real zero-partition table must keep its authoritative empty view");
+        org.junit.jupiter.api.Assertions.assertTrue(materialized.isPartitionViewMaterialized());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                f.table.getNameToPartitionItems(Optional.of(materialized)).isEmpty(),
+                "the materialized-empty pin must not be mistaken for the lightweight deferred pin");
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.times(1)).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+    }
+
+    @Test
+    public void testConnectorPartitionPruningPinsSnapshotBeforeFilteredMaterialization() {
+        Fixture f = Fixture.connectorPartitionPruning();
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty());
+        Mockito.when(f.metadata.applyFilter(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.empty());
+
+        Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> view =
+                f.table.applyPartitionFilterForScan(Optional.of(pin),
+                        new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01"));
+
+        // A declined filter falls back to the unfiltered view, and the predicate must have been applied to the
+        // SNAPSHOT-PINNED handle: pruning against the freshly resolved base handle could describe a generation
+        // the data scan will never read (e.g. list nothing after a partition was dropped).
+        Assertions.assertFalse(view.isPresent(), "a declined filter falls back to the unfiltered view");
+        Mockito.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        Mockito.verify(f.metadata).applyFilter(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+    }
+
+    @Test
+    public void testScanPartitionViewDegradesWhenATypedValueIsUnrepresentable() {
+        // A value that cannot be represented in its partition column type must NOT abort the query: the scan
+        // view becomes UNAVAILABLE so the caller reads every partition (pruning is only an optimization).
+        Fixture f = Fixture.connectorPartitionPruning(Type.DATEV2, Arrays.asList(
+                cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01),
+                cpiWithPartitionValueMap("dt=not-a-date", TS_2024_02_02)));
+
+        Optional<Map<String, PartitionItem>> view = f.table.getNameToPartitionItemsForScan(Optional.empty());
+
+        Assertions.assertFalse(view.isPresent(), "an unrepresentable entry disables pruning instead of failing");
+    }
+
+    @Test
+    public void testScanPartitionViewKeepsExplicitlyNonNullSentinelValue() {
+        // A connector-supplied sentinel string marked NOT NULL is a real value, so the view stays available.
+        // (The same string flagged NULL would instead become a typed NullLiteral.)
+        Fixture f = Fixture.connectorPartitionPruning(Type.STRING, Collections.singletonList(
+                cpiNull("dt=__HIVE_DEFAULT_PARTITION__", TS_2024_01_01, false)));
+
+        Optional<Map<String, PartitionItem>> view = f.table.getNameToPartitionItemsForScan(Optional.empty());
+
+        Assertions.assertTrue(view.isPresent(), "an explicitly non-NULL sentinel is a representable value");
+        Assertions.assertEquals(1, view.get().size());
+    }
+
+    @Test
+    public void testConnectorPartitionPruningUsesOnDemandMtmvFreshness() throws AnalysisException {
+        Fixture f = Fixture.connectorPartitionPruning();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(),
+                Mockito.eq("dt=2024-01-01"))).thenReturn(OptionalLong.of(TS_2024_01_01));
+
+        MTMVTimestampSnapshot snapshot = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, Optional.empty());
+
+        Assertions.assertEquals(TS_2024_01_01, snapshot.getSnapshotVersion());
+    }
+
+    @Test
     public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
         Fixture f = Fixture.partitioned();
         Mockito.when(f.metadata.listPartitions(
@@ -1022,7 +1155,7 @@ public class PluginDrivenMvccExternalTableTest {
 
     @Test
     public void testSuccessfulTimeTravelPinsSnapshotAndAtSnapshotSchemaNoPartitions() {
-        Fixture f = Fixture.timeTravel();
+        Fixture f = Fixture.timeTravelConnectorPartitionPruning();
         PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
                 Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
 
@@ -1037,6 +1170,14 @@ public class PluginDrivenMvccExternalTableTest {
                 "a connector that cannot list AT the pin must not have its partitions listed");
         Assertions.assertTrue(pin.getNameToLastModifiedMillis().isEmpty(),
                 "a connector that cannot list AT the pin must not have its partitions listed");
+        Assertions.assertTrue(pin.isPartitionViewUnavailable(),
+                "a snapshot-blind historical pin must be distinguished from a deferred latest view");
+        Assertions.assertFalse(f.table.getNameToPartitionItemsForScan(Optional.of(pin)).isPresent(),
+                "an unavailable historical partition view must force scan-all without re-listing latest");
+        Assertions.assertTrue(f.table.getNameToPartitionItems(Optional.of(pin)).isEmpty(),
+                "an unavailable historical partition view must not be re-enumerated by map consumers");
+        Assertions.assertSame(pin, f.table.materializePartitionViewForMtmv(pin),
+                "MTMV materialization must preserve an unavailable historical view");
         Mockito.verify(f.metadata, Mockito.never())
                 .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
 
@@ -1054,6 +1195,31 @@ public class PluginDrivenMvccExternalTableTest {
                         .collect(Collectors.toList()));
     }
 
+    @Test
+    public void testSnapshotBlindHistoricalFilterDeclinesBeforeEmptyLatestListing() {
+        assertSnapshotBlindHistoricalFilterDeclined(Collections.emptyList());
+    }
+
+    @Test
+    public void testSnapshotBlindHistoricalFilterDeclinesBeforeNonEmptyLatestListing() {
+        assertSnapshotBlindHistoricalFilterDeclined(
+                Collections.singletonList(cpi("dt=2024-02-02", TS_2024_02_02)));
+    }
+
+    private void assertSnapshotBlindHistoricalFilterDeclined(List<ConnectorPartitionInfo> latestPartitions) {
+        Fixture f = Fixture.timeTravelConnectorPartitionPruning(latestPartitions);
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
+        ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
+        Mockito.when(f.metadata.applyFilter(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.of(new FilterApplicationResult<>(f.pinnedHandle, predicate, false)));
+
+        Assertions.assertFalse(f.table.applyPartitionFilterForScan(Optional.of(pin), predicate).isPresent(),
+                "a snapshot-blind historical pin must decline connector-filtered materialization");
+        Mockito.verify(f.metadata, Mockito.never()).applyFilter(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     /**
      * The other half of the same decision: a connector whose listing IS snapshot-exact gets its real
      * partition set into the pin, listed on the SNAPSHOT-APPLIED handle. Without this the pin would carry
@@ -1062,7 +1228,7 @@ public class PluginDrivenMvccExternalTableTest {
      */
     @Test
     public void testTimeTravelPinsTheRealPartitionSetOfASnapshotAwareConnector() {
-        Fixture f = Fixture.timeTravel();
+        Fixture f = Fixture.timeTravelConnectorPartitionPruning();
         Mockito.when(f.metadata.listsPartitionsAtSnapshot(Mockito.any(), Mockito.eq(f.pinnedHandle)))
                 .thenReturn(true);
         // What the table held AT the pin: one partition, where it has two today. Listing the unpinned
@@ -1079,8 +1245,19 @@ public class PluginDrivenMvccExternalTableTest {
                 "the pin must carry the partition set listed at the snapshot");
         Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
                 pin.getNameToLastModifiedMillis().keySet());
+        Assertions.assertTrue(pin.isPartitionViewMaterialized());
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                f.table.getNameToPartitionItemsForScan(Optional.of(pin)).orElseThrow().keySet(),
+                "scan pruning must reuse the snapshot-consistent materialized view");
+        ConnectorLiteral predicate = new ConnectorLiteral(ConnectorType.of("STRING"), "2024-01-01");
+        Mockito.when(f.metadata.applyFilter(Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Optional.of(new FilterApplicationResult<>(f.pinnedHandle, predicate, false)));
+        Assertions.assertTrue(f.table.applyPartitionFilterForScan(Optional.of(pin), predicate).isPresent(),
+                "a snapshot-aware connector may materialize a filtered historical view");
         Mockito.verify(f.metadata).listPartitions(
-                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.empty()));
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.eq(Optional.of(predicate)));
         Mockito.verify(f.metadata, Mockito.never()).listPartitions(
                 Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         // The pinned schema is unaffected by which listing was used.
@@ -1514,6 +1691,13 @@ public class PluginDrivenMvccExternalTableTest {
                 ConnectorPartitionInfo.UNKNOWN, orderedValuesOf(name), Collections.emptyList());
     }
 
+    private static ConnectorPartitionInfo cpiWithPartitionValueMap(String name, long lastModifiedMillis) {
+        List<String> values = orderedValuesOf(name);
+        return new ConnectorPartitionInfo(name, Collections.singletonMap("dt", values.get(0)), Collections.emptyMap(),
+                ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN, lastModifiedMillis,
+                ConnectorPartitionInfo.UNKNOWN, values, Collections.emptyList());
+    }
+
     /**
      * Like {@link #cpi} but with the ordered values supplied EXPLICITLY rather than derived from the
      * rendered name — needed for the spec-evolution shapes, where a row's value count legitimately
@@ -1613,6 +1797,16 @@ public class PluginDrivenMvccExternalTableTest {
                     cpi("dt=2024-02-02", TS_2024_02_02)));
         }
 
+        static Fixture connectorPartitionPruning() {
+            return connectorPartitionPruning(Type.DATEV2, Arrays.asList(
+                    cpiWithPartitionValueMap("dt=2024-01-01", TS_2024_01_01),
+                    cpiWithPartitionValueMap("dt=2024-02-02", TS_2024_02_02)));
+        }
+
+        static Fixture connectorPartitionPruning(Type partitionColType, List<ConnectorPartitionInfo> partitions) {
+            return build(partitions, false, partitionColType, true);
+        }
+
         static Fixture with(List<ConnectorPartitionInfo> partitions) {
             return build(partitions, false);
         }
@@ -1626,6 +1820,16 @@ public class PluginDrivenMvccExternalTableTest {
             return build(Arrays.asList(
                     cpi("dt=2024-01-01", TS_2024_01_01),
                     cpi("dt=2024-02-02", TS_2024_02_02)), true);
+        }
+
+        static Fixture timeTravelConnectorPartitionPruning() {
+            return timeTravelConnectorPartitionPruning(Arrays.asList(
+                    cpi("dt=2024-01-01", TS_2024_01_01),
+                    cpi("dt=2024-02-02", TS_2024_02_02)));
+        }
+
+        static Fixture timeTravelConnectorPartitionPruning(List<ConnectorPartitionInfo> partitions) {
+            return build(partitions, true, Type.DATEV2, true);
         }
 
         /**
@@ -1656,11 +1860,16 @@ public class PluginDrivenMvccExternalTableTest {
         }
 
         private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel) {
-            return build(partitions, timeTravel, Type.DATEV2);
+            return build(partitions, timeTravel, Type.DATEV2, false);
         }
 
         private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel,
                 Type partitionColType) {
+            return build(partitions, timeTravel, partitionColType, false);
+        }
+
+        private static Fixture build(List<ConnectorPartitionInfo> partitions, boolean timeTravel,
+                Type partitionColType, boolean connectorPartitionPruning) {
             ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
             ConnectorSession session = Mockito.mock(ConnectorSession.class);
             Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
@@ -1747,6 +1956,11 @@ public class PluginDrivenMvccExternalTableTest {
                             // Bypass the live Env-backed schema cache; route the LATEST seam to the
                             // canned value so the real getSchemaCacheValue() override is exercised.
                             return Optional.of(latestCacheValue);
+                        }
+
+                        @Override
+                        public boolean supportsConnectorPartitionPruning() {
+                            return connectorPartitionPruning;
                         }
                     };
             return new Fixture(table, metadata, handle, pinnedHandle, session, latestCacheValue,

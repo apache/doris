@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
@@ -211,8 +213,10 @@ public class CollectRelation implements AnalysisRuleFactory {
             table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
             // Record relation-level metadata so the planner can preload latest external metadata before locking.
             if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
-                statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.get().getScanParams()));
+                statementContext.registerExternalTableForPreload(table,
+                        unboundRelation.get().getTableSnapshot(),
+                        Optional.ofNullable(unboundRelation.get().getScanParams()),
+                        isUnderInitialFilter(cascadesContext.getRewritePlan(), unboundRelation.get()));
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -318,5 +322,27 @@ public class CollectRelation implements AnalysisRuleFactory {
         StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
         List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+    }
+
+    private boolean isUnderInitialFilter(Plan plan, UnboundRelation relation) {
+        if (plan instanceof LogicalFilter && isTransparentFilterChild(plan.child(0), relation)) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            if (isUnderInitialFilter(child, relation)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isTransparentFilterChild(Plan plan, UnboundRelation relation) {
+        while (plan != relation) {
+            if (!(plan instanceof LogicalCheckPolicy)) {
+                return false;
+            }
+            plan = plan.child(0);
+        }
+        return true;
     }
 }

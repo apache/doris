@@ -21,6 +21,7 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
@@ -67,6 +68,118 @@ public class HiveConnectorMetadataPartitionPruningTest {
     private static final List<String> PART_KEYS = Arrays.asList("year", "month");
 
     @Test
+    public void testLocalFallbackPrunesIntegralValuesNumerically() {
+        // A quoted/API-created partition key is not a valid Hive filter identifier, so the connector falls back
+        // to the local prefilter - whose result IS the logical selected view. It must therefore compare INT
+        // values the way the typed pruner does: `p-x = 1` selects the partitions rendered as `1` AND `01`.
+        List<String> parts = Arrays.asList("p-x=1", "p-x=01", "p-x=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("p-x"))
+                .partitionKeyTypes(Collections.singletonMap("p-x", "INT"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("p-x", "1")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Arrays.asList("p-x=1", "p-x=01"), prunedLocations(result));
+    }
+
+    @Test
+    public void testHmsFilterDeclinesReservedWordAndAllDigitPartitionKeys() {
+        // `date` is a valid partition key, but the metastore filter lexer tokenizes it as KW_DATE and an
+        // all-digit name as an IntegralLiteral, while a key operand must be an Identifier: the connector must
+        // decline the direct path (which could only fail and taint the pooled client) and prune locally.
+        for (String partKey : Arrays.asList("date", "20240101")) {
+            List<String> parts = Arrays.asList(partKey + "=2024-01-01", partKey + "=2023-01-01");
+            boolean[] filterAttempted = {false};
+            FakeHmsClient client = new FakeHmsClient(parts) {
+                @Override
+                public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName,
+                        String filter) {
+                    filterAttempted[0] = true;
+                    return super.listPartitionsByFilter(dbName, tableName, filter);
+                }
+            };
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    client, HiveTestProperties.minimal(), new FakeConnectorContext());
+            HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                    .partitionKeyNames(Collections.singletonList(partKey))
+                    .partitionKeyTypes(Collections.singletonMap(partKey, "STRING"))
+                    .build();
+
+            Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                    null, handle, new ConnectorFilterConstraint(eq(partKey, "2024-01-01")));
+
+            Assertions.assertTrue(result.isPresent(), partKey);
+            Assertions.assertEquals(Collections.singletonList(partKey + "=2024-01-01"),
+                    prunedLocations(result), partKey);
+            Assertions.assertFalse(filterAttempted[0], partKey + " must not build an HMS filter");
+            Assertions.assertTrue(client.wasListPartitionNamesCalled(), partKey + " prunes locally");
+        }
+    }
+
+    @Test
+    public void testHmsFilterDeclinesCharAndVarcharPartitionKeys() {
+        for (String typeName : Arrays.asList("CHAR", "VARCHAR")) {
+            List<String> parts = Arrays.asList("code=a", "code=b");
+            boolean[] filterAttempted = {false};
+            FakeHmsClient client = new FakeHmsClient(parts) {
+                @Override
+                public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName,
+                        String filter) {
+                    filterAttempted[0] = true;
+                    return super.listPartitionsByFilter(dbName, tableName, filter);
+                }
+            };
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    client, HiveTestProperties.minimal(), new FakeConnectorContext());
+            HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                    .partitionKeyNames(Collections.singletonList("code"))
+                    .partitionKeyTypes(Collections.singletonMap("code", typeName))
+                    .build();
+
+            Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                    null, handle, new ConnectorFilterConstraint(eq("code", "a")));
+
+            Assertions.assertTrue(result.isPresent(), typeName);
+            Assertions.assertEquals(Collections.singletonList("code=a"), prunedLocations(result), typeName);
+            Assertions.assertFalse(filterAttempted[0], typeName + " must not build an HMS filter");
+            Assertions.assertTrue(client.wasListPartitionNamesCalled(), typeName + " must prune locally");
+        }
+    }
+
+    @Test
+    public void testHmsFilterDeclinesNativeBinaryMappedToString() {
+        List<String> parts = Arrays.asList("code=a", "code=b");
+        boolean[] filterAttempted = {false};
+        FakeHmsClient client = new FakeHmsClient(parts) {
+            @Override
+            public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+                filterAttempted[0] = true;
+                return super.listPartitionsByFilter(dbName, tableName, filter);
+            }
+        };
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("code"))
+                .partitionKeyTypes(Collections.singletonMap("code", "STRING"))
+                .partitionKeyHiveTypes(Collections.singletonMap("code", "binary"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("code", "a")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("code=a"), prunedLocations(result));
+        Assertions.assertFalse(filterAttempted[0], "native binary must not build an HMS filter");
+        Assertions.assertTrue(client.wasListPartitionNamesCalled(), "native binary must prune locally");
+    }
+
+    @Test
     public void testEqOnPartitionColumnPrunes() {
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 applyFilter(partitionedHandle(), eq("year", "2024"));
@@ -97,6 +210,87 @@ public class HiveConnectorMetadataPartitionPruningTest {
         Assertions.assertEquals(
                 Collections.singletonList("year=2024/month=01"),
                 prunedLocations(result));
+    }
+
+    @Test
+    public void testHmsFilterPrunesWithoutListingAllPartitionNames() {
+        HmsFilterClient client = new HmsFilterClient(Collections.singletonList("year=2024/month=01"));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, partitionedHandle(), new ConnectorFilterConstraint(and(eq("year", "2024"), eq("month", "01"))));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("year=2024/month=01"), prunedLocations(result));
+        Assertions.assertEquals("(year = '2024' AND month = '01')", client.filter);
+        Assertions.assertFalse(client.wasListPartitionNamesCalled());
+    }
+
+    @Test
+    public void testHmsFilterRendersIntegralPartitionLiteralWithoutQuotes() {
+        HmsFilterClient client = new HmsFilterClient(Collections.singletonList("year=2024/month=01"));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(PART_KEYS)
+                .partitionKeyTypes(Map.of("year", "INT", "month", "STRING"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(and(eq("year", "2024"), eq("month", "01"))));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals("(year = 2024 AND month = '01')", client.filter);
+        Assertions.assertFalse(client.wasListPartitionNamesCalled());
+    }
+
+    @Test
+    public void testFilteredPartitionViewUsesHmsFilterWithoutListingAllPartitionNames() {
+        HmsFilterClient client = new HmsFilterClient(Collections.singletonList("year=2024/month=01"));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(null, partitionedHandle(),
+                Optional.of(and(eq("year", "2024"), eq("month", "01"))));
+
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals("year=2024/month=01", partitions.get(0).getPartitionName());
+        Assertions.assertEquals("(year = '2024' AND month = '01')", client.filter);
+        Assertions.assertFalse(client.wasListPartitionNamesCalled());
+    }
+
+    @Test
+    public void testPrunedHandleReusesFilteredPartitionView() {
+        HmsFilterClient client = new HmsFilterClient(Collections.singletonList("year=2024/month=01"));
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, partitionedHandle(), new ConnectorFilterConstraint(and(eq("year", "2024"), eq("month", "01"))));
+        Assertions.assertTrue(result.isPresent());
+
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(null, result.get().getHandle(),
+                Optional.empty());
+
+        Assertions.assertEquals(1, partitions.size());
+        Assertions.assertEquals("year=2024/month=01", partitions.get(0).getPartitionName());
+        Assertions.assertFalse(client.wasListPartitionNamesCalled());
+    }
+
+    @Test
+    public void testUnsupportedHmsFilterFallsBackToLocalPruning() {
+        FakeHmsClient client = new FakeHmsClient(PARTITIONS);
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                client, HiveTestProperties.minimal(), new FakeConnectorContext());
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(
+                Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedLocations(result));
+        Assertions.assertTrue(client.wasListPartitionNamesCalled());
     }
 
     @Test
@@ -132,6 +326,19 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void testHmsFilterDebugSummaryIsBounded() {
+        String filter = "x".repeat(HiveConnectorMetadata.MAX_DEBUG_HMS_FILTER_LENGTH + 1);
+        String lengthSuffix = "... (length=" + filter.length() + ")";
+
+        String summary = HiveConnectorMetadata.summarizeHmsFilterForDebug(filter);
+
+        Assertions.assertEquals(HiveConnectorMetadata.MAX_DEBUG_HMS_FILTER_LENGTH + lengthSuffix.length(),
+                summary.length());
+        Assertions.assertTrue(summary.startsWith("x".repeat(HiveConnectorMetadata.MAX_DEBUG_HMS_FILTER_LENGTH)));
+        Assertions.assertTrue(summary.endsWith(lengthSuffix));
+    }
+
+    @Test
     public void testUnpartitionedTableIsNotTouched() {
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.emptyList())
@@ -149,6 +356,69 @@ public class HiveConnectorMetadataPartitionPruningTest {
         Map<String, String> values = HiveConnectorMetadata.parsePartitionName(
                 "code=US%3ACA", Collections.singletonList("code"));
         Assertions.assertEquals("US:CA", values.get("code"), "colon-escaped value must be decoded");
+    }
+
+    @Test
+    public void parsePartitionNameBindsValuesToTheDeclaredKeysPositionally() {
+        // Hive's FileUtils.makePartName LOWERCASES the rendered key, so a declared key `P-X` comes back as
+        // `p-x`. Binding by the rendered spelling would find no value for the declared key, and because this
+        // prefilter's result IS the logical selected view, that silently pruned the whole table to zero rows.
+        // MUTATION: keying by the decoded segment name makes values.get("P-X") null here.
+        Map<String, String> values = HiveConnectorMetadata.parsePartitionName(
+                "p-x=1/part%3D1=v2", Arrays.asList("P-X", "PART=1"));
+        Assertions.assertEquals("1", values.get("P-X"),
+                "a lowercased rendered key must still bind to the declared key at the same position");
+        Assertions.assertEquals("v2", values.get("PART=1"),
+                "escaped declared keys bind positionally too, without decoding the rendered key");
+    }
+
+    @Test
+    public void parsePartitionNameRejectsASegmentCountThatCannotBeBound() {
+        // Not interpretable -> null, NOT "matches nothing": the caller keeps such a name instead of dropping
+        // it, because only the positions tie a value to a key. A sentence like "year=2024" against two
+        // declared keys gives no way to say which value belongs to which key.
+        Assertions.assertNull(HiveConnectorMetadata.parsePartitionName(
+                "year=2024", Arrays.asList("year", "month")));
+    }
+
+    @Test
+    public void testLocalFallbackBindsUppercaseSpecialCharKeyPositionally() {
+        // The metastore filter grammar cannot name `P-X` (dash), so this prunes through the local fallback,
+        // where HMS renders the key LOWERCASED (`p-x=1`). RED before the positional binding: the declared key
+        // finds no value, every partition is rejected, and the pruned set is EMPTY (silent row loss).
+        List<String> parts = Arrays.asList("p-x=1", "p-x=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("P-X"))
+                .partitionKeyTypes(Collections.singletonMap("P-X", "INT"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("P-X", "1")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("p-x=1"), prunedLocations(result));
+    }
+
+    @Test
+    public void testLocalFallbackKeepsNamesItCannotDecode() {
+        // A metastore name whose segment count does not match the declared partition keys cannot be bound, so
+        // it must be KEPT: dropping it would drop the only partitions that could hold the rows. With nothing
+        // prunable left the connector declines the filter entirely (handle untouched = scan everything).
+        List<String> parts = Arrays.asList("p-x=1", "p-x=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Arrays.asList("P-X", "M"))
+                .partitionKeyTypes(Collections.singletonMap("P-X", "INT"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("P-X", "1")));
+
+        Assertions.assertFalse(result.isPresent(),
+                "an undecodable name must survive the prefilter, leaving nothing to prune");
     }
 
     @Test
@@ -281,8 +551,9 @@ public class HiveConnectorMetadataPartitionPruningTest {
      * whose location IS the partition name (so the pruning selection can be asserted).
      * The rest fail loud.
      */
-    private static final class FakeHmsClient implements HmsClient {
+    private static class FakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private boolean listPartitionNamesCalled;
 
         FakeHmsClient(List<String> partitionNames) {
             this.partitionNames = partitionNames;
@@ -290,7 +561,12 @@ public class HiveConnectorMetadataPartitionPruningTest {
 
         @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+            listPartitionNamesCalled = true;
             return partitionNames;
+        }
+
+        boolean wasListPartitionNamesCalled() {
+            return listPartitionNamesCalled;
         }
 
         @Override
@@ -298,7 +574,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
                 List<String> partNames) {
             List<HmsPartitionInfo> result = new ArrayList<>();
             for (String name : partNames) {
-                result.add(new HmsPartitionInfo(Collections.emptyList(), name,
+                result.add(new HmsPartitionInfo(HiveWriteUtils.toPartitionValues(name), name,
                         null, null, null, Collections.emptyMap()));
             }
             return result;
@@ -341,6 +617,22 @@ public class HiveConnectorMetadataPartitionPruningTest {
 
         @Override
         public void close() {
+        }
+    }
+
+    private static final class HmsFilterClient extends FakeHmsClient {
+        private final List<String> filteredPartitionNames;
+        private String filter;
+
+        HmsFilterClient(List<String> filteredPartitionNames) {
+            super(Collections.emptyList());
+            this.filteredPartitionNames = filteredPartitionNames;
+        }
+
+        @Override
+        public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+            this.filter = filter;
+            return getPartitions(dbName, tableName, filteredPartitionNames);
         }
     }
 }

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -38,6 +39,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
@@ -645,6 +647,15 @@ public class StatementContext implements Closeable {
      */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
+        registerExternalTableForPreload(table, tableSnapshot, scanParams, false);
+    }
+
+    /**
+     * Register an external relation for pre-lock metadata preload. {@code hasInitialFilter} records whether
+     * this relation is below a LogicalFilter in the plan before locks are acquired.
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams, boolean hasInitialFilter) {
         if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
             return;
         }
@@ -660,6 +671,9 @@ public class StatementContext implements Closeable {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
+            if (!hasInitialFilter) {
+                preloadInfo.markUnfilteredLatestRelation();
+            }
         }
     }
 
@@ -1271,6 +1285,12 @@ public class StatementContext implements Closeable {
         latestSnapshots.clear();
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
+        // A recorded scan partition view belongs to ONE execution: carrying it into the next one would pin a
+        // stale partition set and, because the recorded value is what the warmup checks, also suppress warming
+        // that execution. The preload CANDIDATES survive, exactly like the preload completion below.
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            preloadInfo.clearScanPartitionView();
+        }
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1421,6 +1441,115 @@ public class StatementContext implements Closeable {
 
     public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
         return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    /**
+     * The preload record of one external table, or empty when the table was never registered for preload.
+     * Used by lock-sensitive consumers to reuse metadata the pre-lock preload pass already materialized.
+     *
+     * @param tableId the table's id, as used by {@link #registerExternalTableForPreload}
+     * @return ExternalTablePreloadInfo
+     */
+    public Optional<ExternalTablePreloadInfo> getExternalTablePreloadInfo(long tableId) {
+        return Optional.ofNullable(externalTablePreloadInfos.get(tableId));
+    }
+
+    /**
+     * Materializes every deferred connector partition view that can be consumed while the internal table read
+     * locks are held. This step is unconditional for physical finalization: it exists so the default
+     * configuration gets the lock scope, not only the opt-in {@code enable_preload_external_metadata} pass.
+     *
+     * <p>WHY it is needed at all: {@code QueryPartitionCollector} runs from
+     * {@code InitMaterializationContextHook.afterRewrite}, i.e. while {@link #lock()} is held, and an unfiltered
+     * connector-pruning file scan is still {@code DEFERRED} at that point. Even with both MV rewrite switches
+     * off, {@code PluginDrivenScanNode.doFinalize} still materializes a no-filter deferred scan before the
+     * planner releases the internal read locks. Materializing the same view here moves both consumers outside
+     * the lock window.</p>
+     *
+     * <p>WHY plan-only EXPLAIN is skipped: it does not execute physical finalization, so with both MV rewrite
+     * switches off it has no consumer that must see a materialized partition view. The MV gate is deliberately
+     * the OR of the two switches - the query hook is registered from {@code enable_materialized_view_rewrite}
+     * and the DML hook from {@code enable_dml_materialized_view_rewrite} - because gating on only one of them
+     * leaves the collector enumerating under the lock in the other configuration.</p>
+     */
+    public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+        ConnectContext connectContext = getConnectContext();
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return;
+        }
+        boolean mvCollectorWillRun = connectContext.getSessionVariable().isEnableMaterializedViewRewrite()
+                || connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite();
+        if (!willFinalizePhysicalPlan && !mvCollectorWillRun) {
+            return;
+        }
+        if (!hasAnyPlanReadLockTable()) {
+            return;
+        }
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            preloadDeferredScanPartitionView(preloadInfo);
+        }
+    }
+
+    /**
+     * Materializes one table's deferred scan partition view and records it on its preload entry. No-op when the
+     * view is already materialized, when no latest reference is initially unfiltered, or when the connector
+     * does not support deferred partition pruning: a filtered relation must let connector pruning avoid the
+     * full view instead of eagerly enumerating it.
+     */
+    public void preloadDeferredScanPartitionView(ExternalTablePreloadInfo preloadInfo) {
+        if (preloadInfo.hasScanPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || !preloadInfo.shouldPreloadUnfilteredScanPartitionView()) {
+            return;
+        }
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
+            return;
+        }
+        preloadInfo.setScanPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
+    }
+
+    /**
+     * Resolves the scan-path partition view of ONE table reference for every consumer in this statement, from a
+     * single generation.
+     *
+     * <p>WHY one generation: the MV partition compensator decides which base partitions a rewritten query still
+     * has to read from the base table BY NAME - the compensation union branch is restricted to exactly the
+     * recorded names - while the physical scan reads the partitions of its own, later, enumeration. Two
+     * generations mean a partition added between them is read by neither branch, and its rows silently
+     * disappear from a rewritten query. The first caller therefore materializes the view, every later caller in
+     * the same statement reuses it, and the compensation decision and the data read describe the same partition
+     * set. The pre-lock warmup ({@link #preloadDeferredScanPartitionViewsBeforeLock}) normally wins that race,
+     * so the enumeration also stays outside the planner's lock window whenever that step ran.</p>
+     *
+     * <p>A reference carrying a version selector is NOT served from the record, and is not recorded: the record
+     * is per table and the warmup materializes the LATEST generation only, so reusing it for e.g.
+     * {@code @branch} would describe a partition set that reference never reads.</p>
+     *
+     * @param table       the external table the reference belongs to
+     * @param tableSnapshot the reference's FOR VERSION/TIME AS OF selector (if any)
+     * @param scanParams    the reference's {@code @branch}/{@code @tag} selector (if any)
+     * @param enumeration   how to materialize the view when no recorded one applies; invoked at most once per
+     *                      recorded table
+     * @return the view; an {@link Optional#empty()} result means the connector view is UNAVAILABLE, which every
+     *         caller must read as "read every partition", never as "read none"
+     */
+    public Optional<Map<String, PartitionItem>> resolveScanPartitionView(ExternalTable table,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Supplier<Optional<Map<String, PartitionItem>>> enumeration) {
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            return enumeration.get();
+        }
+        // The entry is created on demand rather than required to pre-exist: this is the first phase that runs
+        // after the preload pass (which is done with the map by then, candidates and bookkeeping alike), so
+        // recording here can neither pull the table into a preload nor mutate a finished result.
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo(table));
+        if (!preloadInfo.hasScanPartitionView()) {
+            preloadInfo.setScanPartitionView(enumeration.get());
+        }
+        return preloadInfo.getScanPartitionView();
     }
 
     public int getExternalTablePreloadCandidateCount() {

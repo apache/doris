@@ -240,6 +240,65 @@ public class ThriftHmsClient implements HmsClient {
     }
 
     @Override
+    public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        int threshold = filteredPartitionThreshold(partitionBatchSize);
+        FilteredPartitionPage page = execute(client ->
+                fetchFilteredPartitionPage(client, dbName, tableName, filter, threshold));
+        // The saturation decision MUST use the RAW metastore page size, not the hook-filtered list: the
+        // metastore filter hook runs after the raw cap, so a hidden entry in a truncated first page would
+        // otherwise make the response look complete and silently drop matching partitions.
+        if (isFilteredPartitionResponseSaturated(page.rawCount, threshold)) {
+            throw new HmsPartitionFilterSaturatedException(threshold);
+        }
+        return page.partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
+    }
+
+    private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
+            String tableName, String filter, int threshold) throws Exception {
+        int pageLimit = threshold + 1;
+        if (client instanceof HmsRawPartitionFilterPageSource) {
+            HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
+                    .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
+            return new FilteredPartitionPage(page.getPartitions(), page.getRawCount());
+        }
+        // A client without the raw-page contract can only report its post-hook size; keep the previous
+        // best-effort behavior for it.
+        List<Partition> partitions = client.listPartitionsByFilter(
+                dbName, tableName, filter, (short) pageLimit);
+        return new FilteredPartitionPage(partitions, partitions.size());
+    }
+
+    /** One raw partition-filter page: the hook-filtered partitions plus the raw (pre-hook) page size. */
+    private static final class FilteredPartitionPage {
+        private final List<Partition> partitions;
+        private final int rawCount;
+
+        private FilteredPartitionPage(List<Partition> partitions, int rawCount) {
+            this.partitions = partitions;
+            this.rawCount = rawCount;
+        }
+    }
+
+    /**
+     * The saturation threshold of one filtered request: the connector's configured partition batch size
+     * ({@code hive.hms_partitions_batch_size_per_rpc}), so an operator can bring the probe below a metastore
+     * hardened with a smaller {@code metastore.limit.partition.request} - the metastore validates the REQUESTED
+     * {@code max_parts}, so probing above its limit fails every filter call instead of returning a page.
+     *
+     * <p>Capped at {@code Short.MAX_VALUE - 1}: the probe is {@code threshold + 1} and the Thrift field is a
+     * short, so a threshold at the cap would be narrowed on the wire and a saturated page would look complete.
+     * The configuration layer rejects a non-positive batch size, so no lower bound is needed here.</p>
+     */
+    static int filteredPartitionThreshold(int partitionBatchSize) {
+        return Math.min(partitionBatchSize, Short.MAX_VALUE - 1);
+    }
+
+    /** Whether a raw (pre-hook) page of {@code partitionCount} entries means the request was capped. */
+    static boolean isFilteredPartitionResponseSaturated(int partitionCount, int threshold) {
+        return partitionCount > threshold;
+    }
+
+    @Override
     public List<HmsPartitionInfo> getPartitions(String dbName,
             String tableName, List<String> partNames) {
         return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
@@ -823,8 +882,11 @@ public class ThriftHmsClient implements HmsClient {
         StorageDescriptor sd = table.getSd();
         List<ConnectorColumn> columns = convertFieldSchemas(
                 sd != null ? sd.getCols() : Collections.emptyList());
-        List<ConnectorColumn> partKeys = convertFieldSchemas(
-                table.getPartitionKeys());
+        List<FieldSchema> rawPartKeys = table.getPartitionKeys();
+        List<ConnectorColumn> partKeys = convertFieldSchemas(rawPartKeys);
+        Map<String, String> partitionKeyHiveTypes = rawPartKeys == null
+                ? Collections.emptyMap()
+                : rawPartKeys.stream().collect(Collectors.toMap(FieldSchema::getName, FieldSchema::getType));
 
         HmsTableInfo.Builder builder = HmsTableInfo.builder()
                 .dbName(table.getDbName())
@@ -837,7 +899,8 @@ public class ThriftHmsClient implements HmsClient {
                 .viewOriginalText(table.getViewOriginalText())
                 .viewExpandedText(table.getViewExpandedText())
                 .columns(columns)
-                .partitionKeys(partKeys);
+                .partitionKeys(partKeys)
+                .partitionKeyHiveTypes(partitionKeyHiveTypes);
 
         if (sd != null) {
             builder.location(sd.getLocation())
