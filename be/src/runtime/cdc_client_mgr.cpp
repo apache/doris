@@ -82,6 +82,10 @@ std::atomic<bool> g_cdc_sigchld_handler_paused {false};
 std::atomic<bool> g_cdc_child_claim_failed {false};
 std::atomic<bool> g_pause_cdc_child_inspection_after_running {false};
 std::atomic<bool> g_cdc_child_inspection_paused {false};
+std::atomic<bool> g_pause_cdc_sigchld_before_claim {false};
+std::atomic<bool> g_cdc_sigchld_before_claim_paused {false};
+std::atomic<bool> g_pause_cdc_stale_child_claim {false};
+std::atomic<bool> g_cdc_stale_child_claim_paused {false};
 #endif
 
 pid_t child_pid(uint64_t identity) {
@@ -123,6 +127,15 @@ bool try_claim_or_request_child_reap(uint64_t identity) {
     while (true) {
         if (operation == 0) {
             if (g_cdc_child_operation.compare_exchange_weak(operation, identity)) {
+#ifdef BE_TEST
+                if (g_pause_cdc_stale_child_claim.load() &&
+                    g_cdc_child_identity.load() != identity) {
+                    g_cdc_stale_child_claim_paused.store(true);
+                    while (g_pause_cdc_stale_child_claim.load()) {
+                    }
+                    g_cdc_stale_child_claim_paused.store(false);
+                }
+#endif
                 if (g_cdc_child_identity.load() == identity) {
                     return true;
                 }
@@ -197,41 +210,59 @@ void release_terminal_child_identity(uint64_t identity) {
 // on a glibc host and loaded the musl build of librocksdbjni.so. Wait for our own pid only.
 void handle_sigchld(int sig_no) {
     const int saved_errno = errno;
-    const uint64_t cdc_identity = g_cdc_child_identity.load();
-    const pid_t cdc_pid = child_pid(cdc_identity);
-    // Never retain a raw pid without the operation claim. If another actor owns this identity, the
-    // helper attaches a pending-reap handoff to that claim before this handler returns.
-    if (cdc_pid <= 0 || !try_claim_or_request_child_reap(cdc_identity)) {
-        errno = saved_errno;
-        return;
-    }
+    uint64_t cdc_identity = g_cdc_child_identity.load();
+    while (child_pid(cdc_identity) > 0) {
 #ifdef BE_TEST
-    if (g_pause_cdc_sigchld_handler.load()) {
-        g_cdc_sigchld_handler_paused.store(true);
-        while (g_pause_cdc_sigchld_handler.load()) {
+        if (g_pause_cdc_sigchld_before_claim.load()) {
+            g_cdc_sigchld_before_claim_paused.store(true);
+            while (g_pause_cdc_sigchld_before_claim.load()) {
+            }
+            g_cdc_sigchld_before_claim_paused.store(false);
         }
-        g_cdc_sigchld_handler_paused.store(false);
-    }
 #endif
-    while (true) {
-        int status = 0;
-        pid_t wait_result;
-        do {
-            wait_result = waitpid(cdc_pid, &status, WNOHANG);
-        } while (wait_result < 0 && errno == EINTR);
-        if (wait_result == cdc_pid || (wait_result < 0 && errno == ECHILD)) {
-            uint64_t expected = cdc_identity;
-            g_cdc_child_identity.compare_exchange_strong(expected, 0);
-            // Reaping makes the numeric pid reusable. Consume stale handoffs without issuing
-            // another syscall against a pid that may already belong to a different child.
-            release_terminal_child_identity(cdc_identity);
-            break;
+        // Never retain a raw pid without the operation claim. If another actor owns this identity,
+        // the helper attaches a pending-reap handoff to that claim before this handler returns.
+        if (!try_claim_or_request_child_reap(cdc_identity)) {
+            const uint64_t current_identity = g_cdc_child_identity.load();
+            if (current_identity == cdc_identity) {
+                break;
+            }
+            // A delayed handler can claim a revoked generation after its successor was published.
+            // Its stale claim briefly blocks the successor's handler. Recheck the current generation
+            // after releasing that claim so the successor's only SIGCHLD is not lost.
+            cdc_identity = current_identity;
+            continue;
         }
-        // No syscall may use cdc_pid after a successful release. If a concurrent handler marked
-        // this claim pending, consume the request and repeat waitpid before releasing instead.
-        if (release_child_identity_if_quiescent(cdc_identity)) {
-            break;
+#ifdef BE_TEST
+        if (g_pause_cdc_sigchld_handler.load()) {
+            g_cdc_sigchld_handler_paused.store(true);
+            while (g_pause_cdc_sigchld_handler.load()) {
+            }
+            g_cdc_sigchld_handler_paused.store(false);
         }
+#endif
+        const pid_t cdc_pid = child_pid(cdc_identity);
+        while (true) {
+            int status = 0;
+            pid_t wait_result;
+            do {
+                wait_result = waitpid(cdc_pid, &status, WNOHANG);
+            } while (wait_result < 0 && errno == EINTR);
+            if (wait_result == cdc_pid || (wait_result < 0 && errno == ECHILD)) {
+                uint64_t expected = cdc_identity;
+                g_cdc_child_identity.compare_exchange_strong(expected, 0);
+                // Reaping makes the numeric pid reusable. Consume stale handoffs without issuing
+                // another syscall against a pid that may already belong to a different child.
+                release_terminal_child_identity(cdc_identity);
+                break;
+            }
+            // No syscall may use cdc_pid after a successful release. If a concurrent handler marked
+            // this claim pending, consume the request and repeat waitpid before releasing instead.
+            if (release_child_identity_if_quiescent(cdc_identity)) {
+                break;
+            }
+        }
+        break;
     }
     errno = saved_errno;
 }
@@ -489,6 +520,22 @@ void CdcClientMgr::pause_child_inspection_after_running_for_test(bool pause) {
 
 bool CdcClientMgr::child_inspection_paused_for_test() {
     return g_cdc_child_inspection_paused.load();
+}
+
+void CdcClientMgr::pause_sigchld_before_claim_for_test(bool pause) {
+    g_pause_cdc_sigchld_before_claim.store(pause);
+}
+
+bool CdcClientMgr::sigchld_before_claim_paused_for_test() {
+    return g_cdc_sigchld_before_claim_paused.load();
+}
+
+void CdcClientMgr::pause_stale_child_claim_for_test(bool pause) {
+    g_pause_cdc_stale_child_claim.store(pause);
+}
+
+bool CdcClientMgr::stale_child_claim_paused_for_test() {
+    return g_cdc_stale_child_claim_paused.load();
 }
 #endif
 

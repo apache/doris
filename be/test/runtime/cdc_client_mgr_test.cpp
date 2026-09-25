@@ -41,6 +41,26 @@
 
 namespace doris {
 
+namespace {
+
+void reap_direct_child_if_present(pid_t pid) {
+    siginfo_t child_info {};
+    if (waitid(P_PID, pid, &child_info, WEXITED | WNOHANG | WNOWAIT) != 0) {
+        EXPECT_EQ(errno, ECHILD);
+        return;
+    }
+    if (child_info.si_pid == 0) {
+        EXPECT_EQ(kill(pid, SIGKILL), 0);
+    }
+    pid_t wait_result;
+    do {
+        wait_result = waitpid(pid, nullptr, 0);
+    } while (wait_result < 0 && errno == EINTR);
+    EXPECT_EQ(wait_result, pid);
+}
+
+} // namespace
+
 class CdcClientMgrTest : public testing::Test {
 public:
     void SetUp() override {
@@ -147,42 +167,127 @@ TEST_F(CdcClientMgrTest, StopWhenProcessDead) {
 // Test stop when the published pid cannot be reaped as this process's own child. The
 // generation-qualified cleanup observes ECHILD there, which counts as success, so stop() must
 // revoke ownership without signalling: a pid this process cannot reap is not one it may operate on.
+// The signal and pipe checkpoints must stay in this process-lifecycle test.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(CdcClientMgrTest, StopDoesNotSignalANonChildPid) {
     CdcClientMgr mgr;
 
-    // Use popen to start a background sleep process and get its PID
-    // This avoids fork() which conflicts with gcov/coverage tools
-    FILE* pipe = popen("sleep 10 & echo $!", "r");
-    if (pipe) {
-        char buffer[128];
-        if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-            pid_t real_pid = std::atoi(buffer);
-            pclose(pipe);
-
-            if (real_pid > 0) {
-                // Set the PID in the manager
-                mgr.set_child_pid_for_test(real_pid);
-
-                // pclose() already reaped the shell, so the background sleep is not this process's
-                // child and stop() reaches terminate_and_reap_child only to find ECHILD.
-                mgr.stop();
-
-                // Verify PID is reset
-                EXPECT_EQ(mgr.get_child_pid(), 0);
-
-                // The early return on ECHILD is what keeps stop() off a pid it does not own; without
-                // it this kill() would report ESRCH.
-                EXPECT_EQ(kill(real_pid, 0), 0)
-                        << "stop() signalled a pid it could not reap as its own child";
-
-                // Clean up: make sure child is dead
-                kill(real_pid, SIGKILL);
-                waitpid(real_pid, nullptr, WNOHANG);
-            }
-        } else {
-            pclose(pipe);
+    int pid_pipe[2];
+    ASSERT_EQ(pipe(pid_pipe), 0);
+    Defer close_pid_pipe {[&]() {
+        close(pid_pipe[0]);
+        if (pid_pipe[1] >= 0) {
+            close(pid_pipe[1]);
         }
+    }};
+    int report_pipe[2];
+    ASSERT_EQ(pipe(report_pipe), 0);
+    Defer close_report_pipe {[&]() {
+        close(report_pipe[0]);
+        if (report_pipe[1] >= 0) {
+            close(report_pipe[1]);
+        }
+    }};
+    int phase_pipe[2];
+    ASSERT_EQ(pipe(phase_pipe), 0);
+    Defer close_phase_pipe {[&]() {
+        if (phase_pipe[0] >= 0) {
+            close(phase_pipe[0]);
+        }
+        close(phase_pipe[1]);
+    }};
+
+    struct sigaction old_pipe_action {};
+    ASSERT_EQ(sigaction(SIGPIPE, nullptr, &old_pipe_action), 0);
+    struct sigaction ignored_pipe_action {};
+    ignored_pipe_action.sa_handler = SIG_IGN;
+    sigemptyset(&ignored_pipe_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGPIPE, &ignored_pipe_action, nullptr), 0);
+    Defer restore_pipe_action {[&]() { sigaction(SIGPIPE, &old_pipe_action, nullptr); }};
+
+    posix_spawn_file_actions_t actions;
+    ASSERT_EQ(posix_spawn_file_actions_init(&actions), 0);
+    Defer destroy_actions {[&]() { posix_spawn_file_actions_destroy(&actions); }};
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, pid_pipe[0]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[0]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, phase_pipe[1]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, pid_pipe[1], STDOUT_FILENO), 0);
+    ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, report_pipe[1], STDERR_FILENO), 0);
+    ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, phase_pipe[0], STDIN_FILENO), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, pid_pipe[1]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[1]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, phase_pipe[0]), 0);
+
+    posix_spawnattr_t attr;
+    ASSERT_EQ(posix_spawnattr_init(&attr), 0);
+    Defer destroy_attr {[&]() { posix_spawnattr_destroy(&attr); }};
+    sigset_t no_signals;
+    sigemptyset(&no_signals);
+    sigset_t default_signals;
+    sigemptyset(&default_signals);
+    sigaddset(&default_signals, SIGTERM);
+    sigaddset(&default_signals, SIGCHLD);
+    ASSERT_EQ(posix_spawnattr_setsigmask(&attr, &no_signals), 0);
+    ASSERT_EQ(posix_spawnattr_setsigdefault(&attr, &default_signals), 0);
+    ASSERT_EQ(posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF), 0);
+
+    // The launcher reports its background helper's PID and exits. The helper keeps the report and
+    // phase pipes open but is no longer this process's child when the launcher has been reaped.
+    pid_t launcher = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("sh -c 'trap \"printf S >&2\" TERM; printf R >&2; "
+                                            "while IFS= read -r phase; do printf A >&2; done' "
+                                            "<&0 >/dev/null & echo $!"),
+                          nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&launcher, "/bin/sh", &actions, &attr, argv, envp), 0);
+    ASSERT_GT(launcher, 0);
+    bool launcher_reaped = false;
+    Defer cleanup_launcher {[&]() {
+        if (!launcher_reaped) {
+            reap_direct_child_if_present(launcher);
+        }
+    }};
+    close(pid_pipe[1]);
+    pid_pipe[1] = -1;
+    close(report_pipe[1]);
+    report_pipe[1] = -1;
+    close(phase_pipe[0]);
+    phase_pipe[0] = -1;
+
+    char pid_text[32] {};
+    size_t pid_length = 0;
+    char digit = 0;
+    for (; pid_length < sizeof(pid_text) - 1; ++pid_length) {
+        ASSERT_EQ(read(pid_pipe[0], &digit, 1), 1);
+        if (digit == '\n') {
+            break;
+        }
+        pid_text[pid_length] = digit;
     }
+    ASSERT_EQ(digit, '\n');
+    const pid_t helper_pid = std::atoi(pid_text);
+    ASSERT_GT(helper_pid, 0);
+    int launcher_status = 0;
+    ASSERT_EQ(waitpid(launcher, &launcher_status, 0), launcher);
+    launcher_reaped = true;
+    ASSERT_TRUE(WIFEXITED(launcher_status));
+    ASSERT_EQ(WEXITSTATUS(launcher_status), 0);
+    errno = 0;
+    ASSERT_EQ(waitpid(helper_pid, nullptr, WNOHANG), -1);
+    ASSERT_EQ(errno, ECHILD);
+
+    char ready = 0;
+    ASSERT_EQ(read(report_pipe[0], &ready, 1), 1);
+    ASSERT_EQ(ready, 'R');
+    mgr.set_child_pid_for_test(helper_pid);
+    mgr.stop();
+    EXPECT_EQ(mgr.get_child_pid(), 0);
+
+    ASSERT_EQ(write(phase_pipe[1], "\n", 1), 1);
+    char phase_ack = 0;
+    ASSERT_EQ(read(report_pipe[0], &phase_ack, 1), 1);
+    ASSERT_EQ(phase_ack, 'A') << "stop() sent SIGTERM to a process it could not reap";
 }
 
 // Test stop with a direct child that requires force kill.
@@ -364,6 +469,8 @@ TEST_F(CdcClientMgrTest, StartCdcClientWithResult) {
 // java.lang.ProcessHandleImpl turns the resulting ECHILD into exit code 0 whatever the child
 // really returned - Java code inside BE that branches on an exit status then takes the wrong
 // branch silently. The handler must wait on the cdc client's pid alone.
+// The failure cleanup and handler checkpoint are part of one process-lifecycle test.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
     CdcClientMgr mgr;
     PRequestCdcClientResult result;
@@ -376,6 +483,12 @@ TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
     char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
     ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
     ASSERT_GT(pid, 0);
+    bool child_reaped = false;
+    Defer cleanup_child {[&]() {
+        if (!child_reaped) {
+            reap_direct_child_if_present(pid);
+        }
+    }};
 
     // Wait for the handler itself to run before reaping anything. The handler unpublishes the
     // identity it was handed once its own waitpid has returned, so the published test child
@@ -391,6 +504,7 @@ TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
 
     int child_status = 0;
     const pid_t reaped = waitpid(pid, &child_status, 0);
+    child_reaped = reaped == pid;
     ASSERT_EQ(reaped, pid) << "the cdc SIGCHLD handler consumed a child that is not the cdc client";
     ASSERT_TRUE(WIFEXITED(child_status));
     EXPECT_EQ(WEXITSTATUS(child_status), 7);
@@ -533,6 +647,8 @@ TEST_F(CdcClientMgrTest, StopWaitsForAHandlerHoldingTheOldChildIdentity) {
     EXPECT_EQ(errno, ECHILD);
 }
 
+// Both signal phases and their cleanup must remain visible in one test.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     int report_pipe[2];
     ASSERT_EQ(pipe(report_pipe), 0);
@@ -542,13 +658,32 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
             close(report_pipe[1]);
         }
     }};
+    int phase_pipe[2];
+    ASSERT_EQ(pipe(phase_pipe), 0);
+    Defer close_phase_pipe {[&]() {
+        if (phase_pipe[0] >= 0) {
+            close(phase_pipe[0]);
+        }
+        close(phase_pipe[1]);
+    }};
+
+    struct sigaction old_pipe_action {};
+    ASSERT_EQ(sigaction(SIGPIPE, nullptr, &old_pipe_action), 0);
+    struct sigaction ignored_pipe_action {};
+    ignored_pipe_action.sa_handler = SIG_IGN;
+    sigemptyset(&ignored_pipe_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGPIPE, &ignored_pipe_action, nullptr), 0);
+    Defer restore_pipe_action {[&]() { sigaction(SIGPIPE, &old_pipe_action, nullptr); }};
 
     posix_spawn_file_actions_t actions;
     ASSERT_EQ(posix_spawn_file_actions_init(&actions), 0);
     Defer destroy_actions {[&]() { posix_spawn_file_actions_destroy(&actions); }};
     ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, report_pipe[1], STDOUT_FILENO), 0);
+    ASSERT_EQ(posix_spawn_file_actions_adddup2(&actions, phase_pipe[0], STDIN_FILENO), 0);
     ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[0]), 0);
     ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, report_pipe[1]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, phase_pipe[0]), 0);
+    ASSERT_EQ(posix_spawn_file_actions_addclose(&actions, phase_pipe[1]), 0);
 
     // Give the child its own signal environment instead of the inherited one: all of the suites run
     // in one process, so any case that leaves SIGTERM ignored or blocked behind it decides whether
@@ -569,21 +704,22 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     ASSERT_EQ(posix_spawnattr_setsigdefault(&attr, &default_signals), 0);
     ASSERT_EQ(posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF), 0);
 
-    // The shell reports readiness and then reports that SIGTERM reached it, so the graceful half of
-    // the reap sequence is observable: a child taken out by the forced-kill fallback reports
-    // nothing, and then the pipe is at EOF rather than blocking, because the background sleep is
-    // detached from it. `wait` keeps the trap prompt - a shell blocked on a foreground child defers
-    // traps until that child exits, which is longer than the grace window.
+    // The shell reports S if the stale identity signals it. It acknowledges the phase change with
+    // A only after processing the first phase, then reports T for the intentional stop().
     pid_t pid = 0;
-    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
-                          const_cast<char*>("trap 'printf T; exit 0' TERM; printf R; "
-                                            "sleep 10 </dev/null >/dev/null 2>&1 & wait $!"),
-                          nullptr};
+    char* const argv[] = {
+            const_cast<char*>("sh"), const_cast<char*>("-c"),
+            const_cast<char*>("trap 'printf S' TERM; printf R; "
+                              "IFS= read -r phase; trap 'printf T; exit 0' TERM; "
+                              "printf A; sleep 10 </dev/null >/dev/null 2>&1 & wait $!"),
+            nullptr};
     char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
     ASSERT_EQ(posix_spawn(&pid, "/bin/sh", &actions, &attr, argv, envp), 0);
     ASSERT_GT(pid, 0);
     close(report_pipe[1]);
     report_pipe[1] = -1;
+    close(phase_pipe[0]);
+    phase_pipe[0] = -1;
 
     // Declare the manager before the cleanup guard so that a fatal assertion destroys the guard
     // first: it kills and reaps this direct child, and the manager's stop() then observes ECHILD
@@ -592,8 +728,7 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     bool child_needs_cleanup = true;
     Defer cleanup {[&]() {
         if (child_needs_cleanup) {
-            kill(pid, SIGKILL);
-            waitpid(pid, nullptr, 0);
+            reap_direct_child_if_present(pid);
         }
     }};
 
@@ -608,19 +743,114 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     ASSERT_NE(old_identity, replacement_identity);
     ASSERT_EQ(mgr.get_child_identity_for_test(), replacement_identity);
 
-    EXPECT_FALSE(mgr.terminate_child_identity_for_test(old_identity));
-    EXPECT_EQ(kill(pid, 0), 0)
-            << "cleanup retained a stale raw pid and signalled its replacement generation";
+    ASSERT_FALSE(mgr.terminate_child_identity_for_test(old_identity));
+    ASSERT_EQ(write(phase_pipe[1], "\n", 1), 1);
+    char phase_ack = 0;
+    ASSERT_EQ(read(report_pipe[0], &phase_ack, 1), 1);
+    ASSERT_EQ(phase_ack, 'A') << "the stale generation delivered SIGTERM before stop()";
 
     mgr.stop();
-    child_needs_cleanup = false;
     EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+    errno = 0;
+    const pid_t wait_result = waitpid(pid, nullptr, WNOHANG);
+    const int wait_error = errno;
+    child_needs_cleanup = wait_result < 0 && wait_error == ECHILD;
+    EXPECT_EQ(wait_result, -1);
+    EXPECT_EQ(wait_error, ECHILD);
 
     char handled = 0;
     EXPECT_EQ(read(report_pipe[0], &handled, 1), 1)
             << "the published child was collected without reporting the SIGTERM trap: it either "
                "never got to run it, or was not scheduled inside the grace window";
     EXPECT_EQ(handled, 'T') << "stop() fell through the grace window to the forced kill";
+}
+
+// The controlled interleaving and cleanup must remain visible in one test.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(CdcClientMgrTest, DelayedHandlerReapsExitedSuccessorGeneration) {
+    sigset_t blocked;
+    sigset_t old_mask;
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGCHLD);
+    ASSERT_EQ(pthread_sigmask(SIG_BLOCK, &blocked, &old_mask), 0);
+    Defer restore_mask {[&]() { pthread_sigmask(SIG_SETMASK, &old_mask, nullptr); }};
+
+    struct sigaction old_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &old_action), 0);
+    struct sigaction default_action {};
+    default_action.sa_handler = SIG_DFL;
+    sigemptyset(&default_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGCHLD, &default_action, nullptr), 0);
+    Defer restore_action {[&]() { sigaction(SIGCHLD, &old_action, nullptr); }};
+
+    CdcClientMgr mgr;
+    const uint64_t old_identity = mgr.set_child_pid_for_test(99999);
+    ASSERT_NE(old_identity, 0);
+    CdcClientMgr::pause_sigchld_before_claim_for_test(true);
+    Defer resume_handlers {[]() {
+        CdcClientMgr::pause_sigchld_before_claim_for_test(false);
+        CdcClientMgr::pause_stale_child_claim_for_test(false);
+    }};
+    std::thread delayed_handler([]() { CdcClientMgr::invoke_sigchld_handler_for_test(); });
+    Defer resume_and_join_delayed {[&]() {
+        CdcClientMgr::pause_sigchld_before_claim_for_test(false);
+        CdcClientMgr::pause_stale_child_claim_for_test(false);
+        if (delayed_handler.joinable()) {
+            delayed_handler.join();
+        }
+    }};
+    for (int i = 0; i < 5000 && !CdcClientMgr::sigchld_before_claim_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(CdcClientMgr::sigchld_before_claim_paused_for_test());
+
+    pid_t pid = 0;
+    char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
+                          const_cast<char*>("exec sleep 3600"), nullptr};
+    char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
+    ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
+    ASSERT_GT(pid, 0);
+    bool child_reaped = false;
+    Defer cleanup_child {[&]() {
+        if (!child_reaped) {
+            reap_direct_child_if_present(pid);
+        }
+    }};
+
+    const uint64_t successor_identity = mgr.set_child_pid_for_test(pid);
+    ASSERT_NE(successor_identity, old_identity);
+    ASSERT_TRUE(mgr.inspect_child_identity_for_test(successor_identity));
+    ASSERT_TRUE(mgr.inspect_child_identity_for_test(successor_identity));
+
+    CdcClientMgr::pause_stale_child_claim_for_test(true);
+    CdcClientMgr::pause_sigchld_before_claim_for_test(false);
+    for (int i = 0; i < 5000 && !CdcClientMgr::stale_child_claim_paused_for_test(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(CdcClientMgr::stale_child_claim_paused_for_test());
+
+    ASSERT_EQ(kill(pid, SIGKILL), 0);
+    siginfo_t child_info {};
+    for (int i = 0; i < 5000 && child_info.si_pid != pid; ++i) {
+        ASSERT_EQ(waitid(P_PID, pid, &child_info, WEXITED | WNOHANG | WNOWAIT), 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(child_info.si_pid, pid);
+
+    // This handler sees the successor, but the stale claim prevents it from recording a pending
+    // reap. The delayed handler must take responsibility after releasing that stale claim.
+    CdcClientMgr::invoke_sigchld_handler_for_test();
+    EXPECT_EQ(mgr.get_child_identity_for_test(), successor_identity);
+    CdcClientMgr::pause_stale_child_claim_for_test(false);
+    delayed_handler.join();
+
+    EXPECT_EQ(mgr.get_child_identity_for_test(), 0);
+    errno = 0;
+    const pid_t wait_result = waitpid(pid, nullptr, WNOHANG);
+    const int wait_error = errno;
+    child_reaped = wait_result < 0 && wait_error == ECHILD;
+    EXPECT_EQ(wait_result, -1);
+    EXPECT_EQ(wait_error, ECHILD);
 }
 
 TEST_F(CdcClientMgrTest, ConcurrentHandlersHaveOneExclusiveProcessOperator) {
