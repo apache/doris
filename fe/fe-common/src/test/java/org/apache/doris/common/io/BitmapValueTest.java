@@ -26,6 +26,7 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Base64;
 
 public class BitmapValueTest {
 
@@ -495,6 +496,99 @@ public class BitmapValueTest {
         Assertions.assertTrue(baseIndex1.cardinality() == 2L);
         Assertions.assertTrue(rollup2.cardinality() == 1L);
 
+    }
+
+    @Test
+    public void testDeserializeBeSetPayload() throws IOException {
+        // Cross-language fixtures produced by BE (bitmap_to_base64) with enable_set_in_bitmap_value=true.
+        // Layout: TypeCode::SET(0x05) | count(1 byte) | count * uint64 little-endian values.
+        // A Java writer-to-reader round trip cannot cover this, because the Java serializer never
+        // emits SET.
+
+        // {1, 3, 5}
+        assertSetFixture("BQMBAAAAAAAAAAMAAAAAAAAABQAAAAAAAAA=", 1L, 3L, 5L);
+        // {0}
+        assertSetFixture("BQEAAAAAAAAAAA==", 0L);
+        // {4294967296} = 2^32, the first value that does not fit in 32 bits
+        assertSetFixture("BQEAAAAAAQAAAA==", 4294967296L);
+        // {Long.MAX_VALUE} = 0x7FFFFFFFFFFFFFFF
+        assertSetFixture("BQH/////////fw==", Long.MAX_VALUE);
+        // {0xFFFFFFFFFFFFFFFF} = UINT64_MAX, read back as the same bit pattern
+        assertSetFixture("BQH//////////w==", -1L);
+
+        // 32 values, the largest legal SET payload
+        long[] boundary = new long[BitmapValue.SET_TYPE_THRESHOLD];
+        for (int i = 0; i < boundary.length; i++) {
+            boundary[i] = i;
+        }
+        assertSetFixture(encodeSetFixture(boundary), boundary);
+    }
+
+    @Test
+    public void testDeserializeBeSetPayloadRejectsOverThresholdCount() {
+        // count = 33 exceeds BE's SET_TYPE_THRESHOLD, so the payload cannot come from a sane BE.
+        byte[] bytes = new byte[2 + 8 * 33];
+        bytes[0] = (byte) BitmapValue.SET;
+        bytes[1] = 33;
+        BitmapValue bitmapValue = new BitmapValue();
+        Assertions.assertThrows(RuntimeException.class, () -> bitmapValue.deserialize(
+                new DataInputStream(new ByteArrayInputStream(bytes))));
+    }
+
+    @Test
+    public void testDeserializeBeSetPayloadRejectsTruncatedInput() {
+        // {1, 3, 5} without the payload bytes: the declared count is not backed by data.
+        byte[] bytes = {(byte) BitmapValue.SET, 3};
+        BitmapValue bitmapValue = new BitmapValue();
+        Assertions.assertThrows(IOException.class, () -> bitmapValue.deserialize(
+                new DataInputStream(new ByteArrayInputStream(bytes))));
+    }
+
+    @Test
+    public void testDeserializeBeSetPayloadWithDuplicateValues() throws IOException {
+        // BE rejects a flag-5 payload carrying duplicates, but the FE is a reader of data it did not
+        // write. Folding duplicates through add() keeps the payload usable and yields the same set
+        // semantics as the BE side would after deduplication.
+        byte[] bytes = new byte[2 + 8 * 3];
+        bytes[0] = (byte) BitmapValue.SET;
+        bytes[1] = 3;
+        writeLeLong(bytes, 2, 7L);
+        writeLeLong(bytes, 10, 7L);
+        writeLeLong(bytes, 18, 9L);
+
+        BitmapValue bitmapValue = new BitmapValue();
+        bitmapValue.deserialize(new DataInputStream(new ByteArrayInputStream(bytes)));
+
+        Assertions.assertEquals(2L, bitmapValue.cardinality());
+        Assertions.assertTrue(bitmapValue.contains(7L));
+        Assertions.assertTrue(bitmapValue.contains(9L));
+    }
+
+    private static void assertSetFixture(String base64, long... expectedValues) throws IOException {
+        byte[] bytes = Base64.getDecoder().decode(base64);
+        Assertions.assertEquals(BitmapValue.SET, bytes[0] & 0xFF);
+        BitmapValue bitmapValue = new BitmapValue();
+        bitmapValue.deserialize(new DataInputStream(new ByteArrayInputStream(bytes)));
+        Assertions.assertEquals(expectedValues.length, bitmapValue.cardinality());
+        for (long value : expectedValues) {
+            Assertions.assertTrue(bitmapValue.contains(value), "missing value " + value);
+        }
+    }
+
+    private static String encodeSetFixture(long... values) {
+        byte[] bytes = new byte[2 + 8 * values.length];
+        bytes[0] = (byte) BitmapValue.SET;
+        bytes[1] = (byte) values.length;
+        for (int i = 0; i < values.length; i++) {
+            writeLeLong(bytes, 2 + 8 * i, values[i]);
+        }
+        return Base64.getEncoder().encodeToString(bytes);
+    }
+
+    private static void writeLeLong(byte[] bytes, int offset, long value) {
+        for (int i = 0; i < Long.BYTES; i++) {
+            bytes[offset + i] = (byte) (value >>> (8 * i));
+        }
     }
 
     @Test

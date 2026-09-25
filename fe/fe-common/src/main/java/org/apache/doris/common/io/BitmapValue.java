@@ -39,11 +39,16 @@ public class BitmapValue {
     public static final int BITMAP32 = 2;
     public static final int SINGLE64 = 3;
     public static final int BITMAP64 = 4;
+    public static final int SET = 5;
 
     public static final int SINGLE_VALUE = 1;
     public static final int BITMAP_VALUE = 2;
 
     public static final long UNSIGNED_32BIT_INT_MAX_VALUE = 4294967295L;
+
+    // Keep consistent with BE's BitmapValue::SET_TYPE_THRESHOLD, which also bounds the inline
+    // SET capacity. A serialized SET payload may not carry more values than this.
+    public static final int SET_TYPE_THRESHOLD = 32;
 
     private int bitmapType;
     private long singleValue;
@@ -148,8 +153,33 @@ public class BitmapValue {
                 bitmap.deserialize(input, bitmapType);
                 this.bitmapType = BITMAP_VALUE;
                 break;
+            case SET:
+                deserializeSet(input);
+                break;
             default:
                 throw new RuntimeException(String.format("unknown bitmap type %s ", bitmapType));
+        }
+    }
+
+    /**
+     *  Read a BE serialized SET payload:
+     *      TypeCode::SET(1 byte, already consumed by the caller) | count(1 byte) | uint64 values(LE)
+     *  BE only serializes a SET when config::enable_set_in_bitmap_value is on and the value count is
+     *  below SET_TYPE_THRESHOLD, so a payload carrying more values is corrupt rather than exotic.
+     *  There is no dedicated SET representation on the FE side: the values are folded into the
+     *  existing single/bitmap representation, which is semantically equivalent and keeps every
+     *  downstream consumer of BitmapValue working unchanged.
+     */
+    private void deserializeSet(DataInput input) throws IOException {
+        int count = input.readUnsignedByte();
+        if (count > SET_TYPE_THRESHOLD) {
+            throw new RuntimeException(String.format(
+                    "bitmap value with incorrect set count %s, max allowed %s", count, SET_TYPE_THRESHOLD));
+        }
+        for (int i = 0; i < count; i++) {
+            // FE is big end, BE is little end. Values are written as little-endian uint64 and read
+            // back as the same bit pattern, so an unsigned value above Long.MAX_VALUE stays usable.
+            add(Long.reverseBytes(input.readLong()));
         }
     }
 
