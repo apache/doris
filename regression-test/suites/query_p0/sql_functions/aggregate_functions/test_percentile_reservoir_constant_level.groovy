@@ -162,6 +162,41 @@ suite("test_percentile_reservoir_constant_level") {
         VALUES (4, percentile_reservoir_state(cast(7 as double), cast(signbit(cast('-nan(foo)' as double)) as double)))
     """
 
+    // BE executes the level literal FE validated, not the constant expression, so a level whose
+    // FE folding differs from BE evaluation (FLOAT widening) gives the same result with and without
+    // folding, see the skip-fold block below
+    qt_folded_level_executed """
+        SELECT percentile_reservoir(number, cast(0.1 as float)),
+               percentile_reservoir(DISTINCT number, cast(0.1 as float))
+        FROM numbers('number' = '11')
+    """
+    // NaNs of opposite signs are different If branches, so an If whose condition FE cannot fold is
+    // not collapsed into one branch and the level is rejected instead of taking the wrong branch
+    qt_signed_nan_if """
+        SELECT signbit(if(pow(0.5, 1) > 1, cast('-nan' as double), cast('nan' as double)))
+    """
+    test {
+        sql """
+            SELECT percentile_reservoir(number,
+                    cast(signbit(if(pow(0.5, 1) > 1, cast('-nan' as double), cast('nan' as double))) as double))
+            FROM numbers('number' = '11')
+        """
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
+    test {
+        sql """
+            SELECT percentile_reservoir(number, cast(signbit(cosine_similarity(
+                    if(pow(0.5, 1) > 1, array(cast('-nan' as float)), array(cast('nan' as float))),
+                    array(cast(1 as float)))) as double))
+            FROM numbers('number' = '11')
+        """
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
+    qt_folded_level_executed_window """
+        SELECT number, percentile_reservoir(number, cast(0.1 as float)) OVER ()
+        FROM numbers('number' = '11') ORDER BY number LIMIT 1
+    """
+
     // DECIMALV2 division folds on FE the way BE executes it: NULL only for a zero divisor
     qt_decimalv2_divide """
         SELECT cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)),
@@ -312,5 +347,49 @@ suite("test_percentile_reservoir_constant_level") {
             FROM numbers('number' = '1')
         ) states
     """
+    qt_skip_fold_folded_level_executed """
+        SELECT percentile_reservoir(number, cast(0.1 as float)),
+               percentile_reservoir(DISTINCT number, cast(0.1 as float))
+        FROM numbers('number' = '11')
+    """
+    qt_skip_fold_folded_level_executed_window """
+        SELECT number, percentile_reservoir(number, cast(0.1 as float)) OVER ()
+        FROM numbers('number' = '11') ORDER BY number LIMIT 1
+    """
     sql "SET debug_skip_fold_constant = false"
+
+    // load planning never folds constants, the state it writes still carries the validated level
+    // and merges with a state built by a query
+    sql "DROP TABLE IF EXISTS test_percentile_reservoir_constant_level_load"
+    sql """
+        CREATE TABLE test_percentile_reservoir_constant_level_load (
+            k INT NOT NULL,
+            s AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NOT NULL)> GENERIC
+        ) AGGREGATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    streamLoad {
+        table "test_percentile_reservoir_constant_level_load"
+        set 'column_separator', ','
+        set 'columns', 'k, v, s=percentile_reservoir_state(cast(v as double), cast(0.1 as float))'
+        inputText "1,7\n"
+        time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(1, json.NumberLoadedRows)
+        }
+    }
+    qt_load_folded_level_state_merge """
+        SELECT percentile_reservoir_merge(s) FROM (
+            SELECT s FROM test_percentile_reservoir_constant_level_load
+            UNION ALL
+            SELECT percentile_reservoir_state(cast(9 as double), cast(0.1 as float))
+            FROM numbers('number' = '1')
+        ) states
+    """
 }

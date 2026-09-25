@@ -23,12 +23,14 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV2Type;
@@ -199,6 +201,30 @@ public class PercentileReservoirParameterTest {
                 new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
                 new DecimalV3Literal(divisorType, BigDecimal.ZERO)))) {
             assertAccepted(expression);
+        }
+    }
+
+    @Test
+    void testAnalyzedLevelIsTheValidatedLiteral() {
+        // BE executes the folded level instead of evaluating the constant expression again, so an
+        // unfolded plan (load, DISTINCT, debug_skip_fold_constant) cannot compute another value,
+        // e.g. BE widens FLOAT 0.1 to 0.10000000149011612 while FE folds it to 0.1
+        Expression floatLevel = new Cast(new FloatLiteral(0.1f), DoubleType.INSTANCE);
+        Expression sumLevel = new Add(new DoubleLiteral(0.25), new DoubleLiteral(0.25));
+        Expression invalidStringLevel = new Cast(new VarcharLiteral(""), DoubleType.INSTANCE);
+        withStrictCast(false, () -> {
+            assertAnalyzedLevel(floatLevel, new DoubleLiteral(0.1));
+            assertAnalyzedLevel(sumLevel, new DoubleLiteral(0.5));
+            assertAnalyzedLevel(invalidStringLevel, new NullLiteral(DoubleType.INSTANCE));
+        });
+    }
+
+    private void assertAnalyzedLevel(Expression level, Expression expected) {
+        for (Expression expression : variants(level)) {
+            Expression rewritten = ((RewriteWhenAnalyze) expression).rewriteWhenAnalyze();
+            Assertions.assertEquals(expression.getClass(), rewritten.getClass());
+            Assertions.assertEquals(expression.child(0), rewritten.child(0));
+            Assertions.assertEquals(expected, rewritten.child(1));
         }
     }
 

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -38,7 +39,8 @@ import java.util.List;
  * AggregateFunction 'percentile_reservoir'
  */
 public class PercentileReservoir extends NullableAggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
+        implements BinaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction,
+        RewriteWhenAnalyze {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
@@ -79,6 +81,16 @@ public class PercentileReservoir extends NullableAggregateFunction
     }
 
     /**
+     * Execute the level literal that checkLevel() validated. BE would otherwise evaluate the constant
+     * expression itself wherever it is not folded (load planning, DISTINCT, debug_skip_fold_constant),
+     * and a cast such as FLOAT to DOUBLE can compute a different value there than the FE folding.
+     */
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        return withChildren(ImmutableList.of(getArgument(0), checkLevel()));
+    }
+
+    /**
      * The level must be a constant that folds to a literal in [0, 1]. It is folded here instead of
      * waiting for the rewrite phase because a constant expression such as 0.25 + 0.25 is only a
      * literal after folding, some plans (INSERT ... VALUES, load column mappings) never run the
@@ -86,8 +98,10 @@ public class PercentileReservoir extends NullableAggregateFunction
      * The level is brought to DOUBLE with the same implicit cast that signature coercion applies,
      * so a level that is not a valid DOUBLE behaves like the coerced expression: NULL under the
      * default non-strict cast and an error under strict cast, for '' as well as cast('' as double).
+     *
+     * @return the folded level literal
      */
-    private void checkLevel() {
+    private Literal checkLevel() {
         Expression levelArgument = getArgument(1);
         Expression level = levelArgument.isConstant()
                 ? FoldConstantRuleOnFE.evaluateWithoutContext(
@@ -99,7 +113,7 @@ public class PercentileReservoir extends NullableAggregateFunction
         }
         // a NULL level is skipped by the null-ignoring BE implementation and yields a NULL result
         if (level instanceof NullLiteral) {
-            return;
+            return (Literal) level;
         }
         double value = ((Literal) level).getDouble();
         // Negate the valid range to reject NaN, which makes both < 0 and > 1 false.
@@ -107,6 +121,7 @@ public class PercentileReservoir extends NullableAggregateFunction
             throw new AnalysisException(
                     "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
         }
+        return (Literal) level;
     }
 
     /**

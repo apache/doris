@@ -50,6 +50,15 @@ true	true	false	true	false
 -- !bit_derived_level --
 0	0
 
+-- !folded_level_executed --
+1	1
+
+-- !signed_nan_if --
+false
+
+-- !folded_level_executed_window --
+0	1
+
 -- !decimalv2_divide --
 0E-9	\N
 
@@ -121,4 +130,13 @@ true	true	false	true	false
 
 -- !skip_fold_bit_derived_level_state_merge --
 9
+
+-- !skip_fold_folded_level_executed --
+1	1
+
+-- !skip_fold_folded_level_executed_window --
+0	1
+
+-- !load_folded_level_state_merge --
+7.2
 

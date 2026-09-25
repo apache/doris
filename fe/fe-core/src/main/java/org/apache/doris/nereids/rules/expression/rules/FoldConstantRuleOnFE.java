@@ -86,10 +86,14 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -637,7 +641,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         Expression realTypeCoercionDefault = newDefault != null ? newDefault : new NullLiteral(caseWhen.getDataType());
         boolean allThenEqualsDefault = true;
         for (WhenClause whenClause : newWhenClauses) {
-            if (!whenClause.getResult().equals(realTypeCoercionDefault)) {
+            if (!isSameBranch(whenClause.getResult(), realTypeCoercionDefault)) {
                 allThenEqualsDefault = false;
                 break;
             }
@@ -675,10 +679,32 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             return typeCoercionTrueValue;
         } else if (condition.equals(BooleanLiteral.FALSE) || condition.isNullLiteral()) {
             return typeCoercionFalseValue;
-        } else if (typeCoercionTrueValue.equals(typeCoercionFalseValue)) {
+        } else if (isSameBranch(typeCoercionTrueValue, typeCoercionFalseValue)) {
             return typeCoercionTrueValue;
         }
         return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
+    }
+
+    // Literal.equals takes NaNs of both signs as equal, but signbit() tells them apart, so branches
+    // holding a NaN literal, also as an element of a complex literal, are not merged into one
+    private static boolean isSameBranch(Expression branch, Expression other) {
+        return branch.equals(other) && !branch.anyMatch(expression -> holdsNaN((Expression) expression));
+    }
+
+    private static boolean holdsNaN(Expression expression) {
+        if (expression instanceof DoubleLiteral) {
+            return ((DoubleLiteral) expression).getValue().isNaN();
+        } else if (expression instanceof FloatLiteral) {
+            return ((FloatLiteral) expression).getValue().isNaN();
+        } else if (expression instanceof ArrayLiteral) {
+            return ((ArrayLiteral) expression).getValue().stream().anyMatch(FoldConstantRuleOnFE::holdsNaN);
+        } else if (expression instanceof StructLiteral) {
+            return ((StructLiteral) expression).getValue().stream().anyMatch(FoldConstantRuleOnFE::holdsNaN);
+        } else if (expression instanceof MapLiteral) {
+            return ((MapLiteral) expression).getValue().entrySet().stream()
+                    .anyMatch(entry -> holdsNaN(entry.getKey()) || holdsNaN(entry.getValue()));
+        }
+        return false;
     }
 
     @Override

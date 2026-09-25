@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
@@ -103,6 +105,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -121,6 +124,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -191,6 +195,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("if(true, a + 1,  a + 2)", "a + 1");
         assertRewriteAfterTypeCoercion("if(false, a + 1,  a + 2)", "a + 2");
         assertRewriteAfterTypeCoercion("if(b > 0, a + 100,  a + 100)", "a + 100");
+
+        // NaNs of opposite signs are different branches, signbit() tells them apart
+        SlotReference condition = SlotReference.of("c", BooleanType.INSTANCE);
+        DoubleLiteral positiveNan = new DoubleLiteral(Double.NaN);
+        DoubleLiteral negativeNan = new DoubleLiteral(Math.copySign(Double.NaN, -1.0));
+        If ifNan = new If(condition, negativeNan, positiveNan);
+        Assertions.assertEquals(ifNan, executor.rewrite(ifNan, context));
+        CaseWhen caseWhenNan = new CaseWhen(ImmutableList.of(new WhenClause(condition, negativeNan)), positiveNan);
+        Assertions.assertEquals(caseWhenNan, executor.rewrite(caseWhenNan, context));
+        If ifFloatNan = new If(condition, new FloatLiteral(Math.copySign(Float.NaN, -1.0f)),
+                new FloatLiteral(Float.NaN));
+        Assertions.assertEquals(ifFloatNan, executor.rewrite(ifFloatNan, context));
+        If ifArrayNan = new If(condition, new ArrayLiteral(ImmutableList.<Literal>of(negativeNan)),
+                new ArrayLiteral(ImmutableList.<Literal>of(positiveNan)));
+        Assertions.assertEquals(ifArrayNan, executor.rewrite(ifArrayNan, context));
     }
 
     @Test
