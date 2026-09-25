@@ -27,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <roaring/roaring.hh>
 #include <set>
 #include <string>
 #include <utility>
@@ -700,14 +701,72 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
+Status ColumnReader::get_candidate_page_indexes(const roaring::Roaring& row_bitmap,
+                                                const RowRanges& row_ranges,
+                                                const ColumnIteratorOptions& iter_opts,
+                                                std::vector<uint32_t>* page_indexes) {
+    page_indexes->clear();
+    if (row_ranges.is_empty() || row_bitmap.isEmpty()) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    roaring::api::roaring_uint32_iterator_t row_iter;
+    roaring::api::roaring_init_iterator(&row_bitmap.roaring, &row_iter);
+    auto page_iter = _ordinal_index->begin();
+    // First ordinal after the page pushed last. A range continuing into the next page and a
+    // later range starting inside an already pushed page both resume from here, which keeps
+    // the result unique and ascending without a set.
+    uint64_t next_page_row = 0;
+    for (size_t i = 0; i < row_ranges.range_size(); ++i) {
+        const auto from =
+                std::max(next_page_row, static_cast<uint64_t>(row_ranges.get_range_from(i)));
+        const auto to = static_cast<uint64_t>(row_ranges.get_range_to(i));
+        // Several disjoint row ranges can share a page; evaluate that page only once.
+        if (from >= to) {
+            continue;
+        }
+        if (!roaring::api::roaring_move_uint32_iterator_equalorlarger(
+                    &row_iter, static_cast<uint32_t>(from))) {
+            // No surviving row at or after `from`, so the remaining ranges have none either.
+            break;
+        }
+        while (row_iter.current_value < to) {
+            DCHECK(page_iter.valid());
+            // Dense candidates advance sequentially. Sparse candidates seek straight to
+            // the next occupied page, without visiting the intervening pages.
+            if (row_iter.current_value > page_iter.last_ordinal()) {
+                page_iter = _ordinal_index->seek_at_or_before(row_iter.current_value);
+            }
+            page_indexes->push_back(page_iter.page_index());
+            next_page_row = static_cast<uint64_t>(page_iter.last_ordinal()) + 1;
+            page_iter.next();
+            if (next_page_row >= to) {
+                break;
+            }
+            // Skip the rest of the page just pushed instead of visiting its rows one by one.
+            if (!roaring::api::roaring_move_uint32_iterator_equalorlarger(
+                        &row_iter, static_cast<uint32_t>(next_page_row))) {
+                // The bitmap is exhausted.
+                return Status::OK();
+            }
+        }
+    }
+    return Status::OK();
+}
+
 Status ColumnReader::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-        RowRanges* row_ranges, const ColumnIteratorOptions& iter_opts) {
+        const roaring::Roaring& row_bitmap, RowRanges* row_ranges,
+        const ColumnIteratorOptions& iter_opts) {
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(
-            _get_filtered_pages(col_predicates, delete_predicates, &page_indexes, iter_opts));
-    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges, iter_opts));
+    RETURN_IF_ERROR(_get_filtered_pages(col_predicates, delete_predicates, row_bitmap, *row_ranges,
+                                        &page_indexes, iter_opts));
+    // The result is the input narrowed to the matching candidate pages, so the caller can
+    // hand it straight to the next column's index without merging per-column results.
+    RowRanges matching_ranges;
+    RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, &matching_ranges, iter_opts));
+    RowRanges::ranges_intersection(*row_ranges, matching_ranges, row_ranges);
     return Status::OK();
 }
 
@@ -794,14 +853,23 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMap& zone_map,
 Status ColumnReader::_get_filtered_pages(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
+        const roaring::Roaring& row_bitmap, const RowRanges& row_ranges,
         std::vector<uint32_t>* page_indexes, const ColumnIteratorOptions& iter_opts) {
-    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-
-    const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
-    size_t page_size = _zone_map_index->num_pages();
-    for (size_t i = 0; i < page_size; ++i) {
+    std::vector<uint32_t> candidate_pages;
+    RETURN_IF_ERROR(
+            get_candidate_page_indexes(row_bitmap, row_ranges, iter_opts, &candidate_pages));
+    if (candidate_pages.empty()) {
+        return Status::OK();
+    }
+    const std::vector<ZoneMapPB>* zone_maps = nullptr;
+    RETURN_IF_ERROR(get_page_zone_maps(iter_opts, &zone_maps));
+    DORIS_CHECK(zone_maps != nullptr);
+    size_t page_size = zone_maps->size();
+    for (auto i : candidate_pages) {
+        // Counts every candidate column-page, including pages whose zone map passes all rows.
+        ++iter_opts.stats->zonemap_index_pages_evaluated;
         segment_v2::ZoneMap zone_map;
-        RETURN_IF_ERROR(ZoneMap::from_proto(zone_maps[i], _data_type, zone_map));
+        RETURN_IF_ERROR(ZoneMap::from_proto((*zone_maps)[i], _data_type, zone_map));
         // from_proto also sets pass_all when the zone map it parsed is invalid.
         if (zone_map.pass_all) {
             page_indexes->push_back(cast_set<uint32_t>(i));
@@ -822,10 +890,9 @@ Status ColumnReader::_get_filtered_pages(
             }
         }
     }
-    VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
-            << " filtered-percent:"
-            << 1.0 - (static_cast<double>(page_indexes->size()) /
-                      (static_cast<double>(page_size) * 1.0));
+    VLOG(1) << "total-pages: " << page_size << " candidate-pages: " << candidate_pages.size()
+            << " not-filtered-pages: " << page_indexes->size() << " filtered-percent:"
+            << 1.0 - static_cast<double>(page_indexes->size()) / candidate_pages.size();
     return Status::OK();
 }
 
@@ -833,43 +900,41 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
                                            RowRanges* row_ranges,
                                            const ColumnIteratorOptions& iter_opts) {
     row_ranges->clear();
+    if (page_indexes.empty()) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     for (auto i : page_indexes) {
         ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
         ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i);
-        RowRanges page_row_ranges(RowRanges::create_single(page_first_id, page_last_id + 1));
-        RowRanges::ranges_union(*row_ranges, page_row_ranges, row_ranges);
+        row_ranges->add(RowRange(page_first_id, page_last_id + 1));
     }
     return Status::OK();
 }
 
 Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
+                                                    const roaring::Roaring& row_bitmap,
                                                     RowRanges* row_ranges,
                                                     const ColumnIteratorOptions& iter_opts) {
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    std::vector<uint32_t> page_ids;
+    RETURN_IF_ERROR(get_candidate_page_indexes(row_bitmap, *row_ranges, iter_opts, &page_ids));
+    if (page_ids.empty()) {
+        // No surviving row under `row_ranges`, so there is nothing left to narrow.
+        row_ranges->clear();
+        return Status::OK();
+    }
     RETURN_IF_ERROR(
             _load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(
             _bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats, &iter_opts.io_ctx));
-    size_t range_size = row_ranges->range_size();
-    // get covered page ids
-    std::set<uint32_t> page_ids;
-    for (int i = 0; i < range_size; ++i) {
-        int64_t from = row_ranges->get_range_from(i);
-        int64_t idx = from;
-        int64_t to = row_ranges->get_range_to(i);
-        auto iter = _ordinal_index->seek_at_or_before(from);
-        while (idx < to && iter.valid()) {
-            page_ids.insert(iter.page_index());
-            idx = iter.last_ordinal() + 1;
-            iter.next();
-        }
-    }
+    // Only the Bloom filters of candidate pages are read; a page without surviving rows is
+    // never loaded.
     for (auto& pid : page_ids) {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
+        ++iter_opts.stats->bloom_filter_index_pages_evaluated;
         if (col_predicates->evaluate_and(bf.get())) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_ordinal(pid),
                                        _ordinal_index->get_last_ordinal(pid) + 1));
@@ -917,6 +982,13 @@ Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
         return Status::OK();
     }
     RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    // Candidate page ids come from the ordinal index. A shorter ZoneMap index would
+    // otherwise make a valid candidate page id an out-of-bounds vector access.
+    if (_zone_map_index->num_pages() != static_cast<size_t>(_ordinal_index->num_data_pages())) {
+        return Status::Corruption("ZoneMap page count {} differs from ordinal page count {}",
+                                  _zone_map_index->num_pages(), _ordinal_index->num_data_pages());
+    }
     *zone_maps = &_zone_map_index->page_zone_maps();
     return Status::OK();
 }
@@ -3268,19 +3340,21 @@ Status FileColumnIterator::_read_dict_data() {
 Status FileColumnIterator::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-        RowRanges* row_ranges) {
+        const roaring::Roaring& row_bitmap, RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(col_predicates, delete_predicates,
-                                                            row_ranges, _opts));
+                                                            row_bitmap, row_ranges, _opts));
     }
     return Status::OK();
 }
 
 Status FileColumnIterator::get_row_ranges_by_bloom_filter(
-        const AndBlockColumnPredicate* col_predicates, RowRanges* row_ranges) {
+        const AndBlockColumnPredicate* col_predicates, const roaring::Roaring& row_bitmap,
+        RowRanges* row_ranges) {
     if ((col_predicates->can_do_bloom_filter(false) && _reader->has_bloom_filter_index(false)) ||
         (col_predicates->can_do_bloom_filter(true) && _reader->has_bloom_filter_index(true))) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_ranges, _opts));
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(col_predicates, row_bitmap,
+                                                                row_ranges, _opts));
     }
     return Status::OK();
 }

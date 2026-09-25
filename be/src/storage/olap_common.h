@@ -281,7 +281,11 @@ struct OlapReaderStatistics {
     int64_t output_col_ns = 0;
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
-    int64_t rows_stats_rp_filtered = 0;
+    // Number of column-page ZoneMaps evaluated (ordinary and expression predicates). After
+    // key-range / index pruning this tracks the candidate pages, not the whole segment.
+    int64_t zonemap_index_pages_evaluated = 0;
+    // Number of page Bloom filters read and evaluated.
+    int64_t bloom_filter_index_pages_evaluated = 0;
     int64_t expr_zonemap_filtered_segments = 0;
     int64_t expr_zonemap_filtered_pages = 0;
     int64_t expr_zonemap_unusable_evals = 0;
