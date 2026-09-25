@@ -64,6 +64,71 @@ public:
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;
 
+private:
+    // A CppType wrapper. A string type has no largest value, so its maximum is a flag here
+    // instead, and the operators below sort that flag above everything.
+    class RangeValue {
+    public:
+        RangeValue() = default;
+        RangeValue(const CppType& value) : _value(value) {}
+
+        // The type's maximum. Only a string type needs the state, because only a string type
+        // cannot name its maximum.
+        static RangeValue type_max(const CppType& sentinel) {
+            RangeValue max(sentinel);
+            max._is_type_max = is_string_type(primitive_type);
+            return max;
+        }
+
+        bool is_type_max() const { return _is_type_max; }
+
+        // The stored value. The maximum of a string type still answers the 0xff sentinel, so
+        // callers that read an end as a plain value see what they used to see.
+        const CppType& value() const { return _value; }
+
+        RangeValue& operator++() {
+            ++_value;
+            return *this;
+        }
+
+        RangeValue& operator--() {
+            --_value;
+            return *this;
+        }
+
+        friend bool operator<(const RangeValue& lhs, const RangeValue& rhs) {
+            if (rhs._is_type_max) {
+                return !lhs._is_type_max;
+            }
+            if (lhs._is_type_max) {
+                return false;
+            }
+            return Compare::less(lhs._value, rhs._value);
+        }
+
+        friend bool operator>(const RangeValue& lhs, const RangeValue& rhs) { return rhs < lhs; }
+
+        friend bool operator<=(const RangeValue& lhs, const RangeValue& rhs) {
+            return !(rhs < lhs);
+        }
+
+        friend bool operator>=(const RangeValue& lhs, const RangeValue& rhs) {
+            return !(lhs < rhs);
+        }
+
+        friend bool operator==(const RangeValue& lhs, const RangeValue& rhs) {
+            if (lhs._is_type_max || rhs._is_type_max) {
+                return lhs._is_type_max == rhs._is_type_max;
+            }
+            return Compare::equal(lhs._value, rhs._value);
+        }
+
+    private:
+        CppType _value;
+        bool _is_type_max = false;
+    };
+
+public:
     ColumnValueRange();
 
     ColumnValueRange(std::string col_name, bool is_nullable_col, int precision, int scale);
@@ -74,7 +139,7 @@ public:
     // should remove fixed value after add fixed value
     void remove_fixed_value(const CppType& value);
 
-    Status add_range(SQLFilterOp op, CppType value);
+    Status add_range(SQLFilterOp op, RangeValue value);
 
     bool is_fixed_value_range() const;
 
@@ -109,13 +174,9 @@ public:
 
     const SetType& get_fixed_value_set() const { return _fixed_values; }
 
-    CppType get_range_max_value() const { return _high_value; }
+    CppType get_range_max_value() const { return _high_value.value(); }
 
-    CppType get_range_min_value() const { return _low_value; }
-
-    const CppType* get_range_max_value_ptr() const { return &_high_value; }
-
-    const CppType* get_range_min_value_ptr() const { return &_low_value; }
+    CppType get_range_min_value() const { return _low_value.value(); }
 
     SQLFilterOp get_range_high_op() const { return _high_op; }
 
@@ -124,6 +185,12 @@ public:
     bool is_low_value_minimum() const { return Compare::equal(_low_value, TYPE_MIN); }
 
     bool is_high_value_maximum() const { return Compare::equal(_high_value, TYPE_MAX); }
+
+    // A scan key needs a real value at both ends. A string range whose high end is still the
+    // type's maximum has no upper bound to write into the end key, because that maximum is a
+    // one byte 0xff sentinel and real data such as 0xff61 sorts after it. Every other type has
+    // a real maximum, so this is always true for them.
+    bool is_scan_key_convertible() const { return !_high_value.is_type_max(); }
 
     bool is_begin_include() const { return _low_op == FILTER_LARGER_OR_EQUAL; }
 
@@ -200,19 +267,19 @@ public:
     }
 
 protected:
-    bool is_in_range(const CppType& value);
+    bool is_in_range(const RangeValue& value);
 
 private:
-    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool is_nullable_col, bool contain_null, int precision, int scale);
+    const static RangeValue TYPE_MIN; // Column type's min value
+    const static RangeValue TYPE_MAX; // Column type's max value
 
-    const static CppType TYPE_MIN; // Column type's min value
-    const static CppType TYPE_MAX; // Column type's max value
+    ColumnValueRange(std::string col_name, const RangeValue& min, const RangeValue& max,
+                     bool is_nullable_col, bool contain_null, int precision, int scale);
 
     std::string _column_name;
     PrimitiveType _column_type; // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
-    CppType _low_value;         // Column's low value, closed interval at left
-    CppType _high_value;        // Column's high value, open interval at right
+    RangeValue _low_value;      // Column's low value, closed interval at left
+    RangeValue _high_value;     // Column's high value, open interval at right
     SQLFilterOp _low_op;
     SQLFilterOp _high_op;
     SetType _fixed_values; // Column's fixed int value
@@ -238,13 +305,13 @@ private:
             primitive_type == PrimitiveType::TYPE_DECIMAL256;
 };
 template <>
-const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MIN;
+const typename ColumnValueRange<TYPE_FLOAT>::RangeValue ColumnValueRange<TYPE_FLOAT>::TYPE_MIN;
 template <>
-const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MAX;
+const typename ColumnValueRange<TYPE_FLOAT>::RangeValue ColumnValueRange<TYPE_FLOAT>::TYPE_MAX;
 template <>
-const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MIN;
+const typename ColumnValueRange<TYPE_DOUBLE>::RangeValue ColumnValueRange<TYPE_DOUBLE>::TYPE_MIN;
 template <>
-const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MAX;
+const typename ColumnValueRange<TYPE_DOUBLE>::RangeValue ColumnValueRange<TYPE_DOUBLE>::TYPE_MAX;
 
 /// OlapScanKeys accumulates multi-column prefix scan keys from per-column ColumnValueRange
 /// constraints, and converts them into OlapScanRange objects for the storage layer.
@@ -344,21 +411,22 @@ using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
-const typename ColumnValueRange<primitive_type>::CppType
+const typename ColumnValueRange<primitive_type>::RangeValue
         ColumnValueRange<primitive_type>::TYPE_MIN =
                 type_limit<typename ColumnValueRange<primitive_type>::CppType>::min();
 template <PrimitiveType primitive_type>
-const typename ColumnValueRange<primitive_type>::CppType
+const typename ColumnValueRange<primitive_type>::RangeValue
         ColumnValueRange<primitive_type>::TYPE_MAX =
-                type_limit<typename ColumnValueRange<primitive_type>::CppType>::max();
+                ColumnValueRange<primitive_type>::RangeValue::type_max(
+                        type_limit<typename ColumnValueRange<primitive_type>::CppType>::max());
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange()
         : _column_type(INVALID_TYPE), _precision(-1), _scale(-1) {}
 
 template <PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
-                                                   const CppType& max, bool is_nullable_col,
+ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const RangeValue& min,
+                                                   const RangeValue& max, bool is_nullable_col,
                                                    bool contain_null, int precision, int scale)
         : _column_name(std::move(col_name)),
           _column_type(primitive_type),
@@ -448,6 +516,9 @@ bool ColumnValueRange<primitive_type>::convert_to_close_range(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
         bool& begin_include, bool& end_include) {
     if constexpr (!_is_reject_split_type) {
+        // _is_reject_split_type covers every string type, so an unbounded high end cannot
+        // reach the steps below.
+        static_assert(!is_string_type(primitive_type));
         begin_include = true;
         end_include = true;
 
@@ -595,7 +666,7 @@ void ColumnValueRange<primitive_type>::convert_to_range_value() {
 }
 
 template <PrimitiveType primitive_type>
-Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType value) {
+Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const RangeValue value) {
     if (INVALID_TYPE == _column_type) {
         return Status::InternalError("AddRange failed, Invalid type");
     }
@@ -604,7 +675,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
     _contain_null = false;
 
     if (is_fixed_value_range()) {
-        std::pair<IteratorType, IteratorType> bound_pair = _fixed_values.equal_range(value);
+        std::pair<IteratorType, IteratorType> bound_pair = _fixed_values.equal_range(value.value());
 
         switch (op) {
         case FILTER_LARGER: {
@@ -618,7 +689,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
         }
 
         case FILTER_LESS: {
-            if (bound_pair.first == _fixed_values.find(value)) {
+            if (bound_pair.first == _fixed_values.find(value.value())) {
                 _fixed_values.erase(bound_pair.first, _fixed_values.end());
             } else {
                 _fixed_values.erase(bound_pair.second, _fixed_values.end());
@@ -686,7 +757,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
 
         if (FILTER_LARGER_OR_EQUAL == _low_op && FILTER_LESS_OR_EQUAL == _high_op &&
             Compare::equal(_high_value, _low_value)) {
-            RETURN_IF_ERROR(add_fixed_value(_high_value));
+            RETURN_IF_ERROR(add_fixed_value(_high_value.value()));
             _high_value = TYPE_MIN;
             _low_value = TYPE_MAX;
         }
@@ -696,7 +767,7 @@ Status ColumnValueRange<primitive_type>::add_range(SQLFilterOp op, const CppType
 }
 
 template <PrimitiveType primitive_type>
-bool ColumnValueRange<primitive_type>::is_in_range(const CppType& value) {
+bool ColumnValueRange<primitive_type>::is_in_range(const RangeValue& value) {
     switch (_high_op) {
     case FILTER_LESS: {
         switch (_low_op) {
@@ -794,7 +865,12 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
                 set_contain_null(true);
             }
         } else {
-            static_cast<void>(add_range(range._high_op, range._high_value));
+            // add_range takes a plain value, so a high end that is still the type's maximum
+            // could only be handed over as the 0xff sentinel, which would come back as a real
+            // bound. Skip it: adding no high end is what "no upper bound" means here.
+            if (!range._high_value.is_type_max()) {
+                static_cast<void>(add_range(range._high_op, range._high_value));
+            }
             static_cast<void>(add_range(range._low_op, range._low_value));
         }
     }
@@ -847,7 +923,9 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
 ///   then extend as a range (same as Example 3), and set *exact_value = false
 ///   (the predicate must be kept for residual filtering).
 ///
-///   If NOT convertible (e.g. BOOLEAN/NULL type): set *should_break = true, stop extending.
+///   If NOT convertible (e.g. BOOLEAN/NULL type): set *should_break = true and
+///   *exact_value = false, stop extending. The column is not in the scan keys, so its
+///   predicate must be kept.
 ///
 /// ======== Example 5: Range splitting (convert_to_avg_range_value) ========
 /// WHERE k1 >= 1 AND k1 <= 100, with max_scan_key_num = 4
@@ -863,7 +941,9 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
 /// @param exact_value      [out]   Set to true if the column's predicate is fully captured
 ///                                  by scan keys (can be erased from residual filters).
 /// @param eos              [out]   Set to true if the range is provably empty.
-/// @param should_break     [out]   Set to true if extending must stop (un-convertible overflow).
+/// @param should_break     [out]   Set to true if extending must stop, either because the fixed
+///                                  values overflow the budget and cannot become a range, or
+///                                  because the column has no upper bound to write.
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos,
@@ -893,10 +973,13 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
     auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
         if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
+            // Over budget: the scan keys no longer carry every value of this column, so its
+            // predicate has to run on the rows that come back.
+            *exact_value = false;
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
-                *exact_value = false;
             } else {
+                // The column cannot even be added as a range, so stop here.
                 *should_break = true;
                 return Status::OK();
             }
@@ -984,6 +1067,13 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         // Fixed values are always closed intervals (begin == end, point lookup).
         _begin_include = true;
         _end_include = true;
+    } else if (!range.is_scan_key_convertible()) {
+        // A string type has no largest value, so this range never got a real high end. The
+        // 0xff sentinel as an end key would seek past every longer value above it, so keep
+        // the column out of the scan keys and let its predicate filter.
+        *exact_value = false;
+        *should_break = true;
+        return Status::OK();
     } else {
         // ---- 5b. Scope range (> / >= / < / <=): append min to begin, max to end. ----
         // After this, no more columns can be appended (_has_range_value = true),

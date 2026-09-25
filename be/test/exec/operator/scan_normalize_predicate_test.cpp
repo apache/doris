@@ -2011,4 +2011,94 @@ TEST_F(ScanNormalizePredicate, TimestampNsSlotInitializesValueRange) {
     EXPECT_TRUE(range->is_whole_value_range());
     EXPECT_EQ(range->scale(), TimeStampNsValue::FRACTIONAL_DIGITS);
 }
+
+// A BOOLEAN key column cannot turn its fixed values into a range, so going over the budget stops
+// the scan keys. The column never reaches them, so its predicate has to stay.
+TEST_F(ScanNormalizePredicate, BooleanOverBudgetKeepsPredicate) {
+    ColumnValueRange<TYPE_BOOLEAN> range("b", true, -1, -1);
+    static_cast<void>(range.add_fixed_value(0));
+    static_cast<void>(range.add_fixed_value(1));
+    ASSERT_EQ(range.get_fixed_value_size(), 2);
+
+    OlapScanKeys scan_keys;
+    bool exact_value = true;
+    bool eos = false;
+    bool should_break = false;
+    EXPECT_TRUE(
+            scan_keys.extend_scan_key<TYPE_BOOLEAN>(range, 1, &exact_value, &eos, &should_break));
+    EXPECT_FALSE(exact_value);
+    EXPECT_TRUE(should_break);
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(scan_keys.size(), 0);
+}
+
+// The same budget one point higher fits, so the scan keys carry both values exactly.
+TEST_F(ScanNormalizePredicate, BooleanWithinBudgetIsExact) {
+    ColumnValueRange<TYPE_BOOLEAN> range("b", true, -1, -1);
+    static_cast<void>(range.add_fixed_value(0));
+    static_cast<void>(range.add_fixed_value(1));
+
+    OlapScanKeys scan_keys;
+    bool exact_value = true;
+    bool eos = false;
+    bool should_break = false;
+    EXPECT_TRUE(
+            scan_keys.extend_scan_key<TYPE_BOOLEAN>(range, 2, &exact_value, &eos, &should_break));
+    EXPECT_TRUE(exact_value);
+    EXPECT_FALSE(should_break);
+    EXPECT_EQ(scan_keys.size(), 2);
+}
+
+// A VARCHAR range starts with no upper bound, and an end key built from the 0xff sentinel would
+// seek past every longer value that starts with 0xff, so the column stays out of the scan keys.
+TEST_F(ScanNormalizePredicate, StringUnboundedHighEndStaysOutOfScanKeys) {
+    ColumnValueRange<TYPE_VARCHAR> range("s", false, -1, -1);
+    EXPECT_FALSE(range.is_scan_key_convertible());
+    static_cast<void>(range.add_range(FILTER_LARGER, std::string("a")));
+    EXPECT_FALSE(range.is_scan_key_convertible());
+
+    OlapScanKeys scan_keys;
+    bool exact_value = true;
+    bool eos = false;
+    bool should_break = false;
+    EXPECT_TRUE(
+            scan_keys.extend_scan_key<TYPE_VARCHAR>(range, 48, &exact_value, &eos, &should_break));
+    EXPECT_FALSE(exact_value);
+    EXPECT_TRUE(should_break);
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(scan_keys.size(), 0);
+}
+
+// A real upper bound clears the unbounded state, and then the column does reach the scan keys.
+TEST_F(ScanNormalizePredicate, StringWithRealHighEndReachesScanKeys) {
+    ColumnValueRange<TYPE_VARCHAR> range("s", false, -1, -1);
+    static_cast<void>(range.add_range(FILTER_LARGER_OR_EQUAL, std::string("a")));
+    static_cast<void>(range.add_range(FILTER_LESS_OR_EQUAL, std::string("b")));
+    EXPECT_TRUE(range.is_scan_key_convertible());
+
+    OlapScanKeys scan_keys;
+    bool exact_value = true;
+    bool eos = false;
+    bool should_break = false;
+    EXPECT_TRUE(
+            scan_keys.extend_scan_key<TYPE_VARCHAR>(range, 48, &exact_value, &eos, &should_break));
+    EXPECT_FALSE(should_break);
+    EXPECT_EQ(scan_keys.size(), 1);
+}
+
+// Intersecting a range that carries no upper bound must not hand the sentinel over as one. This
+// is the shape IS NOT NULL produces.
+TEST_F(ScanNormalizePredicate, StringIntersectionKeepsUnboundedHighEnd) {
+    ColumnValueRange<TYPE_VARCHAR> range("s", true, -1, -1);
+    static_cast<void>(range.add_range(FILTER_LARGER_OR_EQUAL, std::string("a")));
+
+    ColumnValueRange<TYPE_VARCHAR> not_null_range("s", true, -1, -1);
+    not_null_range.set_contain_null(false);
+    ASSERT_FALSE(not_null_range.is_scan_key_convertible());
+
+    range.intersection(not_null_range);
+    EXPECT_FALSE(range.is_scan_key_convertible());
+    EXPECT_FALSE(range.is_empty_value_range());
+}
+
 } // namespace doris
