@@ -49,17 +49,19 @@ public final class ConnectorScanRequest {
     private final long limit;
     private final List<String> requiredPartitions;
     private final boolean countPushdown;
+    private final boolean partitionValuePushdown;
     private final boolean explainOnly;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
-            boolean countPushdown, boolean explainOnly) {
+            boolean countPushdown, boolean partitionValuePushdown, boolean explainOnly) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
         this.limit = limit;
         this.requiredPartitions = requiredPartitions;
         this.countPushdown = countPushdown;
+        this.partitionValuePushdown = partitionValuePushdown;
         this.explainOnly = explainOnly;
     }
 
@@ -117,6 +119,18 @@ public final class ConnectorScanRequest {
     }
 
     /**
+     * Whether the engine pushed a PARTITION_VALUE aggregation into this scan: the query only needs the
+     * partition column values, so BE emits ONE row per scan range from {@code columns_from_path} and
+     * never opens the data file. A connector that splits files into several ranges per file should then
+     * stop splitting — extra ranges of the same file contribute duplicate partition-value rows, which is
+     * harmless for min/max but wastes scan ranges and scheduler work. Connectors that cannot or need not
+     * change their splitting ignore this and plan normally.
+     */
+    public boolean isPartitionValuePushdown() {
+        return partitionValuePushdown;
+    }
+
+    /**
      * Whether this plan is being built only to be shown ({@code EXPLAIN}), never run.
      *
      * <p>{@code EXPLAIN} plans a scan for real — that is where its {@code inputSplitNum} comes from — so a
@@ -135,7 +149,7 @@ public final class ConnectorScanRequest {
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                normalizePartitions(partitions), countPushdown, explainOnly);
+                normalizePartitions(partitions), countPushdown, partitionValuePushdown, explainOnly);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -151,6 +165,7 @@ public final class ConnectorScanRequest {
         private long limit = -1;
         private List<String> requiredPartitions = Collections.emptyList();
         private boolean countPushdown;
+        private boolean partitionValuePushdown;
         private boolean explainOnly;
 
         private Builder(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns) {
@@ -179,6 +194,12 @@ public final class ConnectorScanRequest {
             return this;
         }
 
+        /** Defaults to false: the engine is not asking for partition-column-value-only output. */
+        public Builder partitionValuePushdown(boolean partitionValuePushdown) {
+            this.partitionValuePushdown = partitionValuePushdown;
+            return this;
+        }
+
         /** Defaults to false: a plan that will be run. */
         public Builder explainOnly(boolean explainOnly) {
             this.explainOnly = explainOnly;
@@ -186,8 +207,8 @@ public final class ConnectorScanRequest {
         }
 
         public ConnectorScanRequest build() {
-            return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                    requiredPartitions, countPushdown, explainOnly);
+            return new ConnectorScanRequest(tableHandle, columns, filter, limit, requiredPartitions,
+                    countPushdown, partitionValuePushdown, explainOnly);
         }
     }
 }

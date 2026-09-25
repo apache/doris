@@ -168,6 +168,24 @@ public enum ConnectorCapability {
      */
     SUPPORTS_STORAGE_PREDICATE_PRUNING,
     /**
+     * Indicates the connector derives a table's partition column values from the DATA FILE PATH
+     * ({@code columns_from_path}) rather than from data-file or manifest contents. The planner may then
+     * answer an aggregation that only depends on partition columns without opening any data file: each
+     * scan range emits exactly one row carrying its own partition column values.
+     *
+     * <p>This is the modern equivalent of the legacy {@code HMSExternalTable.DLAType} whitelist
+     * {@code HIVE || HUDI}. Both keep their partition values in the directory path, so a path-derived
+     * value is exact. Iceberg and Paimon MUST NOT declare it: Iceberg supports hidden partitioning and
+     * partition transforms (bucket, truncate, days, ...) that cannot be reconstructed from the path, and
+     * its v2 position/equality deletes break the "one row per scan range" assumption; Paimon resolves
+     * partitions from its own manifest metadata.</p>
+     *
+     * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table, because a single HMS catalog
+     * serves HIVE, HUDI, ICEBERG and PAIMON tables side by side through sibling connectors, so a
+     * catalog-wide flag would wrongly admit the delegated (iceberg/paimon-on-HMS) ones.</p>
+     */
+    SUPPORTS_PARTITION_VALUE_ONLY,
+    /**
      * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
      * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily
      * during binding.

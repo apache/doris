@@ -66,6 +66,7 @@
 #include "format/json/new_json_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/partition_column_reader.h"
 #include "format/table/es/es_http_reader.h"
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
@@ -1050,6 +1051,38 @@ Status FileScanner::_get_next_reader() {
                     continue;
                 }
             }
+        }
+
+        // partition_column_value_only optimization:
+        // when the pushed-down aggregation only depends on partition columns, we do not open any
+        // data file. Each scan range simply emits one row carrying its partition column values,
+        // which PartitionColumnReader fills from `_partition_col_descs` (itself derived from the
+        // range's `columns_from_path`). This is placed after _generate_partition_columns() and
+        // runtime filter partition pruning, so pruned ranges are already skipped above.
+        //
+        // Guard: only take this fast path when EVERY requested column is a partition column whose
+        // value this range actually carries. Otherwise fall back to the normal per-format reader, so
+        // an unexpected non-partition column (or a partition value missing from the path) can only
+        // cost performance, never produce a wrong result.
+        if (_get_push_down_agg_type() == TPushAggOp::type::PARTITION_VALUE &&
+            !_partition_col_descs.empty() && _file_slot_descs.empty() &&
+            std::all_of(_column_descs.begin(), _column_descs.end(),
+                        [this](const ColumnDescriptor& col_desc) {
+                            return col_desc.category == ColumnCategory::PARTITION_KEY &&
+                                   _partition_col_descs.contains(col_desc.name);
+                        })) {
+            auto partition_reader = std::make_unique<PartitionColumnReader>(
+                    &_column_descs, &_partition_col_descs, &_partition_value_is_null,
+                    &_src_block_name_to_idx);
+            ReaderInitContext partition_ctx;
+            partition_ctx.push_down_agg_type = TPushAggOp::type::PARTITION_VALUE;
+            partition_ctx.state = _state;
+            partition_ctx.params = _params;
+            partition_ctx.range = &_current_range;
+            RETURN_IF_ERROR(partition_reader->init_reader(&partition_ctx));
+            _cur_reader = std::move(partition_reader);
+            _cur_reader_eof = false;
+            return Status::OK();
         }
 
         // create reader for specific format

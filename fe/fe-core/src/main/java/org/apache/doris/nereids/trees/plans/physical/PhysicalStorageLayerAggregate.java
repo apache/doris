@@ -125,7 +125,11 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     /** PushAggOp */
     public enum PushDownAggOp {
-        COUNT, MIN_MAX, MIX, COUNT_ON_MATCH;
+        COUNT, MIN_MAX, MIX, COUNT_ON_MATCH,
+        // The aggregation only depends on partition columns of an external table.
+        // The scanner returns one row (partition column values) per scan range
+        // without opening/reading any data file.
+        PARTITION_VALUE;
 
         /** supportedFunctions */
         public static Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedFunctions() {

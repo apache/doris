@@ -194,7 +194,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        long targetSplitSize = getTargetSplitSize(session);
+        long targetSplitSize = getTargetSplitSize(session, request);
         boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
         // LZO text is NOT splittable: a .lzo stream cannot be decompressed from an arbitrary byte offset.
         // Legacy HiveUtil.isSplittable returned false for LZO; HiveFileFormat maps LZO text to TEXT (which
@@ -315,7 +315,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        long targetSplitSize = getTargetSplitSize(session);
+        long targetSplitSize = getTargetSplitSize(session, request);
         boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
         // LZO text is not splittable (see planScan); mask it out of the TEXT-derived splittable flag.
         boolean splittable = fileFormat.isSplittable() && !isLzo;
@@ -797,7 +797,19 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return builder;
     }
 
-    private long getTargetSplitSize(ConnectorSession session) {
+    /**
+     * The BE-facing split size for this scan, or {@code 0} to mean "do not split".
+     *
+     * <p>{@code 0} short-circuits {@link #splitFile} into emitting ONE range per file. That is what a
+     * PARTITION_VALUE scan wants: BE emits one row of partition values per scan range and never opens the
+     * file, so splitting one file into N ranges only yields N identical rows (harmless for min/max, but
+     * N times the scan ranges and scheduler work). This mirrors legacy {@code HiveScanNode}, which set
+     * {@code needSplit=false} for the same pushdown op.</p>
+     */
+    private long getTargetSplitSize(ConnectorSession session, ConnectorScanRequest request) {
+        if (request != null && request.isPartitionValuePushdown()) {
+            return 0;
+        }
         String splitSizeStr = session.getProperty(
                 "file_split_size", String.class);
         if (splitSizeStr != null && !splitSizeStr.isEmpty()) {
