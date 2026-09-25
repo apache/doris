@@ -131,11 +131,11 @@ import org.apache.doris.nereids.rules.rewrite.PushDownAggThroughJoinOnPkFk;
 import org.apache.doris.nereids.rules.rewrite.PushDownEncodeSlot;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterIntoSchemaScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushDownIndexSearchAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
-import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
@@ -153,7 +153,6 @@ import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
-import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
@@ -799,7 +798,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
-                topDown(new PushDownMatchProjectionAsVirtualColumn()),
+                topDown(new PushDownIndexSearchAsVirtualColumn()),
                 topic("score optimize",
                         topDown(new PushDownScoreTopNIntoOlapScan(),
                                 new CheckScoreUsage())
@@ -930,12 +929,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     rewriteJobs.addAll(jobs(topic("split multi distinct",
                             custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                                     () -> DistinctAggStrategySelector.INSTANCE))));
-
-                    // Rewrite search function before VariantSubPathPruning
-                    // so that ElementAt expressions from search can be processed
-                    rewriteJobs.addAll(jobs(
-                            bottomUp(new RewriteSearchToSlots())
-                    ));
 
                     if (needSubPathPushDown) {
                         rewriteJobs.addAll(jobs(

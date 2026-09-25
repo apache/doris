@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
@@ -240,6 +241,11 @@ public class InferPredicateByReplace {
             if (input.anyMatch(expr -> expr instanceof NoneMovableFunction
                     || !((ExpressionTrait) expr).isDeterministic())
                     || input.getInputSlots().size() != 1) {
+                continue;
+            }
+            // A SEARCH is evaluated with the inverted indexes of the columns it binds, not from their values,
+            // so it does not hold for another column that is merely equal.
+            if (input.containsType(SearchExpression.class)) {
                 continue;
             }
             input.accept(PredicatesCollector.INSTANCE, exprPredicates);

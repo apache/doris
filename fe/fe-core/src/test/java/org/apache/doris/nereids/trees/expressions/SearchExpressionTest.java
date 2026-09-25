@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.SearchDslParser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
 import org.junit.jupiter.api.Assertions;
@@ -61,6 +65,18 @@ public class SearchExpressionTest {
         Assertions.assertEquals(slotChildren, searchExpr.getSlotChildren());
         Assertions.assertEquals(1, searchExpr.children().size());
         Assertions.assertEquals(titleSlot, searchExpr.children().get(0));
+    }
+
+    @Test
+    public void testAlwaysNullable() {
+        // BE answers UNKNOWN for a clause its index cannot evaluate, whatever the field's nullability, and a scan
+        // only carries that UNKNOWN into a virtual column while this expression is nullable.
+        SlotReference notNullSlot = new SlotReference("age", IntegerType.INSTANCE, false, Arrays.asList());
+        SearchExpression searchExpr = new SearchExpression("age:[18 TO 30]", createTestPlan(),
+                Arrays.asList(notNullSlot));
+
+        Assertions.assertFalse(notNullSlot.nullable());
+        Assertions.assertTrue(searchExpr.nullable());
     }
 
     @Test
@@ -136,6 +152,26 @@ public class SearchExpressionTest {
 
         String str = searchExpr.toString();
         Assertions.assertEquals("search('title:hello')", str);
+        Assertions.assertEquals(str, searchExpr.toSql());
+    }
+
+    @Test
+    public void testNullFieldIsNotAFieldBinding() {
+        SlotReference title = createTestSlot("title");
+        SearchExpression search = new SearchExpression("title:hello", createTestPlan(),
+                Collections.singletonList(title));
+        Assertions.assertTrue(search.bindsOnlyFields());
+
+        // Null-rejection inference and outer join NULL padding substitute NULL for the field.
+        SearchExpression nullField = search.withChildren(Collections.singletonList(NullLiteral.INSTANCE));
+        Assertions.assertFalse(nullField.foldable());
+        Assertions.assertFalse(nullField.bindsOnlyFields());
+
+        StringLiteral key = new StringLiteral("name");
+        Assertions.assertTrue(search.withChildren(
+                Collections.singletonList(new ElementAt(title, key))).bindsOnlyFields());
+        Assertions.assertFalse(search.withChildren(
+                Collections.singletonList(new ElementAt(NullLiteral.INSTANCE, key))).bindsOnlyFields());
     }
 
     @Test

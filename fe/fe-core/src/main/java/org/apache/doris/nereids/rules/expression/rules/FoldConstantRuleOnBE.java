@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -275,7 +276,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         }
 
         // Search function should always not be folded to constant.
-        if (expr instanceof Search) {
+        if (expr instanceof Search || expr instanceof SearchExpression) {
             return true;
         }
 

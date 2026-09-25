@@ -948,6 +948,17 @@ public class ExpressionUtils {
     }
 
     /**
+     * Whether the expression is NULL when all its input slots are NULL, e.g. {@code col MATCH_ANY 'x'} or
+     * {@code element_at(v, 'k')}, but not {@code nvl(col, 'x') MATCH_ANY 'x'}. Only such an expression can be
+     * computed below the NULL-extended side of an outer join, because the join pads its value with NULL.
+     */
+    public static boolean isNullPropagating(Expression expression, CascadesContext cascadesContext) {
+        Set<Slot> inputSlots = expression.getInputSlots();
+        return !inputSlots.isEmpty()
+                && matchesWhenSlotsAreNull(expression, inputSlots, cascadesContext, Expression::isNullLiteral);
+    }
+
+    /**
      * infer notNulls slot from predicate
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates, CascadesContext cascadesContext) {
@@ -982,7 +993,8 @@ public class ExpressionUtils {
             }
             inputSlots = mergedInputSlots.get();
             for (Slot slot : candidateSlots) {
-                if (matchesWhenSlotIsNull(predicate, slot, cascadesContext, nullInputResultPredicate)) {
+                if (matchesWhenSlotsAreNull(predicate, ImmutableSet.of(slot), cascadesContext,
+                        nullInputResultPredicate)) {
                     notNullSlots.add(slot);
                 }
             }
@@ -1002,11 +1014,12 @@ public class ExpressionUtils {
         return targetSlots;
     }
 
-    private static boolean matchesWhenSlotIsNull(Expression expression, Slot slot, CascadesContext cascadesContext,
-            Predicate<Expression> nullInputResultPredicate) {
+    private static boolean matchesWhenSlotsAreNull(Expression expression, Set<Slot> slots,
+            CascadesContext cascadesContext, Predicate<Expression> nullInputResultPredicate) {
         Map<Expression, Expression> replaceMap = new HashMap<>();
-        Literal nullLiteral = new NullLiteral(slot.getDataType());
-        replaceMap.put(slot, nullLiteral);
+        for (Slot slot : slots) {
+            replaceMap.put(slot, new NullLiteral(slot.getDataType()));
+        }
         Expression evalExpr = FoldConstantRule.evaluate(
                 ExpressionUtils.replace(expression, replaceMap),
                 new ExpressionRewriteContext(cascadesContext));

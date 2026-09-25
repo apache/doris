@@ -252,7 +252,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // column/table reference (e.g., after CTE inlining or join projection remapping),
         // we gracefully fall back to invertedIndex = null. The BE can still evaluate MATCH
         // correctly without inverted index (slow path), or the PushDownProject /
-        // PushDownMatchProjectionAsVirtualColumn rules may have already pushed the expression
+        // PushDownIndexSearchAsVirtualColumn rules may have already pushed the expression
         // down for storage-level index evaluation (fast path).
         Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);
@@ -700,18 +700,24 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
             // Look up the inverted index for each field (needed for variant subcolumn analyzer)
             Index invertedIndex = null;
+            String analyzer = searchExpression.getQsPlan().getFieldBindings()
+                    .get(fieldIndexes.size()).getAnalyzerName();
             if (slotExpr instanceof SlotReference) {
                 SlotReference slot = (SlotReference) slotExpr;
                 OlapTable olapTbl = getOlapTableDirectly(slot);
                 if (olapTbl != null) {
                     Column column = slot.getOriginalColumn().orElse(null);
                     if (column != null) {
-                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath());
+                        invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
                     }
                 }
             }
-            if (invertedIndex == null) {
+            if (invertedIndex == null && analyzer == null) {
                 invertedIndex = getInvertedIndexFromTranslatedSlot(translatedSlot, context);
+            }
+            if (analyzer != null && invertedIndex == null) {
+                throw new AnalysisException("No inverted index found for SEARCH analyzer '" + analyzer
+                        + "' on " + slotExpr.toSql());
             }
             fieldIndexes.add(invertedIndex);
         }
