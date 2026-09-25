@@ -23,6 +23,7 @@
 
 #include <atomic>
 #include <barrier>
+#include <cmath>
 #include <future>
 #include <memory>
 #include <string>
@@ -455,7 +456,9 @@ protected:
     }
 
     // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
-    Status write_snii_scoring_segment(const std::string& segment_path) {
+    // With with_nulls, the segment has two extra NULL rows (docids 1 and 3); the postings and
+    // norms of the non-NULL rows stay the same.
+    Status write_snii_scoring_segment(const std::string& segment_path, bool with_nulls = false) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         io::FileWriterPtr file_writer;
@@ -485,6 +488,11 @@ protected:
         input.config = snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
         input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
+        if (with_nulls) {
+            alpha.docids = {0, 2};
+            input.doc_count = 4;
+            input.null_docids = {1, 3};
+        }
         input.terms = {std::move(alpha), std::move(beta)};
 
         RETURN_IF_ERROR(writer.add_logical_index(input));
@@ -628,15 +636,15 @@ protected:
     }
 
     struct SniiScoringFieldInput {
-        SniiScoringFieldInput(std::wstring field_name, uint64_t index_doc_count,
+        SniiScoringFieldInput(std::wstring field_name, uint64_t indexed_doc_count,
                               uint64_t sum_total_term_freq, bool has_norms = true)
                 : field_name(std::move(field_name)),
-                  index_doc_count(index_doc_count),
+                  indexed_doc_count(indexed_doc_count),
                   sum_total_term_freq(sum_total_term_freq),
                   has_norms(has_norms) {}
 
         std::wstring field_name;
-        uint64_t index_doc_count = 0;
+        uint64_t indexed_doc_count = 0;
         uint64_t sum_total_term_freq = 0;
         bool has_positions = true;
         bool has_norms = true;
@@ -647,7 +655,7 @@ protected:
             CollectionStatistics::SniiScoringSegmentAccumulator* segment_accumulator) {
         for (const auto& field : fields) {
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
-                    field.field_name, field.index_doc_count, field.sum_total_term_freq,
+                    field.field_name, field.indexed_doc_count, field.sum_total_term_freq,
                     field.has_positions, field.has_norms, segment_accumulator));
         }
         return Status::OK();
@@ -662,10 +670,10 @@ protected:
     }
 
     Status admit_snii_segment_for_test(CollectionStatistics* statistics,
-                                       const std::wstring& field_name, uint64_t index_doc_count,
+                                       const std::wstring& field_name, uint64_t indexed_doc_count,
                                        uint64_t sum_total_term_freq, bool has_norms = true) {
         return admit_snii_fields_for_test(
-                statistics, {{field_name, index_doc_count, sum_total_term_freq, has_norms}});
+                statistics, {{field_name, indexed_doc_count, sum_total_term_freq, has_norms}});
     }
 
     Status stage_snii_fields_then_file_not_found_for_test(
@@ -684,7 +692,7 @@ protected:
 
     void expect_collected_stats(const std::wstring& field_name, uint64_t doc_count,
                                 uint64_t token_count) {
-        EXPECT_EQ(stats_->get_doc_num(), doc_count);
+        EXPECT_EQ(stats_->get_doc_num(field_name), doc_count);
         expect_collected_tokens(field_name, token_count);
     }
 
@@ -991,6 +999,30 @@ TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
     expect_collected_term(L"1", L"alpha", 2);
 }
 
+// NULL rows are not documents of the field: N and the avgdl denominator use the indexed count.
+TEST_F(CollectionStatisticsTest, SniiScoringCountsIndexedDocumentsPerField) {
+    auto tablet_schema = create_snii_schema();
+    const std::string segment_path = test_dir_ + "/snii_scoring_nulls_0.dat";
+    ASSERT_TRUE(write_snii_scoring_segment(segment_path, /*with_nulls=*/true).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                  create_match_expr_contexts("alpha"), nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 2, 3);
+    expect_collected_term(L"1", L"alpha", 2);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.5F);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_idf(L"1", L"alpha"),
+                    static_cast<float>(std::log(1 + (2 - 2 + 0.5) / (2 + 0.5))));
+}
+
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
     snii::snii_test::ScopedEnv force_nonresident_dict("SNII_DICT_RESIDENT_MAX", "0");
     auto tablet_schema = create_snii_schema();
@@ -1127,7 +1159,9 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
 
 class TestableCollectionStatistics : public CollectionStatistics {
 public:
-    void set_total_num_docs(uint64_t num_docs) { _total_num_docs = num_docs; }
+    void set_total_num_docs(const std::wstring& field_name, uint64_t num_docs) {
+        _total_num_docs[field_name] = num_docs;
+    }
 
     void set_total_num_tokens(const std::wstring& field_name, uint64_t num_tokens) {
         _total_num_tokens[field_name] = num_tokens;
@@ -1198,7 +1232,7 @@ TEST_F(CollectionStatisticsTest, SegmentWithoutNormsRejectsWholeCollection) {
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
     expect_no_collected_tokens(L"1");
-    EXPECT_THROW(stats_->get_doc_num(), Exception);
+    EXPECT_THROW(stats_->get_doc_num(L"1"), Exception);
 }
 
 TEST_F(CollectionStatisticsTest, SegmentsAccumulatePhysicalStatistics) {
@@ -1219,13 +1253,51 @@ TEST_F(CollectionStatisticsTest, MultiFieldSegmentsCommitAndAccumulateAtomically
     EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"2"), 4.0F);
 }
 
-TEST_F(CollectionStatisticsTest, MultiFieldSegmentDocCountsMustAgree) {
-    auto status = admit_snii_fields_for_test(stats_.get(), {{L"1", 3, 7}, {L"2", 4, 12}});
+// SNII fields of one segment count their own indexed (non-NULL) documents, so they may differ.
+TEST_F(CollectionStatisticsTest, MultiFieldSegmentKeepsPerFieldDocCounts) {
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {{L"1", 3, 7}, {L"2", 4, 12}}).ok());
+    ASSERT_TRUE(admit_snii_fields_for_test(stats_.get(), {{L"1", 1, 2}, {L"2", 0, 0}}).ok());
 
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-    expect_no_collected_tokens(L"1");
-    expect_no_collected_tokens(L"2");
-    EXPECT_THROW(stats_->get_doc_num(), Exception);
+    expect_collected_stats(L"1", 4, 9);
+    expect_collected_stats(L"2", 4, 12);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 9.0F / 4.0F);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"2"), 3.0F);
+}
+
+// A field whose documents are all NULL in the whole collection still has finite statistics.
+TEST_F(CollectionStatisticsTest, FieldWithoutIndexedDocumentsHasFiniteStatistics) {
+    CollectionStatistics::SniiScoringSegmentAccumulator segment_accumulator;
+    ASSERT_TRUE(stage_snii_fields_for_test(stats_.get(), {{L"1", 0, 0}, {L"2", 5, 10}},
+                                           &segment_accumulator)
+                        .ok());
+    add_term_doc_frequency(&segment_accumulator.term_doc_freqs, L"1", L"alpha", 0);
+    stats_->commit_snii_scoring_segment(std::move(segment_accumulator));
+
+    expect_collected_stats(L"1", 0, 0);
+    const float avg_dl = stats_->get_or_calculate_avg_dl(L"1");
+    const float idf = stats_->get_or_calculate_idf(L"1", L"alpha");
+    EXPECT_TRUE(std::isfinite(avg_dl));
+    EXPECT_FLOAT_EQ(avg_dl, 0.0F);
+    EXPECT_TRUE(std::isfinite(idf));
+    EXPECT_FLOAT_EQ(idf, static_cast<float>(std::log(2.0)));
+}
+
+// NULL ARRAY rows may keep tokens: they count in the document frequency but not in the indexed
+// document count. idf and avgdl then use at least the document frequency and one document.
+TEST_F(CollectionStatisticsTest, DocFrequencyAboveIndexedCountKeepsIdfPositive) {
+    CollectionStatistics::SniiScoringSegmentAccumulator segment_accumulator;
+    ASSERT_TRUE(stage_snii_fields_for_test(stats_.get(), {{L"1", 2, 6}, {L"2", 0, 4}},
+                                           &segment_accumulator)
+                        .ok());
+    add_term_doc_frequency(&segment_accumulator.term_doc_freqs, L"1", L"alpha", 3);
+    add_term_doc_frequency(&segment_accumulator.term_doc_freqs, L"2", L"beta", 1);
+    stats_->commit_snii_scoring_segment(std::move(segment_accumulator));
+
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_idf(L"1", L"alpha"),
+                    static_cast<float>(std::log(1 + (3 - 3 + 0.5) / (3 + 0.5))));
+    EXPECT_GT(stats_->get_or_calculate_idf(L"1", L"alpha"), 0.0F);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"2"), 4.0F);
+    EXPECT_GT(stats_->get_or_calculate_idf(L"2", L"beta"), 0.0F);
 }
 
 TEST_F(CollectionStatisticsTest, LaterFieldFileNotFoundDoesNotPublishPartialSegment) {
@@ -1269,11 +1341,11 @@ TEST_F(CollectionStatisticsDetailedTest, GetStatisticsWithValidData) {
     std::wstring field_name = L"test_field";
     std::wstring term = L"test_term";
 
-    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_docs(field_name, 1000);
     stats_->set_total_num_tokens(field_name, 5000);
     stats_->set_term_doc_freq(field_name, term, 100);
 
-    EXPECT_EQ(stats_->get_doc_num(), 1000);
+    EXPECT_EQ(stats_->get_doc_num(field_name), 1000);
     EXPECT_EQ(stats_->get_total_term_cnt_by_col(field_name), 5000);
     EXPECT_EQ(stats_->get_term_doc_freq_by_col(field_name, term), 100);
 
@@ -1289,7 +1361,7 @@ TEST_F(CollectionStatisticsDetailedTest, GetStatisticsThrowsWhenDataNotExists) {
     std::wstring nonexistent_term = L"nonexistent";
 
     // Test exceptions for missing data
-    EXPECT_THROW(stats_->get_doc_num(), Exception);
+    EXPECT_THROW(stats_->get_doc_num(nonexistent_field), Exception);
     EXPECT_THROW(stats_->get_total_term_cnt_by_col(nonexistent_field), Exception);
     EXPECT_THROW(stats_->get_term_doc_freq_by_col(nonexistent_field, nonexistent_term), Exception);
     EXPECT_THROW(stats_->get_or_calculate_avg_dl(nonexistent_field), Exception);
@@ -1300,14 +1372,14 @@ TEST_F(CollectionStatisticsDetailedTest, CachingMechanismWorks) {
     std::wstring field_name = L"test_field";
     std::wstring term = L"test_term";
 
-    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_docs(field_name, 1000);
     stats_->set_total_num_tokens(field_name, 5000);
     stats_->set_term_doc_freq(field_name, term, 100);
 
     float first_avg_dl = stats_->get_or_calculate_avg_dl(field_name);
     float first_idf = stats_->get_or_calculate_idf(field_name, term);
 
-    stats_->set_total_num_docs(2000);
+    stats_->set_total_num_docs(field_name, 2000);
     stats_->set_total_num_tokens(field_name, 10000);
     stats_->set_term_doc_freq(field_name, term, 200);
 
@@ -1322,16 +1394,24 @@ TEST_F(CollectionStatisticsDetailedTest, HandlesZeroValuesCorrectly) {
     std::wstring field_name = L"test_field";
     std::wstring term = L"test_term";
 
-    stats_->set_total_num_docs(0);
-    EXPECT_THROW(stats_->get_doc_num(), Exception);
+    EXPECT_THROW(stats_->get_doc_num(field_name), Exception);
 
-    stats_->set_total_num_docs(100);
+    stats_->set_total_num_docs(field_name, 100);
     stats_->set_total_num_tokens(field_name, 0);
     stats_->set_term_doc_freq(field_name, term, 0);
 
     EXPECT_EQ(stats_->get_total_term_cnt_by_col(field_name), 0);
     EXPECT_EQ(stats_->get_term_doc_freq_by_col(field_name, term), 0);
     EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(field_name), 0.0f);
+
+    const std::wstring empty_field = L"empty_field";
+    stats_->set_total_num_docs(empty_field, 0);
+    stats_->set_total_num_tokens(empty_field, 0);
+    stats_->set_term_doc_freq(empty_field, term, 0);
+    EXPECT_EQ(stats_->get_doc_num(empty_field), 0);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(empty_field), 0.0f);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_idf(empty_field, term),
+                    static_cast<float>(std::log(2.0)));
 }
 
 TEST_F(CollectionStatisticsDetailedTest, IdfCalculationWithDifferentFrequencies) {
@@ -1339,7 +1419,7 @@ TEST_F(CollectionStatisticsDetailedTest, IdfCalculationWithDifferentFrequencies)
     std::wstring common_term = L"common_term";
     std::wstring rare_term = L"rare_term";
 
-    stats_->set_total_num_docs(1000);
+    stats_->set_total_num_docs(field_name, 1000);
     stats_->set_term_doc_freq(field_name, common_term, 500);
     stats_->set_term_doc_freq(field_name, rare_term, 10);
 

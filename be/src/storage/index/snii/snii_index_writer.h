@@ -68,7 +68,10 @@ public:
     ::doris::snii::writer::MemoryReporter* memory_reporter_for_test() const {
         return _memory_reporter.get();
     }
-    const std::vector<uint8_t>& encoded_norms_for_test() const { return _encoded_norms; }
+    const std::vector<uint8_t>& norm_lengths_for_test() const { return _norm_lengths; }
+    const std::vector<uint32_t>& null_docids_with_norms_for_test() const {
+        return _null_docids_with_norms;
+    }
     ::doris::snii::format::IndexConfig config_for_test() const { return _config; }
     bool writes_norms_for_test() const { return _writes_norms; }
     void set_analysis_for_test(inverted_index::ReaderPtr reader,
@@ -114,9 +117,16 @@ private:
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
-    std::vector<uint8_t> _encoded_norms;
-    // Bytes of _null_docids capacity currently mirrored into _memory_reporter
-    // (and through it the SNII index-build observation tracker). Re-charged on
+    // Norms are only kept for the rows that carry one (see format/norms_pod.h): every
+    // non-NULL row, plus the NULL ARRAY rows that still produced tokens, which are listed
+    // in _null_docids_with_norms. _norm_lengths holds their token counts saturated at 255,
+    // in row order; finish() encodes them. Keeping the raw count until the row's NULL flag
+    // is known (add_array_nulls runs after add_array_values) is what separates an empty
+    // NULL row from a NULL row with one token -- both encode to the same byte.
+    std::vector<uint8_t> _norm_lengths;
+    std::vector<uint32_t> _null_docids_with_norms;
+    // Bytes of _null_docids (+ _null_docids_with_norms) capacity currently mirrored into
+    // _memory_reporter (and through it the SNII index-build observation tracker). Re-charged on
     // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --
     // without it a large interleaved-null segment accumulates untracked RSS the
     // G09 limiter cannot see.

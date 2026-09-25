@@ -18,6 +18,7 @@
 #include "storage/index/snii/writer/snii_compound_writer.h"
 
 #include <fmt/format.h>
+#include <xxhash.h>
 
 #include <algorithm>
 #include <utility>
@@ -355,7 +356,8 @@ Status SniiStreamedIndexSession::push_term(StreamedTermPostings&& tp) {
     return Status::OK();
 }
 
-Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_norms) {
+Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_norms,
+                                                   TrackedNullDocids null_docids_with_norms) {
     if (!owner_->failed_.ok()) return owner_->failed_;
     if (finished_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -369,16 +371,26 @@ Status SniiStreamedIndexSession::set_encoded_norms(TrackedEncodedNorms encoded_n
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: norms were already set");
     }
-    if (encoded_norms.size() != input_.doc_count) {
+    const uint64_t norm_documents = uint64_t {input_.doc_count} - writer_->null_docids_.size() +
+                                    null_docids_with_norms.size();
+    if (encoded_norms.size() != norm_documents) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "compound: norms length {} differs from doc_count {}", encoded_norms.size(),
-                input_.doc_count);
+                "compound: norms length {} differs from the {} documents that carry a norm",
+                encoded_norms.size(), norm_documents);
     }
-    // writer_ references input_.encoded_norms; move into it here for finalize to read by reference.
+    // writer_ references input_.encoded_norms and input_.null_docids_with_norms; move into them
+    // here for finalize to read by reference.
     encoded_norms_reservation_ = std::move(encoded_norms.reservation_);
     input_.encoded_norms = std::move(encoded_norms.norms_);
+    null_docids_with_norms_reservation_ = std::move(null_docids_with_norms.reservation_);
+    input_.null_docids_with_norms = std::move(null_docids_with_norms.docids_);
     norms_set_ = true;
     return Status::OK();
+}
+
+std::span<const uint32_t> SniiStreamedIndexSession::null_docids() const {
+    DORIS_CHECK(writer_ != nullptr);
+    return {writer_->null_docids_.data(), writer_->null_docids_.size()};
 }
 
 Status SniiStreamedIndexSession::finish() {
@@ -439,9 +451,10 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDo
     if (!in.null_docids.empty())
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: tracked streamed NULL docids must not also be present in input");
-    if (!in.encoded_norms.empty())
+    if (!in.encoded_norms.empty() || !in.null_docids_with_norms.empty()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: tracked streamed norms must not also be present in input");
+    }
     RETURN_IF_ERROR(ensure_bootstrap());
     auto s = std::unique_ptr<SniiStreamedIndexSession>(
             new SniiStreamedIndexSession(this, std::move(in), std::move(null_docids)));
@@ -461,6 +474,8 @@ Status SniiCompoundWriter::finish_streamed_index(SniiStreamedIndexSession* sessi
     // its transferred charge before retaining that section for compound finish.
     std::vector<uint8_t>().swap(session->input_.encoded_norms);
     session->encoded_norms_reservation_.reset();
+    std::vector<uint32_t>().swap(session->input_.null_docids_with_norms);
+    session->null_docids_with_norms_reservation_.reset();
     Placement p;
     p.post_off = session->post_off_;
     p.post_len = out_->bytes_written() - p.post_off;
@@ -501,9 +516,33 @@ Status SniiCompoundWriter::write_index_aux_sections(LogicalIndexWriter& writer,
         writer.release_norms_bytes();
     }
     if (writer.has_null_bitmap()) {
-        placement.null_off = out_->bytes_written();
-        RETURN_IF_ERROR(append(writer.null_bitmap_bytes()));
-        placement.null_len = out_->bytes_written() - placement.null_off;
+        // A VARIANT column copies each index definition to every subcolumn, and all
+        // definitions on one subcolumn are written back to back under the same suffix
+        // with the same NULL rows, so they produce byte-identical bitmaps. When this
+        // bitmap equals the last one written and carries the same suffix, point this
+        // index at that region instead of storing the bytes again. Region references
+        // are absolute, so the format is unchanged; the bitmap records the doc count, so
+        // equal bytes also mean an equal document domain.
+        //
+        // The earlier bitmap's bytes were released as soon as they reached the file, so
+        // a 128-bit hash plus the length stands in for comparing the bytes themselves.
+        const std::vector<uint8_t>& bytes = writer.null_bitmap_bytes();
+        const XXH128_hash_t hash = XXH3_128bits(bytes.data(), bytes.size());
+        WrittenNullBitmap& last = last_null_bitmap_;
+        if (last.length == bytes.size() && last.hash_low64 == hash.low64 &&
+            last.hash_high64 == hash.high64 && last.index_suffix == writer.index_suffix()) {
+            placement.null_off = last.offset;
+            placement.null_len = last.length;
+        } else {
+            placement.null_off = out_->bytes_written();
+            RETURN_IF_ERROR(append(bytes));
+            placement.null_len = out_->bytes_written() - placement.null_off;
+            last = {.index_suffix = writer.index_suffix(),
+                    .hash_low64 = hash.low64,
+                    .hash_high64 = hash.high64,
+                    .offset = placement.null_off,
+                    .length = placement.null_len};
+        }
         writer.release_null_bitmap_bytes();
     }
     if (writer.has_bsbf()) {

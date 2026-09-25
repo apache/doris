@@ -24,9 +24,9 @@
 #include <span>
 #include <utility>
 
+#include "common/config.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/crc32c.h"
-#include "storage/index/snii/encoding/varint.h"
 #include "storage/index/snii/encoding/zstd_codec.h"
 #include "storage/index/snii/format/bsbf.h"
 #include "storage/index/snii/format/dict_block.h"
@@ -416,6 +416,7 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
           terms_(in.terms),
           term_source_(in.term_source),
           encoded_norms_(in.encoded_norms),
+          null_docids_with_norms_(in.null_docids_with_norms),
           target_dict_block_bytes_(in.target_dict_block_bytes != 0
                                            ? in.target_dict_block_bytes
                                            : format::kDefaultTargetDictBlockBytes),
@@ -585,9 +586,23 @@ Status LogicalIndexWriter::prepare_build(io::FileWriter* posting_out) {
 }
 
 Status LogicalIndexWriter::finalize_build() {
-    if (has_norms_ && encoded_norms_.size() != doc_count_) {
+    if (!has_norms_ && !null_docids_with_norms_.empty()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "logical_index: norms length must equal doc_count");
+                "logical_index: NULL docids with norms require norms");
+    }
+    const format::NormsSectionInput norms_input {
+            .doc_count = doc_count_,
+            .null_docids = std::span<const uint32_t>(null_docids_.data(), null_docids_.size()),
+            .null_docids_with_norms = null_docids_with_norms_,
+            .norms = encoded_norms_};
+    format::NormsSectionPlan norms_plan;
+    if (has_norms_) {
+        // The only place that picks the norms layout: loads, compaction output (streamed
+        // sessions included) and index rebuilds all finish their logical indexes here. With
+        // enable_snii_sparse_norms off, the section is the dense one every earlier writer
+        // produced, so BEs without sparse-norms support can read it.
+        const bool force_dense_norms = !config::enable_snii_sparse_norms;
+        RETURN_IF_ERROR(format::plan_norms_section(norms_input, force_dense_norms, &norms_plan));
     }
     // Seal the dict buffer so a spilled temp is flushed before
     // stream_dict_region_into reads it back. A no-op for a RAM-resident dict.
@@ -599,19 +614,17 @@ Status LogicalIndexWriter::finalize_build() {
     stats_.null_count = static_cast<uint32_t>(null_docids_.size());
 
     if (has_norms_) {
-        const size_t payload_size = varint_len(encoded_norms_.size()) + encoded_norms_.size();
-        const size_t section_size = 1 + varint_len(payload_size) + payload_size + sizeof(uint32_t);
         MemoryReporter::Reservation build_reservation =
                 memory_reporter_ == nullptr ? MemoryReporter::Reservation()
                                             : memory_reporter_->make_reservation();
         if (memory_reporter_ != nullptr) {
-            RETURN_IF_ERROR(build_reservation.set_bytes(payload_size));
-            RETURN_IF_ERROR(norms_section_reservation_.set_bytes(section_size));
+            RETURN_IF_ERROR(build_reservation.set_bytes(norms_plan.payload_bytes));
+            RETURN_IF_ERROR(norms_section_reservation_.set_bytes(norms_plan.framed_bytes));
         }
         ByteSink nsink;
-        format::NormsPodWriter::finish(encoded_norms_, &nsink);
+        format::write_norms_section(norms_input, norms_plan, &nsink);
         norms_section_ = nsink.take();
-        DORIS_CHECK_EQ(norms_section_.capacity(), section_size);
+        DORIS_CHECK_EQ(norms_section_.capacity(), norms_plan.framed_bytes);
         if (memory_reporter_ != nullptr) {
             DORIS_CHECK_EQ(norms_section_reservation_.bytes(), norms_section_.capacity());
         }
