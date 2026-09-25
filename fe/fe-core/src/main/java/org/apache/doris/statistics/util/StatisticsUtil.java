@@ -55,10 +55,12 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
@@ -1051,6 +1053,38 @@ public class StatisticsUtil {
             }
         }
         return filtered.isEmpty() ? null : filtered;
+    }
+
+    /**
+     * Minimum ratio for a value to be treated as a hot value.
+     * ANALYZE drops values below this; equal-to-constant estimation falls back to 1/ndv.
+     * Existing {@code hot_value_threshold} (default 0.10) is only used by SkewJoin.
+     * Keep this aligned with ANALYZE {@code ROUND(ratio, 4)} (smallest non-zero is 0.0001).
+     */
+    public static final double HOT_VALUE_MIN_RATIO = 0.0001d;
+
+    /** SQL literal of {@link #HOT_VALUE_MIN_RATIO}. Avoid Double.toString, which emits 1.0E-4. */
+    public static final String HOT_VALUE_MIN_RATIO_SQL = "0.0001";
+
+    // The key of the hot value equal to value, or null. Literal.equals is class strict, so an INT
+    // key and a BIGINT key holding the same number do not match; keys of the same family are
+    // compared with ComparableLiteral.compareTo, which is exact.
+    public static Literal findHotValueKey(Map<Literal, Float> hotValues, Literal value) {
+        if (hotValues.containsKey(value)) {
+            return value;
+        }
+        if (!(value instanceof ComparableLiteral)) {
+            return null;
+        }
+        for (Literal key : hotValues.keySet()) {
+            boolean sameFamily = key.getDataType().isNumericType() && value.getDataType().isNumericType()
+                    || key.getDataType().isDateLikeType() && value.getDataType().isDateLikeType()
+                    || key instanceof StringLikeLiteral && value instanceof StringLikeLiteral;
+            if (sameFamily && ((ComparableLiteral) key).compareTo((ComparableLiteral) value) == 0) {
+                return key;
+            }
+        }
+        return null;
     }
 
     /**

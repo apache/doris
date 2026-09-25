@@ -60,6 +60,8 @@ public class AnalysisInfoBuilder {
     private boolean forceFull;
     private boolean usingSqlForExternalTable;
     private Boolean collectHotValue;
+    private boolean collectMcvHistogram;
+    private int hotValueCollectCount;
     private long tblUpdateTime;
     private long rowCount;
     private boolean userInject = false;
@@ -103,6 +105,8 @@ public class AnalysisInfoBuilder {
         forceFull = info.forceFull;
         usingSqlForExternalTable = info.usingSqlForExternalTable;
         collectHotValue = info.collectHotValue;
+        collectMcvHistogram = info.collectMcvHistogram;
+        hotValueCollectCount = info.hotValueCollectCount;
         tblUpdateTime = info.tblUpdateTime;
         rowCount = info.rowCount;
         userInject = info.userInject;
@@ -253,6 +257,16 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setCollectMcvHistogram(boolean collectMcvHistogram) {
+        this.collectMcvHistogram = collectMcvHistogram;
+        return this;
+    }
+
+    public AnalysisInfoBuilder setHotValueCollectCount(int hotValueCollectCount) {
+        this.hotValueCollectCount = hotValueCollectCount;
+        return this;
+    }
+
     public AnalysisInfoBuilder setUsingSqlForExternalTable(boolean usingSqlForExternalTable) {
         this.usingSqlForExternalTable = usingSqlForExternalTable;
         return this;
@@ -309,7 +323,8 @@ public class AnalysisInfoBuilder {
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 partitionOnly, samplingPartition, isAllPartition, partitionCount,
                 cronExpression, forceFull, usingSqlForExternalTable, collectHotValue, tblUpdateTime, rowCount,
-                userInject, updateRows, tableVersion, priority, partitionUpdateRows, enablePartition);
+                userInject, updateRows, tableVersion, priority, partitionUpdateRows, enablePartition,
+                collectMcvHistogram, hotValueCollectCount);
     }
 
 }

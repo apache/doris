@@ -36,7 +36,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
@@ -366,11 +368,13 @@ public class StatsCalculatorTest {
         ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
         Assertions.assertEquals(5, icStatsOut.getHotValues().size());
 
+        // the join key keeps every value skewed on one side that the other side holds too, so
+        // "1" of ia and "3", "4" of ib join "2" rather than only the values hot on both sides
         ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
-        Assertions.assertEquals(1, iaStatsOut.getHotValues().size());
+        Assertions.assertEquals(4, iaStatsOut.getHotValues().size());
 
         ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
-        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+        Assertions.assertEquals(4, ibStatsOut.getHotValues().size());
     }
 
     @Test
@@ -434,14 +438,13 @@ public class StatsCalculatorTest {
         ColumnStatistic icStatsOut = outputStats.findColumnStatistics(ic);
         Assertions.assertEquals(4, icStatsOut.getHotValues().size());
 
-        // left outer join,
-        // ia.hotValues:  "2", "3", "4" -> "2", "3", "4"
-        // ib.hotValues: "4", "5" -> "4"
+        // left outer join: only the right key is merged, so ia keeps its own "1", "2", while ib
+        // takes every value skewed on one side that the other side holds too
         ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
         Assertions.assertEquals(2, iaStatsOut.getHotValues().size());
 
         ColumnStatistic ibStatsOut = outputStats.findColumnStatistics(ib);
-        Assertions.assertEquals(1, ibStatsOut.getHotValues().size());
+        Assertions.assertEquals(4, ibStatsOut.getHotValues().size());
     }
 
     @Test
@@ -595,6 +598,54 @@ public class StatsCalculatorTest {
         ColumnStatistic iaStatsOut = outputStats.findColumnStatistics(ia);
         Assertions.assertEquals(3, iaStatsOut.getHotValues().size());
         Assertions.assertTrue(containsHotValue(iaStatsOut, "1"));
+    }
+
+    @Test
+    public void testUnionHotValuesAreSharesOfNotNullRows() {
+        double rowCount = 100;
+        SlotReference ia = StatsTestUtil.instance.createExpr("ia").second.get(0);
+        SlotReference ib = StatsTestUtil.instance.createExpr("ia").second.get(0);
+        LogicalUnion unionAll = new LogicalUnion(Qualifier.ALL, ImmutableList.of(ia),
+                ImmutableList.of(ImmutableList.of(ia), ImmutableList.of(ib)), ImmutableList.of(), true,
+                ImmutableList.of(new DummyPlan(), new DummyPlan()));
+        // child 0: 50 not null rows, value 1 takes 80% of them = 40 rows
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 50, ImmutableMap.of("1", 0.80f));
+        // child 1: 100 not null rows, value 1 takes 20% of them = 20 rows
+        ColumnStatistic ibStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, ImmutableMap.of("1", 0.20f));
+        Statistics child0Stats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
+        Statistics child1Stats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+
+        StatsCalculator calculator = new StatsCalculator(null);
+        Statistics outputStats = calculator.computeUnion(unionAll, ImmutableList.of(child0Stats, child1Stats));
+        Map<Literal, Float> hotValues = outputStats.findColumnStatistics(ia).getHotValues();
+        Assertions.assertEquals(1, hotValues.size());
+        // 60 rows of 150 not null rows, not (80 + 20) / 200
+        Assertions.assertEquals(0.4, hotValues.values().iterator().next(), 1e-3);
+    }
+
+    @Test
+    public void testUnionMergesTheSameHotValueOfAnotherLiteralType() {
+        double rowCount = 100;
+        SlotReference ia = StatsTestUtil.instance.createExpr("ia").second.get(0);
+        SlotReference ib = StatsTestUtil.instance.createExpr("ia").second.get(0);
+        LogicalUnion unionAll = new LogicalUnion(Qualifier.ALL, ImmutableList.of(ia),
+                ImmutableList.of(ImmutableList.of(ia), ImmutableList.of(ib)), ImmutableList.of(), true,
+                ImmutableList.of(new DummyPlan(), new DummyPlan()));
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10,
+                rowCount, "1", "10", 0, ImmutableMap.of("1", 0.50f));
+        // the same value 1 as a BIGINT literal, as a cast child of the union leaves it
+        ColumnStatistic ibStats = new ColumnStatisticBuilder(iaStats)
+                .setHotValues(ImmutableMap.of(new BigIntLiteral(1), 0.30f)).build();
+        Statistics child0Stats = new Statistics(rowCount, ImmutableMap.of(ia, iaStats));
+        Statistics child1Stats = new Statistics(rowCount, ImmutableMap.of(ib, ibStats));
+
+        StatsCalculator calculator = new StatsCalculator(null);
+        Statistics outputStats = calculator.computeUnion(unionAll, ImmutableList.of(child0Stats, child1Stats));
+        Map<Literal, Float> hotValues = outputStats.findColumnStatistics(ia).getHotValues();
+        Assertions.assertEquals(1, hotValues.size());
+        Assertions.assertEquals(0.4, hotValues.values().iterator().next(), 1e-3);
     }
 
     private boolean containsHotValue(ColumnStatistic columnStatistic, String value) {

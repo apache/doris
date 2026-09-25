@@ -327,6 +327,14 @@ public class SessionVariable implements Serializable, Writable {
     // turn off all automatic join reorder algorithms
     public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
+    public static final String ENABLE_MCV_JOIN_ESTIMATION
+            = "enable_mcv_join_estimation";
+
+    public static final String ENABLE_HISTOGRAM_JOIN_ESTIMATION
+            = "enable_histogram_join_estimation";
+
+    public static final String ENABLE_MCV_HISTOGRAM = "enable_mcv_histogram";
+
     public static final String MAX_JOIN_NUMBER_OF_REORDER = "max_join_number_of_reorder";
 
     public static final String ENABLE_NEREIDS_DML = "enable_nereids_dml";
@@ -1950,6 +1958,18 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
+
+    // Use hot values (MCV) for equi-join selectivity: sum_v p_L(v) * p_R(v).
+    @VarAttrDef.VarAttr(name = ENABLE_MCV_JOIN_ESTIMATION, needForward = true)
+    private boolean enableMcvJoinEstimation = true;
+
+    // Use column histograms for equi-join selectivity (ANALYZE ... WITH HISTOGRAM).
+    @VarAttrDef.VarAttr(name = ENABLE_HISTOGRAM_JOIN_ESTIMATION, needForward = true)
+    private boolean enableHistogramJoinEstimation = true;
+
+    // Collect top-N hot values together with the residual-row histogram on ANALYZE WITH HISTOGRAM.
+    @VarAttrDef.VarAttr(name = ENABLE_MCV_HISTOGRAM, needForward = true)
+    private boolean enableMcvHistogram = true;
 
     @VarAttrDef.VarAttr(name = MAX_JOIN_NUMBER_OF_REORDER)
     private int maxJoinNumberOfReorder = 63;
@@ -4978,6 +4998,26 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
+    }
+
+    public boolean isEnableMcvJoinEstimation() {
+        return enableMcvJoinEstimation;
+    }
+
+    public boolean isEnableHistogramJoinEstimation() {
+        return enableHistogramJoinEstimation;
+    }
+
+    public boolean isEnableMcvHistogram() {
+        return enableMcvHistogram;
+    }
+
+    public void setEnableHistogramJoinEstimation(boolean enable) {
+        this.enableHistogramJoinEstimation = enable;
+    }
+
+    public void setEnableMcvJoinEstimation(boolean enable) {
+        this.enableMcvJoinEstimation = enable;
     }
 
     public boolean isEnableBushyTree() {

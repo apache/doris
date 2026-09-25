@@ -59,6 +59,7 @@ import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
@@ -391,6 +392,9 @@ public class AnalysisManager implements Writable {
         AnalyzeProperties analyzeProperties = command.getAnalyzeProperties();
         infoBuilder.setCollectHotValue((analyzeProperties.hasCollectHotValue()
                 && analyzeProperties.collectHotValue()) || analysisMethod == AnalysisMethod.SAMPLE);
+        infoBuilder.setCollectMcvHistogram(ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isEnableMcvHistogram());
+        infoBuilder.setHotValueCollectCount(SessionVariable.getHotValueCollectCount());
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             infoBuilder.setSamplePercent(samplePercent);
             infoBuilder.setSampleRows(sampleRows);
@@ -457,7 +461,10 @@ public class AnalysisManager implements Writable {
         TableIf table = jobInfo.getTable();
         for (Pair<String, String> pair : jobColumns) {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
-            colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
+            // Per-column tasks are FUNDAMENTALS unless the job asked for a histogram; INDEX is not a
+            // per-column analysis and is normalized away.
+            colTaskInfoBuilder.setAnalysisType(jobInfo.analysisType == AnalysisType.HISTOGRAM
+                    ? AnalysisType.HISTOGRAM : AnalysisType.FUNDAMENTALS);
             long taskId = Env.getCurrentEnv().getNextId();
             long indexId = -1;
             if (table instanceof OlapTable) {

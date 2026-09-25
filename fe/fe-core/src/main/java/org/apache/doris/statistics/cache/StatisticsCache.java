@@ -31,6 +31,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.repository.ColStatsData;
@@ -196,7 +197,7 @@ public class StatisticsCache {
         return getHistogram(ctlId, dbId, tblId, -1, colName).orElse(null);
     }
 
-    private Optional<Histogram> getHistogram(long ctlId, long dbId, long tblId, long idxId, String colName) {
+    public Optional<Histogram> getHistogram(long ctlId, long dbId, long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (shouldReturnUnknownStats(ctlId, dbId, ctx)) {
             return Optional.empty();
@@ -428,9 +429,18 @@ public class StatisticsCache {
             if (shouldReturnUnknownStats(catalogId, schemaId, olapTable, ctx)) {
                 return ColumnStatistic.UNKNOWN;
             }
-            return doGetColumnStatistics(
+            ColumnStatistic columnStatistic = doGetColumnStatistics(
                     catalogId, schemaId, tableId, selectIndexId, colName, ctx
             );
+            // the cached column stats object is shared, so attach the histogram to a copy
+            if (ctx != null && ctx.getSessionVariable().isEnableHistogramJoinEstimation()
+                    && !columnStatistic.isUnKnown) {
+                Histogram histogram = getHistogram(catalogId, schemaId, tableId, selectIndexId, colName).orElse(null);
+                if (histogram != null && !histogram.hasCollapsedBuckets()) {
+                    columnStatistic = new ColumnStatisticBuilder(columnStatistic).setHistogram(histogram).build();
+                }
+            }
+            return columnStatistic;
         }
 
         public PartitionColumnStatistic getPartitionColumnStatistics(
