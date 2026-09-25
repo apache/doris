@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -820,6 +821,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
         IsNullPredicate isNullPredicate = new IsNullPredicate(isNull.child().accept(this, context), false);
         return isNullPredicate;
+    }
+
+    @Override
+    public Expr visitFinalizeCombinator(FinalizeCombinator combinator, PlanTranslatorContext context) {
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) visitScalarFunction(combinator, context);
+        functionCallExpr.getFn().setBinaryType(Function.BinaryType.AGG_STATE);
+        return functionCallExpr;
     }
 
     @Override

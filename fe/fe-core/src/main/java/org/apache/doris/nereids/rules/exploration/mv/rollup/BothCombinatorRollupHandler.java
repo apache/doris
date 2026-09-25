@@ -47,8 +47,8 @@ public class BothCombinatorRollupHandler extends AggFunctionRollUpHandler {
             return false;
         }
         if (queryAggregateFunction instanceof Combinator && viewFunction instanceof Combinator) {
-            Combinator queryCombinator = extractLastExpression(queryAggregateFunction, Combinator.class);
-            Combinator viewCombinator = extractLastExpression(viewFunction, Combinator.class);
+            Combinator queryCombinator = extractRollupCombinator((Combinator) queryAggregateFunction);
+            Combinator viewCombinator = extractRollupCombinator((Combinator) viewFunction);
             // construct actual aggregate function in combinator and compare
             return Objects.equals(queryCombinator.getNestedFunction().withChildren(queryCombinator.getArguments()),
                     viewCombinator.getNestedFunction().withChildren(viewCombinator.getArguments()));

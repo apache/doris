@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ai.AISimilarity;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AISummarize;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AITranslate;
 import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
@@ -2850,6 +2851,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYearsDiff(YearsDiff yearsDiff, C context) {
         return visitScalarFunction(yearsDiff, context);
+    }
+
+    default R visitFinalizeCombinator(FinalizeCombinator combinator, C context) {
+        return visitScalarFunction(combinator, context);
     }
 
     default R visitStateCombinator(StateCombinator combinator, C context) {
