@@ -29,10 +29,9 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.annotations.VisibleForTesting;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,14 +62,6 @@ public class PlanCaptureManager extends MasterDaemon {
 
     private static final PlanCaptureManager INSTANCE = new PlanCaptureManager();
 
-    private AuditLogScanner scanner = new AuditLogScanner();
-
-    /** Capture filter, refreshed from the global session variables each cycle. */
-    private PlanCaptureFilter filter;
-
-    /** Last scan window start (epoch millis); 0 means "first run, scan one interval". */
-    private long lastScanTimestamp = 0;
-
     /**
      * Re-scan overlap (millis) applied to the watermark: AuditLoader buffers events
      * asynchronously and writes their original event timestamp, so a row can become
@@ -92,6 +83,24 @@ public class PlanCaptureManager extends MasterDaemon {
      * dedup map evicts the entry.
      */
     private static final int MAX_CAPTURE_ATTEMPTS = 3;
+
+    private AuditLogScanner scanner = new AuditLogScanner();
+
+    /** Capture filter, refreshed from the global session variables each cycle. */
+    private PlanCaptureFilter filter;
+
+    /** Last scan window start (epoch millis); 0 means "first run, scan one interval". */
+    private long lastScanTimestamp = 0;
+
+    /**
+     * Pending scan window of a TRUNCATED cycle: the (start, end) pair the resume cursor
+     * below belongs to. While set, every cycle keeps scanning the SAME window - the end
+     * must stay fixed until the window is fully consumed, because the next
+     * interval-derived window would start around this window's end and leave every row the
+     * cursor has not reached yet permanently out of scope.
+     */
+    private long pendingWindowStart = 0;
+    private long pendingWindowEnd = 0;
 
     /** Query ids already handled in earlier (overlapping) windows. */
     private final Map<String, Boolean> processedQueryIds = new LinkedHashMap<>();
@@ -206,31 +215,38 @@ public class PlanCaptureManager extends MasterDaemon {
             // overlap the window so audit rows loaded late (whose event time is older
             // than the last watermark) are still scanned; duplicates are filtered by
             // query id below
-            long scanStart = (lastScanTimestamp == 0)
-                    ? currentTime - intervalMs
-                    : Math.max(0L, lastScanTimestamp - SCAN_WINDOW_OVERLAP_MS);
-            if (scanStart >= currentTime) {
+            long[] window = resolveScanWindow(lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
+                    currentTime, intervalMs, SCAN_WINDOW_OVERLAP_MS);
+            long scanStart = window[0];
+            long scanEnd = window[1];
+            if (scanStart >= scanEnd) {
                 return;
             }
 
-            AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, currentTime,
+            AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, scanEnd,
                     batchSize, cursorQueryTime, cursorTime, cursorQueryId);
             for (CapturedQuery candidate : batch.getCandidates()) {
                 handleCandidate(candidate);
             }
             if (batch.isWindowExhausted()) {
-                // The whole window was scanned: advance the watermark (the overlap keeps
-                // late-arriving audit rows capturable) and drop the resume cursor.
-                lastScanTimestamp = nextScanTimestamp(lastScanTimestamp, currentTime, true);
+                // The whole window was scanned: advance the watermark to the CONSUMED
+                // window end (not to `now` - rows that arrived between a resumed pending
+                // window's end and now would be skipped), keep the overlap so
+                // late-arriving audit rows stay capturable, and drop the resume state.
+                lastScanTimestamp = nextScanTimestamp(lastScanTimestamp, scanEnd, true);
+                clearPendingWindow();
                 cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
                 cursorTime = "";
                 cursorQueryId = "";
             } else {
-                // The batch limit truncated the window: KEEP the window and remember the
-                // (query_time, time, query_id) cursor of the last consumed row, so the
-                // next cycle resumes exactly there. Advancing to the window end here
-                // would permanently skip every eligible row beyond the LIMIT (only the
-                // five-minute overlap would ever be re-scanned).
+                // The batch limit truncated the window: KEEP the window BOUNDS and remember
+                // the (query_time, time, query_id) cursor of the last consumed row, so the
+                // next cycle resumes inside the same window. Advancing to the window end
+                // here would permanently skip every eligible row beyond the LIMIT; letting
+                // the next cycle derive a new interval window would skip everything the
+                // cursor has not reached yet as well.
+                pendingWindowStart = scanStart;
+                pendingWindowEnd = scanEnd;
                 cursorQueryTime = batch.getCursorQueryTime();
                 cursorTime = batch.getCursorTime();
                 cursorQueryId = batch.getCursorQueryId();
@@ -417,10 +433,38 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
+     * Resolves the (start, end) window the next capture cycle scans.
+     *
+     * A truncated cycle leaves {@code pendingStart/pendingEnd} set: the SAME window is
+     * scanned again (from the stored cursor) until it is exhausted, because a newly
+     * derived interval window would start around the pending window's end and leave every
+     * row the cursor has not reached yet permanently out of scope. Without a pending
+     * window the bounds are derived from the watermark (with the late-arrival overlap).
+     *
+     * @return [windowStart, windowEnd]
+     */
+    static long[] resolveScanWindow(long lastScanTimestamp, long pendingStart, long pendingEnd,
+            long currentTime, long intervalMs, long overlapMs) {
+        if (pendingEnd > 0) {
+            return new long[] {pendingStart, pendingEnd};
+        }
+        long start = (lastScanTimestamp == 0)
+                ? currentTime - intervalMs
+                : Math.max(0L, lastScanTimestamp - overlapMs);
+        return new long[] {start, currentTime};
+    }
+
+    private void clearPendingWindow() {
+        pendingWindowStart = 0;
+        pendingWindowEnd = 0;
+    }
+
+    /**
      * For tests: resets the counters, the scan window and the resume cursor.
      */
     public void resetForTest() {
         lastScanTimestamp = 0;
+        clearPendingWindow();
         cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
         cursorTime = "";
         cursorQueryId = "";

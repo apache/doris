@@ -1007,17 +1007,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * would run against the moving head of the table, and a sampled scan would return the
      * full table.
      *
-     * The partition list is emitted even when it was derived from predicates instead of
-     * being pinned by the user - the frozen text then simply does not match the bare user
-     * query (a safe miss, never a replay over the wrong partitions).
+     * The partition list is emitted only when the user pinned it (a pruned scan re-derives
+     * its selection by replay); a frozen text without the pin simply does not match the
+     * pinned user query (a safe miss, never a replay over the wrong partitions).
      *
      * Two scan states are deliberately NOT emitted. The selected index is an optimizer
      * choice (a rollup is a consistent copy, so the choice carries no semantics) that
      * cannot be told apart from a user-written INDEX clause; freezing it would pin the
-     * optimization and stop the plain user query from matching. The selected tablets are
-     * bucket pruning, re-derived by replay just like file-scan partition pruning. A
-     * user-written INDEX / TABLET / file PARTITION() pin only survives in the user tree,
-     * so such queries never match a frozen text that dropped the pin.
+     * optimization and stop the plain user query from matching. A user-written INDEX
+     * pin only survives in the user tree, so such queries never match a frozen text that
+     * dropped the pin.
      */
     private static String renderScanModifiers(PhysicalRelation relation) {
         StringBuilder modifiers = new StringBuilder();
@@ -1025,6 +1024,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             PhysicalOlapScan scan = (PhysicalOlapScan) relation;
             modifiers.append(renderScanParams(scan.getScanParams()));
             modifiers.append(renderPartitionSelection(scan));
+            modifiers.append(renderTabletSelection(scan));
             modifiers.append(renderTableSample(scan.getTableSample()));
         } else if (relation instanceof PhysicalFileScan) {
             PhysicalFileScan scan = (PhysicalFileScan) relation;
@@ -1036,27 +1036,64 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * OLAP partition selection: emitted as {@code PARTITION(p1, p2)} when the scan reads a
-     * strict, non-empty subset of the table partitions. Partition ids are sorted so the
-     * frozen text is deterministic (the matcher compares the selection as a set).
+     * OLAP partition selection: the ids of a user-written {@code PARTITION(...)} /
+     * {@code TEMPORARY PARTITION(...)} list are frozen as that very clause - including
+     * when the pin happens to cover every partition that exists right now (a cardinality
+     * test would drop the clause and a later ADD PARTITION would let the pinned query
+     * silently read the new partition) and including the temporary namespace (a temp pin
+     * replayed as a formal PARTITION(name) binds the wrong partition or fails to bind).
+     * Partition pruning also shrinks {@code selectedPartitionIds} without any user pin,
+     * so only the manual provenance is ever rendered; a pruned scan re-derives its
+     * selection by replay. Ids are sorted so the frozen text is deterministic (the
+     * matcher compares the selection as a set).
      */
     private static String renderPartitionSelection(PhysicalOlapScan scan) {
-        List<Long> selectedIds = scan.getSelectedPartitionIds();
-        OlapTable table = scan.getTable();
-        if (selectedIds.isEmpty() || selectedIds.size() == table.getPartitions().size()) {
+        List<Long> pinnedIds = scan.getManuallySpecifiedPartitions();
+        if (pinnedIds.isEmpty()) {
             return "";
         }
-        List<Long> sortedIds = new ArrayList<>(selectedIds);
+        OlapTable table = scan.getTable();
+        List<Long> sortedIds = new ArrayList<>(pinnedIds);
         Collections.sort(sortedIds);
-        StringBuilder partition = new StringBuilder(" PARTITION(");
+        boolean temporary = table.isTemporaryPartition(sortedIds.get(0));
+        StringBuilder partition = new StringBuilder(temporary ? " TEMPORARY PARTITION(" : " PARTITION(");
         for (int i = 0; i < sortedIds.size(); i++) {
             if (i > 0) {
                 partition.append(", ");
+            }
+            if (table.isTemporaryPartition(sortedIds.get(i)) != temporary) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile: a partition pin mixing temporary and formal partitions"
+                                + " has no single-clause rendering");
             }
             Partition partitionMeta = table.getPartition(sortedIds.get(i));
             partition.append(quoteIdentifier(partitionMeta.getName()));
         }
         return partition.append(')').toString();
+    }
+
+    /**
+     * OLAP tablet pin: {@code TABLET(id, ...)} is frozen when the user wrote it. Bucket
+     * pruning also fills {@code selectedTabletIds}, so only the manual provenance is
+     * rendered; without the clause a replayed scan would read every tablet of the
+     * selected partitions and could return rows the captured query excluded. Ids are
+     * sorted (the matcher compares the tablet list as a set).
+     */
+    private static String renderTabletSelection(PhysicalOlapScan scan) {
+        List<Long> pinnedIds = scan.getManuallySpecifiedTabletIds();
+        if (pinnedIds.isEmpty()) {
+            return "";
+        }
+        List<Long> sortedIds = new ArrayList<>(pinnedIds);
+        Collections.sort(sortedIds);
+        StringBuilder tablet = new StringBuilder(" TABLET(");
+        for (int i = 0; i < sortedIds.size(); i++) {
+            if (i > 0) {
+                tablet.append(", ");
+            }
+            tablet.append(sortedIds.get(i));
+        }
+        return tablet.append(')').toString();
     }
 
     /**
@@ -1099,10 +1136,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * @paramType(...) read parameters (incremental / branch / tag / options / snapshot /
-     * reset): the map form when the parameters carry key/value pairs, otherwise the bare
-     * identifier list form. Dropping them would replay a different (e.g. non-incremental)
-     * read than the captured one.
+     * The {@code @paramType(...)} read parameters (incremental / branch / tag / options /
+     * snapshot / reset): the map form when the parameters carry key/value pairs, otherwise
+     * the bare identifier list form. Dropping them would replay a different (e.g.
+     * non-incremental) read than the captured one.
      */
     private static String renderScanParams(Optional<TableScanParams> scanParams) {
         if (!scanParams.isPresent()) {
@@ -1657,11 +1694,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // the explicit projection below)
             for (Map.Entry<ExprId, String> entry : left.getColumnNames().entrySet()) {
                 joinRelation.registerRef(entry.getKey(),
-                        left.getRelationAlias() + "." + entry.getValue());
+                        left.ensureQualifierAlias() + "." + entry.getValue());
             }
             for (Map.Entry<ExprId, String> entry : right.getColumnNames().entrySet()) {
                 joinRelation.registerRef(entry.getKey(),
-                        right.getRelationAlias() + "." + entry.getValue());
+                        right.ensureQualifierAlias() + "." + entry.getValue());
             }
         } else {
             joinRelation.getColumnNames().putAll(left.getColumnNames());
@@ -1886,7 +1923,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // relation alias to stay resolvable in the outer scope
         boolean nameConflict = intersectsIgnoreCase(
                 left.getColumnNames().values(), right.getColumnNames().values());
-        String leftQualifier = nameConflict ? left.getRelationAlias() : null;
+        String leftQualifier = nameConflict ? left.ensureQualifierAlias() : null;
         if (nameConflict && (leftQualifier == null || leftQualifier.isEmpty())) {
             throw new UnsupportedOperationException(
                     "SPM decompile NULL_AWARE anti: cannot qualify the left side columns");
@@ -2448,18 +2485,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // another subquery - a redundant inner "LIMIT n) t_x" would truncate the
         // result (e.g. a similar query with LIMIT 101 replaying a LIMIT 100 baseline
         // returns only 100 rows even after mergeLimits fixed the outer limit).
-        if (skipPassThrough(childNode) instanceof PhysicalTopN) {
-            String orderBySql = topN.getOrderKeys().stream()
-                    .map(k -> exprSqlBuilder.print(k.getExpr(), child)
-                            + (k.isAsc() ? " ASC" : " DESC")
-                            + (k.isNullFirst() ? " NULLS FIRST" : " NULLS LAST"))
-                    .collect(Collectors.joining(", "));
-            child.setOrderBy(orderBySql);
-            child.setLimit(topN.getOffset() > 0 ? topN.getOffset() + ", " : "");
-            if (topN.getLimit() != Long.MAX_VALUE) {
-                child.setLimit(child.getLimit() + topN.getLimit());
+        Plan innerTopNNode = skipPassThrough(childNode);
+        if (innerTopNNode instanceof PhysicalTopN) {
+            PhysicalTopN<?> innerTopN = (PhysicalTopN<?>) innerTopNNode;
+            String orderBySql = renderOrderKeys(topN, child);
+            if (isSameTopNContinuation(topN, innerTopN, child, orderBySql)) {
+                child.setOrderBy(orderBySql);
+                child.setLimit(topN.getOffset() > 0 ? topN.getOffset() + ", " : "");
+                if (topN.getLimit() != Long.MAX_VALUE) {
+                    child.setLimit(child.getLimit() + topN.getLimit());
+                }
+                return child;
             }
-            return child;
         }
 
         SQLRelation relation;
@@ -2485,6 +2522,36 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             relation.setLimit(relation.getLimit() + topN.getLimit());
         }
         return relation;
+    }
+
+    /** Renders one TopN's ORDER BY list against the given relation. */
+    private String renderOrderKeys(PhysicalTopN<? extends Plan> topN, SQLRelation relation) {
+        return topN.getOrderKeys().stream()
+                .map(k -> exprSqlBuilder.print(k.getExpr(), relation)
+                        + (k.isAsc() ? " ASC" : " DESC")
+                        + (k.isNullFirst() ? " NULLS FIRST" : " NULLS LAST"))
+                .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Whether {@code outer} is the merge stage of the same distributed TopN as
+     * {@code inner} (the local stage), so that its ORDER BY / LIMIT may be written onto
+     * the same relation. Both stages must carry IDENTICAL sort keys (checked on the
+     * rendered text, since the merge stage sorts by the local stage's output slots) and
+     * the outer stage must not ask for a smaller slice than the local stage kept
+     * (outer limit &gt;= inner limit on the 100 / 101 pair mergeLimits produces). Any
+     * other adjacent TopN pair - in particular two SEMANTIC TopNs whose identity project
+     * was eliminated, e.g. "SELECT * FROM (SELECT k FROM t ORDER BY k ASC LIMIT 2) s
+     * ORDER BY k DESC LIMIT 1" - must keep the inner stage wrapped: overwriting ASC/2
+     * with DESC/1 would return the 3rd row instead of the top-2 slice.
+     */
+    private static boolean isSameTopNContinuation(PhysicalTopN<?> outer, PhysicalTopN<?> inner,
+            SQLRelation child, String outerOrderBySql) {
+        return inner.getSortPhase().isLocal()
+                && (outer.getSortPhase().isMerge() || outer.getSortPhase().isGather())
+                && inner.getOffset() == 0
+                && outerOrderBySql.equals(child.getOrderBy())
+                && inner.getLimit() <= outer.getLimit();
     }
 
     /** Walks through execution-only exchange / distribute pass-through nodes so a

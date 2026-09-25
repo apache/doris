@@ -145,6 +145,34 @@ public class SQLRelation {
     }
 
     /**
+     * Returns a LEGAL qualifier for this relation's columns, wrapping the relation when
+     * its FROM fragment cannot be used as a qualifier prefix. A plain table reference
+     * (catalog.db.table) is its own qualifier, but a composite fragment - a scan carrying
+     * modifiers ("internal.db.t PARTITION(p1)", "... TABLESAMPLE(...)", a lateral-view
+     * chain), a table-valued function call, an already wrapped subquery or a whole join -
+     * would produce invalid references such as "internal.db.t PARTITION(p1).id". Those
+     * are wrapped as a derived table ("(SELECT * FROM ...) t_N") and qualified with the
+     * generated alias, which is what toRelationSQL() emits for the parent's FROM.
+     *
+     * @return the qualifier to prefix this relation's columns with
+     */
+    public String ensureQualifierAlias() {
+        if (relationName != null) {
+            return relationName;
+        }
+        if (isPlainQualifier(from)) {
+            return from;
+        }
+        newAlias();
+        return relationName;
+    }
+
+    /** A FROM fragment usable as a column qualifier: dot-separated plain identifiers. */
+    private static boolean isPlainQualifier(String from) {
+        return !from.isEmpty() && from.matches("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*");
+    }
+
+    /**
      * Returns the SQL fragment that a parent operator can reference; this is where
      * subquery nesting is generated. Three branches (design doc 6.2.1):
      *
@@ -156,6 +184,14 @@ public class SQLRelation {
      */
     public String toRelationSQL() {
         if (relationName == null) {
+            if (from.isEmpty()) {
+                // A FROM-less relation (a reduced one-row plan such as "SELECT 7 AS id")
+                // must be wrapped before it can sit in a join or as a lateral-view input:
+                // returning the empty FROM fragment would leave "... CROSS JOIN" behind
+                // and the frozen SQL would no longer parse. Allocate the alias lazily.
+                newAlias();
+                return "(" + toSQL() + ") " + relationName;
+            }
             return from;
         }
         if (assertRows) {

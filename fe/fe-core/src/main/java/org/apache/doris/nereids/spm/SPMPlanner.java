@@ -146,6 +146,14 @@ public class SPMPlanner {
         if (candidates.isEmpty()) {
             return null;
         }
+        // View guard (computed lazily on the first structural match, so the per-query
+        // hot path pays nothing): the replay of a matched baseline is planned before the
+        // normal authorization pass and resolves a view to its base tables, so
+        // authorization would check the base tables instead of the view - a view-only
+        // user is denied on the base tables, while a base-table user passes the same
+        // view query without any view check. View queries keep the original plan.
+        boolean viewChecked = false;
+        boolean viewReferenced = false;
         for (BaselinePlan candidate : candidates) {
             if (System.currentTimeMillis() > deadline) {
                 LOG.info("SPM tryRewritePlan: timeout before matching baseline {}, "
@@ -163,6 +171,15 @@ public class SPMPlanner {
             }
             LOG.info("SPM tryRewritePlan: baseline {} matched, extracted {} placeholder values",
                     candidate.getId(), placeholderValues.size());
+            if (!viewChecked) {
+                viewChecked = true;
+                viewReferenced = SPMPlanTreeSupport.referencesView(ctx, userPlan);
+            }
+            if (viewReferenced) {
+                LOG.info("SPM tryRewritePlan: the query references a view; keeping the original"
+                        + " plan so view authorization is preserved");
+                return null;
+            }
             // The expensive part (value-free digest, candidate lookup, whole-tree check) is
             // already done and a baseline has matched: finish the (cheap) value substitution
             // even when the budget has been consumed. Previously this path re-checked the
@@ -390,6 +407,13 @@ public class SPMPlanner {
         // planSql keeps the placeholder ids for the rewrite-time value substitution.
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan);
         LogicalPlan parameterizedPlan = trees.second;
+        // View guard: freeze no planSql from a tree that references a view. The frozen
+        // text is replayed ahead of authorization, so replaying a view's expansion would
+        // authorize the base tables instead of the view; keeping the user planSql lets
+        // the rewrite fall back to the parameterized tree, which re-resolves (and
+        // authorizes) the view during its own analysis.
+        boolean referencesView = SPMPlanTreeSupport.referencesView(ctx, bindPlan)
+                || SPMPlanTreeSupport.referencesView(ctx, planPlan);
 
         SPMOptimizer.OptimizeResult optimizeResult;
         String frozenPlanSql;
@@ -397,15 +421,7 @@ public class SPMPlanner {
             // optimize the parameterized plan tree in SPM mode: placeholders travel
             // through analyze / rewrite / CBO and survive into the physical plan
             optimizeResult = SPMOptimizer.optimize(ctx, parameterizedPlan, planSql);
-            try {
-                frozenPlanSql = new SPMPlan2SQLBuilder().toSQL(optimizeResult.getPhysicalPlan());
-            } catch (UnsupportedOperationException e) {
-                // SPMPlan2SQLBuilder does not support this physical plan (recursive CTE,
-                // future operators, ...): fall back to the user-supplied planSql text.
-                LOG.info("SPM decompile unsupported ({}):\n{}", e.getMessage(),
-                        optimizeResult.getPhysicalPlan().treeString());
-                frozenPlanSql = planSql;
-            }
+            frozenPlanSql = decompileFrozenPlan(referencesView, optimizeResult, planSql);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
             // survive some analyzer path yet), fall back to optimizing the raw planSql -
@@ -416,15 +432,35 @@ public class SPMPlanner {
             LOG.warn("SPM parameterized plan optimization failed, falling back to raw planSql",
                     e);
             optimizeResult = SPMOptimizer.optimize(ctx, planSql);
-            try {
-                frozenPlanSql = new SPMPlan2SQLBuilder().toSQL(optimizeResult.getPhysicalPlan());
-            } catch (UnsupportedOperationException ue) {
-                frozenPlanSql = planSql;
-            }
+            frozenPlanSql = decompileFrozenPlan(referencesView, optimizeResult, planSql);
         }
         return assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
                 frozenPlanSql, optimizeResult.getCost(),
                 captureCatalogName(ctx), captureDatabaseName(ctx));
+    }
+
+    /**
+     * Decompiles the optimized physical plan into the frozen planSql. The user-supplied
+     * planSql text is kept when the decompiler does not support the plan (recursive CTE,
+     * future operators, ...) or when the plan references a view: the frozen text is
+     * replayed ahead of authorization, and replaying a view's base-table expansion would
+     * authorize those base tables instead of the view.
+     */
+    private static String decompileFrozenPlan(boolean referencesView,
+            SPMOptimizer.OptimizeResult optimizeResult, String planSql) {
+        if (referencesView) {
+            LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
+                    + " so the rewrite replays the parameterized tree (view authorization"
+                    + " preserved)");
+            return planSql;
+        }
+        try {
+            return new SPMPlan2SQLBuilder().toSQL(optimizeResult.getPhysicalPlan());
+        } catch (UnsupportedOperationException e) {
+            LOG.info("SPM decompile unsupported ({}):\n{}", e.getMessage(),
+                    optimizeResult.getPhysicalPlan().treeString());
+            return planSql;
+        }
     }
 
     /**

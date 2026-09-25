@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.spm.capture;
 
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
