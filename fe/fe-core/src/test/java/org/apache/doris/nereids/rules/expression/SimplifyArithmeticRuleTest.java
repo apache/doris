@@ -145,8 +145,8 @@ class SimplifyArithmeticRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterSimplify("IA + 1 > IB", "IA > (IB - 1)");
         assertRewriteAfterSimplify("IA + 1 > IB * IC", "IA > ((IB * IC) - 1)");
         assertRewriteAfterSimplify("IA * ID > IB * IC", "IA * ID > IB * IC");
-        assertRewriteAfterSimplify("IA * ID / 2 > IB * IC", "((IA * ID) > ((IB * IC) * 2))");
-        assertRewriteAfterSimplify("IA * ID / -2 > IB * IC", "(((IB * IC) * -2) > (IA * ID))");
+        assertRewriteAfterSimplify("IA * ID / 2 > IB * IC", "(((IA * ID) / 2) > (IB * IC))");
+        assertRewriteAfterSimplify("IA * ID / -2 > IB * IC", "(((IA * ID) / -2) > (IB * IC))");
         assertRewriteAfterSimplify("1 - IA > 1", "(IA < 0)");
         assertRewriteAfterSimplify("1 - IA + 1 * 3 - 5 > 1", "(IA < -2)");
     }
