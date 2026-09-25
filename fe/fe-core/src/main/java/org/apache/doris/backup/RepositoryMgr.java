@@ -36,6 +36,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.ServiceConfigurationError;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -59,8 +60,14 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
     @Override
     protected void runOneCycle() {
         for (Repository repo : repoNameMap.values()) {
-            if (!repo.ping()) {
-                LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
+            try {
+                if (!repo.ping()) {
+                    LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
+                }
+            } catch (Exception | LinkageError | ServiceConfigurationError e) {
+                // ping() reports through errMsg and never throws by contract; if it ever does, the
+                // repositories after this one in the cycle must still be checked.
+                LOG.warn("Failed to ping repository {}", repo.getName(), e);
             }
         }
     }
@@ -110,9 +117,15 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
         try {
             Repository repo = repoNameMap.get(newRepo.getName());
             if (repo != null) {
-                if (repo.getFileSystemDescriptor() != null
+                // On replay the master has already validated the command against its own copy, and
+                // the replayed record carries its own descriptor. The local copy may differ - an
+                // unmigrated legacy record on an FE whose plugin is absent - and refusing on that
+                // basis would silently leave this FE behind the journal, permanently once it
+                // checkpoints. So a replay is applied as logged; only the command path checks.
+                if (isReplay
+                        || (repo.getFileSystemDescriptor() != null
                         && (repo.getFileSystemDescriptor().getStorageType() == FsStorageType.S3
-                            || repo.getFileSystemDescriptor().getStorageType() == FsStorageType.AZURE)) {
+                            || repo.getFileSystemDescriptor().getStorageType() == FsStorageType.AZURE))) {
                     repoNameMap.put(repo.getName(), newRepo);
                     repoIdMap.put(repo.getId(), newRepo);
 
@@ -125,6 +138,11 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
                 } else {
                     return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
                 }
+            }
+            if (isReplay) {
+                // EditLog discards this Status: say so here, or the journal is silently not applied.
+                LOG.error("Replayed ALTER REPOSITORY for '{}' was not applied: the repository does not exist"
+                        + " on this FE", newRepo.getName());
             }
             return new Status(ErrCode.NOT_FOUND, "repository does not exist");
         } finally {

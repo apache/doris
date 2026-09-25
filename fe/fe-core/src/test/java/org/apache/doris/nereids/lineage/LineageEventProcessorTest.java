@@ -17,19 +17,33 @@
 
 package org.apache.doris.nereids.lineage;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.spi.PluginContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 /**
  * Unit tests for {@link LineageEventProcessor} SPI-based plugin management
@@ -41,6 +55,144 @@ public class LineageEventProcessorTest {
     private static final long WORKER_WAIT_TIMEOUT_SECONDS = 10L;
     private static final long TEST_CONTEXT_TIMESTAMP_MS = 1000L;
     private static final long TEST_CONTEXT_DURATION_MS = 50L;
+
+    // ==================== a plugin that fails after loading ====================
+
+    /** Its factory loads fine; the plugin implementation it names reaches a class the jar lacks. */
+    public static class UnlinkableLineagePluginFactory implements LineagePluginFactory {
+        @Override
+        public String name() {
+            return "unlinkable-lineage-test";
+        }
+
+        @Override
+        public String description() {
+            return "create() links a class this plugin does not carry";
+        }
+
+        @Override
+        public LineagePlugin create() {
+            throw new NoClassDefFoundError("org/example/AbsentHttpClient");
+        }
+    }
+
+    /** Its factory and create() succeed; initialize() reaches a class the jar lacks. */
+    public static class FailingInitializeLineagePluginFactory implements LineagePluginFactory {
+        static final AtomicInteger CLOSED = new AtomicInteger();
+
+        @Override
+        public String name() {
+            return "failing-initialize-lineage-test";
+        }
+
+        @Override
+        public String description() {
+            return "initialize() links a class this plugin does not carry";
+        }
+
+        @Override
+        public LineagePlugin create() {
+            return new LineagePlugin() {
+                @Override
+                public String name() {
+                    return "failing-initialize-lineage-test";
+                }
+
+                @Override
+                public void initialize(PluginContext context) {
+                    throw new NoClassDefFoundError("org/example/AbsentHttpClient");
+                }
+
+                @Override
+                public void close() {
+                    CLOSED.incrementAndGet();
+                }
+
+                @Override
+                public boolean eventFilter() {
+                    return false;
+                }
+
+                @Override
+                public boolean exec(LineageInfo lineageInfo) {
+                    return false;
+                }
+            };
+        }
+    }
+
+    /**
+     * A plugin admitted by the loader and refused one step later must leave nothing behind: the
+     * instance whose initialize() failed is closed, its factory is dropped (it would retain the
+     * classloader), and nothing is active.
+     */
+    @Test
+    public void testAPluginWhoseInitializeFailsIsRolledBack(@TempDir Path tempDir) throws IOException {
+        writeLineagePluginJar(tempDir.resolve("lineage").resolve("failing-init").resolve("failing-init.jar"),
+                FailingInitializeLineagePluginFactory.class);
+        String savedPluginDir = Config.plugin_dir;
+        String[] savedActive = Config.activate_lineage_plugin;
+        Config.plugin_dir = tempDir.toString();
+        Config.activate_lineage_plugin = new String[0];
+        int closedBefore = FailingInitializeLineagePluginFactory.CLOSED.get();
+        try {
+            LineageEventProcessor processor = new LineageEventProcessor();
+            Assertions.assertDoesNotThrow(processor::start);
+            Assertions.assertFalse(processor.hasActivePlugins());
+            Assertions.assertEquals(closedBefore + 1, FailingInitializeLineagePluginFactory.CLOSED.get(),
+                    "the created instance is closed");
+            Map<String, LineagePluginFactory> factories = Deencapsulation.getField(processor, "factories");
+            Assertions.assertFalse(factories.containsKey("failing-initialize-lineage-test"),
+                    "the factory is dropped with its classloader");
+        } finally {
+            Config.plugin_dir = savedPluginDir;
+            Config.activate_lineage_plugin = savedActive;
+        }
+    }
+
+    /**
+     * {@code create()} / {@code initialize()} are the first calls into the plugin implementation, one
+     * step after the loader handed back the factory. A {@code NoClassDefFoundError} there is an Error
+     * the old {@code catch (Exception)} let through to FE startup; it must cost this plugin alone.
+     */
+    @Test
+    public void testAPluginWhoseCreateCannotLinkIsSkippedNotFatal(@TempDir Path tempDir) throws IOException {
+        writeLineagePluginJar(tempDir.resolve("lineage").resolve("unlinkable").resolve("unlinkable.jar"),
+                UnlinkableLineagePluginFactory.class);
+        String savedPluginDir = Config.plugin_dir;
+        String[] savedActive = Config.activate_lineage_plugin;
+        Config.plugin_dir = tempDir.toString();
+        Config.activate_lineage_plugin = new String[0];
+        try {
+            LineageEventProcessor processor = new LineageEventProcessor();
+            Assertions.assertDoesNotThrow(processor::start);
+            Assertions.assertFalse(processor.hasActivePlugins(), "the plugin that failed to link is not active");
+        } finally {
+            Config.plugin_dir = savedPluginDir;
+            Config.activate_lineage_plugin = savedActive;
+        }
+    }
+
+    private static void writeLineagePluginJar(Path jarPath, Class<? extends LineagePluginFactory> factoryClass)
+            throws IOException {
+        Files.createDirectories(jarPath.getParent());
+        ApiVersionGate gate = ApiVersionGate.forFamily("lineage", LineagePluginFactory.class);
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue(gate.getManifestAttribute(), gate.getExpectedVersion());
+        String classEntry = factoryClass.getName().replace('.', '/') + ".class";
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
+            jar.putNextEntry(new JarEntry(classEntry));
+            try (InputStream bytes = factoryClass.getClassLoader().getResourceAsStream(classEntry)) {
+                Assertions.assertNotNull(bytes, "class bytes not found: " + classEntry);
+                jar.write(bytes.readAllBytes());
+            }
+            jar.closeEntry();
+            jar.putNextEntry(new JarEntry("META-INF/services/" + LineagePluginFactory.class.getName()));
+            jar.write((factoryClass.getName() + "\n").getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+    }
 
     // ==================== hasActivePlugins / refreshPlugins ====================
 

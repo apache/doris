@@ -40,9 +40,9 @@ import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
-import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -86,8 +86,6 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     private static final Logger LOG = LogManager.getLogger(DefaultConnectorContext.class);
 
-    private static final ExecutionAuthenticator NOOP_AUTH = new ExecutionAuthenticator() {};
-
     private final String catalogName;
     private final long catalogId;
     private final Map<String, String> environment;
@@ -124,7 +122,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     };
 
     public DefaultConnectorContext(String catalogName, long catalogId) {
-        this(catalogName, catalogId, () -> NOOP_AUTH);
+        this(catalogName, catalogId, () -> ExecutionAuthenticator.DIRECT);
     }
 
     /**
@@ -137,7 +135,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             Map<String, String> rawStorageProperties) {
         Map<String, String> rawSnapshot = Collections.unmodifiableMap(
                 new HashMap<>(Objects.requireNonNull(rawStorageProperties, "rawStorageProperties")));
-        return new DefaultConnectorContext(catalogName, catalogId, () -> NOOP_AUTH,
+        return new DefaultConnectorContext(catalogName, catalogId, () -> ExecutionAuthenticator.DIRECT,
                 Collections::emptyMap, () -> new HashMap<>(rawSnapshot));
     }
 

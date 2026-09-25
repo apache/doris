@@ -87,4 +87,25 @@ class AzureBlobEndpointSignalsTest {
 
         Assertions.assertFalse(AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(new HashMap<>()));
     }
+
+    @Test
+    void wholeGuessIsProviderKeyOrEndpoint() {
+        // The Azure provider's supportsGuess and fe-core's plugin-absent fallback both answer with
+        // this predicate; both legs have to be here or the two drift.
+        Map<String, String> byProvider = new HashMap<>();
+        byProvider.put("provider", "AzUrE");
+        byProvider.put("s3.endpoint", "https://storage.internal.example:10000");
+        Assertions.assertTrue(AzureBlobEndpointSignals.guessIsAzure(byProvider),
+                "provider=azure claims the map whatever the endpoint host");
+
+        Map<String, String> byEndpoint = new HashMap<>();
+        byEndpoint.put("s3.endpoint", "https://acct.blob.core.windows.net");
+        Assertions.assertTrue(AzureBlobEndpointSignals.guessIsAzure(byEndpoint));
+
+        Map<String, String> neither = new HashMap<>();
+        neither.put("provider", "s3");
+        neither.put("s3.endpoint", "https://storage.internal.example:10000");
+        Assertions.assertFalse(AzureBlobEndpointSignals.guessIsAzure(neither));
+        Assertions.assertFalse(AzureBlobEndpointSignals.guessIsAzure(new HashMap<>()));
+    }
 }

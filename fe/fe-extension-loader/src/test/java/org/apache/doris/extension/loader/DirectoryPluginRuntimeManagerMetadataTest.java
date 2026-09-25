@@ -119,8 +119,11 @@ class DirectoryPluginRuntimeManagerMetadataTest {
         createPluginJar(jarPath, factoryClass, implementationVersion, TEST_GATE.getExpectedVersion());
     }
 
-    /** Same, with an explicit declared plugin API version (null writes no such attribute at all). */
-    static void createPluginJar(Path jarPath, Class<? extends PluginFactory> factoryClass,
+    /**
+     * Same, with an explicit declared plugin API version (null writes no such attribute at all). The
+     * class is any class on purpose: a service file may name one that is not a factory at all.
+     */
+    static void createPluginJar(Path jarPath, Class<?> factoryClass,
             String implementationVersion, String declaredApiVersion) throws IOException {
         Files.createDirectories(jarPath.getParent());
         Manifest manifest = new Manifest();
