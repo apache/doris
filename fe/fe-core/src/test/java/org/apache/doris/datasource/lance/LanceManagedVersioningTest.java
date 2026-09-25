@@ -38,6 +38,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.lance.Dataset;
@@ -76,6 +77,7 @@ import java.util.function.Supplier;
  * versions through the namespace, that a version the namespace does not record is unreachable,
  * and that the resulting metadata still carries the URI and storage options the BE needs.
  */
+@Disabled("Re-enable after fixing Arrow C Data JNI compatibility: CI libstdc++ lacks CXXABI_1.3.9")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class LanceManagedVersioningTest {
     private static final String BEARER_TOKEN = "managed-test-token";
@@ -159,7 +161,6 @@ public class LanceManagedVersioningTest {
     @BeforeAll
     public void setUp() throws Exception {
         LanceJniTestSupport.assumeJniBindingsLoadable();
-        LanceJniTestSupport.assumeArrowCDataLoadable();
         tempDir = Files.createTempDirectory("lance_managed_versioning");
         Path datasetDir = tempDir.resolve("time_travel.lance");
         datasetUri = datasetDir.toUri().toString();

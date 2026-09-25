@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Assumptions;
 public final class LanceJniTestSupport {
 
     private static final boolean JNI_BINDINGS_LOADABLE = probeJniBindingsLoadable();
-    private static final boolean ARROW_C_DATA_LOADABLE = probeArrowCDataLoadable();
 
     private LanceJniTestSupport() {
     }
@@ -45,25 +44,6 @@ public final class LanceJniTestSupport {
     public static void assumeJniBindingsLoadable() {
         Assumptions.assumeTrue(JNI_BINDINGS_LOADABLE,
                 "lance-core JNI bindings cannot load on this host (native library or glibc mismatch)");
-    }
-
-    /**
-     * Assumes the Arrow C Data JNI library can load, otherwise skips the current test. Tests that write
-     * datasets pass Arrow data through it; some CI hosts lack the libstdc++ it needs (CXXABI_1.3.9).
-     */
-    public static void assumeArrowCDataLoadable() {
-        Assumptions.assumeTrue(ARROW_C_DATA_LOADABLE,
-                "Arrow C Data JNI library cannot load on this host (libstdc++ mismatch)");
-    }
-
-    private static boolean probeArrowCDataLoadable() {
-        try {
-            Object loader = Class.forName("org.apache.arrow.c.jni.JniLoader").getMethod("get").invoke(null);
-            loader.getClass().getMethod("ensureLoaded").invoke(loader);
-            return true;
-        } catch (Throwable t) {
-            return false;
-        }
     }
 
     private static boolean probeJniBindingsLoadable() {
