@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
@@ -2819,21 +2820,34 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * PhysicalUnion / PhysicalExcept / PhysicalIntersect: join the child queries with
-     * the corresponding operator.
+     * the corresponding operator and the quantifier of the PHYSICAL node (see
+     * {@link #setOperationKeyword}).
      */
     @Override
     public SQLRelation visitPhysicalUnion(PhysicalUnion union, Void context) {
-        return visitPhysicalSet(union, "UNION ALL", context);
+        return visitPhysicalSet(union, setOperationKeyword("UNION", union.getQualifier()), context);
     }
 
     @Override
     public SQLRelation visitPhysicalExcept(PhysicalExcept except, Void context) {
-        return visitPhysicalSet(except, "EXCEPT", context);
+        return visitPhysicalSet(except, setOperationKeyword("EXCEPT", except.getQualifier()), context);
     }
 
     @Override
     public SQLRelation visitPhysicalIntersect(PhysicalIntersect intersect, Void context) {
-        return visitPhysicalSet(intersect, "INTERSECT", context);
+        return visitPhysicalSet(intersect,
+                setOperationKeyword("INTERSECT", intersect.getQualifier()), context);
+    }
+
+    /**
+     * Keyword of a set operation for the frozen SQL. The parser maps an OMITTED
+     * quantifier (and an explicit DISTINCT) to Qualifier.DISTINCT, so DISTINCT must be
+     * emitted WITHOUT ALL: a DISTINCT union frozen as UNION ALL would return duplicate
+     * rows at replay, while dropping ALL from EXCEPT ALL / INTERSECT ALL silently
+     * de-duplicates the multiplicity of the branches.
+     */
+    private static String setOperationKeyword(String keyword, Qualifier qualifier) {
+        return qualifier == Qualifier.ALL ? keyword + " ALL" : keyword;
     }
 
     private SQLRelation visitPhysicalSet(PhysicalSetOperation set, String op, Void context) {

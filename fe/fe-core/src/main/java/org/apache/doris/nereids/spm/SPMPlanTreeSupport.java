@@ -1143,7 +1143,7 @@ public final class SPMPlanTreeSupport {
     // ==================== view guard ====================
 
     /**
-     * Whether an unbound plan references a VIEW in any FROM position.
+     * Whether a plan references a VIEW anywhere in the statement.
      *
      * SPM freezes / replays plans over the BASE tables a view expands to (InlineLogicalView
      * replaces the LogicalView wrapper during analysis), and the replay is planned BEFORE
@@ -1155,23 +1155,73 @@ public final class SPMPlanTreeSupport {
      * view reference text, so the rewrite replays them through normal analysis and
      * authorization. Unresolvable relations are reported as not-a-view here; the normal
      * analysis pass surfaces the resolution error.
+     *
+     * The WHOLE statement is inspected, not just children(): a view behind a CTE body or
+     * an IN / EXISTS / scalar subquery would otherwise be missed, because those plans are
+     * held by getAliasQueries() / extraPlans() / SubqueryExpr.queryPlan instead of
+     * children() (see {@link #walkPlans}).
      */
     public static boolean referencesView(ConnectContext ctx, Plan plan) {
         if (plan == null || ctx == null || ctx.getStatementContext() == null) {
             return false;
         }
-        if (plan instanceof LogicalView) {
-            return true;
-        }
-        if (plan instanceof UnboundRelation) {
-            return isViewRelation(ctx, (UnboundRelation) plan);
-        }
-        for (Plan child : plan.children()) {
-            if (referencesView(ctx, child)) {
-                return true;
+        final boolean[] viewReferenced = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (viewReferenced[0]) {
+                return;
             }
+            if (node instanceof LogicalView) {
+                viewReferenced[0] = true;
+            } else if (node instanceof UnboundRelation && isViewRelation(ctx, (UnboundRelation) node)) {
+                viewReferenced[0] = true;
+            }
+        });
+        return viewReferenced[0];
+    }
+
+    /**
+     * Visits every plan node reachable from a statement: the regular children, the plans
+     * a node holds OUTSIDE children() - CTE bodies (LogicalCTE.getAliasQueries() through
+     * extraPlans()), IN / EXISTS / scalar subquery plans (SubqueryExpr.queryPlan, surfaced
+     * by LogicalFilter.extraPlans() and by the node's own expressions) - and the plans
+     * reachable through expression coercions. An inspection that walks only children()
+     * would not see a view (referencesView) or a SET_VAR hint
+     * (SPMOptimizer#checkProtectedSetVarHints) that lives in a CTE body / subquery.
+     *
+     * @param root    the plan to start from (may be null)
+     * @param visitor called once per reachable node; may throw
+     * @param <E>     the visitor's exception type, propagated to the caller
+     */
+    public static <E extends Exception> void walkPlans(Plan root, PlanWalker<E> visitor) throws E {
+        if (root == null) {
+            return;
         }
-        return false;
+        visitor.visit(root);
+        for (Plan child : root.children()) {
+            walkPlans(child, visitor);
+        }
+        for (Plan extra : root.extraPlans()) {
+            walkPlans(extra, visitor);
+        }
+        for (Expression expression : root.getExpressions()) {
+            walkSubqueryPlans(expression, visitor);
+        }
+    }
+
+    /** Recurses one expression tree looking for subquery plans (coercions included). */
+    private static <E extends Exception> void walkSubqueryPlans(Expression expression, PlanWalker<E> visitor)
+            throws E {
+        if (expression instanceof SubqueryExpr) {
+            walkPlans(((SubqueryExpr) expression).getQueryPlan(), visitor);
+        }
+        for (Expression child : expression.children()) {
+            walkSubqueryPlans(child, visitor);
+        }
+    }
+
+    /** Plan visitor for {@link #walkPlans}; the exception type is chosen by the caller. */
+    public interface PlanWalker<E extends Exception> {
+        void visit(Plan plan) throws E;
     }
 
     private static boolean isViewRelation(ConnectContext ctx, UnboundRelation relation) {

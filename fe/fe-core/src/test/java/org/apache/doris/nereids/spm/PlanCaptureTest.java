@@ -35,6 +35,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Phase 2 tests: SPM auto capture.
@@ -309,6 +310,43 @@ public class PlanCaptureTest {
         captureManager.handleCandidateForTest(transientFailure);
         Assertions.assertEquals(failuresBefore, captureManager.getStats().failed,
                 "a consumed id must be skipped by the next overlapping scan");
+    }
+
+    /**
+     * A failed capture must receive its retry attempts even when the keyset cursor has
+     * already moved past the audit row: keyset pagination and the five-minute overlap
+     * window can no longer reach the row, so the queued candidate is replayed by the next
+     * cycle instead. Attempts stay bounded and one id is never retried twice per cycle.
+     */
+    @Test
+    public void testFailedCandidateIsReplayedWithoutOverlap() {
+        PlanCaptureManager captureManager = PlanCaptureManager.getInstance();
+        captureManager.resetForTest();
+        CapturedQuery transientFailure = new CapturedQuery(
+                "SELECT t1.a FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.b = 1",
+                5000, 100000, 0, "digest-queue", "hash", "db", "internal", "qid-queue");
+
+        captureManager.handleCandidateForTest(transientFailure);
+        Assertions.assertEquals(1, captureManager.failedAttemptsForTest("qid-queue"));
+        Assertions.assertTrue(captureManager.isQueuedForTest("qid-queue"),
+                "a transient failure must be queued for a later retry attempt");
+
+        // next cycle: the page does NOT contain the row (the cursor moved past it)
+        captureManager.replayQueuedFailuresForTest(Set.of("qid-other"));
+        Assertions.assertEquals(2, captureManager.failedAttemptsForTest("qid-queue"),
+                "the queued failure must be retried without the overlap window");
+
+        // an id the page already processed this cycle is not retried a second time
+        captureManager.replayQueuedFailuresForTest(Set.of("qid-queue"));
+        Assertions.assertEquals(2, captureManager.failedAttemptsForTest("qid-queue"),
+                "the page's own attempt must not be duplicated by the replay");
+
+        // third attempt: bounded retry gives up and dequeues the id
+        captureManager.replayQueuedFailuresForTest(Set.of());
+        Assertions.assertTrue(captureManager.isQueryIdTrackedForTest("qid-queue"),
+                "a permanently failing row is given up after bounded attempts");
+        Assertions.assertFalse(captureManager.isQueuedForTest("qid-queue"));
+        Assertions.assertEquals(0, captureManager.failedAttemptsForTest("qid-queue"));
     }
 
     @Test
