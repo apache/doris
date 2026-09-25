@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -26,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
@@ -33,11 +36,15 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -217,6 +224,50 @@ public class PercentileReservoirParameterTest {
             assertAnalyzedLevel(sumLevel, new DoubleLiteral(0.5));
             assertAnalyzedLevel(invalidStringLevel, new NullLiteral(DoubleType.INSTANCE));
         });
+    }
+
+    @Test
+    void testLevelWrappedByAggStateCastIsAccepted() {
+        PercentileReservoir function = new PercentileReservoir(
+                new SlotReference("value", DoubleType.INSTANCE, false), new DoubleLiteral(0.25));
+        AggStateType nullableLevel = aggStateType(DoubleType.INSTANCE, true);
+        // CAST(percentile_reservoir_state(v, 0.25) AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NULL)>)
+        // wraps the level in Nullable to keep the requested state layout
+        Expression state = convertAggStateCast(StateCombinator.create(function), nullableLevel);
+        Assertions.assertInstanceOf(Nullable.class, state.child(1));
+        Assertions.assertEquals(nullableLevel, state.getDataType());
+        Assertions.assertDoesNotThrow(state::checkLegalityAfterRewrite);
+
+        // chained casts convert the same state again: back to a NOT NULL level gives NonNullable(Nullable(0.25))
+        Expression chained = convertAggStateCast(state, aggStateType(DoubleType.INSTANCE, false));
+        Assertions.assertInstanceOf(NonNullable.class, chained.child(1));
+        Assertions.assertDoesNotThrow(chained::checkLegalityAfterRewrite);
+
+        // through a nullable FLOAT level to a nullable DOUBLE level gives Cast(Nullable(Cast(0.25 AS FLOAT)))
+        chained = convertAggStateCast(convertAggStateCast(StateCombinator.create(function),
+                aggStateType(FloatType.INSTANCE, true)), nullableLevel);
+        Assertions.assertInstanceOf(Cast.class, chained.child(1));
+        Assertions.assertInstanceOf(Nullable.class, chained.child(1).child(0));
+        Assertions.assertDoesNotThrow(chained::checkLegalityAfterRewrite);
+
+        for (Expression level : Arrays.asList(new Nullable(new DoubleLiteral(1.5)),
+                new NonNullable(new Nullable(new DoubleLiteral(1.5))))) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> state.withChildren(ImmutableList.of(state.child(0), level)).checkLegalityAfterRewrite());
+            Assertions.assertTrue(exception.getMessage().contains("level must be in [0, 1]"),
+                    exception.getMessage());
+        }
+    }
+
+    private AggStateType aggStateType(DataType levelType, boolean levelNullable) {
+        return new AggStateType("percentile_reservoir", ImmutableList.of(DoubleType.INSTANCE, levelType),
+                ImmutableList.of(false, levelNullable), true);
+    }
+
+    private Expression convertAggStateCast(Expression state, AggStateType target) {
+        Expression converted = ConvertAggStateCast.convert(new Cast(state, target)).child(0);
+        Assertions.assertInstanceOf(StateCombinator.class, converted);
+        return converted;
     }
 
     private void assertAnalyzedLevel(Expression level, Expression expected) {

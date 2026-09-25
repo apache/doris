@@ -23,6 +23,8 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -72,12 +74,16 @@ public class PercentileReservoir extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkLevel();
+        checkLevel(getArgument(1));
     }
 
     @Override
     public void checkLegalityAfterRewrite() {
-        checkLevel();
+        // An explicit cast to another agg_state layout (ConvertAggStateCast) wraps the validated level in
+        // Nullable / NonNullable, also nested and under a Cast when such casts are chained, to keep the
+        // requested state layout. BE only changes the nullability there, so check the level beneath them.
+        checkLevel(getArgument(1).rewriteUp(expression -> expression instanceof Nullable
+                || expression instanceof NonNullable ? expression.child(0) : expression));
     }
 
     /**
@@ -87,7 +93,7 @@ public class PercentileReservoir extends NullableAggregateFunction
      */
     @Override
     public Expression rewriteWhenAnalyze() {
-        return withChildren(ImmutableList.of(getArgument(0), checkLevel()));
+        return withChildren(ImmutableList.of(getArgument(0), checkLevel(getArgument(1))));
     }
 
     /**
@@ -101,8 +107,7 @@ public class PercentileReservoir extends NullableAggregateFunction
      *
      * @return the folded level literal
      */
-    private Literal checkLevel() {
-        Expression levelArgument = getArgument(1);
+    private Literal checkLevel(Expression levelArgument) {
         Expression level = levelArgument.isConstant()
                 ? FoldConstantRuleOnFE.evaluateWithoutContext(
                         TypeCoercionUtils.castIfNotSameType(levelArgument, DoubleType.INSTANCE))

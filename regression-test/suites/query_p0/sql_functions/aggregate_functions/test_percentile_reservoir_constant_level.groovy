@@ -46,6 +46,26 @@ suite("test_percentile_reservoir_constant_level") {
         ) states
     """
 
+    // an explicit cast to a state whose level is nullable wraps the validated level in Nullable
+    qt_nullable_level_state_cast """
+        SELECT percentile_reservoir_merge(CAST(percentile_reservoir_state(CAST(number AS DOUBLE), 0.25)
+            AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NULL)>))
+        FROM numbers('number' = '10')
+    """
+    // chained casts convert the same state again and nest the wrappers around the level
+    qt_chained_level_state_cast """
+        SELECT percentile_reservoir_merge(CAST(CAST(percentile_reservoir_state(CAST(number AS DOUBLE), 0.25)
+            AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NULL)>)
+            AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NOT NULL)>))
+        FROM numbers('number' = '10')
+    """
+    qt_chained_float_level_state_cast """
+        SELECT percentile_reservoir_merge(CAST(CAST(percentile_reservoir_state(CAST(number AS DOUBLE), 0.25)
+            AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, FLOAT NULL)>)
+            AS AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NULL)>))
+        FROM numbers('number' = '10')
+    """
+
     // INSERT ... VALUES is planned without the rewrite phase, the level is still validated there
     sql "DROP TABLE IF EXISTS test_percentile_reservoir_constant_level_state"
     sql """
