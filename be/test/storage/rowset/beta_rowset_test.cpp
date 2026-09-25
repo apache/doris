@@ -60,6 +60,8 @@
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/storage_policy.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/s3_util.h"
@@ -239,8 +241,43 @@ class BetaRowsetWriterForTest : public BetaRowsetWriter {
 public:
     explicit BetaRowsetWriterForTest(StorageEngine& engine) : BetaRowsetWriter(engine) {}
 
-    Status build_tmp(RowsetSharedPtr& rowset) { return _build_tmp(rowset); }
+    Status build_tmp(RowsetSharedPtr& rowset, int32_t segment_id) {
+        return _build_tmp(rowset, segment_id);
+    }
 };
+
+TEST_F(BetaRowsetTest, StreamedBitmapSnapshotFailurePreventsQueueing) {
+    class SnapshotFailureWriter : public BetaRowsetWriter {
+    public:
+        explicit SnapshotFailureWriter(StorageEngine& engine) : BetaRowsetWriter(engine) {}
+
+    protected:
+        Status _build_rowset_meta(RowsetMeta*, bool, std::vector<int64_t>*) override {
+            return Status::InternalError("streamed metadata snapshot failed");
+        }
+    };
+
+    EngineOptions options;
+    StorageEngine engine(options);
+    auto tablet_meta = std::make_shared<TabletMeta>();
+    tablet_meta->set_enable_unique_key_merge_on_write(true);
+    SnapshotFailureWriter writer(engine);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+    RowsetWriterContext writer_context;
+    create_rowset_writer_context(tablet_schema, &writer_context);
+    ASSERT_TRUE(writer.init(writer_context).ok());
+    writer._context.tablet = std::make_shared<Tablet>(engine, tablet_meta, nullptr);
+    writer._context.mow_context = std::make_shared<MowContext>(
+            0, 1, std::make_shared<RowsetIdUnorderedSet>(), std::vector<RowsetSharedPtr> {},
+            std::make_shared<DeleteBitmap>(0));
+    // No owned file writer: LoadStreamWriter has already closed the streamed file.
+    // Snapshot errors must be returned before touching the asynchronous executor.
+    ASSERT_EQ(writer._calc_delete_bitmap_token, nullptr);
+    auto st = writer._generate_delete_bitmap(0);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("streamed metadata snapshot failed"), std::string::npos);
+}
 
 class S3ClientMock : public Aws::S3::S3Client {
     S3ClientMock() {}
@@ -533,7 +570,7 @@ TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
     ASSERT_TRUE(writer.add_segment(2, segment_statistics).ok());
 
     RowsetSharedPtr tmp_rowset;
-    ASSERT_TRUE(writer.build_tmp(tmp_rowset).ok());
+    ASSERT_TRUE(writer.build_tmp(tmp_rowset, 6).ok());
     ASSERT_NE(tmp_rowset, nullptr);
     EXPECT_EQ(tmp_rowset->num_segments(), 2);
     EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(2), 0);

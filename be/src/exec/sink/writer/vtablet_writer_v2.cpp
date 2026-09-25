@@ -149,9 +149,18 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _load_id.set_lo(table_sink.load_id.lo);
     signal::set_signal_task_id(_load_id);
     _txn_id = table_sink.txn_id;
+    if (config::is_cloud_mode()) {
+        if (!table_sink.__isset.txn_timeout_s || table_sink.txn_timeout_s <= 0) {
+            return Status::InternalError("The txn_timeout_s of TDataSink is invalid");
+        }
+        _txn_expiration = UnixSeconds() + table_sink.txn_timeout_s;
+    }
     _num_replicas = table_sink.num_replicas;
     _tuple_desc_id = table_sink.tuple_id;
     _write_file_cache = table_sink.write_file_cache;
+    if (table_sink.__isset.storage_vault_id) {
+        _storage_vault_id = table_sink.storage_vault_id;
+    }
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
@@ -318,7 +327,8 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
                     { tablets_for_schema.clear(); });
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile());
+                           _state->enable_profile(), _txn_expiration, _storage_vault_id,
+                           _write_file_cache);
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;
@@ -790,6 +800,9 @@ Status VTabletWriterV2::close(Status exec_status) {
             // Output detailed profiling info for auto-partition requests
             _row_distribution.output_profile_info(_operator_profile);
         }
+
+        // Keep the fragment alive so tests can fetch the completed writer profile over Thrift.
+        DBUG_EXECUTE_IF("VTabletWriterV2.close.profile_ready", DBUG_BLOCK);
 
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;

@@ -249,6 +249,17 @@ Status CloudRowsetBuilder::commit_rowset(const std::string& job_id, int64_t tabl
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), job_id, table_id);
 }
 
+Status CloudRowsetBuilder::commit_txn() {
+    DCHECK(is_data_builder());
+    if (!_skip_writing_rowset_metadata) {
+        RETURN_IF_ERROR(commit_rowset("", _tablet->table_id()));
+    }
+    RETURN_IF_ERROR(set_txn_related_info());
+    update_tablet_stats();
+    _is_committed = true;
+    return Status::OK();
+}
+
 Status CloudRowsetBuilder::set_txn_related_info() {
     if (_tablet->enable_unique_key_merge_on_write() || _tablet->is_row_binlog_tablet()) {
         // For empty rowsets when skip_writing_empty_rowset_metadata=true,
