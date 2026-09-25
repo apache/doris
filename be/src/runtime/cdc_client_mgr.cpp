@@ -145,6 +145,9 @@ bool try_claim_or_request_child_reap(uint64_t identity) {
 // Normal threads may wait for a handler's short WNOHANG operation. Returning false means the exact
 // generation was revoked; the caller must not operate on its numeric pid.
 bool claim_child_identity(uint64_t identity) {
+    // Identity 0 names no generation: the loop below could never observe it change and would spin
+    // forever while stop() or start_cdc_client() holds _start_mutex.
+    DORIS_CHECK(identity != 0);
     while (g_cdc_child_identity.load() == identity) {
         if (try_claim_child_identity(identity)) {
             return true;
@@ -236,9 +239,7 @@ void handle_sigchld(int sig_no) {
 // Terminate and collect one child owned by this process. The SIGCHLD handler may have won the
 // waitpid race already; ECHILD is therefore success, not a reason to send a signal to a reused pid.
 void terminate_and_reap_child(pid_t pid) {
-    if (pid <= 0) {
-        return;
-    }
+    DORIS_CHECK(pid > 0);
 
     int status = 0;
     pid_t wait_result;
@@ -418,9 +419,7 @@ CdcClientMgr::~CdcClientMgr() {
 }
 
 uint64_t CdcClientMgr::_publish_child_pid(pid_t pid) {
-    if (pid <= 0) {
-        return 0;
-    }
+    DORIS_CHECK(pid > 0);
     // A handler may have unpublished its exited generation just before releasing the operation
     // claim. Do not publish a replacement into that short gap: the operation token also carries
     // the pending-reap bit for the currently published generation.
@@ -634,7 +633,9 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     // the child's exit is interesting, not its stops.
     act.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     act.sa_handler = handle_sigchld;
-    sigaction(SIGCHLD, &act, nullptr);
+    // Everything below depends on this disposition being installed: nothing else consumes the
+    // published identity, and without the handler the pending-reap handoff is dead.
+    DORIS_CHECK(sigaction(SIGCHLD, &act, nullptr) == 0);
     LOG(INFO) << "Start to fork cdc client process with " << path;
 #ifdef BE_TEST
     // Unit tests can construct several managers even though ExecEnv owns only one in production.
@@ -681,22 +682,14 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             return st;
         }
         // A child that died between fork() returning and the store above raised a SIGCHLD the
-        // handler saw with no identity to reap. Inspect the exact generation here; a child still
-        // running remains published, while an exited one is reaped before its pid can be reused.
+        // handler saw with no identity to reap. Inspect the exact generation here so the child is
+        // reaped before its pid can be reused, but decide whether that is fatal only after the
+        // health check below: the port may be served by an external instance again by then, and
+        // adoption is the outcome that used to be reached for a child that died this early.
         int forked_status = 0;
         int forked_wait_error = 0;
         const OwnedChildState initial_state =
                 inspect_owned_child(forked_identity, &forked_status, &forked_wait_error);
-        if (initial_state == OwnedChildState::EXITED ||
-            initial_state == OwnedChildState::NOT_OWNED) {
-            st = forked_wait_error == 0 && initial_state == OwnedChildState::EXITED
-                         ? Status::InternalError(
-                                   fmt::format("CDC client exited before startup with {}",
-                                               child_exit_description(forked_status)))
-                         : Status::InternalError("CDC client exited before startup");
-            st.to_protobuf(result->mutable_status());
-            return st;
-        }
         if (initial_state == OwnedChildState::WAIT_ERROR) {
             _terminate_child_identity(forked_identity);
             st = Status::InternalError(
@@ -713,7 +706,14 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
             // Cleanup is conditional on the exact generation still being ours. If the handler already
             // reaped it, a same-parent child may now reuse the number and must not be touched.
             _terminate_child_identity(forked_identity);
-            st = Status::InternalError("Start cdc client failed.");
+            if (initial_state == OwnedChildState::EXITED) {
+                st = Status::InternalError(fmt::format("CDC client exited before startup with {}",
+                                                       child_exit_description(forked_status)));
+            } else if (initial_state == OwnedChildState::NOT_OWNED) {
+                st = Status::InternalError("CDC client exited before startup");
+            } else {
+                st = Status::InternalError("Start cdc client failed.");
+            }
             st.to_protobuf(result->mutable_status());
         } else {
             int final_wait_error = 0;
