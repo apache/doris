@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
@@ -722,6 +723,23 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     // ==================== pass-through mode ====================
+    /**
+     * PhysicalStorageLayerAggregate: the cloud storage-layer aggregation pushdown
+     * (COUNT / COUNT_ON_MATCH / MIN_MAX / MIX) REPLACES the aggregate - the pushdown node
+     * itself computes the result and the enclosing operator references its output slot
+     * directly, so the plan visitor default (decompile the wrapped relation) would
+     * silently drop the aggregation and freeze e.g. "SELECT * FROM t" for a count(*)
+     * query. No clause re-expresses the pushed-down state faithfully, so fail the
+     * decompile: CREATE keeps the user-supplied planSql text and the rewrite degrades to
+     * the parameterized-tree path.
+     */
+    @Override
+    public SQLRelation visitPhysicalStorageLayerAggregate(
+            PhysicalStorageLayerAggregate storageLayerAggregate, Void context) {
+        throw new UnsupportedOperationException(
+                "SPM decompile: storage-layer aggregate pushdown (cloud count / min-max)"
+                        + " is not supported yet");
+    }
 
     /**
      * PhysicalDistribute: a data exchange node with no SQL equivalent; returns the child.
