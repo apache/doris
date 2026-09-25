@@ -243,8 +243,7 @@ protected:
         RowsetReaderContext context;
         context.read_schema = read_schema;
         static_cast<void>(read_schema->init_from_tablet_schema(*schema,
-                                                               /*merge_by_sequence_mapping=*/false,
-                                                               /*map_row_binlog_columns=*/false));
+                                                               /*merge_by_sequence_mapping=*/false));
         context.need_ordered_result = true;
         OlapReaderStatistics statistics;
         context.stats = &statistics;
@@ -506,6 +505,8 @@ protected:
             c->set_is_key(is_key);
             c->set_length(type == "TINYINT" ? 1 : 4);
             c->set_index_length(type == "TINYINT" ? 1 : 4);
+            c->set_precision(0);
+            c->set_frac(0);
             c->set_is_nullable(nullable);
             c->set_aggregation("NONE");
             c->set_visible(visible);

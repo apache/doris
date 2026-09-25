@@ -54,6 +54,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/tablet_info.h"
+#include "storage/transform/row_binlog_derive.h"
 #include "storage/txn/txn_manager.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
@@ -583,6 +584,20 @@ Status GroupRowsetBuilder::init() {
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
         cfg.source.base_tablet = _txn_rs_builder->tablet_sptr();
+
+        const OlapTableIndexSchema* source_index_schema = nullptr;
+        for (const auto* index_schema : _req.table_schema_param->indexes()) {
+            if (index_schema->index_id == data_ctx.index_id) {
+                source_index_schema = index_schema;
+                break;
+            }
+        }
+        DORIS_CHECK(source_index_schema != nullptr);
+        DORIS_CHECK_EQ(source_index_schema->row_binlog_id, binlog_ctx.index_id);
+        const auto& mappings = source_index_schema->row_binlog_column_mappings;
+        cfg.need_historical_value = mappings.need_historical_value();
+        cfg.column_mappings = DORIS_TRY(binlog::resolve_row_binlog_column_mappings(
+                *data_ctx.tablet_schema, *binlog_ctx.tablet_schema, mappings));
     }
 
     _rowset_writer = std::move(group_writer);

@@ -35,7 +35,6 @@ import org.apache.doris.thrift.TKinesisLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
-import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -195,14 +194,12 @@ public class KinesisTaskInfo extends RoutineLoadTaskInfo {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
-        NereidsLoadTaskInfo taskInfo = routineLoadJob.toNereidsRoutineLoadTaskInfo();
+        NereidsLoadTaskInfo taskInfo = routineLoadJob.toNereidsRoutineLoadTaskInfo(txnId);
         taskInfo.setTimeout((int) (this.timeoutMs / 1000));
         NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
                 Table.TableType.OLAP), taskInfo);
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
-        TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
-        tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
         if (Config.enable_workload_group) {
             try {

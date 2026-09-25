@@ -279,8 +279,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
     RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(*_tablet_schema,
-                                                          /*merge_by_sequence_mapping=*/false,
-                                                          /*map_row_binlog_columns=*/false));
+                                                          /*merge_by_sequence_mapping=*/false));
 
     auto status = _init_collect_iter(read_params, sample_info);
     if (!status.ok()) [[unlikely]] {

@@ -80,6 +80,17 @@ message TsoRangePB {
     optional int64 end_tso = 2 [default = -1];
 }
 
+message PRowBinlogWriteColumnMapping {
+    required int32 source_column_unique_id = 1;
+    required int32 current_column_unique_id = 2;
+    optional int32 before_column_unique_id = 3;
+}
+
+message PRowBinlogWriteColumnMappings {
+    repeated PRowBinlogWriteColumnMapping entries = 1;
+    optional bool need_historical_value = 2;
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {
@@ -862,6 +873,7 @@ message PendingPublishInfoPB {
     optional int64 partition_id = 1;
     optional int64 transaction_id = 2;
     optional int64 commit_tso = 3;
+    optional PRowBinlogWriteColumnMappings row_binlog_column_mappings = 4;
 }
 
 message RowsetBinlogMetasPB {
