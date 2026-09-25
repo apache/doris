@@ -38,11 +38,22 @@ namespace doris {
 
 static std::string s_empty = "";
 
+static const std::string kMasked = "***MASKED***";
+
 // Helper function to check if a header should be masked in logs
 static bool is_sensitive_header(const std::string& header_name) {
     return iequal(header_name, HttpHeaders::AUTHORIZATION) ||
            iequal(header_name, HttpHeaders::PROXY_AUTHORIZATION) || iequal(header_name, "token") ||
            iequal(header_name, HttpHeaders::AUTH_TOKEN) || iequal(header_name, "auth_code");
+}
+
+// A query parameter is sensitive when it carries one of the credentials we already mask in
+// headers -- the cluster token travels as the "token" parameter of the download endpoints --
+// or when it names a config declared sensitive: /api/update_config takes its argument as
+// "<config name>=<new value>" in the query string, so masking only headers would still leave
+// a password in the log line.
+static bool is_sensitive_param(const std::string& param_name) {
+    return is_sensitive_header(param_name) || config::is_sensitive_config(param_name);
 }
 
 // Renders a sensitive header for logging. For HTTP Basic credentials the user name is kept,
@@ -51,7 +62,6 @@ static bool is_sensitive_header(const std::string& header_name) {
 // parse, is masked as a whole. The result is a rendering, not the header value: the real one
 // is base64 encoded.
 static std::string mask_sensitive_header(const std::string& name, const std::string& value) {
-    static const std::string kMasked = "***MASKED***";
     if (!iequal(name, HttpHeaders::AUTHORIZATION)) {
         return kMasked;
     }
@@ -71,6 +81,44 @@ static std::string mask_sensitive_header(const std::string& name, const std::str
         return kMasked;
     }
     return decoded.substr(0, colon) + ":" + kMasked;
+}
+
+// Renders a request URI with the value of every sensitive query parameter replaced. The query
+// string is masked in place rather than rebuilt from the parsed parameters, so that a request
+// which never reached init_from_evhttp() -- a malformed query string is reported by logging the
+// request -- is masked too, and so that what the log shows still looks like the URI received.
+static std::string mask_sensitive_query_params(const std::string& uri) {
+    auto query_pos = uri.find('?');
+    if (query_pos == std::string::npos) {
+        return uri;
+    }
+
+    std::string masked = uri.substr(0, query_pos + 1);
+    for (size_t pos = query_pos + 1; pos < uri.size();) {
+        size_t end = uri.find('&', pos);
+        if (end == std::string::npos) {
+            end = uri.size();
+        }
+        std::string pair = uri.substr(pos, end - pos);
+        size_t eq = pair.find('=');
+        // A parameter with no '=' carries no value to leak.
+        if (eq != std::string::npos) {
+            const std::string raw_name = pair.substr(0, eq);
+            std::string name;
+            if (!url_decode(raw_name, &name)) {
+                name = raw_name;
+            }
+            if (is_sensitive_param(name)) {
+                pair = raw_name + "=" + kMasked;
+            }
+        }
+        masked += pair;
+        if (end < uri.size()) {
+            masked += '&';
+        }
+        pos = end + 1;
+    }
+    return masked;
 }
 
 HttpRequest::HttpRequest(evhttp_request* evhttp_request) : _ev_req(evhttp_request) {}
@@ -120,7 +168,7 @@ std::string HttpRequest::debug_string() const {
     std::stringstream ss;
     ss << "HttpRequest: \n"
        << "method:" << _method << "\n"
-       << "uri:" << _uri << "\n"
+       << "uri:" << mask_sensitive_query_params(_uri) << "\n"
        << "raw_path:" << _raw_path << "\n"
        << "headers: \n";
     for (auto& iter : _headers) {
@@ -133,7 +181,11 @@ std::string HttpRequest::debug_string() const {
     }
     ss << "params: \n";
     for (auto& iter : _params) {
-        ss << "key=" << iter.first << ", value=" << iter.second << "\n";
+        if (is_sensitive_param(iter.first)) {
+            ss << "key=" << iter.first << ", value=" << kMasked << "\n";
+        } else {
+            ss << "key=" << iter.first << ", value=" << iter.second << "\n";
+        }
     }
 
     return ss.str();
@@ -160,7 +212,7 @@ std::string HttpRequest::get_all_headers() const {
     for (const auto& header : _headers) {
         // Mask sensitive headers
         if (is_sensitive_header(header.first)) {
-            headers << header.first << ":***MASKED***, ";
+            headers << header.first << ":" << kMasked << ", ";
         } else {
             headers << header.first << ":" << header.second + ", ";
         }

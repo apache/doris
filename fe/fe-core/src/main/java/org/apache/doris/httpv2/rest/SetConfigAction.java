@@ -83,12 +83,21 @@ public class SetConfigAction extends RestBaseController {
         List<ErrConfig> errConfigs = Lists.newArrayList();
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
+            Map<String, String> maskedConfigs = Maps.newHashMap();
+            configs.forEach((key, value) -> maskedConfigs.put(key, maskValue(key, value)));
+            LOG.debug("get config from url: {}, need persist: {}", maskedConfigs, needPersist);
         }
 
         for (Map.Entry<String, String[]> config : configs.entrySet()) {
             String confKey = config.getKey();
             String[] confValue = config.getValue();
+            // Read the old value before the update, so the audit line reports the change and not
+            // just its result. Both ends go through the mask: a secret is as much a secret on the
+            // way out as on the way in.
+            String oldValue = ConfigBase.maskIfSensitive(confKey, ConfigBase.getConfValue(confKey));
+            String newValue = maskValue(confKey, confValue);
+            String result = "OK";
+            boolean succeeded = true;
             try {
                 if (confValue != null && confValue.length == 1) {
                     try {
@@ -101,8 +110,20 @@ public class SetConfigAction extends RestBaseController {
                     throw new DdlException("conf value size != 1");
                 }
             } catch (DdlException e) {
-                LOG.warn("failed to set config {}:{}", confKey, Arrays.toString(confValue), e);
-                errConfigs.add(new ErrConfig(confKey, Arrays.toString(confValue), e.getMessage()));
+                result = e.getMessage();
+                succeeded = false;
+                errConfigs.add(new ErrConfig(confKey, newValue, e.getMessage()));
+            }
+            // One audit line per config, whether it took effect or not, answering who changed what
+            // from what to what, and whether it survives a restart. A rejected update stays at
+            // WARN, which is the level it was reported at before.
+            String audit = "set_config: remote={}, user={}, config={}, old={}, new={}, persist={}, result={}";
+            if (succeeded) {
+                LOG.info(audit, authInfo.remoteIp, authInfo.fullUserName, confKey, oldValue, newValue,
+                        needPersist, result);
+            } else {
+                LOG.warn(audit, authInfo.remoteIp, authInfo.fullUserName, confKey, oldValue, newValue,
+                        needPersist, result);
             }
         }
 
@@ -118,6 +139,20 @@ public class SetConfigAction extends RestBaseController {
         }
 
         return ResponseEntityBuilder.ok(new SetConfigEntity(setConfigs, errConfigs, persistMsg));
+    }
+
+    // Renders a requested config value for a log line or for the error entry echoed back to the
+    // caller, with a sensitive config's value replaced. Values arrive as arrays because they come
+    // straight off the query string.
+    private static String maskValue(String confKey, String[] confValue) {
+        if (confValue == null) {
+            return "null";
+        }
+        String[] masked = new String[confValue.length];
+        for (int i = 0; i < confValue.length; i++) {
+            masked[i] = ConfigBase.maskIfSensitive(confKey, confValue[i]);
+        }
+        return Arrays.toString(masked);
     }
 
     @Setter
