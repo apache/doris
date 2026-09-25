@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_ipv4.h"
 #include "core/data_type/data_type_ipv6.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nullable.h"
@@ -37,6 +38,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/value/variant/variant_batch_builder.h"
@@ -244,6 +246,46 @@ TEST(CastVariantV2FromTest, IpTargetsDelegateToConcreteNonStrictCast) {
     EXPECT_EQ(ipv6_values.get_data()[1], expected_ipv6);
     EXPECT_EQ(ipv6_nullable.get_null_map_data()[1], 0);
     EXPECT_EQ(ipv6_nullable.get_null_map_data()[2], 1);
+}
+
+TEST(CastVariantV2FromTest, KindsWithoutIpOrTimestampTzConversionBecomeNull) {
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 4});
+    {
+        auto row = builder.begin_row();
+        row.add_int(1);
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_bool(true);
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_double(1.5);
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        row.add_string(StringRef("2024-01-01 00:00:00"));
+        row.finish();
+    }
+    ColumnPtr source = finish(&builder);
+
+    // CAST converts only strings (and IPv4 or datetime values) to these types. The other kinds
+    // have no conversion, so a non-strict CAST yields NULL for them instead of failing.
+    for (const DataTypePtr& target_type : {DataTypePtr(std::make_shared<DataTypeIPv4>()),
+                                           DataTypePtr(std::make_shared<DataTypeIPv6>()),
+                                           DataTypePtr(std::make_shared<DataTypeTimeStampTz>(0))}) {
+        SCOPED_TRACE(target_type->get_name());
+        CastResult cast = execute_from_variant(source, target_type);
+        ASSERT_TRUE(cast.status.ok()) << cast.status;
+        const NullMap& nulls = nullable_result(cast.column).get_null_map_data();
+        EXPECT_EQ(nulls[0], 1);
+        EXPECT_EQ(nulls[1], 1);
+        EXPECT_EQ(nulls[2], 1);
+        EXPECT_EQ(nulls[3], target_type->get_primitive_type() == TYPE_TIMESTAMPTZ ? 0 : 1);
+    }
 }
 
 TEST(CastVariantV2FromTest, StringUsesConcreteScalarsAndExplicitDocumentRules) {

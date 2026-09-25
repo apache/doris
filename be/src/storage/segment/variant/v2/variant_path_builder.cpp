@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
@@ -112,6 +113,11 @@ const DataTypePtr& jsonb_type() {
 
 const DataTypePtr& nothing_type() {
     static const DataTypePtr type = std::make_shared<DataTypeNothing>();
+    return type;
+}
+
+const DataTypePtr& nullable_variant_type() {
+    static const DataTypePtr type = make_nullable(std::make_shared<DataTypeVariantV2>());
     return type;
 }
 
@@ -971,6 +977,20 @@ Status replace_array_nothing(const DataTypePtr& source_type, const IColumn& sour
     return Status::OK();
 }
 
+// Variant CAST groups values by kind and converts each group the way a column of that kind
+// converts, yielding NULL for a kind CAST has no conversion from.
+Status cast_through_variant(const ColumnWithTypeAndName& source, const DataTypePtr& target_type,
+                            ColumnPtr* result) {
+    ColumnPtr variant;
+    RETURN_IF_ERROR(variant_util::cast_column(source, nullable_variant_type(), &variant));
+    return variant_util::cast_column({variant, nullable_variant_type(), source.name}, target_type,
+                                     result);
+}
+
+PrimitiveType array_base_primitive_type(const DataTypePtr& type) {
+    return remove_nullable(variant_util::get_base_type_of_array(type))->get_primitive_type();
+}
+
 size_t dotted_path_depth(const PathInData& path) {
     return path.get_parts().size();
 }
@@ -1077,10 +1097,29 @@ struct VariantPathBuilder::Impl {
             RETURN_IF_ERROR(replace_array_nothing(nullable_type, *column, make_nullable(target),
                                                   &materialized));
             promoted = std::move(materialized);
-        } else {
+        } else if (array_base_primitive_type(type) == TYPE_JSONB &&
+                   array_base_primitive_type(target) != TYPE_JSONB &&
+                   !is_string_type(array_base_primitive_type(target))) {
+            // JSONB holds values no one concrete type holds, usually because the batch mixed
+            // value kinds on this path. CAST(JSONB -> T) cannot convert to date-like or IP types
+            // and has rules of its own for the rest, so a value would convert differently
+            // depending on the other rows of the batch. Text targets keep the JSONB CAST, which
+            // renders every kind and keeps null array elements.
             RETURN_IF_ERROR(
+                    cast_through_variant({column->get_ptr(), nullable_type, path.get_path()},
+                                         make_nullable(target), &promoted));
+        } else {
+            Status status =
                     variant_util::cast_column({column->get_ptr(), nullable_type, path.get_path()},
-                                              make_nullable(target), &promoted));
+                                              make_nullable(target), &promoted);
+            if (filter_cast_nulls && status.is<ErrorCode::INVALID_ARGUMENT>()) {
+                // CAST has no conversion from this kind at all. That would fail the write only
+                // when no other kind shares the batch, so convert through Variant, which yields
+                // NULL for such values as it does in a mixed batch.
+                status = cast_through_variant({column->get_ptr(), nullable_type, path.get_path()},
+                                              make_nullable(target), &promoted);
+            }
+            RETURN_IF_ERROR(status);
         }
         // Inferred widening is only a storage representation choice. If CAST loses a valid value
         // at any array depth, preserve the whole path as JSONB instead. Forced typed-path
