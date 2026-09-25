@@ -21,6 +21,8 @@ import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.DataGetters;
+import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericMap;
 import org.apache.paimon.data.GenericRow;
@@ -30,6 +32,7 @@ import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
@@ -40,6 +43,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Proxy;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -238,6 +243,37 @@ public class PaimonColumnValueTest {
         Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 18, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+    }
+
+    @Test
+    public void testDecimalUsesPaimonScaleWhenSchemaEvolves() {
+        DataGetters record = (DataGetters) Proxy.newProxyInstance(
+                DataGetters.class.getClassLoader(), new Class<?>[] {DataGetters.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getDecimal")) {
+                        long unscaled = (int) args[2] == 2 ? 120 : 1234;
+                        return Decimal.fromUnscaledLong(unscaled, (int) args[1], (int) args[2]);
+                    }
+                    if (method.getReturnType() == boolean.class) {
+                        return false;
+                    }
+                    if (method.getReturnType() == byte.class || method.getReturnType() == short.class
+                            || method.getReturnType() == int.class || method.getReturnType() == long.class) {
+                        return 0;
+                    }
+                    if (method.getReturnType() == float.class || method.getReturnType() == double.class) {
+                        return 0.0;
+                    }
+                    return null;
+                });
+        PaimonColumnValue value = new PaimonColumnValue(
+                record, 0, ColumnType.parseType("d", "decimal(6,3)"), new DecimalType(5, 2), "UTC");
+
+        Assertions.assertEquals(new BigDecimal("1.20"), value.getDecimal());
+
+        PaimonColumnValue currentSchemaValue = new PaimonColumnValue(
+                record, 0, ColumnType.parseType("d", "decimal(6,3)"), new DecimalType(6, 3), "UTC");
+        Assertions.assertEquals(new BigDecimal("1.234"), currentSchemaValue.getDecimal());
     }
 
     private InternalRow nestedArrayRow(int outerSize, int innerSize, int populatedIndex, int nullIndex) {
