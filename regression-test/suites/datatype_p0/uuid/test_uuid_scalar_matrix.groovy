@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// All constant/column masks, with FE folding, BE folding and folding disabled.
+// All constant/column masks under FE-only, FE+BE and disabled folding settings.
 suite("test_uuid_scalar_matrix", "p0") {
     def matrix = this.evaluate(new File(context.file.parentFile, "uuid_matrix.groovy"))
     sql "DROP TABLE IF EXISTS uuid_matrix_scalar"
@@ -60,16 +60,12 @@ suite("test_uuid_scalar_matrix", "p0") {
         explain {
             sql "verbose ${foldQuery}"
             contains "coalesce(u["
+            // UUID descendants keep UUID_VERSION at runtime even when BE folding is enabled.
+            contains "uuid_version("
             if (mode == 'runtime') {
                 contains "concat('550E8400'"
-                contains "uuid_version("
             } else {
                 notContains "concat('550E8400'"
-                if (mode == 'be') {
-                    notContains "uuid_version("
-                } else {
-                    contains "uuid_version("
-                }
             }
         }
         qt_fold_path foldQuery
