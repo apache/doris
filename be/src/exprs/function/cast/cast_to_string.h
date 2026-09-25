@@ -162,7 +162,7 @@ template <>
 constexpr size_t CastToString::string_length<TYPE_DATETIMEV2> =
         sizeof("YYYY-MM-DD HH:MM:SS.ssssss") - 1;
 template <>
-constexpr size_t CastToString::string_length<TYPE_TIMEV2> = sizeof("-838:59:59.999999") - 1;
+constexpr size_t CastToString::string_length<TYPE_TIMEV2> = sizeof("-838:59:59.999999999") - 1;
 template <>
 constexpr size_t CastToString::string_length<TYPE_IPV4> = sizeof("255.255 .255.255") - 1;
 template <>

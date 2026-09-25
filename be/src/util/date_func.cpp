@@ -28,10 +28,12 @@
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/vdatetime_value.h"
-#include "exec/common/int_exp.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
 
 namespace doris {
+constexpr int32_t NANOSECOND_SCALE_DIVISORS[] = {1000000000, 100000000, 10000000, 1000000, 100000,
+                                                 10000,      1000,      100,      10,      1};
+
 VecDateTimeValue timestamp_from_datetime(const std::string& datetime_str) {
     tm time_tm;
     char* res = strptime(datetime_str.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
@@ -69,14 +71,16 @@ VecDateTimeValue timestamp_from_date(const std::string& date_str) {
 
 //FIXME: try to remove or refactor all those time input/output functions.
 uint8_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
+    DCHECK_GE(scale, 0);
+    DCHECK_LE(scale, static_cast<int>(TimeValue::NANOS_SCALE));
     char* begin = buffer;
     if (time < 0) {
         time = -time;
         *buffer++ = '-';
     }
-    auto m_time = (uint64_t)TimeValue::limit_with_bound(time);
+    auto m_time = static_cast<uint64_t>(TimeValue::to_nanoseconds(time));
 
-    auto hour = static_cast<uint16_t>(m_time / (3600ULL * 1000 * 1000));
+    auto hour = static_cast<uint16_t>(m_time / (3600ULL * 1000 * 1000 * 1000));
     if (hour >= 100) {
         buffer = fmt::format_to(buffer, FMT_COMPILE("{}"), hour);
     } else {
@@ -84,18 +88,18 @@ uint8_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
         *buffer++ = (char)('0' + (hour % 10));
     }
     *buffer++ = ':';
-    m_time %= 3600ULL * 1000 * 1000;
+    m_time %= 3600ULL * 1000 * 1000 * 1000;
 
-    auto minute = static_cast<uint8_t>(m_time / (60 * 1000 * 1000));
+    auto minute = static_cast<uint8_t>(m_time / (60ULL * 1000 * 1000 * 1000));
     *buffer++ = (char)('0' + (minute / 10));
     *buffer++ = (char)('0' + (minute % 10));
     *buffer++ = ':';
-    m_time %= 60 * 1000 * 1000;
+    m_time %= 60ULL * 1000 * 1000 * 1000;
 
-    auto second = static_cast<uint8_t>(m_time / (1000 * 1000));
+    auto second = static_cast<uint8_t>(m_time / (1000 * 1000 * 1000));
     *buffer++ = (char)('0' + (second / 10));
     *buffer++ = (char)('0' + (second % 10));
-    m_time %= 1000 * 1000;
+    m_time %= 1000 * 1000 * 1000;
     if (scale == 0) {
         return static_cast<uint8_t>(buffer - begin);
     }
@@ -103,19 +107,20 @@ uint8_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
     *buffer++ = '.';
     memset(buffer, '0', scale);
     buffer += scale;
-    int32_t micosecond = m_time % (1000 * 1000);
-    micosecond /= common::exp10_i32(6 - scale);
+    uint32_t nanosecond = static_cast<uint32_t>(m_time);
+    nanosecond /= NANOSECOND_SCALE_DIVISORS[scale];
     auto* it = buffer - 1;
-    while (micosecond) {
-        *it = (char)('0' + (micosecond % 10));
-        micosecond /= 10;
+    while (nanosecond) {
+        *it = (char)('0' + (nanosecond % 10));
+        nanosecond /= 10;
         it--;
     }
-    DCHECK_LT(scale, 10);
     return static_cast<uint8_t>(buffer - begin);
 }
 
 std::string timev2_to_buffer_from_double(double time, int scale) {
+    DCHECK_GE(scale, 0);
+    DCHECK_LE(scale, static_cast<int>(TimeValue::NANOS_SCALE));
     fmt::memory_buffer buffer;
     if (time < 0) {
         time = -time;
@@ -130,35 +135,47 @@ std::string timev2_to_buffer_from_double(double time, int scale) {
     }
     auto minute = TimeValue::minute(m_time);
     auto second = TimeValue::second(m_time);
-    auto micosecond = TimeValue::microsecond(m_time);
-    micosecond /= common::exp10_i32(6 - scale);
+    auto nanosecond = TimeValue::nanosecond(m_time);
+    nanosecond /= NANOSECOND_SCALE_DIVISORS[scale];
     switch (scale) {
     case 0:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}"), minute, second));
         break;
     case 1:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:01d}"), minute, second,
-                                           micosecond));
+                                           nanosecond));
         break;
     case 2:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:02d}"), minute, second,
-                                           micosecond));
+                                           nanosecond));
         break;
     case 3:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:03d}"), minute, second,
-                                           micosecond));
+                                           nanosecond));
         break;
     case 4:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:04d}"), minute, second,
-                                           micosecond));
+                                           nanosecond));
         break;
     case 5:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:05d}"), minute, second,
-                                           micosecond));
+                                           nanosecond));
         break;
     case 6:
         fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:06d}"), minute, second,
-                                           micosecond));
+                                           nanosecond));
+        break;
+    case 7:
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:07d}"), minute, second,
+                                           nanosecond));
+        break;
+    case 8:
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:08d}"), minute, second,
+                                           nanosecond));
+        break;
+    case 9:
+        fmt::format_to(buffer, fmt::format(FMT_COMPILE(":{:02d}:{:02d}.{:09d}"), minute, second,
+                                           nanosecond));
         break;
     }
 

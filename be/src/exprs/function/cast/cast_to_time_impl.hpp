@@ -20,6 +20,7 @@
 #include <sys/types.h>
 
 #include <type_traits>
+#include <utility>
 
 #include "core/data_type/data_type_decimal.h" // IWYU pragma: keep
 #include "core/data_type/primitive_type.h"
@@ -34,11 +35,10 @@ namespace doris {
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
 template <DatelikeParseMode ParseMode>
-[[nodiscard]] [[maybe_unused]] static bool init_microsecond(int64_t frac_input,
-                                                            uint32_t frac_length,
-                                                            TimeValue::TimeType& val,
-                                                            uint32_t target_scale,
-                                                            CastParameters& params) {
+[[nodiscard]] [[maybe_unused]] static bool init_nanosecond(int64_t frac_input, uint32_t frac_length,
+                                                           TimeValue::TimeType& val,
+                                                           uint32_t target_scale,
+                                                           CastParameters& params) {
     constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     if (frac_length > 0) {
         int sign = 1;
@@ -54,14 +54,14 @@ template <DatelikeParseMode ParseMode>
                         ? (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale))
                         : (uint32_t)(frac_input * common::exp10_i64(target_scale - frac_length));
 
-        if (frac_length > target_scale) { // to_scale is up to 6
+        if (frac_length > target_scale) {
             // round off to at most `to_scale` digits
             auto digit_next =
                     (uint32_t)(frac_input / common::exp10_i64(frac_length - target_scale - 1)) % 10;
             if (digit_next >= 5) {
                 in_scale_part++;
-                DCHECK(in_scale_part <= 1000000);
-                if (in_scale_part == common::exp10_i32(target_scale)) {
+                DCHECK(in_scale_part <= TimeValue::ONE_SECOND_NANOSECONDS);
+                if (std::cmp_equal(in_scale_part, common::exp10_i32(target_scale))) {
                     // overflow, round up to next second
                     val += sign * TimeValue::ONE_SECOND_MICROSECONDS;
                     SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(val),
@@ -70,8 +70,8 @@ template <DatelikeParseMode ParseMode>
                 }
             }
         }
-        val = TimeValue::init_microsecond(
-                val, sign * in_scale_part * common::exp10_i32(6 - (int)target_scale));
+        val = TimeValue::init_nanosecond(
+                val, sign * in_scale_part * common::exp10_i32(9 - (int)target_scale));
     }
     return true;
 }
@@ -127,10 +127,12 @@ struct CastToTimeV2 {
         }
 
 #include "common/compile_check_avoid_begin.h"
-        int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
+        int64_t ns_part_10 =
+                (float_value - (double)int_part) * common::exp10_i64(TimeValue::NANOS_SCALE + 1);
 #include "common/compile_check_avoid_end.h"
-        if (!init_microsecond<ParseMode>(ms_part_7, 7, val, to_scale, params)) {
-            return false; // status set in init_microsecond
+        if (!init_nanosecond<ParseMode>(ns_part_10, TimeValue::NANOS_SCALE + 1, val, to_scale,
+                                        params)) {
+            return false; // status set in init_nanosecond
         }
         return true;
     }
@@ -163,9 +165,9 @@ struct CastToTimeV2 {
             return false;
         }
 
-        if (!init_microsecond<ParseMode>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
-                                         params)) {
-            return false; // status set in init_microsecond
+        if (!init_nanosecond<ParseMode>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
+                                        params)) {
+            return false; // status set in init_nanosecond
         }
         return true;
     }
@@ -233,14 +235,14 @@ inline bool CastToTimeV2::from_integer(T input, TimeValue::TimeType& val, CastPa
 /**
 <time> ::= ("+" | "-")? (<colon-format> | <numeric-format>)
 
-<colon-format> ::= <hour> ":" <minute> (":" <second> (<microsecond>)?)?
+<colon-format> ::= <hour> ":" <minute> (":" <second> (<nanosecond>)?)?
 <hour> ::= <digit>+
 <minute> ::= <digit>{1,2}
 <second> ::= <digit>{1,2}
 
-<numeric-format> ::= <digit>+ (<microsecond>)?
+<numeric-format> ::= <digit>+ (<nanosecond>)?
 
-<microsecond> ::= "." <digit>*
+<nanosecond> ::= "." <digit>*
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 */
@@ -268,7 +270,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
 
     // Two possible formats: colon-format or numeric-format
     uint32_t hour = 0, minute = 0, second = 0;
-    uint32_t microsecond = 0;
+    uint32_t nanosecond = 0;
 
     // Check if we have colon format by looking ahead
     const char* temp = ptr;
@@ -308,7 +310,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                                      std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
 
-            // Check if we have microseconds
+            // Check if we have nanoseconds
             if (ptr < end && *ptr == '.') {
                 ++ptr;
 
@@ -323,11 +325,11 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                                              "invalid fractional part in time string '{}'",
                                              std::string {start, ptr});
 
-                    if (length > to_scale) { // to_scale is up to 6
+                    if (std::cmp_greater(length, to_scale)) {
                         // round off to at most `to_scale` digits
                         if (*(ms_start + to_scale) - '0' >= 5) {
                             frac_literal++;
-                            DCHECK(frac_literal <= 1000000);
+                            DCHECK(frac_literal <= TimeValue::ONE_SECOND_NANOSECONDS);
                             if (frac_literal == common::exp10_i32(to_scale)) {
                                 // overflow, round up to next second
                                 second++;
@@ -342,9 +344,9 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                                 frac_literal = 0;
                             }
                         }
-                        microsecond = frac_literal * common::exp10_i32(6 - (int)to_scale);
+                        nanosecond = frac_literal * common::exp10_i32(9 - (int)to_scale);
                     } else {
-                        microsecond = frac_literal * common::exp10_i32(6 - (int)length);
+                        nanosecond = frac_literal * common::exp10_i32(9 - (int)length);
                     }
                 }
             }
@@ -381,7 +383,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
         }
 
-        // Check if we have microseconds
+        // Check if we have nanoseconds
         if (ptr < end && *ptr == '.') {
             ++ptr;
 
@@ -396,11 +398,11 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                                          "invalid fractional part in time string '{}'",
                                          std::string {start, ptr});
 
-                if (length > to_scale) { // to_scale is up to 6
+                if (std::cmp_greater(length, to_scale)) {
                     // round off to at most `to_scale` digits
                     if (*(ms_start + to_scale) - '0' >= 5) {
                         frac_literal++;
-                        DCHECK(frac_literal <= 1000000);
+                        DCHECK(frac_literal <= TimeValue::ONE_SECOND_NANOSECONDS);
                         if (frac_literal == common::exp10_i32(to_scale)) {
                             // overflow, round up to next second
                             second++;
@@ -415,9 +417,9 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                             frac_literal = 0;
                         }
                     }
-                    microsecond = frac_literal * common::exp10_i32(6 - (int)to_scale);
+                    nanosecond = frac_literal * common::exp10_i32(9 - (int)to_scale);
                 } else {
-                    microsecond = frac_literal * common::exp10_i32(6 - (int)length);
+                    nanosecond = frac_literal * common::exp10_i32(9 - (int)length);
                 }
             }
         }
@@ -427,25 +429,25 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
     SET_PARAMS_RET_FALSE_IFN(ptr == end, "invalid time string '{}', extra characters after parsing",
                              std::string {ptr, end});
 
-    // Convert to TimeValue's internal storage format (microseconds since 00:00:00)
-    SET_PARAMS_RET_FALSE_FROM_EXCEPTION(
-            res = TimeValue::make_time<true>(hour, minute, second, microsecond, negative));
+    // Convert to TimeValue's internal storage format (nanoseconds since 00:00:00)
+    SET_PARAMS_RET_FALSE_FROM_EXCEPTION(res = TimeValue::make_time_from_nanoseconds<true>(
+                                                hour, minute, second, nanosecond, negative));
     SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(res), "invalid time value: {}:{}:{}.{}", hour, minute,
-                             second, microsecond);
+                             second, nanosecond);
     return true;
 }
 
 /**
 <time> ::= <whitespace>* ("+" | "-")? (<colon-format> | <numeric-format>) <whitespace>*
 
-<colon-format> ::= <hour> ":" <minute> (":" <second> (<microsecond>)?)?
+<colon-format> ::= <hour> ":" <minute> (":" <second> (<nanosecond>)?)?
 <hour> ::= <digit>+
 <minute> ::= <digit>{1,2}
 <second> ::= <digit>{1,2}
 
-<numeric-format> ::= <digit>+ (<microsecond>)?
+<numeric-format> ::= <digit>+ (<nanosecond>)?
 
-<microsecond> ::= "." <digit>*
+<nanosecond> ::= "." <digit>*
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 <whitespace> ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
@@ -476,7 +478,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
 
     // Two possible formats: colon-format or numeric-format
     uint32_t hour = 0, minute = 0, second = 0;
-    uint32_t microsecond = 0;
+    uint32_t nanosecond = 0;
 
     // Check if we have colon format by looking ahead
     const char* temp = ptr;
@@ -512,7 +514,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
             PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, second)));
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
 
-            // Check if we have microseconds
+            // Check if we have nanoseconds
             if (ptr < end && *ptr == '.') {
                 ++ptr;
 
@@ -527,11 +529,11 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                                              "invalid fractional part in time string '{}'",
                                              std::string {start, ptr});
 
-                    if (length > to_scale) { // to_scale is up to 6
+                    if (std::cmp_greater(length, to_scale)) {
                         // round off to at most `to_scale` digits
                         if (*(ms_start + to_scale) - '0' >= 5) {
                             frac_literal++;
-                            DCHECK(frac_literal <= 1000000);
+                            DCHECK(frac_literal <= TimeValue::ONE_SECOND_NANOSECONDS);
                             if (frac_literal == common::exp10_i32(to_scale)) {
                                 // overflow, round up to next second
                                 second++;
@@ -546,9 +548,9 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                                 frac_literal = 0;
                             }
                         }
-                        microsecond = frac_literal * common::exp10_i32(6 - (int)to_scale);
+                        nanosecond = frac_literal * common::exp10_i32(9 - (int)to_scale);
                     } else {
-                        microsecond = frac_literal * common::exp10_i32(6 - (int)length);
+                        nanosecond = frac_literal * common::exp10_i32(9 - (int)length);
                     }
                 }
             }
@@ -585,7 +587,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
         }
 
-        // Check if we have microseconds
+        // Check if we have nanoseconds
         if (ptr < end && *ptr == '.') {
             ++ptr;
 
@@ -600,11 +602,11 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                                          "invalid fractional part in time string '{}'",
                                          std::string {start, ptr});
 
-                if (length > to_scale) { // to_scale is up to 6
+                if (std::cmp_greater(length, to_scale)) {
                     // round off to at most `to_scale` digits
                     if (*(ms_start + to_scale) - '0' >= 5) {
                         frac_literal++;
-                        DCHECK(frac_literal <= 1000000);
+                        DCHECK(frac_literal <= TimeValue::ONE_SECOND_NANOSECONDS);
                         if (frac_literal == common::exp10_i32(to_scale)) {
                             // overflow, round up to next second
                             second++;
@@ -619,9 +621,9 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                             frac_literal = 0;
                         }
                     }
-                    microsecond = frac_literal * common::exp10_i32(6 - (int)to_scale);
+                    nanosecond = frac_literal * common::exp10_i32(9 - (int)to_scale);
                 } else {
-                    microsecond = frac_literal * common::exp10_i32(6 - (int)length);
+                    nanosecond = frac_literal * common::exp10_i32(9 - (int)length);
                 }
             }
         }
@@ -632,11 +634,11 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
     SET_PARAMS_RET_FALSE_IFN(ptr == end, "invalid time string '{}', extra characters after parsing",
                              std::string {ptr, end});
 
-    // Convert to TimeValue's internal storage format (microseconds since 00:00:00)
-    SET_PARAMS_RET_FALSE_FROM_EXCEPTION(
-            res = TimeValue::make_time<true>(hour, minute, second, microsecond, negative));
+    // Convert to TimeValue's internal storage format (nanoseconds since 00:00:00)
+    SET_PARAMS_RET_FALSE_FROM_EXCEPTION(res = TimeValue::make_time_from_nanoseconds<true>(
+                                                hour, minute, second, nanosecond, negative));
     SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(res), "invalid time value: {}:{}:{}.{}", hour, minute,
-                             second, microsecond);
+                             second, nanosecond);
     return true;
 }
 
