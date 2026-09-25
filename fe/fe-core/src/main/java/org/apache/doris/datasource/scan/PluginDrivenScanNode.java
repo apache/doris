@@ -438,6 +438,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
     }
 
+    /** Whether an opt-out connector must distinguish this scan-all encoding from an unpruned scan. */
+    static boolean partitionsPrunedToEmpty(SelectedPartitions selectedPartitions,
+            boolean ignorePartitionPruneShortCircuit) {
+        return ignorePartitionPruneShortCircuit
+                && selectedPartitions != null
+                && selectedPartitions.isPruned
+                && selectedPartitions.totalPartitionNum > 0
+                && selectedPartitions.selectedPartitions.isEmpty();
+    }
+
     /**
      * Partition counts to surface on this scan node — {@code {selectedPartitionNum, totalPartitionNum}}
      * — or {@code null} to leave the fields at their default (nothing to show). Drives the EXPLAIN
@@ -1641,6 +1651,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 scanProvider, scanProvider::ignorePartitionPruneShortCircuit);
         List<String> requiredPartitions = resolveRequiredPartitions(
                 selectedPartitions, ignorePartitionPruneShortCircuit);
+        // Preserve why an opt-out request has an empty/scan-all partition list. A connector whose
+        // snapshot retains history outside the live FE universe must still plan that history, but it
+        // must not reinterpret "no live partition matched" as "validate every live partition".
+        boolean partitionsPrunedToEmpty = partitionsPrunedToEmpty(
+                selectedPartitions, ignorePartitionPruneShortCircuit);
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
@@ -1699,6 +1714,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .filter(remainingFilter)
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
+                .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to

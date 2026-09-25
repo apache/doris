@@ -55,7 +55,7 @@ under the License.
           of the latter two means bumping this property as well (and fe-extension-spi means bumping
           all five families).
         -->
-        <connector.plugin.api.version>10.0</connector.plugin.api.version>
+        <connector.plugin.api.version>11.0</connector.plugin.api.version>
     </properties>
 
     <modules>
@@ -85,6 +85,7 @@ under the License.
         <module>fe-connector-paimon</module>
         <module>fe-connector-hudi</module>
         <module>fe-connector-iceberg</module>
+        <module>fe-connector-fluss</module>
     </modules>
 
     <build>

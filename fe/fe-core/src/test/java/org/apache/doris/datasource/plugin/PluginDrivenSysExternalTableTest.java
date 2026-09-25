@@ -20,12 +20,15 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.EnumSet;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -54,6 +57,35 @@ import java.util.Set;
  */
 public class PluginDrivenSysExternalTableTest {
 
+    @Test
+    public void twoAliasSchemasBorrowOneLiveStatementScopeWithoutClosingIt() {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        ConnectorSession firstAliasSession = Mockito.mock(ConnectorSession.class);
+        ConnectorSession secondAliasSession = Mockito.mock(ConnectorSession.class);
+        ConnectorStatementScope statementScope = Mockito.mock(ConnectorStatementScope.class);
+        ConnectorSession crossStatementSession = Mockito.mock(ConnectorSession.class);
+        Mockito.when(firstAliasSession.getStatementScope()).thenReturn(statementScope);
+        Mockito.when(secondAliasSession.getStatementScope()).thenReturn(statementScope);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(firstAliasSession, secondAliasSession);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(crossStatementSession);
+        PluginDrivenSysExternalTable firstAlias =
+                Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        PluginDrivenSysExternalTable secondAlias =
+                Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);
+
+        ConnectorSession first = firstAlias.buildSchemaSession(catalog);
+        ConnectorSession second = secondAlias.buildSchemaSession(catalog);
+        Assertions.assertNotSame(first, second);
+        Assertions.assertSame(statementScope, first.getStatementScope());
+        Assertions.assertSame(statementScope, second.getStatementScope());
+        firstAlias.closeSchemaSession(first);
+        secondAlias.closeSchemaSession(second);
+
+        Mockito.verify(catalog, Mockito.times(2)).buildConnectorSession();
+        Mockito.verify(catalog, Mockito.never()).buildCrossStatementSession();
+        Mockito.verify(statementScope, Mockito.never()).closeAll();
+    }
+
     /**
      * A CALLS_REAL_METHODS {@link PluginDrivenSysExternalTable} whose connector declares exactly
      * {@code capabilities}, to exercise the capability-helper methods over the real connector chain. Only the
@@ -80,6 +112,26 @@ public class PluginDrivenSysExternalTableTest {
                 "a system/metadata table must never lazy-materialize, even when the connector supports it");
     }
 
+    /**
+     * Same, plus a stubbed schema-cache value carrying {@code perTableCapabilities} — the set a system table
+     * resolves its own nested-prune answer from. Mirrors {@code PluginDrivenExternalTableTest.pluginTable}.
+     */
+    private static PluginDrivenSysExternalTable sysTable(Set<ConnectorCapability> connectorCapabilities,
+            Set<ConnectorCapability> perTableCapabilities) {
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getCapabilities()).thenReturn(connectorCapabilities);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        PluginDrivenSchemaCacheValue scv = Mockito.mock(PluginDrivenSchemaCacheValue.class);
+        Mockito.when(scv.getTableCapabilities()).thenReturn(perTableCapabilities);
+        PluginDrivenSysExternalTable table =
+                Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Mockito.doNothing().when(table).makeSureInitialized();
+        Mockito.doReturn(Optional.of(scv)).when(table).getSchemaCacheValue();
+        return table;
+    }
+
     @Test
     public void systemTableNeverSupportsStoragePredicatePruningEvenWhenConnectorDeclaresIt() {
         // A connector-wide opt-in describes native data-table readers; system-table pushdown remains excluded
@@ -92,15 +144,42 @@ public class PluginDrivenSysExternalTableTest {
 
     @Test
     public void systemTableNeverSupportsNestedColumnPruneEvenWhenConnectorDeclaresIt() {
-        // A system/metadata-table scan ships NO field-id dictionary, so the name->field-id access-path rewrite BE
+        // A metadata-table scan ships NO field-id dictionary, so the name->field-id access-path rewrite BE
         // would receive (SlotTypeReplacer) cannot be field-id-matched and BE rejects it with
-        // "AccessPathParser access path N does not match slot X". The sys table must therefore opt out of
-        // nested-column prune (disabling both name-based path generation and the field-id rewrite), even though
-        // its connector declares the capability. On master the field-id rewrite was gated on the exact class
-        // IcebergExternalTable, which a sys table is not, so it never fired for sys tables.
-        // MUTATION: deleting the override re-inherits the connector-capability answer -> true -> red.
-        Assertions.assertFalse(sysTableWithCapabilities(
-                        EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).supportsNestedColumnPrune(),
+        // "AccessPathParser access path N does not match slot X"; and the JNI metadata reader indexes its
+        // record by the Doris child position, so a pruned type makes it return a different field's value. A
+        // sys table must therefore stay out however loudly its CONNECTOR declares the data-table capability.
+        Assertions.assertFalse(sysTable(EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                        EnumSet.noneOf(ConnectorCapability.class)).supportsNestedColumnPrune(),
                 "a system/metadata table must never nested-column-prune, even when the connector supports it");
+    }
+
+    @Test
+    public void systemTableStaysOutWhenOnlyTheDataTablePruneBitReachesItsSchema() {
+        // The data-table bit reaches a system table's own schema for real: HiveConnectorMetadata
+        // .reflectSiblingCapabilities copies the owning sibling's connector-wide set onto EVERY schema it
+        // forwards, and an iceberg-on-HMS tbl$snapshots is forwarded through exactly that path. Resolving the
+        // opt-in from that bit would admit the one reader that cannot take a pruned type, so the opt-in has a
+        // capability of its own — which nothing reflects.
+        Assertions.assertFalse(sysTable(EnumSet.noneOf(ConnectorCapability.class),
+                        EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                                ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH)).supportsNestedColumnPrune(),
+                "a delegated metadata table inherits the data-table bits and must still stay out");
+    }
+
+    @Test
+    public void systemTableOptsIntoNestedColumnPruneThroughItsOwnSchema() {
+        // The opt-out is about WHICH READER serves the table, and that is a per-table question. A system table
+        // served by the ordinary data readers (fluss tbl$lake through the paimon sibling, tbl$log through the
+        // fluss scanner) honours a pruned type exactly like the front door does, and is as large as the front
+        // door — leaving it out costs the read amplification pruning exists to avoid, and makes one query
+        // answer differently through tbl than through tbl$lake. Such a table says so on its OWN schema.
+        Assertions.assertTrue(sysTable(EnumSet.noneOf(ConnectorCapability.class),
+                        EnumSet.of(ConnectorCapability.SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE))
+                        .supportsNestedColumnPrune(),
+                "a system table whose own schema declares the sys-table capability must nested-column-prune");
+        Assertions.assertFalse(sysTable(EnumSet.noneOf(ConnectorCapability.class),
+                        EnumSet.noneOf(ConnectorCapability.class)).supportsNestedColumnPrune(),
+                "a system table that declares nothing must stay out");
     }
 }

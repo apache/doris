@@ -20,6 +20,7 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <string>
 
@@ -50,17 +51,34 @@ public:
 
 #ifdef BE_TEST
     // For testing only: get current child PID
-    pid_t get_child_pid() const { return _child_pid.load(); }
-    // For testing only: set child PID directly
-    void set_child_pid_for_test(pid_t pid) { _child_pid.store(pid); }
+    pid_t get_child_pid() const { return _get_child_pid(); }
+    // For testing only: publish a PID and return its generation-qualified identity.
+    uint64_t set_child_pid_for_test(pid_t pid);
+    uint64_t get_child_identity_for_test() const { return _get_child_identity(); }
+    // For testing only: run the production cleanup gate for an exact identity.
+    bool terminate_child_identity_for_test(uint64_t identity);
+    // For testing only: inspect the exact identity through the normal WNOHANG path.
+    bool inspect_child_identity_for_test(uint64_t identity);
+    // For testing only: invoke the installed handler body deterministically.
+    static void invoke_sigchld_handler_for_test();
+    // For testing only: pause a deterministic handler after it has copied the published identity.
+    static void pause_sigchld_handler_for_test(bool pause);
+    static bool sigchld_handler_paused_for_test();
+    // For testing only: pause after inspect's WNOHANG=0 observation and before claim release.
+    static void pause_child_inspection_after_running_for_test(bool pause);
+    static bool child_inspection_paused_for_test();
     // For testing only: inspect / drive the adopt-external flag
     bool get_adopted_external_for_test() const { return _adopted_external.load(); }
     void set_adopted_external_for_test(bool v) { _adopted_external.store(v); }
 #endif
 
 private:
+    uint64_t _get_child_identity() const;
+    pid_t _get_child_pid() const;
+    uint64_t _publish_child_pid(pid_t pid);
+    bool _terminate_child_identity(uint64_t identity);
+
     std::mutex _start_mutex;
-    std::atomic<pid_t> _child_pid {0};
     std::atomic<bool> _adopted_external {false};
 };
 

@@ -1363,6 +1363,37 @@ void write_struct_filter_parquet_file(const std::string& file_path) {
                                                       builder.build()));
 }
 
+// A STRUCT whose two children are both stored as INT96, the shape Paimon writes for
+// ROW<crow1 TIMESTAMP, crow2 TIMESTAMP_LTZ>: the physical encoding carries no way to tell the
+// two apart, so only the table format's per-field semantic decides which child is TIMESTAMPTZ.
+void write_struct_int96_timestamp_parquet_file(const std::string& file_path) {
+    auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    auto ntz = build_timestamp_array(timestamp_type, {1735660800000000LL, 1735689600000000LL});
+    auto ltz = build_timestamp_array(timestamp_type, {1735660800123456LL, 1735689600123456LL});
+    auto struct_result = arrow::StructArray::Make(
+            arrow::ArrayVector {ntz, ltz},
+            arrow::FieldVector {arrow::field("crow1", timestamp_type, true),
+                                arrow::field("crow2", timestamp_type, true)});
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status();
+    std::shared_ptr<arrow::Array> struct_array = *struct_result;
+    auto table = arrow::Table::Make(
+            arrow::schema({arrow::field("crow", struct_array->type(), true)}), {struct_array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder writer_builder;
+    writer_builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    writer_builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    writer_builder.compression(::parquet::Compression::UNCOMPRESSED);
+    ::parquet::ArrowWriterProperties::Builder arrow_builder;
+    arrow_builder.enable_force_write_int96_timestamps();
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, writer_builder.build(),
+                                                      arrow_builder.build()));
+}
+
 void write_dictionary_filter_parquet_file(
         const std::string& file_path,
         ::parquet::Compression::type compression = ::parquet::Compression::UNCOMPRESSED) {
@@ -2222,6 +2253,62 @@ TEST_F(NewParquetReaderTest, ReadsStructPredicateChildBeforeDeferredRootOutput) 
     EXPECT_EQ(names, (std::vector<std::string> {"ten", "eleven"}));
     ASSERT_NE(profile.get_counter("FilteredRowsByLazyRead"), nullptr);
     EXPECT_GT(profile.get_counter("FilteredRowsByLazyRead")->value(), 0);
+}
+
+// Scenario: a Paimon ROW<crow1 TIMESTAMP, crow2 TIMESTAMP_LTZ> stored as INT96. INT96 alone
+// cannot separate the two logical types, so both children arrive as TIMESTAMPTZ and only the
+// per-child semantic on the projection says which one really is. The reader must honour it on
+// every child the projection names, including on a projection that selects the whole struct --
+// that is the form a filter-only nested path leaves behind once it is merged with the output
+// projection of the same root, and the form the file block column is built from.
+TEST_F(NewParquetReaderTest, WholeStructInt96HonoursPerChildTimestampSemantics) {
+    write_struct_int96_timestamp_parquet_file(_file_path);
+    auto reader = create_reader(0, -1, nullptr, /*enable_mapping_timestamp_tz=*/true);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("Asia/Shanghai");
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    ASSERT_EQ(schema[0].children.size(), 2);
+    EXPECT_EQ(remove_nullable(schema[0].children[0].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(remove_nullable(schema[0].children[1].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+
+    auto projection =
+            format::LocalColumnIndex::top_level(format::LocalColumnId(schema[0].local_id));
+    projection.children.push_back(format::LocalColumnIndex::local(schema[0].children[0].local_id));
+    projection.children.back().timestamp_is_adjusted_to_utc = false;
+    projection.children.push_back(format::LocalColumnIndex::local(schema[0].children[1].local_id));
+    projection.children.back().timestamp_is_adjusted_to_utc = true;
+    // The children carry semantics only; the projection still selects the whole struct.
+    ASSERT_TRUE(projection.project_all_children);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns.push_back(projection);
+    request->local_positions.emplace(format::LocalColumnId(schema[0].local_id),
+                                     format::LocalIndex(0));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    // What PaimonReader::annotate_file_schema() makes of the same two semantics, which is where
+    // the file block column's type comes from. The reader has to land on exactly this.
+    const auto block_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2,
+                                                                                  false, 0, 6)),
+                       make_nullable(DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ,
+                                                                                  false, 0, 6))},
+            Strings {schema[0].children[0].name, schema[0].children[1].name}));
+
+    Block block;
+    block.insert({block_type->create_column(), block_type, "crow"});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    const auto& column = block.get_by_position(0);
+    EXPECT_EQ(column.type->to_string(*column.column, 0),
+              "{\"crow1\":\"2024-12-31 16:00:00.000000\", \"crow2\":\"2024-12-31 "
+              "16:00:00.123456+00:00\"}");
 }
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {

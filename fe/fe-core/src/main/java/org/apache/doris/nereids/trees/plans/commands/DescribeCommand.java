@@ -214,7 +214,10 @@ public class DescribeCommand extends ShowCommand {
                     SysTableResolver.SysTableDescribe sysTableDescribe = sysTableDescribeOpt.get();
                     if (sysTableDescribe.isNative()) {
                         ExternalTable sysTable = sysTableDescribe.getSysExternalTable();
-                        List<Column> columns = sysTable.getFullSchema();
+                        // getBaseSchema, not getFullSchema: a data-shaped sys table may forward invisible
+                        // columns of the table it is derived from, and DESC hides those the way it does for
+                        // the table itself (they show up under show_hidden_columns, like everywhere else).
+                        List<Column> columns = sysTable.getBaseSchema();
                         for (Column column : columns) {
                             List<String> row = Arrays.asList(
                                     column.getName(),

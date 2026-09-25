@@ -104,6 +104,53 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     ASSERT_TRUE(target.children.empty());
 }
 
+// Scenario: a table format that stores two logical timestamp types with one physical encoding
+// (Paimon TIMESTAMP vs TIMESTAMP_LTZ as the same INT96) tells the reader them apart through
+// per-child `timestamp_is_adjusted_to_utc`. attach_timestamp_semantics() materializes a child on
+// the projection for no other reason than to carry that flag, including on a projection that
+// selects everything. Collapsing to a full projection therefore must not drop those children: the
+// reader would decode a TIMESTAMP_LTZ as a plain DATETIMEV2, disagreeing with the file block
+// column the table reader built from the same table format's schema.
+TEST(LocalColumnIndexTest, MergeKeepsTimestampSemanticsWhenProjectionBecomesFull) {
+    LocalColumnIndex target {.index = 10, .project_all_children = false};
+    target.children.push_back({.index = 1});
+    target.children.push_back({.index = 2});
+    target.children.back().timestamp_is_adjusted_to_utc = true;
+
+    // A second projection of the same root that selects the whole subtree, as a filter-only nested
+    // path merged next to an output projection does.
+    LocalColumnIndex full_source {.index = 10};
+    full_source.children.push_back({.index = 3});
+    full_source.children.back().timestamp_is_adjusted_to_utc = false;
+
+    ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
+    EXPECT_TRUE(target.project_all_children);
+    // Child 1 selected nothing beyond what the full projection already takes, so it goes; the two
+    // that name a semantic stay.
+    ASSERT_EQ(std::vector<int32_t>({2, 3}), projection_ids(target.children));
+    ASSERT_TRUE(target.children[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*target.children[0].timestamp_is_adjusted_to_utc);
+    ASSERT_TRUE(target.children[1].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*target.children[1].timestamp_is_adjusted_to_utc);
+}
+
+// The same rule one level down: a child kept only because something below it names a semantic must
+// keep the path to it, and nothing else.
+TEST(LocalColumnIndexTest, MergeKeepsOnlyThePathToANestedTimestampSemantic) {
+    LocalColumnIndex target {.index = 10, .project_all_children = false};
+    target.children.push_back({.index = 1, .project_all_children = false});
+    target.children.back().children.push_back({.index = 11});
+    target.children.back().children.push_back({.index = 12});
+    target.children.back().children.back().timestamp_is_adjusted_to_utc = true;
+
+    ASSERT_TRUE(merge_local_column_index(&target, LocalColumnIndex {.index = 10}).ok());
+    EXPECT_TRUE(target.project_all_children);
+    ASSERT_EQ(std::vector<int32_t>({1}), projection_ids(target.children));
+    ASSERT_EQ(std::vector<int32_t>({12}), projection_ids(target.children[0].children));
+    ASSERT_TRUE(target.children[0].children[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*target.children[0].children[0].timestamp_is_adjusted_to_utc);
+}
+
 TEST(LocalColumnIndexTest, FindsProjectedChildren) {
     LocalColumnIndex projection {.index = 10, .project_all_children = false};
     projection.children.push_back({.index = 1});

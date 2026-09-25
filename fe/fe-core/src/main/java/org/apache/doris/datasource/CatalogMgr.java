@@ -500,7 +500,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     if (DatasourcePrintableMap.HIDDEN_KEY.contains(key)) {
                         return;
                     }
-                    if (DatasourcePrintableMap.SENSITIVE_KEY.contains(key)) {
+                    if (DatasourcePrintableMap.isSensitiveKey(key)) {
                         sortedMap.put(key, DatasourcePrintableMap.PASSWORD_MASK);
                     } else {
                         sortedMap.put(key, value);
