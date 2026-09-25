@@ -72,6 +72,7 @@ public:
 
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
+    Status check_column_value(const IColumn& column, size_t row_num) const override;
 
     Field get_field(const TExprNode& node) const override {
         if (node.node_type == TExprNodeType::NULL_LITERAL) {

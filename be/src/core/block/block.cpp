@@ -335,6 +335,10 @@ Status Block::check_type_and_column() const {
                     "error: {}",
                     elem.name, column->get_name(), type->get_name(), st.msg());
         }
+
+        for (size_t row = 0; row < rows(); ++row) {
+            RETURN_IF_ERROR(type->check_column_value(*column, row));
+        }
     }
 #endif
     return Status::OK();

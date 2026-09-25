@@ -97,6 +97,10 @@ public:
 
     virtual Status check_column(const IColumn& column) const = 0;
 
+    virtual Status check_column_value(const IColumn& column, size_t row_num) const {
+        return Status::OK();
+    }
+
 protected:
     virtual String do_get_name() const;
 
