@@ -96,7 +96,6 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -269,7 +268,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(
                 ctx, table, isPartialUpdate, isDeletePartialUpdate, boundSink, child, missingIvmHiddenColumns);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(
+        LogicalProject<?> fullOutputProject = getOutputProject(
                 table.getFullSchema(), child, columnToOutput);
         List<Column> columns = new ArrayList<>(table.getFullSchema().size());
         for (int i = 0; i < table.getFullSchema().size(); ++i) {
@@ -295,67 +294,55 @@ public class BindSink implements AnalysisRuleFactory {
                 exprTranslator.createSyncMvWhereClause(), targetTableSlots);
     }
 
-    private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
-                                                         Map<String, NamedExpression> columnToOutput) {
-        List<NamedExpression> fullOutputExprs = Utils.fastToImmutableList(columnToOutput.values());
+    private LogicalProject<?> getOutputProject(List<Column> tableSchema, LogicalPlan child,
+                                               Map<String, NamedExpression> columnToOutput) {
         if (child instanceof LogicalOneRowRelation) {
-            // remove default value slot in one row relation
+            // Remove default value slots after supplying the target columns' defaults.
             child = ((LogicalOneRowRelation) child).withProjects(((LogicalOneRowRelation) child)
                     .getProjects().stream()
                     .filter(p -> !(p instanceof DefaultValueSlot))
                     .collect(ImmutableList.toImmutableList()));
         }
-        LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child);
+        List<NamedExpression> outputExprs = Lists.newArrayList();
+        for (Column column : tableSchema) {
+            NamedExpression expression = columnToOutput.get(column.getName());
+            // Partial updates omit columns that will be filled by SegmentWriter.
+            if (expression != null) {
+                outputExprs.add(expression);
+            }
+        }
+        return new LogicalProject<>(outputExprs, child);
+    }
 
-        // add cast project
-        List<NamedExpression> castExprs = Lists.newArrayList();
+    private boolean shouldTruncateString() {
         ConnectContext connCtx = ConnectContext.get();
-        final boolean truncateString = needTruncateStringWhenInsert
+        return needTruncateStringWhenInsert
                 && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
                 && !SessionVariable.enableStrictCast();
-        for (int i = 0; i < tableSchema.size(); ++i) {
-            Column col = tableSchema.get(i);
-            NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
-            if (expr == null) {
-                // If `expr` is null, it means that the current load is a partial update
-                // and `col` should not be contained in the output of the sink node so
-                // we skip it.
-                continue;
+    }
+
+    private Expression coerceColumnExpression(Expression expression, DataType targetType) {
+        return coerceColumnExpression(expression, targetType, shouldTruncateString());
+    }
+
+    @VisibleForTesting
+    static Expression coerceColumnExpression(Expression expression, DataType targetType, boolean truncateString) {
+        DataType inputType = expression.getDataType();
+        if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
+            int sourceLength = ((CharacterType) inputType).getLen();
+            int targetLength = ((CharacterType) targetType).getLen();
+            if (sourceLength == targetLength) {
+                return TypeCoercionUtils.castIfNotSameType(expression, targetType);
+            } else if (truncateString && targetLength >= 0
+                    && (sourceLength < 0 || sourceLength > targetLength)) {
+                // An unbounded source can also exceed a bounded CHAR/VARCHAR column.
+                return new Substring(expression, Literal.of(1), Literal.of(targetLength));
+            } else if (targetType.isStringType()) {
+                return new Cast(expression, StringType.INSTANCE);
             }
-            expr = expr.toSlot();
-            DataType inputType = expr.getDataType();
-            DataType targetType = DataType.fromCatalogType(tableSchema.get(i).getType());
-            Expression castExpr = expr;
-            // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
-            if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
-                int sourceLength = ((CharacterType) inputType).getLen();
-                int targetLength = ((CharacterType) targetType).getLen();
-                if (sourceLength == targetLength) {
-                    castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (truncateString && targetLength >= 0
-                        && (sourceLength < 0 || sourceLength > targetLength)) {
-                    // sourceLength < 0 means the source is an unbounded string like type
-                    // (e.g. text/string whose getLen() returns -1), which is always longer
-                    // than a bounded char/varchar target and therefore needs truncation.
-                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
-                } else if (targetType.isStringType()) {
-                    castExpr = new Cast(castExpr, StringType.INSTANCE);
-                }
-            } else {
-                castExpr = coerceSinkExpression(castExpr, targetType);
-            }
-            if (castExpr instanceof NamedExpression) {
-                castExprs.add(((NamedExpression) castExpr));
-            } else {
-                // use expr's original name as alias name
-                // so that the LogicalPostFilter node in stream load can bind its slot successfully
-                castExprs.add(new Alias(castExpr, expr.getName()));
-            }
+            return expression;
         }
-        if (!castExprs.equals(fullOutputExprs)) {
-            fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
-        }
-        return fullOutputProject;
+        return coerceSinkExpression(expression, targetType);
     }
 
     @VisibleForTesting
@@ -363,7 +350,7 @@ public class BindSink implements AnalysisRuleFactory {
         return TypeCoercionUtils.castIfNotSameType(expression, targetType);
     }
 
-    private static Map<String, NamedExpression> getColumnToOutput(
+    private Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
@@ -372,7 +359,7 @@ public class BindSink implements AnalysisRuleFactory {
                 Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
     }
 
-    private static Map<String, NamedExpression> getColumnToOutput(
+    private Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema) {
@@ -380,7 +367,7 @@ public class BindSink implements AnalysisRuleFactory {
                 boundSink, child, targetSchema, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
     }
 
-    private static Map<String, NamedExpression> getColumnToOutput(
+    private Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child, Set<String> missingIvmHiddenColumns) {
@@ -388,11 +375,13 @@ public class BindSink implements AnalysisRuleFactory {
                 boundSink, child, sinkTargetFullSchema(boundSink.getTargetTable()), missingIvmHiddenColumns);
     }
 
-    private static Map<String, NamedExpression> getColumnToOutput(
+    private Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
             Set<String> missingIvmHiddenColumns) {
+        // Use the INSERT session policy before restoring stored generated-column session variables.
+        boolean truncateString = shouldTruncateString();
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -421,8 +410,8 @@ public class BindSink implements AnalysisRuleFactory {
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
-                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                Alias output = new Alias(coerceColumnExpression(
+                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType()), truncateString),
                         column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -477,8 +466,8 @@ public class BindSink implements AnalysisRuleFactory {
                         Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundFunctionDefaultValue
                         );
-                        Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                                defualtValueExpression, DataType.fromCatalogType(column.getType())),
+                        Alias output = new Alias(coerceColumnExpression(
+                                defualtValueExpression, DataType.fromCatalogType(column.getType()), truncateString),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());
@@ -510,8 +499,8 @@ public class BindSink implements AnalysisRuleFactory {
                         if (defaultValueExpression instanceof Alias) {
                             defaultValueExpression = ((Alias) defaultValueExpression).child();
                         }
-                        Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
-                                defaultValueExpression, DataType.fromCatalogType(column.getType()))),
+                        Alias output = new Alias((coerceColumnExpression(
+                                defaultValueExpression, DataType.fromCatalogType(column.getType()), truncateString)),
                                 column.getName());
                         columnToOutput.put(column.getName(), output);
                         columnToReplaced.put(column.getName(), output.toSlot());
@@ -531,8 +520,8 @@ public class BindSink implements AnalysisRuleFactory {
                 if (childOutput == null) {
                     continue;
                 }
-                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        childOutput, DataType.fromCatalogType(column.getType())), column.getName());
+                Alias output = new Alias(coerceColumnExpression(
+                        childOutput, DataType.fromCatalogType(column.getType()), truncateString), column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());
@@ -552,6 +541,9 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                // Dependent generated columns must use the value converted to this column's declared type.
+                boundExpression = coerceColumnExpression(boundExpression,
+                        DataType.fromCatalogType(column.getType()), truncateString);
                 if (!SessionVarGuardRewriter.checkSessionVariablesMatch(
                         currentSessionVars, column.getSessionVariables())) {
                     boundExpression = boundExpression.accept(
@@ -588,8 +580,8 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
-                boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
-                        DataType.fromCatalogType(column.getType()));
+                boundExpression = coerceColumnExpression(boundExpression,
+                        DataType.fromCatalogType(column.getType()), truncateString);
                 Alias output = new Alias(boundExpression, column.getDefineExpr().accept(
                         ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 columnToOutput.put(column.getName(), output);
@@ -601,8 +593,8 @@ public class BindSink implements AnalysisRuleFactory {
             NamedExpression expression = columnToOutput.get(column.getNonShadowName());
             if (expression != null) {
                 Alias alias = (Alias) expression;
-                Expression newExpr = TypeCoercionUtils.castIfNotSameType(alias.child(),
-                        DataType.fromCatalogType(column.getType()));
+                Expression newExpr = coerceColumnExpression(alias.child(),
+                        DataType.fromCatalogType(column.getType()), truncateString);
                 columnToOutput.put(column.getName(), new Alias(newExpr, column.getName()));
             }
         }
@@ -710,7 +702,7 @@ public class BindSink implements AnalysisRuleFactory {
         for (int i = 0; i < cols.size(); i++) {
             Column col = cols.get(i);
             NamedExpression childExpr = (NamedExpression) child.getOutput().get(i);
-            Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+            Alias output = new Alias(coerceColumnExpression(
                     childExpr, DataType.fromCatalogType(col.getType())), col.getName());
             outputBuilder.add(output);
         }
@@ -950,23 +942,23 @@ public class BindSink implements AnalysisRuleFactory {
                 for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                     Column column = findColumn(targetWriteSchema, entry.getKey());
                     if (column != null) {
-                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                        Expression castExpr = coerceColumnExpression(
                                 entry.getValue(), DataType.fromCatalogType(column.getType()));
                         // Key and alias use the canonical schema name, so they line up with
-                        // getOutputProjectByCoercion, which looks columnToOutput up by getFullSchema() names.
+                        // getOutputProject, which looks columnToOutput up by getFullSchema() names.
                         columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
                     }
                 }
             }
             LogicalProject<?> fullOutputProject =
-                    getOutputProjectByCoercion(targetWriteSchema, child, columnToOutput);
+                    getOutputProject(targetWriteSchema, child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);
         }
         // Name-mapped connector tables (JDBC / ES): keep columns in user-specified order because the
         // INSERT SQL column list is built from cols (user order) and the data values must match; only
         // project user-specified columns in user order.
         Map<String, NamedExpression> columnToOutput = getConnectorColumnToOutput(bindColumns, child);
-        LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
+        LogicalProject<?> outputProject = getOutputProject(bindColumns, child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(outputProject);
     }
 
@@ -1075,14 +1067,15 @@ public class BindSink implements AnalysisRuleFactory {
      * Maps each user-specified column to the corresponding child output expression
      * with type coercion, preserving user-specified column order.
      */
-    private static Map<String, NamedExpression> getConnectorColumnToOutput(
+    @VisibleForTesting
+    Map<String, NamedExpression> getConnectorColumnToOutput(
             List<Column> bindColumns, LogicalPlan child) {
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (int i = 0; i < bindColumns.size(); i++) {
             Column column = bindColumns.get(i);
             NamedExpression outputExpr = child.getOutput().get(i);
             Alias output = new Alias(
-                    TypeCoercionUtils.castIfNotSameType(outputExpr, DataType.fromCatalogType(column.getType())),
+                    coerceColumnExpression(outputExpr, DataType.fromCatalogType(column.getType())),
                     column.getName());
             columnToOutput.put(column.getName(), output);
         }
@@ -1124,13 +1117,13 @@ public class BindSink implements AnalysisRuleFactory {
         // Get column to output mapping and handle type coercion. sink column to its accepted expr
         Map<String, NamedExpression> sinkColumnToExpr = getDictColumnToOutput(ctx, sinkColumns, boundSink, child);
         // before we get A|B|C|D and only sink D|B|A. here deal the PROJECT between them.
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(sinkColumns, child, sinkColumnToExpr);
+        LogicalProject<?> fullOutputProject = getOutputProject(sinkColumns, child, sinkColumnToExpr);
 
         // Return the bound sink with updated child and outputExprs here.
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
-    private static Map<String, NamedExpression> getDictColumnToOutput(
+    private Map<String, NamedExpression> getDictColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx, List<Column> sinkSchema,
             LogicalDictionarySink<?> boundSink, LogicalPlan child) {
         // as we said, dictionary sink is special - unordered and inconsistent.
@@ -1145,7 +1138,8 @@ public class BindSink implements AnalysisRuleFactory {
         for (Column column : sinkSchema) {
             if (upstreamOutputs.containsKey(column.getName())) {
                 // dictionary's type must be same with source table.
-                Alias output = new Alias(upstreamOutputs.get(column.getName()), column.getName());
+                Alias output = new Alias(coerceColumnExpression(upstreamOutputs.get(column.getName()),
+                        DataType.fromCatalogType(column.getType())), column.getName());
                 columnToOutput.put(column.getName(), output);
             } else {
                 throw new AnalysisException("Unknown column " + column.getName());
@@ -1232,7 +1226,7 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
-    private boolean isSourceAndTargetStringLikeType(DataType input, DataType target) {
+    private static boolean isSourceAndTargetStringLikeType(DataType input, DataType target) {
         return input.isStringLikeType() && target.isStringLikeType();
     }
 
