@@ -1369,6 +1369,19 @@ uint64_t VariantColumnWriter::estimate_buffer_size() {
     return _impl->estimate_buffer_size();
 }
 
+uint64_t VariantColumnWriter::get_raw_data_bytes() const {
+    return _impl->get_total_data_pages_bytes(&ColumnWriter::get_raw_data_bytes);
+}
+
+uint64_t VariantColumnWriter::get_total_uncompressed_data_pages_bytes() const {
+    return _impl->get_total_data_pages_bytes(
+            &ColumnWriter::get_total_uncompressed_data_pages_bytes);
+}
+
+uint64_t VariantColumnWriter::get_total_compressed_data_pages_bytes() const {
+    return _impl->get_total_data_pages_bytes(&ColumnWriter::get_total_compressed_data_pages_bytes);
+}
+
 Status VariantColumnWriter::finish() {
     return _impl->finish();
 }

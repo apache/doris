@@ -706,8 +706,9 @@ Status Merger::vertical_merge_rowsets(
             const auto& col = tablet_schema.column(col_ordinal);
             int32_t uid = col.unique_id();
 
-            // Variant columns (root or subcolumn): raw_data_bytes is 0 (TODO in writer),
-            // cannot estimate from footer, fallback to default for the entire group.
+            // Variant columns (root or subcolumn): subcolumns written as columns of their own
+            // (e.g. by compaction) are not counted in the root's raw_data_bytes, cannot estimate
+            // from footer, fallback to default for the entire group.
             if (uid < 0 || col.is_variant_type()) {
                 need_fallback = true;
                 break;

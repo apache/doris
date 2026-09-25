@@ -1689,6 +1689,8 @@ protected:
 
         RETURN_IF_ERROR(writer->finish());
         RETURN_IF_ERROR(writer->write_data());
+        // The file holds only the data pages of this variant so far.
+        EXPECT_EQ(writer->get_total_compressed_data_pages_bytes(), file_writer->bytes_appended());
         RETURN_IF_ERROR(writer->write_ordinal_index());
         RETURN_IF_ERROR(writer->write_zone_map());
         if (index_write_policy == VariantIndexWritePolicy::BLOOM_AND_INVERTED) {
@@ -1760,6 +1762,8 @@ protected:
 
         RETURN_IF_ERROR(writer->finish());
         RETURN_IF_ERROR(writer->write_data());
+        // The file holds only the data pages of this subcolumn so far.
+        EXPECT_EQ(writer->get_total_compressed_data_pages_bytes(), file_writer->bytes_appended());
         RETURN_IF_ERROR(writer->write_ordinal_index());
         RETURN_IF_ERROR(writer->write_zone_map());
         RETURN_IF_ERROR(file_writer->close());
@@ -3935,6 +3939,10 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     EXPECT_TRUE(st.ok()) << st.msg();
     st = writer->write_data();
     EXPECT_TRUE(st.ok()) << st.msg();
+    // The root, the subcolumns and the sparse columns all count to the variant.
+    EXPECT_EQ(writer->get_total_compressed_data_pages_bytes(), file_writer->bytes_appended());
+    EXPECT_GT(writer->get_total_uncompressed_data_pages_bytes(), 0);
+    EXPECT_GT(writer->get_raw_data_bytes(), 0);
     st = writer->write_ordinal_index();
     EXPECT_TRUE(st.ok()) << st.msg();
     st = writer->write_zone_map();
@@ -5233,6 +5241,12 @@ TEST_P(VariantSpecializedWriterCompatibilityTest, doc_compact_writer_round_trip)
     EXPECT_TRUE(doc_compact_writer->finish().ok());
     EXPECT_TRUE(root_writer->write_data().ok());
     EXPECT_TRUE(doc_compact_writer->write_data().ok());
+    // The file holds only data pages so far: the root of the root-only writer, plus the doc value
+    // column and the materialized subcolumns of the doc compact writer.
+    EXPECT_GT(doc_compact_writer->get_total_compressed_data_pages_bytes(), 0);
+    EXPECT_EQ(root_writer->get_total_compressed_data_pages_bytes() +
+                      doc_compact_writer->get_total_compressed_data_pages_bytes(),
+              file_writer->bytes_appended());
     EXPECT_TRUE(root_writer->write_ordinal_index().ok());
     EXPECT_TRUE(doc_compact_writer->write_ordinal_index().ok());
     EXPECT_TRUE(file_writer->close().ok());
