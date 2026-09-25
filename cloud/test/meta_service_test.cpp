@@ -8125,6 +8125,342 @@ TEST(MetaServiceTest, GetDeleteBitmapDropsPartialValueAfterAllBlobKeysAreRemoved
     test_get_delete_bitmap_during_point_cleanup(DEFAULT_BLOB_SPLIT_SIZE * 3 + 1);
 }
 
+TEST(MetaServiceTest, GetDeleteBitmapReturnsCompleteReplacementAfterTxnTooOld) {
+    for (size_t replacement_size : {size_t {1}, DEFAULT_BLOB_SPLIT_SIZE * 3}) {
+        SCOPED_TRACE(fmt::format("replacement_size={}", replacement_size));
+        const bool read_v2 = replacement_size != 1;
+        auto meta_service = get_meta_service();
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->clear_all_call_backs();
+            sp->disable_processing();
+        };
+
+        extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                           const std::string& cloud_unique_id);
+        auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+        constexpr int64_t tablet_id = 652;
+        const std::string rowset_id = "replacement_during_paginated_read";
+        put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 1, rowset_id);
+
+        auto bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 2, 0});
+        std::string old_bitmap(DEFAULT_BLOB_SPLIT_SIZE, 'a');
+        old_bitmap.append(DEFAULT_BLOB_SPLIT_SIZE, 'b');
+        old_bitmap.append(DEFAULT_BLOB_SPLIT_SIZE, 'c');
+        const std::string previous_rowset = "completed_rowset";
+        const std::string following_rowset = "following_rowset";
+        const std::string completed_bitmap = "completed_bitmap";
+        DeleteBitmapStoragePB v2_storage;
+        v2_storage.set_store_in_fdb(true);
+        auto* v2_bitmap = v2_storage.mutable_delete_bitmap();
+        v2_bitmap->add_rowset_ids(previous_rowset);
+        v2_bitmap->add_segment_ids(0);
+        v2_bitmap->add_versions(1);
+        v2_bitmap->add_segment_delete_bitmaps(completed_bitmap);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // Keep complete legacy values both in an earlier rowset and before the replaced bitmap.
+        for (const auto& id : {previous_rowset, rowset_id, following_rowset}) {
+            txn->put(meta_delete_bitmap_key({instance_id, tablet_id, id, 1, 0}), completed_bitmap);
+        }
+        blob_put(txn.get(),
+                 versioned::meta_delete_bitmap_key({instance_id, tablet_id, previous_rowset}),
+                 v2_storage, 0);
+        blob_put(txn.get(), bitmap_key, old_bitmap, 0);
+        TabletStatsPB tablet_stats;
+        tablet_stats.set_base_compaction_cnt(9);
+        tablet_stats.set_cumulative_compaction_cnt(19);
+        tablet_stats.set_cumulative_point(20);
+        txn->put(stats_tablet_key({instance_id, 650, 653, 651, tablet_id}),
+                 tablet_stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // The MS treats bitmap bytes as opaque; distinct chunks expose truncation and splicing.
+        const std::string replacement_bitmap(replacement_size, 'x');
+        UpdateDeleteBitmapRequest update_req;
+        update_req.set_cloud_unique_id("test_cloud_unique_id");
+        update_req.set_table_id(650);
+        update_req.set_partition_id(651);
+        update_req.set_tablet_id(tablet_id);
+        update_req.set_lock_id(-3);
+        update_req.set_without_lock(true);
+        update_req.set_initiator(tablet_id);
+        update_req.set_pre_rowset_agg_start_version(1);
+        update_req.set_pre_rowset_agg_end_version(2);
+        update_req.add_rowset_ids(rowset_id);
+        update_req.add_segment_ids(0);
+        update_req.add_versions(2);
+        update_req.add_segment_delete_bitmaps(replacement_bitmap);
+        update_req.add_pre_rowset_versions(1);
+
+        bool replacement_done = false;
+        sp->set_call_back("get_delete_bitmap_test",
+                          [&](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
+        sp->set_call_back("get_delete_bitmap_err", [&](auto&& args) {
+            auto round = *try_any_cast<int64_t*>(args[0]);
+            if (round != 1 || replacement_done) {
+                return;
+            }
+            replacement_done = true;
+            // Page 0 has already appended a complete bitmap and old chunk 0. Replace the same
+            // logical bitmap, then expire the read before page 1 is consumed. The new
+            // transaction still finds sequence 0, but must not keep the old prefix.
+            brpc::Controller update_cntl;
+            UpdateDeleteBitmapResponse update_res;
+            meta_service->update_delete_bitmap(
+                    reinterpret_cast<google::protobuf::RpcController*>(&update_cntl), &update_req,
+                    &update_res, nullptr);
+            ASSERT_EQ(update_res.status().code(), MetaServiceCode::OK);
+            *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
+        });
+        sp->enable_processing();
+
+        brpc::Controller get_cntl;
+        GetDeleteBitmapRequest get_req;
+        GetDeleteBitmapResponse get_res;
+        get_req.set_cloud_unique_id("test_cloud_unique_id");
+        get_req.set_tablet_id(tablet_id);
+        get_req.set_store_version(read_v2 ? 3 : 1);
+        for (const auto& id : {previous_rowset, rowset_id, following_rowset}) {
+            get_req.add_rowset_ids(id);
+            get_req.add_begin_versions(id == previous_rowset ? 0 : 1);
+            get_req.add_end_versions(3);
+        }
+        auto* idx = get_req.mutable_idx();
+        idx->set_db_id(1);
+        idx->set_table_id(650);
+        idx->set_index_id(653);
+        idx->set_partition_id(651);
+        idx->set_tablet_id(tablet_id);
+        get_req.set_base_compaction_cnt(tablet_stats.base_compaction_cnt());
+        get_req.set_cumulative_compaction_cnt(tablet_stats.cumulative_compaction_cnt());
+        get_req.set_cumulative_point(tablet_stats.cumulative_point());
+        // v1 must leave room for the following rowset after dropping the old prefix.
+        // Mixed reads must retain the earlier v2 bytes and stop exactly at the threshold.
+        get_req.set_dbm_bytes_threshold(completed_bitmap.size() * 2 + replacement_size +
+                                        (read_v2 ? v2_storage.ByteSizeLong() : 1));
+        meta_service->get_delete_bitmap(
+                reinterpret_cast<google::protobuf::RpcController*>(&get_cntl), &get_req, &get_res,
+                nullptr);
+
+        ASSERT_TRUE(replacement_done);
+        ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK);
+        const int expected_bitmap_count = read_v2 ? 3 : 4;
+        ASSERT_EQ(get_res.rowset_ids_size(), expected_bitmap_count);
+        ASSERT_EQ(get_res.segment_ids_size(), expected_bitmap_count);
+        ASSERT_EQ(get_res.versions_size(), expected_bitmap_count);
+        ASSERT_EQ(get_res.segment_delete_bitmaps_size(), expected_bitmap_count);
+        EXPECT_EQ(get_res.rowset_ids(0), previous_rowset);
+        EXPECT_EQ(get_res.rowset_ids(1), rowset_id);
+        EXPECT_EQ(get_res.rowset_ids(2), rowset_id);
+        if (!read_v2) {
+            EXPECT_EQ(get_res.rowset_ids(3), following_rowset);
+        }
+        for (int i = 0; i < expected_bitmap_count; ++i) {
+            EXPECT_EQ(get_res.segment_ids(i), 0);
+            EXPECT_EQ(get_res.versions(i), i == 2 ? 2 : 1);
+            EXPECT_EQ(get_res.segment_delete_bitmaps(i),
+                      i == 2 ? replacement_bitmap : completed_bitmap);
+        }
+        EXPECT_EQ(get_res.has_more(), read_v2);
+        EXPECT_EQ(get_res.returned_rowset_ids_size(), read_v2 ? 2 : 3);
+        ASSERT_EQ(get_res.delta_rowset_ids_size(), read_v2 ? 1 : 0);
+        ASSERT_EQ(get_res.delete_bitmap_storages_size(), read_v2 ? 1 : 0);
+        if (read_v2) {
+            EXPECT_EQ(get_res.delta_rowset_ids(0), previous_rowset);
+            EXPECT_EQ(get_res.delete_bitmap_storages(0).SerializeAsString(),
+                      v2_storage.SerializeAsString());
+        }
+    }
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapRetryBudgetRequiresBitmapProgress) {
+    for (const std::string scenario : {"first_page", "same_bitmap", "next_bitmap"}) {
+        SCOPED_TRACE(scenario);
+        auto meta_service = get_meta_service();
+        auto sp = SyncPoint::get_instance();
+        const bool old_enable_txn_store_retry = config::enable_txn_store_retry;
+        config::enable_txn_store_retry = false;
+        DORIS_CLOUD_DEFER {
+            config::enable_txn_store_retry = old_enable_txn_store_retry;
+            sp->clear_all_call_backs();
+            sp->disable_processing();
+        };
+
+        extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                           const std::string& cloud_unique_id);
+        auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+        constexpr int64_t tablet_id = 662;
+        constexpr int bitmap_count = 5;
+        const std::string rowset_id = "retry_budget_rowset";
+        const std::string bitmap(DEFAULT_BLOB_SPLIT_SIZE * 5, 'a');
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int version = 1; version <= bitmap_count; ++version) {
+            blob_put(txn.get(),
+                     meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, version, 0}),
+                     bitmap, 0);
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        brpc::Controller cntl;
+        GetDeleteBitmapRequest req;
+        GetDeleteBitmapResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_tablet_id(tablet_id);
+        req.add_rowset_ids(rowset_id);
+        req.add_begin_versions(0);
+        req.add_end_versions(bitmap_count);
+        int injected_errors = 0;
+        int64_t last_retried_version = 0;
+        const int expected_errors = scenario == "next_bitmap" ? bitmap_count : 4;
+        sp->set_call_back("get_delete_bitmap_test",
+                          [&](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
+        sp->set_call_back("get_delete_bitmap_err", [&](auto&& args) {
+            if (scenario != "first_page") {
+                // Read several pages successfully before expiring the transaction. Those
+                // pages must not reset the budget while retrying the same logical bitmap.
+                if (res.versions_size() == 0 ||
+                    res.segment_delete_bitmaps(res.segment_delete_bitmaps_size() - 1).size() <
+                            DEFAULT_BLOB_SPLIT_SIZE * 4) {
+                    return;
+                }
+                auto version = res.versions(res.versions_size() - 1);
+                if (scenario == "next_bitmap" && version <= last_retried_version) {
+                    return;
+                }
+                last_retried_version = version;
+            }
+            ++injected_errors;
+            // Terminate even if a broken retry loop fails to enforce its own budget.
+            *try_any_cast<TxnErrorCode*>(args[1]) = injected_errors <= expected_errors
+                                                            ? TxnErrorCode::TXN_TOO_OLD
+                                                            : TxnErrorCode::TXN_INVALID_ARGUMENT;
+        });
+        sp->enable_processing();
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+
+        EXPECT_EQ(injected_errors, expected_errors);
+        if (scenario != "next_bitmap") {
+            EXPECT_EQ(res.status().code(), MetaServiceCode::KV_TXN_TOO_OLD);
+        } else {
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.rowset_ids_size(), bitmap_count);
+            ASSERT_EQ(res.segment_ids_size(), bitmap_count);
+            ASSERT_EQ(res.versions_size(), bitmap_count);
+            ASSERT_EQ(res.segment_delete_bitmaps_size(), bitmap_count);
+            for (int i = 0; i < bitmap_count; ++i) {
+                EXPECT_EQ(res.rowset_ids(i), rowset_id);
+                EXPECT_EQ(res.segment_ids(i), 0);
+                EXPECT_EQ(res.versions(i), i + 1);
+                EXPECT_EQ(res.segment_delete_bitmaps(i), bitmap);
+            }
+        }
+    }
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapResetsRetryBudgetAfterCompletePageTail) {
+    for (const std::string scenario : {"legacy", "single_blob", "short_tail", "full_chunks"}) {
+        SCOPED_TRACE(scenario);
+        auto meta_service = get_meta_service();
+        auto sp = SyncPoint::get_instance();
+        const bool old_enable_txn_store_retry = config::enable_txn_store_retry;
+        config::enable_txn_store_retry = false;
+        DORIS_CLOUD_DEFER {
+            sp->clear_all_call_backs();
+            sp->disable_processing();
+            config::enable_txn_store_retry = old_enable_txn_store_retry;
+        };
+
+        extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                           const std::string& cloud_unique_id);
+        auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
+        constexpr int64_t tablet_id = 663;
+        const std::string rowset_id = "complete_page_tail";
+        const size_t split_size =
+                scenario == "full_chunks" ? MIN_BLOB_SPLIT_SIZE : DEFAULT_BLOB_SPLIT_SIZE;
+        const size_t bitmap_size = scenario == "short_tail" ? split_size + MIN_BLOB_SPLIT_SIZE * 2
+                                   : scenario == "full_chunks" ? split_size * 2
+                                                               : MIN_BLOB_SPLIT_SIZE / 2;
+        const std::string bitmap(bitmap_size, 'a');
+        const std::string following_bitmap = "following_bitmap";
+        auto bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 1, 0});
+        auto bitmap_end_key = bitmap_key;
+        encode_int64(INT64_MAX, &bitmap_end_key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        if (scenario == "legacy") {
+            txn->put(bitmap_key, bitmap);
+        } else {
+            blob_put(txn.get(), bitmap_key, bitmap, 0, split_size);
+        }
+        txn->put(meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 2, 0}),
+                 following_bitmap);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        GetDeleteBitmapRequest req;
+        GetDeleteBitmapResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_tablet_id(tablet_id);
+        req.set_store_version(1);
+        req.add_rowset_ids(rowset_id);
+        req.add_begin_versions(1);
+        req.add_end_versions(2);
+        req.add_rowset_ids("next_rowset");
+        req.add_begin_versions(1);
+        req.add_end_versions(2);
+        req.set_dbm_bytes_threshold(bitmap.size() + following_bitmap.size());
+        // Put the last fragment of A at a page boundary, before any key from B is decoded.
+        sp->set_call_back("memkv::Transaction::get",
+                          [](auto&& args) { *try_any_cast<int*>(args[0]) = 1; });
+        int injected_errors = 0;
+        sp->set_call_back("get_delete_bitmap_err", [&](auto&& args) {
+            if (injected_errors < 3) {
+                ++injected_errors;
+                *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
+            } else if (injected_errors == 3 && res.segment_delete_bitmaps_size() == 1 &&
+                       res.segment_delete_bitmaps(0) == bitmap) {
+                // Grow A before expiring the continuation read. A completed checkpoint must
+                // retain the original A and skip all of its replacement's fragments.
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+                txn->remove(bitmap_key, bitmap_end_key);
+                blob_put(txn.get(), bitmap_key, std::string(DEFAULT_BLOB_SPLIT_SIZE * 3, 'x'), 0);
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+                ++injected_errors;
+                *try_any_cast<TxnErrorCode*>(args[1]) = TxnErrorCode::TXN_TOO_OLD;
+            }
+        });
+        sp->enable_processing();
+        brpc::Controller cntl;
+        meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+
+        EXPECT_EQ(injected_errors, 4);
+        if (scenario == "full_chunks") {
+            // Full chunks below the default split size do not prove completion. Keep the
+            // exhausted budget rather than guessing that A has ended.
+            EXPECT_EQ(res.status().code(), MetaServiceCode::KV_TXN_TOO_OLD);
+        } else {
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_EQ(res.rowset_ids_size(), 2);
+            ASSERT_EQ(res.segment_ids_size(), 2);
+            ASSERT_EQ(res.versions_size(), 2);
+            ASSERT_EQ(res.segment_delete_bitmaps_size(), 2);
+            for (int i = 0; i < 2; ++i) {
+                EXPECT_EQ(res.rowset_ids(i), rowset_id);
+                EXPECT_EQ(res.segment_ids(i), 0);
+                EXPECT_EQ(res.versions(i), i + 1);
+            }
+            EXPECT_EQ(res.segment_delete_bitmaps(0), bitmap);
+            EXPECT_EQ(res.segment_delete_bitmaps(1), following_bitmap);
+            EXPECT_TRUE(res.has_more());
+            ASSERT_EQ(res.returned_rowset_ids_size(), 1);
+            EXPECT_EQ(res.returned_rowset_ids(0), rowset_id);
+        }
+    }
+}
+
 TEST(MetaServiceTest, RemovePreDeleteBitmapBatchesEachBlobKey) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
