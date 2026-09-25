@@ -203,6 +203,11 @@ public:
 
                     const int lambda_result_base = static_cast<int>(lambda_block.columns());
                     for (int row = 0; row < input_rows; ++row) {
+                        // Hidden nested values of an outer-NULL array must not invoke the lambda.
+                        if (outside_null_map.get() != nullptr &&
+                            assert_cast<const ColumnUInt8&>(*outside_null_map).get_data()[row]) {
+                            continue;
+                        }
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
                         std::sort(&permutation[start], &permutation[end], [&](size_t i, size_t j) {
