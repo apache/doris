@@ -7645,23 +7645,179 @@ TEST(MetaServiceTest, UpdateDeleteBitmapWithException) {
 
 static void put_delete_bitmap_test_rowset(MetaServiceProxy* meta_service,
                                           const std::string& instance_id, int64_t tablet_id,
-                                          int64_t version, const std::string& rowset_id) {
+                                          int64_t version, const std::string& rowset_id,
+                                          int64_t start_version = -1) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
     doris::RowsetMetaCloudPB rowset_meta;
     rowset_meta.set_rowset_id(0);
     rowset_meta.set_rowset_id_v2(rowset_id);
+    rowset_meta.set_start_version(start_version < 0 ? version : start_version);
+    rowset_meta.set_end_version(version);
     std::string rowset_value;
     ASSERT_TRUE(rowset_meta.SerializeToString(&rowset_value));
     txn->put(rowset_key, rowset_value);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+TEST(MetaServiceTest, PreRowsetAggregationChecksOutputInEveryTransaction) {
+    auto sp = SyncPoint::get_instance();
+    auto old_max_txn_commit_byte = config::max_txn_commit_byte;
+    DORIS_CLOUD_DEFER {
+        config::max_txn_commit_byte = old_max_txn_commit_byte;
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    for (bool point_delete : {false, true}) {
+        for (std::string_view scenario :
+             {"valid", "same_range", "replaced", "removed", "malformed", "after_check",
+              "same_range_after_check", "write_split", "cleanup_split"}) {
+            // Range cleanup does not split transactions.
+            if (!point_delete && scenario == "cleanup_split") {
+                continue;
+            }
+            SCOPED_TRACE(fmt::format("scenario={}, point_delete={}", scenario, point_delete));
+            const bool same_range =
+                    scenario == "same_range" || scenario == "same_range_after_check";
+            const bool after_check =
+                    scenario == "after_check" || scenario == "same_range_after_check";
+            const bool valid = scenario == "valid" || scenario == "same_range";
+            sp->clear_all_call_backs();
+            sp->disable_processing();
+            config::max_txn_commit_byte = old_max_txn_commit_byte;
+            auto meta_service = get_meta_service();
+            const std::string instance_id = "test_instance";
+            constexpr int64_t tablet_id = 652;
+            put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 2, "r2");
+            put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 5, "r4-5", 4);
+            auto output_key = meta_rowset_key({instance_id, tablet_id, 5});
+            auto old_key = meta_delete_bitmap_key({instance_id, tablet_id, "r2", 4, 0});
+            const std::string old_bitmap(
+                    scenario == "cleanup_split" ? DEFAULT_BLOB_SPLIT_SIZE * 20 : 10, 'o');
+            const std::string complete_bitmap = "D3|D4|D5";
+            const std::string stale_bitmap(128, 'a');
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            blob_put(txn.get(), old_key, old_bitmap, 0);
+            for (int segment = 0; segment < 2; ++segment) {
+                auto key = meta_delete_bitmap_key({instance_id, tablet_id, "r2", 5, segment});
+                blob_put(txn.get(), key, complete_bitmap, 0);
+            }
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+            UpdateDeleteBitmapRequest req;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            req.set_table_id(650);
+            req.set_partition_id(651);
+            req.set_tablet_id(tablet_id);
+            req.set_lock_id(-3);
+            req.set_without_lock(true);
+            req.set_initiator(tablet_id);
+            req.set_pre_rowset_agg_start_version(4);
+            req.set_pre_rowset_agg_end_version(5);
+            req.set_enable_remove_agg_pre_rowsets_delete_bitmap_by_keys(point_delete);
+            req.set_enable_remove_pre_rowsets_delete_bitmap_by_keys(point_delete);
+            for (int segment = 0; segment < 2; ++segment) {
+                req.add_rowset_ids("r2");
+                req.add_segment_ids(segment);
+                req.add_versions(5);
+                req.add_segment_delete_bitmaps(stale_bitmap);
+                req.add_pre_rowset_versions(2);
+            }
+            auto* rowset_stats = req.add_pre_rowset_delete_bitmap_stats();
+            rowset_stats->set_rowset_id("r2");
+            auto* bitmap_stats = rowset_stats->add_delete_bitmap_stats();
+            bitmap_stats->set_segment_id(0);
+            bitmap_stats->set_version(4);
+            bitmap_stats->set_delete_bitmap_size(old_bitmap.size());
+
+            auto replace_output = [&] {
+                // Rewriting the same range changes the output ID, but not the aggregation range
+                // for the unchanged pre-rowset. Replacing the key still conflicts with a reader.
+                put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 5,
+                                              "replacement", same_range ? 4 : 3);
+            };
+            bool injected = false;
+            auto after_split = [&](auto&&) {
+                ASSERT_FALSE(injected);
+                injected = true;
+                // A newer compaction and its aggregation finish between two batches of A.
+                replace_output();
+                std::unique_ptr<Transaction> newer_txn;
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&newer_txn), TxnErrorCode::TXN_OK);
+                for (int segment = 0; segment < 2; ++segment) {
+                    auto key = meta_delete_bitmap_key({instance_id, tablet_id, "r2", 5, segment});
+                    blob_put(newer_txn.get(), key, complete_bitmap, 0);
+                }
+                ASSERT_EQ(newer_txn->commit(), TxnErrorCode::TXN_OK);
+            };
+            if (scenario == "replaced" || scenario == "same_range") {
+                replace_output();
+            } else if (scenario == "removed" || scenario == "malformed") {
+                ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+                if (scenario == "removed") {
+                    txn->remove(output_key);
+                } else {
+                    txn->put(output_key, "invalid protobuf");
+                }
+                ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+            } else if (after_check) {
+                sp->set_call_back("update_delete_bitmap:check_pre_rowset_aggregation", [&](auto&&) {
+                    injected = true;
+                    // Change only the rowset key: the conflict must come from
+                    // the validity read, not a concurrent bitmap write.
+                    replace_output();
+                });
+            } else if (scenario == "write_split") {
+                config::max_txn_commit_byte = 600;
+                sp->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
+                    ASSERT_EQ(try_any_cast<size_t>(args[1]), 1);
+                    after_split(args);
+                });
+            } else if (scenario == "cleanup_split") {
+                config::max_txn_commit_byte = 1000;
+                sp->set_call_back("update_delete_bitmap:remove_pre_rowsets:commit", after_split);
+            }
+            sp->enable_processing();
+            UpdateDeleteBitmapResponse res;
+            brpc::Controller cntl;
+            meta_service->update_delete_bitmap(&cntl, &req, &res, nullptr);
+            auto expected_code = after_check               ? MetaServiceCode::KV_TXN_CONFLICT
+                                 : scenario == "malformed" ? MetaServiceCode::PROTOBUF_PARSE_ERR
+                                                           : MetaServiceCode::OK;
+            ASSERT_EQ(res.status().code(), expected_code) << res.status().msg();
+            EXPECT_EQ(injected,
+                      after_check || scenario == "write_split" || scenario == "cleanup_split");
+            if (valid) {
+                // Repeating an aggregation whose output is still live remains valid.
+                meta_service->update_delete_bitmap(&cntl, &req, &res, nullptr);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            }
+
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            for (int segment = 0; segment < 2; ++segment) {
+                auto key = meta_delete_bitmap_key({instance_id, tablet_id, "r2", 5, segment});
+                ValueBuf value;
+                ASSERT_EQ(blob_get(txn.get(), key, &value), TxnErrorCode::TXN_OK);
+                EXPECT_EQ(value.value(), valid ? stale_bitmap : complete_bitmap);
+            }
+            // Cleanup may have committed a prefix before becoming stale, but must stop before
+            // removing the remaining keys. Other stale requests must preserve the entire source.
+            auto remaining_key = encode_blob_key(old_key, 0, scenario == "cleanup_split" ? 19 : 0);
+            std::string remaining_value;
+            EXPECT_EQ(txn->get(remaining_key, &remaining_value),
+                      valid ? TxnErrorCode::TXN_KEY_NOT_FOUND : TxnErrorCode::TXN_OK);
+        }
+    }
+}
+
 void update_delete_bitmap_with_remove_pre(MetaServiceProxy* meta_service, int64_t table_id,
                                           int64_t tablet_id, bool inject = false,
                                           bool rowset_non_exist = false,
                                           bool use_delete_bitmap_stats = true) {
+    put_delete_bitmap_test_rowset(meta_service, "test_instance", tablet_id, 6, "r4-6", 4);
     // create rowset, if `rowset_non_exist` enabled, only r4 exists
     {
         std::unique_ptr<Transaction> txn;
@@ -7914,6 +8070,7 @@ TEST(MetaServiceTest, EmptyPreRowsetStatsUsesKeyRemoval) {
     constexpr int64_t tablet_id = 622;
     const std::string rowset_id = "empty_pre_rowset_stats";
     put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 1, rowset_id);
+    put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 2, "r1-2", 1);
 
     auto old_delete_bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 1, 0});
     const std::string old_delete_bitmap = "old_delete_bitmap";
@@ -7958,6 +8115,7 @@ TEST(MetaServiceTest, UnderestimatedPreRowsetDeleteBitmapSizeLeavesSkippedTail) 
     constexpr int64_t tablet_id = 632;
     const std::string rowset_id = "underestimated_delete_bitmap";
     put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 1, rowset_id);
+    put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 2, "r1-2", 1);
 
     auto old_delete_bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 1, 0});
     const std::string old_delete_bitmap(DEFAULT_BLOB_SPLIT_SIZE * 3 + 1, 'a');
@@ -8040,6 +8198,7 @@ static void test_get_delete_bitmap_during_point_cleanup(size_t delete_bitmap_siz
     constexpr int64_t tablet_id = 642;
     const std::string rowset_id = "point_cleanup_during_paginated_read";
     put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 1, rowset_id);
+    put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 2, "r1-2", 1);
 
     auto old_delete_bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 1, 0});
     std::string old_delete_bitmap(DEFAULT_BLOB_SPLIT_SIZE, 'a');
@@ -8147,6 +8306,7 @@ TEST(MetaServiceTest, RemovePreDeleteBitmapBatchesEachBlobKey) {
                                        const std::string& cloud_unique_id);
     auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
     constexpr int64_t tablet_id = 612;
+    put_delete_bitmap_test_rowset(meta_service.get(), instance_id, tablet_id, 2, "r1-2", 1);
     const std::string rowset_id = "batch_blob_keys_rowset";
     const std::string value(DEFAULT_BLOB_SPLIT_SIZE * 20, 'a');
     auto delete_bitmap_key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, 1, 0});
