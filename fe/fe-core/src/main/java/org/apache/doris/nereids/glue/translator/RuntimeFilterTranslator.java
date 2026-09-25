@@ -241,7 +241,11 @@ public class RuntimeFilterTranslator {
                     setPruningMetadata(origFilter, scanNode, group.get(i));
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
-                setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
+                // The merged legacy filter applies on every target of the group, so it may not wait when any
+                // of the filters it merges must not: the wait would put back the edge that the non-blocking
+                // filter of the group removes, and a target of that filter can then wait for a builder which
+                // itself waits for the target.
+                setWaitTimeMs(origFilter, group.stream().anyMatch(RuntimeFilter::isNonBlocking), isLocalTarget);
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(CTEScanNode.class::isInstance)
                         .forEach(f -> {

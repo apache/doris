@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
@@ -49,10 +50,13 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.IntegerType;
@@ -66,6 +70,7 @@ import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -73,6 +78,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -780,37 +786,359 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
-    public void testPushSharedCteRuntimeFilterOnlyForSameProducerTargetExpression() {
+    public void testPushSharedCteRuntimeFiltersWhichEveryConsumerApplies() {
         CTEId cteId = new CTEId(1);
         SlotReference src = new SlotReference("src", IntegerType.INSTANCE);
         SlotReference producerPk = new SlotReference("pk", IntegerType.INSTANCE);
         SlotReference consumerPk1 = new SlotReference("pk", IntegerType.INSTANCE);
         SlotReference consumerPk2 = new SlotReference("pk", IntegerType.INSTANCE);
+        PhysicalCTEConsumer consumer1 = newCteConsumer(cteId, consumerPk1, producerPk);
+        PhysicalCTEConsumer consumer2 = newCteConsumer(cteId, consumerPk2, producerPk);
+        Set<PhysicalCTEConsumer> consumers = ImmutableSet.of(consumer1, consumer2);
 
-        List<RuntimeFilter> sameTargetFilters = ImmutableList.of(
-                newCteConsumerRuntimeFilter(src, consumerPk1, consumerPk1, producerPk, cteId),
-                newCteConsumerRuntimeFilter(src, consumerPk2, consumerPk2, producerPk, cteId));
-        Assertions.assertTrue(RuntimeFilterGenerator.canPushDownRuntimeFiltersIntoCTEProducer(
-                sameTargetFilters, cteId));
+        // Both consumers apply the same filter: it can be applied once on the producer.
+        List<RuntimeFilter> sameFilter = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerPk1, consumerPk1),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerPk2, consumerPk2));
+        Assertions.assertEquals(1, RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                sameFilter, consumers, cteId).size());
 
-        List<RuntimeFilter> differentTargetFilters = ImmutableList.of(
-                newCteConsumerRuntimeFilter(src, consumerPk1,
-                        new Add(consumerPk1, new IntegerLiteral(6)), producerPk, cteId),
-                newCteConsumerRuntimeFilter(src, consumerPk2,
-                        new Subtract(consumerPk2, new IntegerLiteral(1)), producerPk, cteId));
-        Assertions.assertFalse(RuntimeFilterGenerator.canPushDownRuntimeFiltersIntoCTEProducer(
-                differentTargetFilters, cteId));
+        // Both consumers apply the same pair of filters, of two different types: each filter is applied
+        // by every consumer, so both are still pushed, each as its own group.
+        List<RuntimeFilter> sameFilterPair = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerPk1, consumerPk1,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN_MAX),
+                newCteConsumerRuntimeFilter(consumer1, src, consumerPk1, consumerPk1,
+                        TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN_MAX),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerPk2, consumerPk2,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN_MAX),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerPk2, consumerPk2,
+                        TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN_MAX));
+        Assertions.assertEquals(2, RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                sameFilterPair, consumers, cteId).size());
+
+        // Only the filter that both consumers apply is pushed.
+        List<RuntimeFilter> partiallySharedFilter = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerPk1, consumerPk1,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN_MAX),
+                newCteConsumerRuntimeFilter(consumer1, src, consumerPk1, consumerPk1,
+                        TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN_MAX),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerPk2, consumerPk2,
+                        TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN_MAX));
+        List<List<RuntimeFilter>> pushable = RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                partiallySharedFilter, consumers, cteId);
+        Assertions.assertEquals(1, pushable.size());
+        Assertions.assertEquals(2, pushable.get(0).size());
+
+        // The filters target different expressions on the producer, so they are not the same filter and
+        // neither of them is applied by both consumers.
+        List<RuntimeFilter> differentTargets = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerPk1,
+                        new Add(consumerPk1, new IntegerLiteral(6))),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerPk2,
+                        new Subtract(consumerPk2, new IntegerLiteral(1))));
+        Assertions.assertTrue(RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                differentTargets, consumers, cteId).isEmpty());
     }
 
-    private RuntimeFilter newCteConsumerRuntimeFilter(Expression src, Slot targetSlot,
-            Expression targetExpression, Slot producerSlot, CTEId cteId) {
+    @Test
+    public void testDoNotPushSharedCteRuntimeFiltersWhichOtherConsumersDoNotApply() {
+        CTEId cteId = new CTEId(1);
+        SlotReference src = new SlotReference("src", IntegerType.INSTANCE);
+        SlotReference producerK = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference consumerK1 = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference consumerK2 = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalCTEConsumer consumer1 = newCteConsumer(cteId, consumerK1, producerK);
+        PhysicalCTEConsumer consumer2 = newCteConsumer(cteId, consumerK2, producerK);
+        Set<PhysicalCTEConsumer> consumers = ImmutableSet.of(consumer1, consumer2);
+
+        // `t c1 where c1.k > b.x` produces a MIN filter, `t c2 where c2.k < b.x` produces a MAX filter.
+        // They target the same producer column and share the same source expression, but each of them is
+        // applied by one consumer only: pushing them into the shared producer would prune the rows that
+        // the other consumer still needs.
+        List<RuntimeFilter> oppositeMinMaxFilters = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerK1, consumerK1,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerK2, consumerK2,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MAX));
+        Assertions.assertTrue(RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                oppositeMinMaxFilters, consumers, cteId).isEmpty());
+
+        // Same direction: both consumers apply the same filter, so it is pushed.
+        List<RuntimeFilter> sameDirectionFilters = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerK1, consumerK1,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerK2, consumerK2,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN));
+        Assertions.assertEquals(1, RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                sameDirectionFilters, consumers, cteId).size());
+
+        // Different filter types, each applied by one consumer only: neither is pushed.
+        List<RuntimeFilter> differentTypeFilters = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerK1, consumerK1,
+                        TRuntimeFilterType.MIN_MAX, TMinMaxRuntimeFilterType.MIN),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerK2, consumerK2,
+                        TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN));
+        Assertions.assertTrue(RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                differentTypeFilters, consumers, cteId).isEmpty());
+    }
+
+    @Test
+    public void testDoNotPushFiltersWithDifferentNullSemantics() {
+        CTEId cteId = new CTEId(1);
+        SlotReference src = new SlotReference("src", IntegerType.INSTANCE);
+        SlotReference producerK = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference consumerK1 = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference consumerK2 = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalCTEConsumer consumer1 = newCteConsumer(cteId, consumerK1, producerK);
+        PhysicalCTEConsumer consumer2 = newCteConsumer(cteId, consumerK2, producerK);
+        Set<PhysicalCTEConsumer> consumers = ImmutableSet.of(consumer1, consumer2);
+
+        // `c1.k <=> b.x` produces a null aware filter, `c2.k = b.x` an ordinary one. They prune different
+        // rows -- the ordinary one removes the rows whose probe column is NULL, and those are exactly the
+        // rows the null aware predicate matches -- so neither may replace the other on the shared producer.
+        List<RuntimeFilter> differentNullSemantics = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerK1, consumerK1, newHashJoinBuilder(true)),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerK2, consumerK2, newHashJoinBuilder(false)));
+        Assertions.assertTrue(RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                differentNullSemantics, consumers, cteId).isEmpty());
+
+        // The same NULL semantics on every consumer: the filter is pushed.
+        List<RuntimeFilter> sameNullSemantics = ImmutableList.of(
+                newCteConsumerRuntimeFilter(consumer1, src, consumerK1, consumerK1, newHashJoinBuilder(false)),
+                newCteConsumerRuntimeFilter(consumer2, src, consumerK2, consumerK2, newHashJoinBuilder(false)));
+        Assertions.assertEquals(1, RuntimeFilterGenerator.selectPushableRuntimeFilters(
+                sameNullSemantics, consumers, cteId).size());
+    }
+
+    /**
+     * The runtime filters which every consumer of a CTE applies are pushed into the producer, where one of
+     * them filters the rows of all the consumers; the filters of a single consumer must stay where they are,
+     * otherwise they prune the rows the other consumers still need.
+     */
+    @Test
+    public void testPushSharedCteRuntimeFilterIntoTheProducer() {
+        int oldType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        try {
+            // Both consumers apply the same MIN filter built from `p_partkey`, so it reaches the producer.
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select lo_partkey as k from lineorder)"
+                            + " select c2.k from t c2 cross join t c1 cross join part"
+                            + " where c1.k > p_partkey and c2.k > p_partkey");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertFalse(pushedIntoProducer.isEmpty(),
+                    "the filter which every consumer applies must be pushed into the producer");
+            // the filter which was moved into the producer is no longer applied by the consumer it was built
+            // for, otherwise the rows it filters would be filtered twice
+            List<RuntimeFilter> onConsumers = runtimeFiltersOnCteConsumers(plan);
+            Assertions.assertTrue(pushedIntoProducer.stream().noneMatch(onConsumers::contains),
+                    () -> "a filter pushed into the producer must not stay on its consumer: " + onConsumers);
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldType);
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+        }
+    }
+
+    @Test
+    public void testDoNotPushSingleConsumerCteRuntimeFilterIntoTheProducer() {
+        int oldType = connectContext.getSessionVariable().getRuntimeFilterType();
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        connectContext.getSessionVariable().setRuntimeFilterType(TRuntimeFilterType.MIN_MAX.getValue());
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        try {
+            // `c1.k > p_partkey` builds a MIN filter and `c2.k < p_partkey` a MAX one: each of them is
+            // applied by one consumer only, so neither may be applied on the shared producer.
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(planAfterPostProcess(
+                    "with t as (select lo_partkey as k from lineorder)"
+                            + " select c2.k from t c2 cross join t c1 cross join part"
+                            + " where c1.k > p_partkey and c2.k < p_partkey"));
+            Assertions.assertTrue(pushedIntoProducer.isEmpty(),
+                    () -> "the filters of a single consumer must not reach the producer: " + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().setRuntimeFilterType(oldType);
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+        }
+    }
+
+    /**
+     * The filter created on the shared producer replaces the filters of the consumers, so it has to keep the
+     * requirement of that group not to be waited for. The producer feeds every consumer, while a filter which
+     * waits is built by one of them: a replacement which waits for a consumer whose own filter was
+     * non-blocking closes the cycle producer -> build side of a consumer -> consumer -> producer, and the
+     * query stalls until the runtime filter or the query times out.
+     */
+    @Test
+    public void testPushSharedCteRuntimeFilterIntoTheProducerKeepsTheNonBlockingRequirement() {
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        boolean oldExpandByInnerJoin = connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin;
+        boolean oldDecoupled = connectContext.getSessionVariable().enableDecoupledRuntimeFilter;
+        long oldMinDecoupledRows = connectContext.getSessionVariable().minDecoupledRfTargetRows;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+        connectContext.getSessionVariable().enableDecoupledRuntimeFilter = true;
+        // the tables of the test catalog hold one row, while the decoupled filter of the plan below targets a
+        // scan of it: keep the filter which describes the behavior under test rather than the pruning of
+        // filters which cannot arrive in time on a tiny scan.
+        connectContext.getSessionVariable().minDecoupledRfTargetRows = 0;
+        try {
+            // `c1.c_custkey = s_suppkey` is the condition join: its standard filter targets the CTE consumer
+            // `c1` and expands to `c2`, while the reverse decoupled filter is built by the deeper join
+            // `c2.c_custkey = c1.c_custkey`, whose build side carries the filter on `c_region`. The decoupled
+            // filter is therefore preferred and both standard filters are marked non-blocking.
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select c_custkey, c_region from customer)"
+                            + " select c1.c_custkey from t c2 join t c1 on c2.c_custkey = c1.c_custkey"
+                            + " join supplier on c1.c_custkey = s_suppkey"
+                            + " where c1.c_region = 'ASIA'");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertFalse(pushedIntoProducer.isEmpty(),
+                    () -> "the filter which every consumer applies must be pushed into the producer: "
+                            + plan.treeString());
+            Assertions.assertTrue(pushedIntoProducer.stream().allMatch(RuntimeFilter::isNonBlocking),
+                    () -> "a filter pushed into the producer must keep the non-blocking requirement of the"
+                            + " filters it replaces: " + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = oldExpandByInnerJoin;
+            connectContext.getSessionVariable().enableDecoupledRuntimeFilter = oldDecoupled;
+            connectContext.getSessionVariable().minDecoupledRfTargetRows = oldMinDecoupledRows;
+        }
+    }
+
+    /**
+     * A node which synthesizes a value of the source column -- here the NULL the repeat adds for the grouping
+     * set which does not group by it -- makes a filter built below it prune the rows the consumers above it
+     * still need, so the deepest filter must not stand in for them.
+     */
+    @Test
+    public void testDoNotPushRuntimeFilterWhichCrossesAValueSynthesizingNode() {
+        boolean oldMaterialize = connectContext.getSessionVariable().enableCTEMaterialize;
+        connectContext.getSessionVariable().enableCTEMaterialize = true;
+        try {
+            PhysicalPlan plan = planAfterPostProcess(
+                    "with t as (select lo_partkey as k from lineorder)"
+                            + " select c1.k from t c1 join ("
+                            + "   select x from ("
+                            + "     select c2.k as k2, p.p_partkey as x from t c2 join part p on c2.k <=> p.p_partkey"
+                            + "   ) a group by grouping sets ((x), ())"
+                            + " ) g on c1.k <=> g.x");
+            Assertions.assertTrue(plan.containsType(PhysicalRepeat.class),
+                    "the query must plan the grouping sets which synthesize the NULL");
+            Assertions.assertTrue(!plan.<Plan>collect(PhysicalCTEProducer.class::isInstance).isEmpty(),
+                    "the query must materialize the CTE");
+            Assertions.assertFalse(runtimeFiltersOnCteConsumers(plan).isEmpty(),
+                    "the consumers must keep the filters which may not be pushed");
+            List<RuntimeFilter> pushedIntoProducer = runtimeFiltersInsideCteProducers(plan);
+            Assertions.assertTrue(pushedIntoProducer.isEmpty(),
+                    () -> "a filter which crosses a value synthesizing node must not reach the producer: "
+                            + pushedIntoProducer);
+        } finally {
+            connectContext.getSessionVariable().enableCTEMaterialize = oldMaterialize;
+        }
+    }
+
+    /**
+     * A right outer join null extends its left child, so a filter whose source comes from that side did not
+     * observe the NULL the join adds: it may not stand in for a filter which is built above the join, whose
+     * build side does contain that NULL. The same join keeps the source values when the source comes from the
+     * right child it preserves, and an inner join never adds a value.
+     */
+    @Test
+    public void testSourceValueIsNotKeptWhenAnOuterJoinNullExtendsIt() {
+        Plan deepestBuilder = Mockito.mock(Plan.class);
+        Plan shallowestBuilder = Mockito.mock(Plan.class);
+        PhysicalHashJoin<?, ?> rightOuterJoin = newMockJoin(JoinType.RIGHT_OUTER_JOIN, deepestBuilder);
+        // the source comes from the left child, which the right outer join null extends
+        Assertions.assertFalse(RuntimeFilterGenerator.keepsSourceValue(
+                ImmutableList.of(deepestBuilder, rightOuterJoin), shallowestBuilder));
+        // the same join, with the source coming from the right child it preserves
+        Assertions.assertTrue(RuntimeFilterGenerator.keepsSourceValue(
+                ImmutableList.of(rightOuterJoin.child(1), rightOuterJoin), shallowestBuilder));
+        // an inner join restricts the rows of the source, it never adds a value to it
+        Assertions.assertTrue(RuntimeFilterGenerator.keepsSourceValue(
+                ImmutableList.of(deepestBuilder, newMockJoin(JoinType.INNER_JOIN, deepestBuilder)),
+                shallowestBuilder));
+    }
+
+    /** A join node whose left child is the given plan. */
+    private PhysicalHashJoin<?, ?> newMockJoin(JoinType joinType, Plan leftChild) {
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getJoinType()).thenReturn(joinType);
+        Mockito.when(join.child(0)).thenReturn(leftChild);
+        Mockito.when(join.child(1)).thenReturn(Mockito.mock(Plan.class));
+        return join;
+    }
+
+    private PhysicalPlan planAfterPostProcess(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().optimize();
+        return new PlanPostProcessors(checker.getCascadesContext()).process(checker.getBestPlanTree());
+    }
+
+    /** The runtime filters which are still applied by the consumers of a CTE. */
+    private static List<RuntimeFilter> runtimeFiltersOnCteConsumers(PhysicalPlan plan) {
+        List<RuntimeFilter> applied = new ArrayList<>();
+        for (Plan consumer : plan.<Plan>collect(PhysicalCTEConsumer.class::isInstance)) {
+            applied.addAll(((AbstractPhysicalPlan) consumer).getAppliedRuntimeFilters());
+        }
+        return applied;
+    }
+
+    /** The runtime filters which were installed on the relations inside the CTE producers. */
+    private static List<RuntimeFilter> runtimeFiltersInsideCteProducers(PhysicalPlan plan) {
+        List<RuntimeFilter> applied = new ArrayList<>();
+        for (Plan producer : plan.<Plan>collect(PhysicalCTEProducer.class::isInstance)) {
+            for (Plan relation : ((PhysicalCTEProducer<?>) producer).child(0)
+                    .<Plan>collect(PhysicalRelation.class::isInstance)) {
+                applied.addAll(((AbstractPhysicalPlan) relation).getAppliedRuntimeFilters());
+            }
+        }
+        return applied;
+    }
+
+    /** A hash join whose only conjunct is an EQ_FOR_NULL one when nullSafeEqual is set. */
+    private AbstractPhysicalPlan newHashJoinBuilder(boolean nullSafeEqual) {
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        SlotReference left = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference right = new SlotReference("x", IntegerType.INSTANCE);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(ImmutableList.of(
+                nullSafeEqual ? new NullSafeEqual(left, right) : new EqualTo(left, right)));
+        return join;
+    }
+
+    private PhysicalCTEConsumer newCteConsumer(CTEId cteId, Slot targetSlot, Slot producerSlot) {
         PhysicalCTEConsumer consumer = Mockito.mock(PhysicalCTEConsumer.class);
         Mockito.when(consumer.getCteId()).thenReturn(cteId);
         Mockito.when(consumer.getProducerSlot(targetSlot)).thenReturn(producerSlot);
-        AbstractPhysicalPlan builder = Mockito.mock(AbstractPhysicalPlan.class);
+        return consumer;
+    }
+
+    private RuntimeFilter newCteConsumerRuntimeFilter(PhysicalCTEConsumer consumer, Expression src,
+            Slot targetSlot, Expression targetExpression) {
+        return newCteConsumerRuntimeFilter(consumer, src, targetSlot, targetExpression,
+                TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN_MAX);
+    }
+
+    private RuntimeFilter newCteConsumerRuntimeFilter(PhysicalCTEConsumer consumer, Expression src,
+            Slot targetSlot, Expression targetExpression, TRuntimeFilterType type,
+            TMinMaxRuntimeFilterType minMaxType) {
+        return newCteConsumerRuntimeFilter(consumer, src, targetSlot, targetExpression,
+                Mockito.mock(AbstractPhysicalPlan.class), type, minMaxType);
+    }
+
+    private RuntimeFilter newCteConsumerRuntimeFilter(PhysicalCTEConsumer consumer, Expression src,
+            Slot targetSlot, Expression targetExpression, AbstractPhysicalPlan builder) {
+        return newCteConsumerRuntimeFilter(consumer, src, targetSlot, targetExpression,
+                builder, TRuntimeFilterType.IN_OR_BLOOM, TMinMaxRuntimeFilterType.MIN_MAX);
+    }
+
+    private RuntimeFilter newCteConsumerRuntimeFilter(PhysicalCTEConsumer consumer, Expression src,
+            Slot targetSlot, Expression targetExpression, AbstractPhysicalPlan builder,
+            TRuntimeFilterType type, TMinMaxRuntimeFilterType minMaxType) {
         return new RuntimeFilter(RuntimeFilterId.createGenerator().getNextId(), src, targetSlot, targetExpression,
-                TRuntimeFilterType.IN_OR_BLOOM, 0, builder, -1L, true,
-                TMinMaxRuntimeFilterType.MIN_MAX, consumer);
+                type, 0, builder, -1L, true, minMaxType, consumer);
     }
 
     @Test
