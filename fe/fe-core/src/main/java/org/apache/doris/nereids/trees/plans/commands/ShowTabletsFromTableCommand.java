@@ -58,7 +58,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -228,10 +227,9 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
 
         Optional<Integer> sizeLimit = computeSizeLimit(limit, offset);
 
-        List<List<Comparable>> tabletInfos = new ArrayList<>();
+        List<Partition> partitions = new ArrayList<>();
         olapTable.readLock();
         try {
-            Collection<Partition> partitions = new ArrayList<Partition>();
             if (partitionNames != null) {
                 List<String> paNames = partitionNames.getPartitionNames();
                 if (!paNames.isEmpty()) {
@@ -244,8 +242,16 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
                     }
                 }
             } else {
-                partitions = olapTable.getPartitions();
+                partitions.addAll(olapTable.getPartitions());
             }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        List<Long> visibleVersions = limit == 0 ? new ArrayList<>() : Partition.getVisibleVersions(partitions);
+        List<List<Comparable>> tabletInfos = new ArrayList<>();
+        olapTable.readLock();
+        try {
             // With an explicit ORDER BY every tablet has to be collected before the result can be
             // truncated, otherwise the sort only sees an arbitrary prefix of the scan and returns
             // the wrong rows -- the bug reported in #65871. Without ORDER BY the scan still stops
@@ -253,12 +259,13 @@ public class ShowTabletsFromTableCommand extends ShowCommand {
             // An explicit LIMIT 0 cannot return any row, so nothing has to be fetched at all,
             // whether or not an OFFSET was given.
             boolean stop = limit == 0;
-            for (Partition partition : partitions) {
+            for (int i = 0; i < partitions.size(); i++) {
                 if (stop) {
                     break;
                 }
+                Partition partition = partitions.get(i);
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
-                    TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
+                    TabletsProcDir procDir = new TabletsProcDir(olapTable, index, visibleVersions.get(i));
                     tabletInfos.addAll(procDir.fetchComparableResult(
                             version, backendId, replicaState));
                     if (orderByPairs == null && sizeLimit.isPresent() && tabletInfos.size() >= sizeLimit.get()) {
