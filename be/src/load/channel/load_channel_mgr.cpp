@@ -88,6 +88,15 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         if (it != _load_channels.end()) {
             channel = it->second;
         } else {
+            auto* handle = _load_state_channels->lookup(load_id.to_string());
+            if (handle != nullptr) {
+                auto* value = static_cast<CacheValue*>(_load_state_channels->value(handle));
+                auto reason = value != nullptr ? value->_cancel_reason : std::string();
+                _load_state_channels->release(handle);
+                if (!reason.empty()) {
+                    return Status::Cancelled(reason);
+                }
+            }
             // create a new load channel
             int64_t timeout_in_req_s =
                     params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1;
@@ -121,7 +130,7 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
         if (handle != nullptr) {
             // load is cancelled
             if (auto* value = _load_state_channels->value(handle); value != nullptr) {
-                const auto& cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
+                const auto cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
                 _load_state_channels->release(handle);
                 if (!cancel_reason.empty()) {
                     LOG(INFO) << fmt::format(
@@ -177,24 +186,45 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     // this case will be handled in load channel's add batch method.
     Status st = channel->add_batch(request, response);
     if (UNLIKELY(!st.ok())) {
-        RETURN_IF_ERROR(channel->cancel());
+        RETURN_IF_ERROR(_cancel_load_channel(channel, st));
         return st;
     }
 
     // 4. handle finish
     if (channel->is_finished()) {
-        _finish_load_channel(load_id);
+        _finish_load_channel(channel);
     }
     return Status::OK();
 }
 
-void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
+Status LoadChannelMgr::_cancel_load_channel(const std::shared_ptr<LoadChannel>& channel,
+                                            const Status& reason) {
+    // Publish to the retained instance even if timeout cleanup or EOS removed it.
+    RETURN_IF_ERROR(channel->cancel(reason));
+    std::lock_guard<std::mutex> l(_lock);
+    const auto& load_id = channel->load_id();
+    auto it = _load_channels.find(load_id);
+    if (it == _load_channels.end() || it->second != channel) {
+        // A late RPC must not cancel a replacement opened with the same load ID.
+        return Status::OK();
+    }
+    _load_channels.erase(it);
+    _record_cancelled_load_channel(load_id, channel->cancel_status().to_string());
+    return Status::OK();
+}
+
+void LoadChannelMgr::_finish_load_channel(const std::shared_ptr<LoadChannel>& channel) {
+    const auto& load_id = channel->load_id();
     VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
     {
         std::lock_guard<std::mutex> l(_lock);
-        if (_load_channels.contains(load_id)) {
-            _load_channels.erase(load_id);
+        auto it = _load_channels.find(load_id);
+        if (it == _load_channels.end() || it->second != channel || channel->is_cancelled()) {
+            // A concurrent cancel may already have removed the channel and recorded
+            // its failure. Do not replace that tombstone with a successful EOS.
+            return;
         }
+        _load_channels.erase(it);
         auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
         _load_state_channels->release(handle);
     }
@@ -203,39 +233,50 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
     UniqueId load_id(params.id());
+    const auto reason = params.has_cancel_reason() && !params.cancel_reason().empty()
+                                ? params.cancel_reason()
+                                : "load channel cancelled";
     std::shared_ptr<LoadChannel> cancelled_channel;
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_load_channels.contains(load_id)) {
             cancelled_channel = _load_channels[load_id];
+            // Publish while this exact instance is still mapped, then cache its
+            // effective first failure instead of a later cancel request's reason.
+            // cancel() only updates the shared status; it takes no writer locks.
+            RETURN_IF_ERROR(cancelled_channel->cancel(Status::Cancelled(reason)));
             _load_channels.erase(load_id);
-        }
-        // We just need to record the first cancel msg
-        auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
-        if (existing_handle == nullptr) {
-            if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
-                std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
-                cancel_reason_ptr->_cancel_reason = params.cancel_reason();
-                size_t cache_capacity =
-                        cancel_reason_ptr->_cancel_reason.capacity() + sizeof(CacheValue);
-                auto* handle = _load_state_channels->insert(
-                        load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
-                cancel_reason_ptr.release();
-                _load_state_channels->release(handle);
-                LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
-                                         print_id(load_id), params.cancel_reason());
-            }
+            _record_cancelled_load_channel(load_id, cancelled_channel->cancel_status().to_string());
         } else {
-            _load_state_channels->release(existing_handle);
+            _record_cancelled_load_channel(load_id, reason);
         }
     }
 
     if (cancelled_channel != nullptr) {
-        RETURN_IF_ERROR(cancelled_channel->cancel());
+        // Keep the final owner's destruction outside the manager lock, since it
+        // may still wait for in-flight work.
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }
 
     return Status::OK();
+}
+
+void LoadChannelMgr::_record_cancelled_load_channel(const UniqueId& load_id,
+                                                    const std::string& reason) {
+    // Keep the first terminal state recorded for this load ID.
+    auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
+    if (existing_handle != nullptr) {
+        _load_state_channels->release(existing_handle);
+        return;
+    }
+    auto value = std::make_unique<CacheValue>();
+    value->_cancel_reason = reason;
+    size_t cache_capacity = value->_cancel_reason.capacity() + sizeof(CacheValue);
+    auto* handle =
+            _load_state_channels->insert(load_id.to_string(), value.get(), 1, cache_capacity);
+    value.release();
+    _load_state_channels->release(handle);
+    LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}", print_id(load_id), reason);
 }
 
 Status LoadChannelMgr::_start_bg_worker() {
