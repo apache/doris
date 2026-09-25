@@ -76,6 +76,21 @@ inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
                              data_type_to->get_primitive_type() != TYPE_JSONB);
 
     if (is_root_valuable) {
+        if (is_string_type(data_type_to->get_primitive_type()) &&
+            remove_nullable(variant->get_root_type())->get_primitive_type() == TYPE_BOOLEAN) {
+            // A scalar VARIANT boolean root (e.g. the result of `j['b']`) makes
+            // is_root_valuable true unconditionally above, so without this it would fall
+            // through to the generic wrapper below, which resolves to the ordinary SQL
+            // BOOLEAN-to-STRING caster and renders "0"/"1" (Doris' SQL/MySQL convention).
+            // VARIANT values always read back as JSON text, so reuse the same structured-
+            // document JSON reconstruction the non-scalar branch below already uses for
+            // CAST(j AS STRING): JSON booleans are never quoted, so it produces exactly the
+            // same true/false text a full-tree reconstruction would.
+            return execute_on_finalized_input([&](Block& finalized_block) {
+                return CastToStringFunction::execute_impl(context, finalized_block, arguments,
+                                                          result, input_rows_count);
+            });
+        }
         ColumnPtr nested = variant->get_root();
         auto nested_from_type = variant->get_root_type();
         // DCHECK(nested_from_type->is_nullable());
