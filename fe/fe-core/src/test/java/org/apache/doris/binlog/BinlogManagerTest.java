@@ -33,6 +33,9 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.transport.TMemoryBuffer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -50,6 +53,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -302,6 +306,85 @@ public class BinlogManagerTest {
                 Assertions.assertEquals(originBinlogList.get(i).getCommitSeq(),
                         newBinlogList.get(i).getCommitSeq());
             }
+        }
+    }
+
+    @Test
+    public void testWriteTBinlogWithActualLength() throws NoSuchMethodException, InvocationTargetException,
+            IllegalAccessException, IOException, NoSuchFieldException, TException {
+        // reflect BinlogManager
+        // addBinlog method
+        Method addBinlog = BinlogManager.class.getDeclaredMethod("addBinlog", TBinlog.class, Object.class);
+        addBinlog.setAccessible(true);
+        // dbBinlogMap
+        Field dbBinlogMapField = BinlogManager.class.getDeclaredField("dbBinlogMap");
+        dbBinlogMapField.setAccessible(true);
+
+        // init binlog manager & addBinlog
+        BinlogManager originManager = new BinlogManager();
+
+        // one small binlog whose serialized size is far less than BUFFER_SIZE(16KB),
+        // one large binlog whose serialized size is larger than BUFFER_SIZE
+        TBinlog smallBinlog = BinlogTestUtils.newBinlog(dbBaseId, tableBaseId, baseNum + 1, baseNum + 1);
+        TBinlog largeBinlog = BinlogTestUtils.newBinlog(dbBaseId, tableBaseId, baseNum + 2, baseNum + 2);
+        // CREATE_TABLE binlog data is not parsed as json when recovering
+        largeBinlog.setType(TBinlogType.CREATE_TABLE);
+        char[] largeData = new char[20 * 1024];
+        Arrays.fill(largeData, 'a');
+        largeBinlog.setData(new String(largeData));
+        addBinlog.invoke(originManager, smallBinlog, null);
+        addBinlog.invoke(originManager, largeBinlog, null);
+
+        // serialize binlogs
+        ByteArrayOutputStream arrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream outputStream = new DataOutputStream(arrayOutputStream);
+        originManager.write(outputStream, 0L);
+        byte[] rawData = arrayOutputStream.toByteArray();
+
+        // expected actual thrift serialized length of each binlog
+        TMemoryBuffer smallBuffer = new TMemoryBuffer(32);
+        smallBinlog.write(new TBinaryProtocol(smallBuffer));
+        Assertions.assertTrue(smallBuffer.length() < 16 * 1024);
+        TMemoryBuffer largeBuffer = new TMemoryBuffer(32);
+        largeBinlog.write(new TBinaryProtocol(largeBuffer));
+        Assertions.assertTrue(largeBuffer.length() > 16 * 1024);
+
+        // the binlogs written to the stream, in stream order (table/db dummies included)
+        Map<Long, DBBinlog> originDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(originManager);
+        List<TBinlog> expectedBinlogs = Lists.newArrayList();
+        for (DBBinlog dbBinlog : originDbBinlogMap.values()) {
+            dbBinlog.getAllBinlogs(expectedBinlogs);
+        }
+
+        // each record length in the stream must equal the actual serialized length,
+        // not the padded TMemoryBuffer capacity
+        DataInputStream checkStream = new DataInputStream(new ByteArrayInputStream(rawData));
+        int binlogCount = checkStream.readInt();
+        Assertions.assertEquals(expectedBinlogs.size(), binlogCount);
+        int totalRecordBytes = 0;
+        for (int i = 0; i < binlogCount; ++i) {
+            TMemoryBuffer buffer = new TMemoryBuffer(32);
+            expectedBinlogs.get(i).write(new TBinaryProtocol(buffer));
+            int recordLength = checkStream.readInt();
+            Assertions.assertEquals(buffer.length(), recordLength);
+            totalRecordBytes += 4 + recordLength;
+            checkStream.skipBytes(recordLength);
+        }
+        Assertions.assertEquals(4 + totalRecordBytes, rawData.length);
+
+        // deserialize binlogs & compare with origin
+        BinlogManager newManager = new BinlogManager();
+        newManager.read(new DataInputStream(new ByteArrayInputStream(rawData)), 0L);
+        Map<Long, DBBinlog> newDbBinlogMap = (Map<Long, DBBinlog>) dbBinlogMapField.get(newManager);
+        Assertions.assertEquals(originDbBinlogMap.size(), newDbBinlogMap.size());
+        List<TBinlog> originBinlogList = Lists.newArrayList();
+        List<TBinlog> newBinlogList = Lists.newArrayList();
+        originDbBinlogMap.get(dbBaseId).getAllBinlogs(originBinlogList);
+        newDbBinlogMap.get(dbBaseId).getAllBinlogs(newBinlogList);
+        Assertions.assertEquals(originBinlogList.size(), newBinlogList.size());
+        for (int i = 0; i < originBinlogList.size(); ++i) {
+            Assertions.assertEquals(originBinlogList.get(i).getCommitSeq(), newBinlogList.get(i).getCommitSeq());
+            Assertions.assertEquals(originBinlogList.get(i).getData(), newBinlogList.get(i).getData());
         }
     }
 
