@@ -117,15 +117,18 @@ public class CreateTableTest extends TestWithFeService {
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
+                "CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.row_binlog_normal (k1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
+                "CREATE TABLE test.row_binlog_normal (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTable("CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
+                "CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
                 + "'binlog.enable'='true','binlog.format'='ROW');"));
@@ -669,7 +672,7 @@ public class CreateTableTest extends TestWithFeService {
                     + ");"));
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "binlog<Row>",
-                () -> createTable("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+                () -> createTableWithRowBinlog("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
                         + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                         + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
     }

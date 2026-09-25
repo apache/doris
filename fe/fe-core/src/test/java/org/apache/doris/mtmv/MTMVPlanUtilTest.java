@@ -515,7 +515,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         // ensureMTMVQueryUsable re-derives the schema from the query and compares the two
         // (checkColumnIfChange), so the analyzed column list has to carry them too -- otherwise
         // every refresh of such an MV fails with a spurious "column length not equals".
-        createTable("CREATE TABLE IF NOT EXISTS row_binlog_schema_base (\n"
+        createTableWithRowBinlog("CREATE TABLE IF NOT EXISTS row_binlog_schema_base (\n"
                 + "    k1 int,\n"
                 + "    v1 int\n"
                 + ")\n"
@@ -523,18 +523,24 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n");
 
-        createMvByNereids("create materialized view row_binlog_schema_ivm "
-                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW') \n"
-                + "        as select k1, v1 from test.row_binlog_schema_base;");
-        createMvByNereids("create materialized view row_binlog_schema_dup "
-                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
-                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
-                + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
-                + "'binlog.format' = 'ROW') \n"
-                + "        as select k1, v1 from test.row_binlog_schema_base;");
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            createMvByNereids("create materialized view row_binlog_schema_ivm "
+                    + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                    + "'binlog.format' = 'ROW') \n"
+                    + "        as select k1, v1 from test.row_binlog_schema_base;");
+            createMvByNereids("create materialized view row_binlog_schema_dup "
+                    + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "        PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', "
+                    + "'binlog.format' = 'ROW') \n"
+                    + "        as select k1, v1 from test.row_binlog_schema_base;");
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
         createMvByNereids("create materialized view row_binlog_schema_plain "
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"

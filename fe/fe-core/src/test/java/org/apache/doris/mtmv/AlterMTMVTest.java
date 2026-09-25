@@ -152,7 +152,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterFromIncrementalToCompleteRejected() throws Exception {
         createDatabaseAndUse("alter_test2");
-        createTable("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_test2.alt_base2 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -171,7 +171,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterFromIncrementalToAutoRejected() throws Exception {
         createDatabaseAndUse("alter_test3");
-        createTable("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_test3.alt_base3 (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -264,7 +264,7 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testAlterIvmWindowLimitUnknownTableRejected() throws Exception {
         // ALTER on an IVM MV with a table that is not a base table is rejected.
         createDatabaseAndUse("alter_ivm_window_unknown_ivm");
-        createTable("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_ivm_window_unknown_ivm.alt_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',"
@@ -381,7 +381,7 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testAlterIvmInfoPersistence() throws Exception {
         Config.enable_table_stream = true;
         createDatabaseAndUse("alter_ivm_test");
-        createTable("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_ivm_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -417,7 +417,7 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testReplayAlterPartitionStates() throws Exception {
         Config.enable_table_stream = true;
         createDatabaseAndUse("alter_partition_states_test");
-        createTable("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -533,7 +533,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
         createDatabaseAndUse("stream_test");
-        createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
@@ -636,7 +636,7 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     private void createIvmBaseAndMv(String dbName, String baseTableName, String mvName) throws Exception {
-        createTable("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE " + dbName + "." + baseTableName + " (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -654,13 +654,13 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMtmvExcludeTriggerTableSkipsStream() throws Exception {
         createDatabaseAndUse("stream_excl_test");
-        createTable("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE stream_excl_test.excl_base1 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
                 + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
                 + " 'binlog.format' = 'ROW')");
-        createTable("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE stream_excl_test.excl_base2 (k1 int, v1 int)\n"
                 + "UNIQUE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
@@ -697,7 +697,7 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesAllowsEquivalentScopeChanges() throws Exception {
         createDatabaseAndUse("alter_ivm_excluded_trigger_test");
-        createTable("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
@@ -726,12 +726,12 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerKeepsStreamOwnedByAnotherBaseTable() throws Exception {
         createDatabaseAndUse("alter_ivm_stream_owner_test");
-        createTable("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE owner_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
                 + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE owner_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
@@ -757,12 +757,12 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesCreateStreamFailureCompensatesAndFails() throws Exception {
         createDatabaseAndUse("alter_ivm_excl_create_fail_test");
-        createTable("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
                 + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
@@ -810,12 +810,12 @@ public class AlterMTMVTest extends TestWithFeService {
     @Test
     public void testAlterIvmExcludedTriggerTablesDropStreamFailureIsBestEffort() throws Exception {
         createDatabaseAndUse("alter_ivm_excl_drop_fail_test");
-        createTable("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
                 + "'binlog.need_historical_value' = 'true')");
-        createTable("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
