@@ -361,6 +361,7 @@ TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
     CdcClientMgr mgr;
     PRequestCdcClientResult result;
     ASSERT_TRUE(mgr.start_cdc_client(&result).ok());
+    ASSERT_GT(mgr.get_child_pid(), 0);
 
     pid_t pid = 0;
     char* const argv[] = {const_cast<char*>("sh"), const_cast<char*>("-c"),
@@ -369,9 +370,17 @@ TEST_F(CdcClientMgrTest, SigchldHandlerDoesNotReapOtherChildren) {
     ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
     ASSERT_GT(pid, 0);
 
-    // Be somewhere other than waitpid() when the child exits, so its SIGCHLD reaches the handler
-    // rather than a waiter that is already blocked on this pid.
-    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    // Wait for the handler itself to run before reaping anything. The handler unpublishes the
+    // identity it was handed once its own waitpid has returned, so the published test child
+    // disappearing is the observable proof that the handler already executed for this child's exit.
+    // A fixed sleep proves nothing: on a delayed delivery the blocking waitpid below would win the
+    // race and reap the child itself, passing the case without exercising the replacement for
+    // waitpid(-1).
+    for (int i = 0; i < 5000 && mgr.get_child_pid() != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_EQ(mgr.get_child_pid(), 0)
+            << "the SIGCHLD handler did not run to completion for the unrelated child's exit";
 
     int child_status = 0;
     const pid_t reaped = waitpid(pid, &child_status, 0);
