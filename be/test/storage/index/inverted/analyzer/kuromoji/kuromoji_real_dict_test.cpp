@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -31,6 +32,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analyzer/kuromoji/kuromoji_viterbi.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "util/defer_op.h"
 
 // End-to-end against the REAL IPADIC dictionary generated under be/dict/kuromoji.
 // Skips if the dictionary has not been generated on this host (e.g. plain CI),
@@ -125,11 +127,14 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
     if (!real_dict_present()) {
         GTEST_SKIP() << "real IPADIC dictionary not generated at " << real_dict_dir();
     }
-    const char* home = std::getenv("DORIS_HOME");
     const std::string saved = doris::config::inverted_index_dict_path;
-    doris::config::inverted_index_dict_path =
-            std::string(home != nullptr ? home : ".") + "/be/dict";
     const bool saved_enable = doris::config::enable_kuromoji_analyzer;
+    Defer restore_config {[&] {
+        doris::config::inverted_index_dict_path = saved;
+        doris::config::enable_kuromoji_analyzer = saved_enable;
+    }};
+    doris::config::inverted_index_dict_path =
+            std::filesystem::path(real_dict_dir()).parent_path().string();
     doris::config::enable_kuromoji_analyzer = true;
 
     std::vector<std::string> toks;
@@ -152,8 +157,6 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
             toks.emplace_back(t.termBuffer<char>(), static_cast<std::size_t>(t.termLength<char>()));
         }
     }
-    doris::config::inverted_index_dict_path = saved;
-    doris::config::enable_kuromoji_analyzer = saved_enable;
 
     std::cout << "analyzer tokens for 東京都に住んでいます:";
     for (const auto& t : toks) {
