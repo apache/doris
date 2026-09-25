@@ -78,9 +78,7 @@ namespace {
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));
@@ -1218,9 +1216,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         encoder.add_json(StringRef("7", 1));
         VariantBatchBuilder block = encoder.finish_batch();
         auto column = ColumnVariantV2::create();
@@ -1230,9 +1227,8 @@ TEST(ColumnVariantV2Test, InsertsCodecOwnedBatchesDirectly) {
     }
 
     {
-        JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
-                                            .throw_on_invalid_json = true,
-                                            .check_duplicate_json_path = false});
+        JsonStringToVariantEncoder encoder(
+                {.max_json_key_length = 255, .throw_on_invalid_json = true});
         constexpr std::string_view FIRST = R"({"a":[1,{"b":true}]})";
         constexpr std::string_view SECOND = R"({"b":2,"a":[]})";
         encoder.add_json({FIRST.data(), FIRST.size()});

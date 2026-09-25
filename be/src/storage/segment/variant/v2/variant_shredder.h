@@ -54,7 +54,6 @@ struct VariantShredderOptions {
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     uint32_t doc_bucket_count = 1;
     size_t doc_materialization_min_rows = 0;
-    bool check_duplicate_json_path = false;
 };
 
 struct VariantShreddedColumns {

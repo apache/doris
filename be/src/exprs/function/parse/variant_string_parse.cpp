@@ -27,7 +27,6 @@
 #include <cstdint>
 #include <limits>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 
 #include "common/config.h"
@@ -171,42 +170,12 @@ private:
 
     void collect_object(const SimdJSONParser::Object& object, uint32_t depth) {
         auto scope = _builder.start_object();
-        if (!_options.check_duplicate_json_path) {
-            for (const auto& [key, child] : object) {
-                require_json_key_length(key, _options.max_json_key_length);
-                scope.add_key(to_string_ref(key));
-                collect(child, depth + 1);
-            }
-            scope.finish();
-            return;
-        }
-
-        std::unordered_set<std::string_view> seen_keys;
-        seen_keys.reserve(object.size());
         for (const auto& [key, child] : object) {
             require_json_key_length(key, _options.max_json_key_length);
-            if (seen_keys.emplace(key).second) {
-                scope.add_key(to_string_ref(key));
-                collect(child, depth + 1);
-            } else {
-                validate_ignored(child, depth + 1);
-            }
+            scope.add_key(to_string_ref(key));
+            collect(child, depth + 1);
         }
         scope.finish();
-    }
-
-    void validate_ignored(SimdJSONParser::Element element, uint32_t depth) const {
-        variant_json::require_json_depth(depth);
-        if (element.isArray()) {
-            for (SimdJSONParser::Element child : element.getArray()) {
-                validate_ignored(child, depth + 1);
-            }
-        } else if (element.isObject()) {
-            for (const auto& [key, child] : element.getObject()) {
-                require_json_key_length(key, _options.max_json_key_length);
-                validate_ignored(child, depth + 1);
-            }
-        }
     }
 
     VariantBatchBuilder::Row& _builder;
@@ -385,9 +354,7 @@ FormattedScalar format_json_uuid(const std::array<uint8_t, 16>& value) {
 } // namespace variant_json
 
 JsonToVariantOptions JsonToVariantOptions::current_config() {
-    return {.max_json_key_length = static_cast<uint32_t>(config::variant_max_json_key_length),
-            .throw_on_invalid_json = config::variant_throw_exeception_on_invalid_json,
-            .check_duplicate_json_path = config::variant_enable_duplicate_json_path_check};
+    return {.max_json_key_length = static_cast<uint32_t>(config::variant_max_json_key_length)};
 }
 
 struct JsonStringToVariantEncoder::Impl {
@@ -417,15 +384,8 @@ struct JsonStringToVariantEncoder::Impl {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Variant JSON input has a null data pointer");
         }
-        if (json.size == 0) {
-            auto object = row.start_object();
-            object.finish();
-            row.finish();
-            return;
-        }
-
         SimdJSONParser::Element root;
-        if (!parser.parse(json.data, json.size, root)) {
+        if (json.size == 0 || !parser.parse(json.data, json.size, root)) {
             if (options.throw_on_invalid_json) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse JSON as Variant");
             }
