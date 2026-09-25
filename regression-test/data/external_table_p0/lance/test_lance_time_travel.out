@@ -95,14 +95,6 @@
 5	v2
 6	v2
 
--- !branch_main_version_as_of_tag_name --
-1	v1
-2	v1
-3	v1
-4	v2
-5	v2
-6	v2
-
 -- !version_as_of_tag_on_branch --
 7	100
 

@@ -238,6 +238,30 @@ public class LanceStorageOptionsTest {
         }
     }
 
+    /**
+     * The SDK opens a managed table after describing it again and adds that describe's vended
+     * options in their own spelling. It gets the vended options in that same spelling, so its
+     * own values replace them key for key and no normalized twin is left beside them.
+     */
+    @Test
+    public void testSdkOptionsCarryVendedOptionsInTheNamespaceSpelling() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("secret_access_key", "vended-sk");
+        vended.put("session_token", "vended-token");
+        Map<String, String> merged =
+                LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), vended);
+
+        Map<String, String> sdk = LanceStorageOptions.forManagedSdkOpen(S3_URI, merged, vended);
+
+        for (String key : new String[] {"aws_access_key_id", "aws_secret_access_key", "aws_session_token"}) {
+            Assertions.assertNull(sdk.get(key), key);
+        }
+        vended.forEach((key, value) -> Assertions.assertEquals(value, sdk.get(key), key));
+        Assertions.assertEquals("http://minio:9000", sdk.get("aws_endpoint"));
+        Assertions.assertEquals(merged, LanceStorageOptions.forManagedSdkOpen(S3_URI, merged, null));
+    }
+
     /** Every accepted spelling has to collapse, or the race just moves to the ones missed. */
     @Test
     public void testEveryS3AliasCollapsesOntoOneEntry() {

@@ -18,11 +18,10 @@
 package org.apache.doris.datasource.lance.metadata;
 
 import org.lance.Version;
-import org.lance.namespace.model.TableVersion;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
-import java.util.OptionalLong;
 import java.util.regex.Pattern;
 
 /** Resolves Doris time-travel selectors to immutable Lance version IDs. */
@@ -58,29 +57,15 @@ public final class LanceSnapshotResolver {
         return VERSION_NUMBER.matcher(value).matches();
     }
 
-    /**
-     * Selects the latest namespace-recorded version whose commit time does not exceed the
-     * requested timestamp. Returns empty when the namespace lists no versions or omits a commit
-     * time, in which case the caller resolves from storage instead.
-     *
-     * @param requestedText the user's {@code FOR TIME AS OF} text, echoed in the error message
-     */
-    public static OptionalLong namespaceVersionAtOrBefore(List<TableVersion> versions, long timestampMillis,
-            String requestedText) {
-        if (versions.isEmpty() || versions.stream().anyMatch(
-                version -> version.getVersion() == null || version.getTimestampMillis() == null)) {
-            return OptionalLong.empty();
+    /** No version of a chain was committed at or before the requested {@code FOR TIME AS OF} time. */
+    public static final class NoVersionAtOrBeforeException extends IllegalArgumentException {
+        private NoVersionAtOrBeforeException(String requestedText) {
+            super("Lance dataset has no version at or before '" + requestedText + "'");
         }
-        return OptionalLong.of(versions.stream()
-                .filter(version -> version.getTimestampMillis() <= timestampMillis)
-                .max(Comparator.comparingLong(TableVersion::getTimestampMillis)
-                        .thenComparingLong(TableVersion::getVersion))
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Lance dataset has no version at or before '" + requestedText + "'"))
-                .getVersion());
     }
 
-    private static long commitMillis(Version version) {
+    /** The commit time a manifest records, at millisecond precision. */
+    public static long commitMillis(Version version) {
         return version.getDataTime().toInstant().toEpochMilli();
     }
 
@@ -89,20 +74,17 @@ public final class LanceSnapshotResolver {
     }
 
     /**
-     * Selects the latest version from a dataset's own version list whose commit time does not
-     * exceed the requested timestamp. Resolves {@code FOR TIME AS OF} for storage-versioned
-     * datasets, and for namespace-managed datasets whose namespace reports no commit times.
+     * Selects the latest version whose manifest commit time does not exceed the requested
+     * timestamp, compared at millisecond precision, as Lance resolves {@code asof}.
      *
      * @param requestedText the user's {@code FOR TIME AS OF} text, echoed in the error message
+     * @throws NoVersionAtOrBeforeException if every version was committed after the timestamp
      */
-    public static long versionAtOrBefore(List<Version> versions, long timestampMillis, String requestedText) {
-        // Compare at millisecond precision, the precision a namespace reports commit times in,
-        // so storage and namespace resolution agree on the millisecond a commit lands in.
+    public static long versionAtOrBefore(Collection<Version> versions, long timestampMillis, String requestedText) {
         return versions.stream()
                 .filter(version -> commitMillis(version) <= timestampMillis)
                 .max(Comparator.comparingLong(LanceSnapshotResolver::commitMillis).thenComparingLong(Version::getId))
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Lance dataset has no version at or before '" + requestedText + "'"))
+                .orElseThrow(() -> new NoVersionAtOrBeforeException(requestedText))
                 .getId();
     }
 }

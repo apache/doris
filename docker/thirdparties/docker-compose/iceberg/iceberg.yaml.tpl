@@ -133,7 +133,8 @@ services:
       #   time_travel_managed_untimed     versions 1 and 3, no commit times reported
       #   time_travel_managed_unprefixed  every version, credentials vended unprefixed
       # Versions and commit times (epoch millis, UTC) match the committed time_travel.lance,
-      # see lance_build_time_travel.py.
+      # see lance_build_time_travel.py. Doris resolves FOR TIME AS OF from the manifests' commit
+      # times, so the reported ones are not what the time-travel results depend on.
       LANCE_REST_MANAGED_TABLES_JSON: '{"time_travel_managed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621}],"branches":{"dev":{"versions":[2,3]}}},"time_travel_managed_partial":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":3,"timestamp_millis":1789823170621}]},"time_travel_managed_lagging":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113}]},"time_travel_managed_untimed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[1,3]},"time_travel_managed_unprefixed":{"uri":"s3://warehouse/lance/time_travel.lance","versions":[{"version":1,"timestamp_millis":1789823167597},{"version":2,"timestamp_millis":1789823169113},{"version":3,"timestamp_millis":1789823170621}]}}'
       LANCE_S3_ACCESS_KEY: admin
       LANCE_S3_SECRET_KEY: password

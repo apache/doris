@@ -55,6 +55,9 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -218,6 +221,11 @@ final class LanceNamespaceClient {
         return loadTableAccess(tableAccessKey(dbName, tableName)).access;
     }
 
+    /** Drops one table's cached access, so its next read describes the table again. */
+    void invalidateTableAccess(String dbName, String tableName) {
+        tableAccessCache.invalidate(tableAccessKey(dbName, tableName));
+    }
+
     void invalidateTableAccessCache() {
         // Swap generations: a describe already in flight may finish for its caller, but must
         // never repopulate the cache used by reads admitted after an explicit refresh.
@@ -257,11 +265,14 @@ final class LanceNamespaceClient {
             if (StringUtils.isBlank(table.getLocation())) {
                 throw new RuntimeException("Lance namespace returned no location for managed table " + tableId);
             }
-            if (StringUtils.isNotBlank(table.getTableUri()) && !table.getTableUri().equals(table.getLocation())) {
+            if (StringUtils.isNotBlank(table.getTableUri()) && !StringUtils.removeEnd(table.getTableUri(), "/")
+                    .equals(StringUtils.removeEnd(table.getLocation(), "/"))) {
                 throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
                         + "managed table " + tableId);
             }
-            access = LanceTableAccess.managedByNamespace(datasetUri, storageOptions, tableId);
+            access = LanceTableAccess.managedByNamespace(datasetUri, storageOptions,
+                    LanceStorageOptions.forManagedSdkOpen(datasetUri, storageOptions, table.getStorageOptions()),
+                    tableId);
         } else {
             access = new LanceTableAccess(datasetUri, storageOptions);
         }
@@ -269,10 +280,11 @@ final class LanceNamespaceClient {
     }
 
     /**
-     * Opens a namespace-managed dataset through the namespace client. The SDK resolves versions
-     * with its own native namespace client (it takes the native handle of a REST or Directory
-     * namespace rather than calling back into this Java object), so the open is not serialized
-     * with the requests this class issues itself.
+     * Opens a namespace-managed dataset through the namespace client. The SDK describes the table
+     * through this Java client, outside {@code namespaceLock}, and then resolves versions with its
+     * own native client (the native handle of a REST or Directory namespace), so the open is not
+     * serialized with the requests this class issues itself. Both clients are safe to call
+     * concurrently.
      *
      * <p>The session is passed to the builder explicitly: when the SDK opens through a namespace
      * client it rebuilds the read options and drops the session they carry, so the one inside
@@ -312,6 +324,25 @@ final class LanceNamespaceClient {
             }
         } while (StringUtils.isNotEmpty(pageToken));
         return result;
+    }
+
+    /**
+     * The newest version the namespace records for a managed chain, asked for the way the Lance
+     * SDK asks when it opens the latest version: newest first, one entry. Empty when the chain
+     * records no version, where the SDK would fall back to the newest manifest in storage.
+     */
+    OptionalLong latestManagedVersion(LanceTableAccess access, Optional<String> branch) {
+        ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId())
+                .descending(true).limit(1);
+        branch.ifPresent(request::branch);
+        ListTableVersionsResponse response;
+        synchronized (namespaceLock) {
+            response = namespace.listTableVersions(request);
+        }
+        // The maximum rather than the first entry, in case a namespace ignores the limit.
+        return response.getVersions() == null ? OptionalLong.empty()
+                : response.getVersions().stream().map(TableVersion::getVersion).filter(Objects::nonNull)
+                        .mapToLong(Long::longValue).max();
     }
 
     private long tableAccessTtlNanos(String datasetUri, Map<String, String> vendedOptions) {

@@ -154,13 +154,16 @@ def check(output: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("output", type=Path, help="path of time_travel.lance")
+    parser.add_argument("output", type=Path, nargs="?",
+                        help="path of time_travel.lance (not used with --create-branch)")
     parser.add_argument("--check", action="store_true", help="verify the existing fixture")
     parser.add_argument("--create-branch", metavar="URI",
                         help="create the dev branch at the uploaded dataset URI instead of building")
     parser.add_argument("--storage-option", action="append", default=[], metavar="KEY=VALUE",
                         help="Lance storage option for --create-branch (repeatable)")
     args = parser.parse_args()
+    if not args.create_branch and args.output is None:
+        parser.error("the output path is required unless --create-branch is given")
     if args.create_branch:
         create_branch(args.create_branch, dict(item.split("=", 1) for item in args.storage_option))
     elif args.check:

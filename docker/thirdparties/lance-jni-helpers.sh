@@ -17,11 +17,11 @@
 # under the License.
 
 # Keep these pins in sync with lance.version in fe/pom.xml.
-LANCE_JNI_VERSION="11.0.0"
-LANCE_JNI_ASSET="liblance_jni-11.0.0-linux-x86_64-glibc2.17-r1.so.gz"
-LANCE_JNI_URL="https://github.com/apache/doris-thirdparty/releases/download/lance-jni-11.0.0-glibc2.17-r1/${LANCE_JNI_ASSET}"
-LANCE_JNI_ARCHIVE_SHA256="f9dc713269632e26c06ea2ea20637ca16ec9d76772dc20db0bead11e5cd34a6b"
-LANCE_JNI_LIBRARY_SHA256="b6540edd3bdcd76b04f96a9e78fe804a2f1bffbd75eb35abe84de9091ba432ac"
+LANCE_JNI_VERSION="12.0.0"
+LANCE_JNI_ASSET="liblance_jni-12.0.0-linux-x86_64-glibc2.17-r1.so.gz"
+LANCE_JNI_URL="https://github.com/apache/doris-thirdparty/releases/download/lance-jni-12.0.0-glibc2.17-r1/${LANCE_JNI_ASSET}"
+LANCE_JNI_ARCHIVE_SHA256="678d9454ad1a24ff07a504d8c318479f6b01d095f04945248dc170eecb303801"
+LANCE_JNI_LIBRARY_SHA256="72f26651b5500bf1483da1cd35130887274a42c2e8505fcfdcd846a521fc1549"
 
 lance_jni_download() (
     set -eo pipefail

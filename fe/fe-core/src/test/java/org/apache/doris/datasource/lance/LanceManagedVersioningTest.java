@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
 
 /**
  * Opens a namespace-managed Lance table through a REST namespace stub.
@@ -101,6 +102,25 @@ public class LanceManagedVersioningTest {
     private static final String PAGED_TABLE = "managed_paged";
     /** Managed; the namespace lists no versions at all. */
     private static final String EMPTY_TABLE = "managed_empty";
+    /** Managed; records every main version, but none on the branch storage holds. */
+    private static final String UNRECORDED_BRANCH_TABLE = "managed_branch_unrecorded";
+    /** Managed; DescribeTable moves to another dataset once {@link #relocated} is set. */
+    private static final String RELOCATED_TABLE = "managed_relocated";
+    /** Managed, untimed; its version 1 manifest is still at the staged path the namespace recorded. */
+    private static final String STAGED_UNTIMED_TABLE = "managed_staged_untimed";
+    /**
+     * Managed, untimed; records versions 1 to 3 of the expired dataset, where cleanup kept only 3.
+     * Version 1 is recorded at a staged path that no longer exists, version 2 at its canonical path.
+     */
+    private static final String UNTIMED_EXPIRED_TABLE = "managed_untimed_expired";
+    /** Storage-versioned; version 2 of its dataset was removed, versions 1 and 3 remain. */
+    private static final String PLAIN_GAP_TABLE = "plain_gap";
+    /** Managed; records versions 1 to 3 of the dataset whose version 2 was removed. */
+    private static final String MANAGED_GAP_TABLE = "managed_gap";
+    /** Managed; the namespace reports the first commit's time for every version, as after a copy. */
+    private static final String MISTIMED_TABLE = "managed_mistimed";
+    /** Managed; the namespace records version 9 as the head of branch dev, which storage lacks. */
+    private static final String MISSING_HEAD_TABLE = "managed_missing_head";
     /** A branch of time_travel.lance forked from version 2 with one extra append (row 100). */
     private static final String BRANCH = "dev";
     /** A tag pointing at version 3 of the branch. */
@@ -120,6 +140,17 @@ public class LanceManagedVersioningTest {
     private String stagedDatasetUri;
     private Path stagedCanonicalManifest;
     private String stagedManifestStorePath;
+    private String relocatedDatasetUri;
+    private String relocatedStorePath;
+    private volatile boolean relocated;
+    private String stagedUntimedDatasetUri;
+    private String stagedUntimedStorePath;
+    private String stagedUntimedV1StorePath;
+    private Path stagedUntimedV1Canonical;
+    private List<Version> stagedUntimedVersions;
+    private String gapDatasetUri;
+    private String gapStorePath;
+    private List<Version> gapVersions;
     /** Versions the stub namespace records per managed table; null means storage-versioned. */
     private final Map<String, List<Long>> namespaceVersions = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -175,6 +206,37 @@ public class LanceManagedVersioningTest {
         Files.deleteIfExists(stagedDir.resolve("_versions").resolve("latest_version_hint.json"));
         stagedManifestStorePath = stagedManifest.toAbsolutePath().toString().replaceFirst("^/", "");
 
+        // The dataset the relocated table moves to.
+        Path relocatedDir = tempDir.resolve("relocated.lance");
+        relocatedDatasetUri = relocatedDir.toUri().toString();
+        relocatedStorePath = relocatedDir.toAbsolutePath().toString().replaceFirst("^/", "");
+        writeThreeVersions(relocatedDatasetUri);
+
+        // A dataset whose oldest version is still staged: storage listings do not show it.
+        Path stagedUntimedDir = tempDir.resolve("staged_untimed.lance");
+        stagedUntimedDatasetUri = stagedUntimedDir.toUri().toString();
+        stagedUntimedStorePath = stagedUntimedDir.toAbsolutePath().toString().replaceFirst("^/", "");
+        stagedUntimedVersions = writeThreeVersions(stagedUntimedDatasetUri);
+        stagedUntimedV1Canonical = stagedUntimedDir.resolve("_versions")
+                .resolve(U64_MAX.subtract(BigInteger.ONE) + ".manifest");
+        Path stagedUntimedV1 = stagedUntimedDir.resolve("_versions")
+                .resolve(stagedUntimedV1Canonical.getFileName() + "-7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f");
+        Files.move(stagedUntimedV1Canonical, stagedUntimedV1);
+        stagedUntimedV1StorePath = stagedUntimedV1.toAbsolutePath().toString().replaceFirst("^/", "");
+
+        // A dataset with a hole in its history: cleanup removed version 2 only.
+        Path gapDir = tempDir.resolve("gap.lance");
+        gapDatasetUri = gapDir.toUri().toString();
+        gapStorePath = gapDir.toAbsolutePath().toString().replaceFirst("^/", "");
+        gapVersions = writeThreeVersions(gapDatasetUri);
+        try (BufferAllocator allocator = new RootAllocator();
+                Dataset dataset = Dataset.open(gapDatasetUri, allocator)) {
+            dataset.cleanupWithPolicy(CleanupPolicy.builder().withVersions(Collections.singletonList(2L))
+                    .withDeleteUnverified(true).build());
+            Assertions.assertEquals(Arrays.asList(1L, 3L), dataset.listVersions().stream().map(Version::getId)
+                    .collect(java.util.stream.Collectors.toList()), "cleanup must leave versions 1 and 3");
+        }
+
         namespaceVersions.put(FULL_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(PARTIAL_TABLE, Arrays.asList(1L, 3L));
         namespaceVersions.put(UNTIMED_TABLE, Arrays.asList(1L, 3L));
@@ -186,6 +248,13 @@ public class LanceManagedVersioningTest {
         namespaceVersions.put(MISMATCH_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(PAGED_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(EMPTY_TABLE, Collections.emptyList());
+        namespaceVersions.put(UNRECORDED_BRANCH_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(RELOCATED_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(STAGED_UNTIMED_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(UNTIMED_EXPIRED_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(MANAGED_GAP_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(MISTIMED_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(MISSING_HEAD_TABLE, Arrays.asList(1L, 2L, 3L));
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handleRequest);
@@ -272,7 +341,7 @@ public class LanceManagedVersioningTest {
             Assertions.assertEquals(1, byTime.getVersion());
             Assertions.assertTrue(requestPaths.stream().anyMatch(
                     path -> path.endsWith("/" + PARTIAL_TABLE + "/version/list")),
-                    "time travel must read commit times from ListTableVersions: " + requestPaths);
+                    "time travel must list the versions the namespace records: " + requestPaths);
 
             // A namespace that lists versions without commit times: the times come from the
             // manifests in storage, but only the listed versions are candidates, so the same
@@ -479,7 +548,8 @@ public class LanceManagedVersioningTest {
             RuntimeException managedMissing = Assertions.assertThrows(RuntimeException.class,
                     () -> catalog.loadTableMetadata("default", FULL_TABLE,
                             LanceRefSelector.branch("nope", Optional.empty())));
-            Assertions.assertEquals("Lance branch 'nope' of default." + FULL_TABLE + " was not found",
+            // The namespace itself reports the branch missing, since the branch head comes from it.
+            Assertions.assertEquals("Lance branch 'nope' of default." + FULL_TABLE + " was not found in the namespace",
                     managedMissing.getMessage());
         } finally {
             catalog.onClose();
@@ -565,6 +635,147 @@ public class LanceManagedVersioningTest {
                             Optional.of(new TableSnapshot("2030-01-01 00:00:00", TableSnapshot.VersionType.TIME))));
             Assertions.assertEquals("Lance namespace lists no versions for default." + EMPTY_TABLE,
                     empty.getMessage());
+            // Storage still holds three versions, but the namespace published none of them: a
+            // plain query, a search and a metadata-only read must not fall back to storage.
+            List<Supplier<LanceTableMetadata>> latestReads = Arrays.asList(
+                    () -> catalog.loadTableMetadata("default", EMPTY_TABLE),
+                    () -> catalog.loadTableMetadataForSearch("default", EMPTY_TABLE),
+                    () -> catalog.loadBasicTableMetadata("default", EMPTY_TABLE));
+            for (Supplier<LanceTableMetadata> latest : latestReads) {
+                RuntimeException unpublished = Assertions.assertThrows(RuntimeException.class, latest::get);
+                Assertions.assertEquals("Lance namespace lists no versions for default." + EMPTY_TABLE,
+                        unpublished.getMessage());
+            }
+            // The same for a branch storage holds but the namespace records nothing on. A tag that
+            // points into it opens its version explicitly, which the namespace does not record.
+            RuntimeException unpublishedBranch = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadata("default", UNRECORDED_BRANCH_TABLE,
+                            LanceRefSelector.branch(BRANCH, Optional.empty())));
+            Assertions.assertEquals("Lance namespace lists no versions for default." + UNRECORDED_BRANCH_TABLE
+                    + "@" + BRANCH, unpublishedBranch.getMessage());
+            RuntimeException unpublishedTag = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadata("default", UNRECORDED_BRANCH_TABLE,
+                            LanceRefSelector.tag(BRANCH_TAG)));
+            Assertions.assertEquals("Lance version 3 of default." + UNRECORDED_BRANCH_TABLE + " (tag '" + BRANCH_TAG
+                    + "') was not found in the namespace", unpublishedTag.getMessage());
+        } finally {
+            catalog.onClose();
+        }
+    }
+
+    @Test
+    public void testRelocatedManagedTableIsReadAtItsNewLocation() {
+        LanceExternalCatalog catalog = newCatalog(318, "lance_managed_relocated");
+        try {
+            relocated = false;
+            Assertions.assertEquals(datasetUri, catalog.loadTableMetadata("default", RELOCATED_TABLE).getDatasetUri());
+            // The namespace moves the table while the catalog still caches the old access. The SDK
+            // re-describes the table and opens the new location, so the metadata handed to the BE
+            // must name that location too, not the cached one.
+            relocated = true;
+            LanceTableMetadata moved = catalog.loadTableMetadata("default", RELOCATED_TABLE);
+            Assertions.assertEquals(relocatedDatasetUri, moved.getDatasetUri());
+            Assertions.assertEquals(3, moved.getVersion());
+            Assertions.assertEquals(relocatedDatasetUri, catalog.loadTableMetadata("default", RELOCATED_TABLE,
+                    Optional.of(new TableSnapshot("2", TableSnapshot.VersionType.VERSION))).getDatasetUri());
+        } finally {
+            relocated = false;
+            catalog.onClose();
+        }
+    }
+
+    @Test
+    public void testUntimedHistoryIncludesStagedVersions() {
+        Assertions.assertTrue(Files.notExists(stagedUntimedV1Canonical), "fixture must start with version 1 staged");
+        LanceExternalCatalog catalog = newCatalog(319, "lance_managed_staged_untimed");
+        try {
+            // Version 1 is recorded by the namespace but only exists at its staged path, so a
+            // storage listing does not show it; it must still be a FOR TIME AS OF candidate.
+            String betweenFirstAndSecond = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+                    .withZone(TimeUtils.getTimeZone().toZoneId())
+                    .format(stagedUntimedVersions.get(0).getDataTime().toInstant().plusMillis(1));
+            LanceTableMetadata byTime = catalog.loadTableMetadata("default", STAGED_UNTIMED_TABLE,
+                    Optional.of(new TableSnapshot(betweenFirstAndSecond, TableSnapshot.VersionType.TIME)));
+            Assertions.assertEquals(1, byTime.getVersion());
+            Assertions.assertTrue(byTime.getFragments().isEmpty());
+        } finally {
+            catalog.onClose();
+        }
+        // Resolving it finalized the manifest, so the BE can open version 1 by URI.
+        Assertions.assertTrue(Files.exists(stagedUntimedV1Canonical), "manifest must be finalized on read");
+
+        // Versions the namespace still records but cleanup removed are missing from storage as
+        // well; they stay out of the candidates instead of failing the query.
+        LanceExternalCatalog expired = newCatalog(320, "lance_managed_untimed_expired");
+        try {
+            Assertions.assertEquals(3, expired.loadTableMetadata("default", UNTIMED_EXPIRED_TABLE,
+                    Optional.of(new TableSnapshot("2100-01-01 00:00:00", TableSnapshot.VersionType.TIME)))
+                    .getVersion());
+        } finally {
+            expired.onClose();
+        }
+    }
+
+    @Test
+    public void testTimeTravelUsesManifestCommitTimes() {
+        LanceExternalCatalog catalog = newCatalog(321, "lance_managed_manifest_times");
+        try {
+            // The namespace reports the first commit's time for every version. Manifest commit
+            // times decide, as for Lance's own asof, so a time before the second commit is version 1.
+            Assertions.assertEquals(1, catalog.loadTableMetadata("default", MISTIMED_TABLE,
+                    Optional.of(new TableSnapshot(timeAfter(datasetVersions.get(0)),
+                            TableSnapshot.VersionType.TIME))).getVersion());
+
+            // Version 2 was removed, so a time between the first and the third commit has no known
+            // state; the query fails instead of reading version 1, for storage and managed tables.
+            for (String table : Arrays.asList(PLAIN_GAP_TABLE, MANAGED_GAP_TABLE)) {
+                String betweenFirstAndThird = timeAfter(gapVersions.get(1));
+                RuntimeException gap = Assertions.assertThrows(RuntimeException.class,
+                        () -> catalog.loadTableMetadata("default", table,
+                                Optional.of(new TableSnapshot(betweenFirstAndThird, TableSnapshot.VersionType.TIME))));
+                Assertions.assertEquals("Lance cannot resolve FOR TIME AS OF '" + betweenFirstAndThird + "' on default."
+                        + table + ": version 2, which may hold the state at that time, no longer exists",
+                        gap.getMessage());
+                Assertions.assertEquals(3, catalog.loadTableMetadata("default", table,
+                        Optional.of(new TableSnapshot(timeAfter(gapVersions.get(2)), TableSnapshot.VersionType.TIME)))
+                        .getVersion(), table);
+            }
+        } finally {
+            catalog.onClose();
+        }
+    }
+
+    private static String timeAfter(Version version) {
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(TimeUtils.getTimeZone().toZoneId())
+                .format(version.getDataTime().toInstant().plusMillis(1));
+    }
+
+    @Test
+    public void testBranchOfACheckedOutUri() {
+        String root = "s3://bucket/t.lance";
+        Assertions.assertEquals(Optional.empty(), LanceCatalogClient.branchOf(root + "/", root));
+        Assertions.assertEquals(Optional.of("feature/x"), LanceCatalogClient.branchOf(root + "/tree/feature/x", root));
+        // Lance inserts the branch path before the query string.
+        Assertions.assertEquals(Optional.of(BRANCH),
+                LanceCatalogClient.branchOf(root + "/tree/" + BRANCH + "?sig=abc", root + "?sig=abc"));
+        Assertions.assertEquals(Optional.empty(), LanceCatalogClient.branchOf(root + "?sig=abc", root + "?sig=abc"));
+        IllegalStateException elsewhere = Assertions.assertThrows(IllegalStateException.class,
+                () -> LanceCatalogClient.branchOf("s3://bucket/other.lance?sig=abc", root + "?sig=abc"));
+        Assertions.assertFalse(elsewhere.getMessage().contains("sig="), elsewhere.getMessage());
+    }
+
+    @Test
+    public void testBranchTheNamespaceRecordsIsNotReportedMissing() {
+        LanceExternalCatalog catalog = newCatalog(322, "lance_managed_missing_head");
+        try {
+            // The namespace lists versions for dev, so dev exists; its head manifest is missing
+            // from storage, which is a broken version, not a missing branch.
+            RuntimeException broken = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadata("default", MISSING_HEAD_TABLE,
+                            LanceRefSelector.branch(BRANCH, Optional.empty())));
+            Assertions.assertTrue(broken.getMessage().startsWith("Failed to load Lance table metadata for default."
+                    + MISSING_HEAD_TABLE + "@" + BRANCH), broken.getMessage());
+            Assertions.assertFalse(broken.getMessage().contains("branch '" + BRANCH + "'"), broken.getMessage());
         } finally {
             catalog.onClose();
         }
@@ -692,9 +903,27 @@ public class LanceManagedVersioningTest {
         if (STAGED_TABLE.equals(table) && version == 3) {
             return stagedManifestStorePath;
         }
+        if (STAGED_UNTIMED_TABLE.equals(table) && version == 1 && Files.notExists(stagedUntimedV1Canonical)) {
+            return stagedUntimedV1StorePath;
+        }
+        if (UNTIMED_EXPIRED_TABLE.equals(table) && version == 1) {
+            return Paths.get(java.net.URI.create(expiredDatasetUri)).toAbsolutePath().toString()
+                    .replaceFirst("^/", "") + "/_versions/" + U64_MAX.subtract(BigInteger.ONE)
+                    + ".manifest-00000000-0000-4000-8000-000000000000";
+        }
         String root = STAGED_TABLE.equals(table)
                 ? Paths.get(java.net.URI.create(stagedDatasetUri)).toAbsolutePath().toString().replaceFirst("^/", "")
                 : datasetStorePath;
+        if (STAGED_UNTIMED_TABLE.equals(table)) {
+            root = stagedUntimedStorePath;
+        } else if (MANAGED_GAP_TABLE.equals(table)) {
+            root = gapStorePath;
+        } else if (UNTIMED_EXPIRED_TABLE.equals(table)) {
+            root = Paths.get(java.net.URI.create(expiredDatasetUri)).toAbsolutePath().toString()
+                    .replaceFirst("^/", "");
+        } else if (RELOCATED_TABLE.equals(table) && relocated) {
+            root = relocatedStorePath;
+        }
         if (branch != null) {
             root = root + "/tree/" + branch;
         }
@@ -703,6 +932,12 @@ public class LanceManagedVersioningTest {
 
     /** The versions the stub namespace records on a branch; only FULL_TABLE has the "dev" branch. */
     private List<Long> namespaceBranchVersions(String table, String branch) {
+        if (UNRECORDED_BRANCH_TABLE.equals(table) && BRANCH.equals(branch)) {
+            return Collections.emptyList();
+        }
+        if (MISSING_HEAD_TABLE.equals(table) && BRANCH.equals(branch)) {
+            return Arrays.asList(2L, 3L, 9L);
+        }
         if (FULL_TABLE.equals(table) && BRANCH.equals(branch)) {
             List<Long> versions = new java.util.ArrayList<>();
             for (long v = 2; v <= branchVersions; v++) {
@@ -715,11 +950,20 @@ public class LanceManagedVersioningTest {
 
     /** The location DescribeTable reports; the expired table has its own dataset. */
     private String locationOf(String table) {
-        if (EXPIRED_TABLE.equals(table)) {
+        if (PLAIN_GAP_TABLE.equals(table) || MANAGED_GAP_TABLE.equals(table)) {
+            return gapDatasetUri;
+        }
+        if (EXPIRED_TABLE.equals(table) || UNTIMED_EXPIRED_TABLE.equals(table)) {
             return expiredDatasetUri;
         }
         if (STAGED_TABLE.equals(table)) {
             return stagedDatasetUri;
+        }
+        if (STAGED_UNTIMED_TABLE.equals(table)) {
+            return stagedUntimedDatasetUri;
+        }
+        if (RELOCATED_TABLE.equals(table) && relocated) {
+            return relocatedDatasetUri;
         }
         if (NO_LOCATION_TABLE.equals(table)) {
             return "";
@@ -799,7 +1043,7 @@ public class LanceManagedVersioningTest {
             String table = path.split("/")[3];
             boolean managed = namespaceVersions.containsKey(table);
             boolean declared = DECLARED_TABLE.equals(table);
-            boolean plain = PLAIN_TABLE.equals(table) || EXPIRED_TABLE.equals(table);
+            boolean plain = PLAIN_TABLE.equals(table) || EXPIRED_TABLE.equals(table) || PLAIN_GAP_TABLE.equals(table);
             if (!managed && !plain && !declared) {
                 status = 404;
                 response = "{\"error\":\"table not found\",\"code\":4}";
@@ -837,8 +1081,10 @@ public class LanceManagedVersioningTest {
             size = 0;
         }
         // Branch versions are reported without commit times, exercising the storage fallback.
-        String commitTime = UNTIMED_TABLE.equals(table) || branch != null ? "" : ",\"timestamp_millis\":"
-                + datasetVersions.get((int) version - 1).getDataTime().toInstant().toEpochMilli();
+        String commitTime = UNTIMED_TABLE.equals(table) || STAGED_UNTIMED_TABLE.equals(table)
+                || UNTIMED_EXPIRED_TABLE.equals(table) || branch != null ? "" : ",\"timestamp_millis\":"
+                + datasetVersions.get(MISTIMED_TABLE.equals(table) ? 0 : (int) version - 1).getDataTime().toInstant()
+                        .toEpochMilli();
         return "{\"version\":" + version + ",\"manifest_path\":\"" + manifestPath
                 + "\",\"manifest_size\":" + size + commitTime + "}";
     }

@@ -37,8 +37,8 @@ in storage but is absent here behaves like one the namespace has dropped:
                                           2, 3],
                              "branches": {"dev": {"versions": [2, 3]}}}}
 
-A version given as an object also reports its commit time, which is what Doris resolves
-FOR TIME AS OF against for a managed table; a bare integer reports none. Tags are not served:
+A version given as an object also reports its commit time, as a real namespace does; a bare
+integer reports none. Doris resolves FOR TIME AS OF from the manifests' commit times either way. Tags are not served:
 they live in the dataset's _refs/tags/ for managed tables too. "branches" lists the versions
 recorded on each branch (manifests under <table>/tree/<branch>/_versions/), answering the
 version endpoints when a request carries a branch.
@@ -112,8 +112,7 @@ def _load_managed_tables() -> dict[tuple[str, ...], dict]:
 
     Each entry maps to {"versions": {version: commit_millis_or_None}, "branches": {name: [versions]}}.
     A version may be given as a bare integer, in which case no commit time is reported, or as
-    {"version": n, "timestamp_millis": ms}, which is what a real namespace returns and what
-    FOR TIME AS OF resolves against.
+    {"version": n, "timestamp_millis": ms}, which is what a real namespace returns.
     """
     raw = os.environ.get("LANCE_REST_MANAGED_TABLES_JSON", "{}")
     managed = json.loads(raw)

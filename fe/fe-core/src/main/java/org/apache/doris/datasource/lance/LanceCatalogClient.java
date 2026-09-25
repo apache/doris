@@ -41,6 +41,7 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,7 +49,6 @@ import org.lance.Dataset;
 import org.lance.ReadOptions;
 import org.lance.Ref;
 import org.lance.Session;
-import org.lance.Tag;
 import org.lance.Version;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.TableBranchNotFoundException;
@@ -61,9 +61,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.NavigableSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -281,10 +285,28 @@ final class LanceCatalogClient implements AutoCloseable {
      * checkout from that handle, so the SDK resolves the ref with the same commit handler
      * (the namespace's, for a managed table). A tag is resolved first to the chain and version it
      * points at, so a tag created on a branch selects that branch. The two shortcuts that skip the
-     * latest open are an explicit version on the main chain, and {@code FOR TIME AS OF} on a
-     * managed table whose namespace reports commit times.
+     * latest open are an explicit version on the main chain, and the latest version of a managed
+     * table. For a managed table, "latest" is always the newest version the namespace records,
+     * never the newest manifest in storage.
      */
     private <T> T readTableSnapshot(String dbName, String tableName, LanceRefSelector selector,
+            SnapshotReader<T> reader) {
+        try {
+            return readTableSnapshotOnce(dbName, tableName, selector, reader);
+        } catch (StaleTableAccessException e) {
+            // The cached access predates a location change the SDK has already seen. Read once
+            // more with a fresh access, so the FE plans and the BE reads the same location.
+            namespaceClient.invalidateTableAccess(dbName, tableName);
+            try {
+                return readTableSnapshotOnce(dbName, tableName, selector, reader);
+            } catch (StaleTableAccessException again) {
+                throw new RuntimeException("Lance namespace reported a different location for " + dbName + "."
+                        + tableName + " while it was being opened; retry the query");
+            }
+        }
+    }
+
+    private <T> T readTableSnapshotOnce(String dbName, String tableName, LanceRefSelector selector,
             SnapshotReader<T> reader) {
         ReadState state = new ReadState(selector, dbName + "." + tableName);
         LanceMetadataMetrics metrics = LanceMetadataMetrics.startMetadataRead();
@@ -301,7 +323,10 @@ final class LanceCatalogClient implements AutoCloseable {
                         result = reader.read(dataset, state.access, metrics);
                     }
                 } else {
-                    try (Dataset main = openDataset(allocator, state.access, OptionalLong.empty(), metrics)) {
+                    OptionalLong mainVersion = state.access.isManagedVersioning()
+                            ? OptionalLong.of(recordedLatestVersion(state, Optional.empty(), metrics))
+                            : OptionalLong.empty();
+                    try (Dataset main = openDataset(allocator, state.access, mainVersion, metrics)) {
                         result = readFromLatest(main, state, reader, metrics);
                     }
                 }
@@ -310,12 +335,14 @@ final class LanceCatalogClient implements AutoCloseable {
             return result;
         } catch (LanceUserFacingException e) {
             throw new RuntimeException(e.getMessage(), e);
+        } catch (StaleTableAccessException e) {
+            throw e;
         } catch (Exception e) {
             LanceTableAccess access = state.access;
             String uri = access == null ? null : access.getDatasetUri();
             Map<String, String> options = access == null ? namespaceStorageOptions : access.getStorageOptions();
             String what = state.displayName();
-            if (state.branch.isPresent() && !state.branchCheckedOut && isBranchNotFound(e, state.branch.get())) {
+            if (state.branch.isPresent() && !state.branchExists && isBranchNotFound(e, state.branch.get())) {
                 throw new RuntimeException("Lance branch '" + state.branch.get() + "' of " + state.tableName
                         + state.selector.getTag().map(tag -> " (tag '" + tag + "')").orElse("")
                         + " was not found" + (isNamespaceMiss(e, "table branch not found") ? " in the namespace" : ""),
@@ -343,8 +370,11 @@ final class LanceCatalogClient implements AutoCloseable {
         private final String tableName;
         private LanceTableAccess access;
         private Optional<String> branch;
-        /** Set once the branch's latest version was checked out, i.e. the branch exists. */
-        private boolean branchCheckedOut;
+        /**
+         * Set once the branch is known to exist: the namespace recorded versions for it, or its
+         * latest version was checked out. Later failures are not reported as a missing branch.
+         */
+        private boolean branchExists;
         private OptionalLong version = OptionalLong.empty();
         /** The namespace's version list per chain ("" is main), fetched at most once per read. */
         private final Map<String, List<TableVersion>> namespaceVersions = new HashMap<>();
@@ -367,23 +397,22 @@ final class LanceCatalogClient implements AutoCloseable {
 
     /**
      * The main-chain version a selector names without looking at the latest manifest: an explicit
-     * version, or {@code FOR TIME AS OF} on a managed table whose namespace reports commit times.
+     * version, or the latest version of a managed table, which the namespace records.
      */
     private OptionalLong directMainVersion(ReadState state, LanceMetadataMetrics metrics) {
         LanceRefSelector selector = state.selector;
-        if (selector.getTag().isPresent() || selector.getBranch().isPresent() || !selector.getSnapshot().isPresent()) {
+        if (selector.getTag().isPresent() || selector.getBranch().isPresent()) {
             return OptionalLong.empty();
+        }
+        if (!selector.getSnapshot().isPresent()) {
+            return state.access.isManagedVersioning()
+                    ? OptionalLong.of(recordedLatestVersion(state, Optional.empty(), metrics))
+                    : OptionalLong.empty();
         }
         TableSnapshot snapshot = selector.getSnapshot().get();
-        if (snapshot.getType() == TableSnapshot.VersionType.VERSION) {
-            return OptionalLong.of(LanceSnapshotResolver.parseVersion(snapshot.getValue()));
-        }
-        if (!state.access.isManagedVersioning()) {
-            return OptionalLong.empty();
-        }
-        long timestamp = parseTimeTravelTimestamp(snapshot.getValue());
-        return LanceSnapshotResolver.namespaceVersionAtOrBefore(
-                namespaceVersions(state, state.access, metrics), timestamp, snapshot.getValue());
+        return snapshot.getType() == TableSnapshot.VersionType.VERSION
+                ? OptionalLong.of(LanceSnapshotResolver.parseVersion(snapshot.getValue()))
+                : OptionalLong.empty();
     }
 
     /** Resolves the selector against the open latest main chain and reads the selected snapshot. */
@@ -391,25 +420,27 @@ final class LanceCatalogClient implements AutoCloseable {
             throws Exception {
         LanceRefSelector selector = state.selector;
         if (selector.getTag().isPresent()) {
+            // Only this tag's file is read, however many tags the table has. The SDK checks the tag
+            // out on the branch of the version it points at; for a managed table that is an
+            // explicit version the namespace resolves, never a storage fallback.
             String tag = selector.getTag().get();
-            Tag target = metrics.measure(Stage.VERSION_RESOLVE, () -> main.tags().list().stream()
-                    .filter(candidate -> tag.equals(candidate.getName())).findFirst()
-                    .orElseThrow(() -> new LanceUserFacingException(
-                            "Lance tag '" + tag + "' of " + state.tableName + " was not found")));
-            state.branch = target.getBranch().filter(name -> !MAIN_BRANCH.equals(name));
-            state.version = OptionalLong.of(target.getVersion());
-            if (!state.branch.isPresent()) {
-                try (Dataset dataset = checkout(main, Ref.ofMain(target.getVersion()), metrics)) {
-                    return reader.read(dataset, state.access, metrics);
-                }
+            state.version = OptionalLong.of(metrics.measure(Stage.VERSION_RESOLVE, () -> tagVersion(main, tag, state)));
+            try (Dataset target = checkout(main, Ref.ofTag(tag), metrics)) {
+                state.branch = branchOf(target.uri(), state.access.getDatasetUri());
+                return reader.read(target, accessOf(target, state), metrics);
             }
         }
         if (state.branch.isPresent()) {
             String branch = state.branch.get();
             // Check out the branch's latest version first even when a version is already known, so
             // a missing branch and a missing version inside an existing branch are told apart.
-            try (Dataset latest = checkout(main, Ref.ofBranch(branch), metrics)) {
-                state.branchCheckedOut = true;
+            Ref branchHead = Ref.ofBranch(branch);
+            if (state.access.isManagedVersioning()) {
+                branchHead = Ref.ofBranch(branch, recordedLatestVersion(state, Optional.of(branch), metrics));
+                state.branchExists = true;
+            }
+            try (Dataset latest = checkout(main, branchHead, metrics)) {
+                state.branchExists = true;
                 LanceTableAccess branchAccess = accessOf(latest, state);
                 if (!state.version.isPresent() && selector.getSnapshot().isPresent()) {
                     state.version = resolveSnapshotVersion(latest, branchAccess, selector.getSnapshot().get(), state,
@@ -423,11 +454,43 @@ final class LanceCatalogClient implements AutoCloseable {
                 }
             }
         }
-        // FOR TIME AS OF on the main chain, resolved from storage commit times.
+        // FOR TIME AS OF on the main chain, resolved from manifest commit times.
         state.version = resolveSnapshotVersion(main, state.access, selector.getSnapshot().get(), state, metrics);
         try (Dataset dataset = checkout(main, Ref.ofMain(state.version.getAsLong()), metrics)) {
             return reader.read(dataset, state.access, metrics);
         }
+    }
+
+    private static long tagVersion(Dataset main, String tag, ReadState state) {
+        try {
+            return main.tags().getVersion(tag);
+        } catch (RuntimeException e) {
+            String rootMessage = ExceptionUtils.getRootCauseMessage(e);
+            if (rootMessage != null && rootMessage.contains("tag " + tag + " does not exist")) {
+                throw new LanceUserFacingException("Lance tag '" + tag + "' of " + state.tableName + " was not found");
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * The branch a dataset checked out from the table root is on, from its root directory: the
+     * table root for main, {@code <root>/tree/<branch>} otherwise. Lance inserts the branch path
+     * before a URI's query string, so the query is compared apart. A URI that is neither is an
+     * error rather than main, which would hand the BE the wrong chain.
+     */
+    static Optional<String> branchOf(String checkedOutUri, String tableUri) {
+        String root = StringUtils.removeEnd(StringUtils.substringBefore(tableUri, "?"), "/");
+        String uri = StringUtils.removeEnd(StringUtils.substringBefore(checkedOutUri, "?"), "/");
+        if (uri.equals(root)) {
+            return Optional.empty();
+        }
+        String branchRoot = root + "/tree/";
+        if (!uri.startsWith(branchRoot) || uri.length() == branchRoot.length()) {
+            // The URIs may carry credentials in their query, so they stay out of the message.
+            throw new IllegalStateException("Cannot tell which branch a Lance tag was checked out on");
+        }
+        return Optional.of(uri.substring(branchRoot.length()));
     }
 
     /**
@@ -443,6 +506,33 @@ final class LanceCatalogClient implements AutoCloseable {
         private LanceUserFacingException(String message) {
             super(message);
         }
+    }
+
+    /** The SDK opened a managed table at another location than the resolved access names. */
+    private static final class StaleTableAccessException extends RuntimeException {
+        private StaleTableAccessException() {
+            super("Lance table location changed since its access was resolved");
+        }
+    }
+
+    /**
+     * The newest version the namespace records for a managed chain. Doris asks for it itself:
+     * opening "latest" through the SDK falls back to the newest manifest in storage when the
+     * namespace records none, which would expose a version the namespace never published.
+     */
+    private long recordedLatestVersion(ReadState state, Optional<String> branch, LanceMetadataMetrics metrics) {
+        // A read that already listed the chain's versions reuses that list.
+        List<TableVersion> listed = state.namespaceVersions.get(branch.orElse(""));
+        OptionalLong latest = listed != null
+                ? listed.stream().map(TableVersion::getVersion).filter(Objects::nonNull)
+                        .mapToLong(Long::longValue).max()
+                : metrics.measure(Stage.VERSION_RESOLVE,
+                        () -> namespaceClient.latestManagedVersion(state.access, branch));
+        if (!latest.isPresent()) {
+            throw new LanceUserFacingException("Lance namespace lists no versions for " + state.tableName
+                    + branch.map(name -> "@" + name).orElse(""));
+        }
+        return latest.getAsLong();
     }
 
     private RuntimeException sanitizedCause(Throwable error, String uri, Map<String, String> options) {
@@ -471,7 +561,7 @@ final class LanceCatalogClient implements AutoCloseable {
         try {
             return OptionalLong.of(resolveVersionAtOrBefore(latest, access, timestamp, snapshot.getValue(), state,
                     metrics));
-        } catch (IllegalArgumentException e) {
+        } catch (LanceSnapshotResolver.NoVersionAtOrBeforeException e) {
             if (!access.getBranch().isPresent()) {
                 throw e;
             }
@@ -545,38 +635,102 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     /**
-     * Resolves {@code FOR TIME AS OF} to a version on the chain {@code latest} is checked out on.
-     * A namespace-managed table is resolved from the commit times the namespace records, so that
-     * only versions the namespace knows are selected. If the namespace lists its versions without
-     * commit times, the times come from the manifests present in storage, restricted to the
-     * versions the namespace lists; a storage-versioned table is resolved from storage alone.
+     * Resolves {@code FOR TIME AS OF} to a version on the chain {@code latest} is checked out on,
+     * from the commit times the manifests record, as Lance resolves {@code asof}. A managed table
+     * only selects among the versions its namespace records.
+     *
+     * <p>The version next to the selection must still exist: if the version after it, or with
+     * nothing listed at or before the time the one before the oldest listed, was removed by
+     * cleanup, the table's state at that time is unknown and the query fails instead of reading
+     * an older snapshot. A recorded version missing from the storage listing because its manifest
+     * is still staged is checked out there, which finalizes it and yields its commit time.
      */
     private long resolveVersionAtOrBefore(Dataset latest, LanceTableAccess access, long timestamp,
             String requestedText, ReadState state, LanceMetadataMetrics metrics) {
-        Set<Long> recordedVersions = null;
-        if (access.isManagedVersioning()) {
-            List<TableVersion> recorded = namespaceVersions(state, access, metrics);
-            OptionalLong fromNamespace = LanceSnapshotResolver.namespaceVersionAtOrBefore(
-                    recorded, timestamp, requestedText);
-            if (fromNamespace.isPresent()) {
-                LOG.debug("Resolved Lance FOR TIME AS OF '{}' to version {} from the namespace",
-                        requestedText, fromNamespace.getAsLong());
-                return fromNamespace.getAsLong();
-            }
-            recordedVersions = recorded.stream().map(TableVersion::getVersion).collect(Collectors.toSet());
-        }
-        Set<Long> allowedVersions = recordedVersions;
+        NavigableSet<Long> recorded = access.isManagedVersioning()
+                ? namespaceVersions(state, access, metrics).stream().map(TableVersion::getVersion)
+                        .filter(Objects::nonNull).collect(Collectors.toCollection(TreeSet::new))
+                : null;
         long version = metrics.measure(Stage.VERSION_RESOLVE, () -> {
-            List<Version> versions = latest.listVersions();
-            if (allowedVersions != null) {
-                versions = versions.stream().filter(candidate -> allowedVersions.contains(candidate.getId()))
-                        .collect(Collectors.toList());
+            NavigableMap<Long, Version> listed = new TreeMap<>();
+            for (Version candidate : latest.listVersions()) {
+                if (recorded == null || recorded.contains(candidate.getId())) {
+                    listed.put(candidate.getId(), candidate);
+                }
             }
-            return LanceSnapshotResolver.versionAtOrBefore(versions, timestamp, requestedText);
+            long selected;
+            try {
+                selected = LanceSnapshotResolver.versionAtOrBefore(listed.values(), timestamp, requestedText);
+            } catch (LanceSnapshotResolver.NoVersionAtOrBeforeException e) {
+                if (recorded == null) {
+                    throw e;
+                }
+                // Recorded versions older than the oldest listed one may still be staged. Walking
+                // back, every version passed was committed after the time, so the first one at or
+                // before it is the answer.
+                Long older = listed.isEmpty() ? recorded.last() : recorded.lower(listed.firstKey());
+                while (older != null) {
+                    Version olderVersion = recordedVersion(latest, access, older);
+                    if (olderVersion == null) {
+                        throw historyRemoved(older, requestedText, state);
+                    }
+                    if (LanceSnapshotResolver.commitMillis(olderVersion) <= timestamp) {
+                        return older;
+                    }
+                    older = recorded.lower(older);
+                }
+                throw e;
+            }
+            // Lance numbers a chain's commits consecutively, so a storage chain is every number
+            // between the oldest and newest listed manifest; a managed chain is what is recorded.
+            Long next = nextVersion(selected, recorded, listed);
+            while (next != null) {
+                Version nextVersion = listed.containsKey(next) ? listed.get(next)
+                        : recorded == null ? null : recordedVersion(latest, access, next);
+                if (nextVersion == null) {
+                    throw historyRemoved(next, requestedText, state);
+                }
+                if (LanceSnapshotResolver.commitMillis(nextVersion) > timestamp) {
+                    break;
+                }
+                selected = next;
+                next = nextVersion(next, recorded, listed);
+            }
+            return selected;
         });
-        LOG.debug("Resolved Lance FOR TIME AS OF '{}' to version {} from storage manifests{}",
-                requestedText, version, allowedVersions == null ? "" : " listed by the namespace");
+        LOG.debug("Resolved Lance FOR TIME AS OF '{}' to version {} from manifest commit times", requestedText,
+                version);
         return version;
+    }
+
+    private static Long nextVersion(long version, NavigableSet<Long> recorded, NavigableMap<Long, Version> listed) {
+        if (recorded != null) {
+            return recorded.higher(version);
+        }
+        return version < listed.lastKey() ? version + 1 : null;
+    }
+
+    /**
+     * A namespace-recorded version checked out through the namespace, or null if it is gone. A
+     * still-staged manifest is finalized by the checkout.
+     */
+    private static Version recordedVersion(Dataset latest, LanceTableAccess access, long version) {
+        Ref ref = access.getBranch().map(name -> Ref.ofBranch(name, version)).orElseGet(() -> Ref.ofMain(version));
+        try (Dataset recorded = latest.checkout(ref)) {
+            return recorded.getVersion();
+        } catch (Exception e) {
+            // Also the IOException the JNI raises for a missing manifest.
+            if (!isVersionNotFound(e)) {
+                throw e;
+            }
+            return null;
+        }
+    }
+
+    private static LanceUserFacingException historyRemoved(long version, String requestedText, ReadState state) {
+        return new LanceUserFacingException("Lance cannot resolve FOR TIME AS OF '" + requestedText + "' on "
+                + state.displayName() + ": version " + version + ", which may hold the state at that time,"
+                + " no longer exists");
     }
 
     /**
@@ -617,12 +771,18 @@ final class LanceCatalogClient implements AutoCloseable {
 
     private Dataset openDataset(BufferAllocator allocator, LanceTableAccess access, OptionalLong version,
             LanceMetadataMetrics metrics) {
-        ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getStorageOptions(), version, session);
+        ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getSdkStorageOptions(), version, session);
         if (access.isManagedVersioning()) {
             // The SDK re-describes the table and opens the location the namespace returns, so a
-            // namespace that returns a relative location cannot be read in this mode.
-            return metrics.measure(Stage.DATASET_OPEN,
+            // namespace that returns a relative location cannot be read in this mode. The BE
+            // opens the access's location, so both must still agree after that second describe.
+            Dataset dataset = metrics.measure(Stage.DATASET_OPEN,
                     () -> namespaceClient.openManagedDataset(allocator, access, readOptions, session));
+            if (!StringUtils.removeEnd(dataset.uri(), "/").equals(StringUtils.removeEnd(access.getDatasetUri(), "/"))) {
+                dataset.close();
+                throw new StaleTableAccessException();
+            }
+            return dataset;
         }
         return metrics.measure(Stage.DATASET_OPEN, () -> Dataset.open().allocator(allocator).uri(access.getDatasetUri())
                 .readOptions(readOptions).build());

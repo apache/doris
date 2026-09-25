@@ -31,8 +31,8 @@ suite("test_lance_rest_time_travel", "p0,external") {
      *
      * For a managed table the FE opens the dataset through the namespace, so the latest
      * version is what ListTableVersions returns, FOR VERSION AS OF goes through
-     * DescribeTableVersion, and FOR TIME AS OF picks from the commit times ListTableVersions
-     * reports. A version the namespace does not record is unreachable even though its
+     * DescribeTableVersion, and FOR TIME AS OF picks, by the commit times the manifests record,
+     * among the versions ListTableVersions lists. A version the namespace does not record is unreachable even though its
      * manifest is still in storage. The BE then opens the resolved version by URI with the
      * vended credentials, exactly as for a storage-versioned table.
      */
@@ -129,9 +129,8 @@ suite("test_lance_rest_time_travel", "p0,external") {
             sql """SELECT count(*) FROM ${partial} FOR VERSION AS OF 2"""
             exception "Lance version 2 of default.time_travel_managed_partial was not found in the namespace"
         }
-        // FOR TIME AS OF resolves against the commit times the namespace records, so a timestamp
-        // between the second and third commit selects version 1, the latest version the
-        // namespace still knows at that time, rather than the dropped version 2.
+        // FOR TIME AS OF only selects among the versions the namespace records, so a timestamp
+        // between the second and third commit selects version 1 rather than the dropped version 2.
         qt_partial_time_version_1 """
             SELECT count(*), max(row_id) FROM ${partial} FOR TIME AS OF '2026-09-19 13:06:10'
         """
@@ -201,9 +200,9 @@ suite("test_lance_rest_time_travel", "p0,external") {
             exception "Lance branch 'nope' of default.time_travel_managed was not found"
         }
 
-        // A namespace that lists versions without commit times: FOR TIME AS OF falls back to the
-        // commit times in storage, but only among the versions the namespace lists, so the
-        // instant between commits 2 and 3 still selects version 1, not the unlisted version 2.
+        // A namespace that lists versions without commit times resolves the same way: commit times
+        // come from the manifests, so the instant between commits 2 and 3 still selects version 1,
+        // not the unlisted version 2.
         qt_untimed_latest """SELECT count(*), max(row_id) FROM ${untimed}"""
         qt_untimed_time_between_2_and_3 """
             SELECT count(*), max(row_id) FROM ${untimed} FOR TIME AS OF '2026-09-19 13:06:10'

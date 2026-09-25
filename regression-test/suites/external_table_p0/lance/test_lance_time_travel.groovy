@@ -161,7 +161,7 @@ suite("test_lance_time_travel", "p0,external") {
             sql """SELECT count(*) FROM ${table} FOR VERSION AS OF '-1'"""
             exception "Lance FOR VERSION AS OF requires a positive version, but was -1"
         }
-        // As for Iceberg and Paimon, a non-numeric FOR VERSION AS OF names a tag.
+        // As for Paimon, and for tag names in Iceberg, a non-numeric FOR VERSION AS OF names a tag.
         test {
             sql """SELECT count(*) FROM ${table} FOR VERSION AS OF 'abc'"""
             exception "Lance tag 'abc' of default.time_travel was not found"
@@ -194,8 +194,16 @@ suite("test_lance_time_travel", "p0,external") {
         // A Lance tag (stored under _refs/tags/) resolves to the version it points at.
         order_qt_tag_v2 """SELECT * FROM ${table}@tag(v2)"""
         order_qt_version_as_of_tag_name """SELECT * FROM ${table} FOR VERSION AS OF 'v2'"""
-        // "main" is the main chain, so a tag name in FOR VERSION AS OF still resolves.
-        order_qt_branch_main_version_as_of_tag_name """SELECT * FROM ${table}@branch(main) FOR VERSION AS OF 'v2'"""
+        // A tag determines its own branch, so it is never combined with @branch, @branch(main)
+        // included: "rel" points into dev and must not be read under an explicit main.
+        test {
+            sql """SELECT count(*) FROM ${table}@branch(main) FOR VERSION AS OF 'v2'"""
+            exception "FOR VERSION AS OF 'v2' names a tag, which cannot be combined with @branch"
+        }
+        test {
+            sql """SELECT count(*) FROM ${table}@branch(main) FOR VERSION AS OF 'rel'"""
+            exception "FOR VERSION AS OF 'rel' names a tag, which cannot be combined with @branch"
+        }
         qt_version_as_of_tag_on_branch """SELECT count(*), max(row_id) FROM ${table} FOR VERSION AS OF 'rel'"""
         test {
             sql """SELECT count(*) FROM ${table}@tag('name'='v1', 'x'='y')"""

@@ -93,7 +93,7 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
     @Override
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        // As for Iceberg and Paimon tables, a non-numeric FOR VERSION AS OF names a tag.
+        // As for Paimon tables, and for tag names in Iceberg, a non-numeric FOR VERSION AS OF names a tag.
         boolean versionIsTag = tableSnapshot.isPresent()
                 && tableSnapshot.get().getType() == TableSnapshot.VersionType.VERSION
                 && !LanceSnapshotResolver.isVersionNumber(tableSnapshot.get().getValue());
@@ -103,14 +103,17 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
             TableScanParams params = scanParams.get();
             if (params.isBranch()) {
                 String branch = refName(params);
-                // Lance calls the main chain "main"; it lives at the table root, not under tree/.
-                if (LanceCatalogClient.MAIN_BRANCH.equals(branch)) {
-                    // selector stays the main-chain one, including a tag named in FOR VERSION AS OF.
-                } else if (versionIsTag) {
+                // A tag already determines its branch, so naming one as well is redundant at best
+                // and contradictory when the tag points into another branch; @branch(main) included.
+                // Iceberg rejects any version with @branch; numeric versions and times stay allowed
+                // here because Lance numbers versions per branch.
+                if (versionIsTag) {
                     throw new IllegalArgumentException("Lance table " + getName() + ": FOR VERSION AS OF '"
                             + tableSnapshot.get().getValue() + "' names a tag, which cannot be combined with @branch;"
                             + " use @tag(...) or a numeric version");
-                } else {
+                }
+                // Lance calls the main chain "main"; it lives at the table root, not under tree/.
+                if (!LanceCatalogClient.MAIN_BRANCH.equals(branch)) {
                     selector = LanceRefSelector.branch(branch, tableSnapshot);
                 }
             } else if (params.isTag()) {
