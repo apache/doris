@@ -1153,10 +1153,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
-            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
-                // skip untrustworthy tso placeholder zonemap
-                // if possible already be pruned as a whole before,
-                // so just skip
+            if (_segment->placeholder_effective_value(cid, *_schema, _opts).has_value()) {
+                // A hidden placeholder column (version / commit-tso / binlog-tso) holds one
+                // effective value for the whole single-version segment, so its on-disk per-page
+                // zonemap is untrustworthy and page-level pruning would add nothing beyond the
+                // segment-level decision. Skip it; rows are corrected at read time.
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -3410,6 +3411,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         const auto cid = cast_set<ColumnId>(slot_index);
         if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                   _opts.target_cast_type_for_variants, _opts)) {
+            continue;
+        }
+        if (_segment->placeholder_effective_value(cid, *_schema, _opts).has_value()) {
+            // A hidden placeholder column holds one effective value for the whole single-version
+            // segment, so its per-page on-disk zonemap is untrustworthy; page-level pruning adds
+            // nothing beyond the segment-level decision. Skip it (rows are corrected at read time).
             continue;
         }
         const auto* tablet_column = _schema->column(cid);
