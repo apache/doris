@@ -2201,7 +2201,13 @@ build_lance_c() {
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
             rustup toolchain install "${required_rust_version}" --profile minimal
         fi
         cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
@@ -2278,7 +2284,13 @@ build_paimon_rust() {
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
             rustup toolchain install "${required_rust_version}" --profile minimal
         fi
         cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
