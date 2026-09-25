@@ -1066,6 +1066,58 @@ public class DatabaseTransactionMgrTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testCommittedRowBinlogCanPublishWhenFeatureDisabled(boolean replay) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            FakeEnv.setEnv(masterEnv);
+            Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(12345L);
+            setEnvTSOService(masterEnv, tsoService);
+            long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
+                    "committed_row_binlog", transactionSource, LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(db.getId(), Lists.newArrayList(table), txnId,
+                    GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends), null);
+            TransactionState state = masterTransMgr.getTransactionState(db.getId(), txnId);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+
+            Config.enable_feature_binlog = false;
+            GlobalTransactionMgr transactionMgr = masterTransMgr;
+            Env publishEnv = masterEnv;
+            if (replay) {
+                publishEnv = slaveEnv;
+                transactionMgr = slaveTransMgr;
+                table = (OlapTable) slaveEnv.getInternalCatalog().getDbOrMetaException(db.getId())
+                        .getTableOrMetaException(table.getId());
+                setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            }
+            FakeEnv.setEnv(publishEnv);
+            setEnvTSOService(publishEnv, new TSOService());
+            if (replay) {
+                transactionMgr.replayUpsertTransactionState(state);
+            }
+            Map<String, Map<Long, Long>> successTablets = new HashMap<>();
+            setSuccessTablet(successTablets, allBackends, txnId, CatalogTestUtil.testTabletId1,
+                    CatalogTestUtil.testStartVersion + 2);
+            setTransactionFinishPublish(state, allBackends, successTablets);
+            transactionMgr.finishTransaction(db.getId(), txnId, Maps.newHashMap(), Maps.newHashMap());
+
+            Assertions.assertEquals(TransactionStatus.VISIBLE, state.getTransactionStatus());
+            Assertions.assertEquals(12345L, state.getCommitTSO());
+            Assertions.assertEquals(CatalogTestUtil.testStartVersion + 2,
+                    table.getPartition(CatalogTestUtil.testPartitionId1).getVisibleVersion());
+            Assertions.assertEquals(12345L, table.getPartition(CatalogTestUtil.testPartitionId1).getTso());
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
     @Test
     public void testCommitTransactionSetsCommitTSOWhenEnableTso() throws Exception {
         boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;

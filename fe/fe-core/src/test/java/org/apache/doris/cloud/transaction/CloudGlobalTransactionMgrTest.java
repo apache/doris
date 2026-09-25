@@ -19,6 +19,7 @@ package org.apache.doris.cloud.transaction;
 
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
@@ -68,6 +69,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionState;
@@ -323,6 +325,53 @@ public class CloudGlobalTransactionMgrTest {
                 jobLock.writeLock().unlock();
             }
             table.setBinlogConfig(originalBinlogConfig);
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testDisabledRowBinlogRejectsCloudCommitVariants(boolean twoPhase) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable plainTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        OlapTable rowTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
+        BinlogConfig originalBinlogConfig = new BinlogConfig(rowTable.getBinlogConfig());
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            Config.enable_feature_binlog = false;
+            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
+            binlogConfig.setEnable(true);
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+            rowTable.setBinlogConfig(binlogConfig);
+            Mockito.doReturn(new TSOService()).when(masterEnv).getTSOService();
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenThrow(
+                    new AssertionError("A disabled ROW binlog transaction must not reach MetaService"));
+
+            TransactionCommitFailedException exception = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, () -> {
+                        if (twoPhase) {
+                            masterTransMgr.commitTransaction2PC(db, Lists.newArrayList(plainTable, rowTable),
+                                    123533, 1000);
+                        } else {
+                            masterTransMgr.commitAndPublishTransaction(db, 123533, List.of(
+                                    new SubTransactionState(123533, plainTable, List.of(
+                                            new TTabletCommitInfo(CatalogTestUtil.testTabletId1,
+                                                    CatalogTestUtil.testBackendId1)),
+                                            SubTransactionState.SubTransactionType.INSERT),
+                                    new SubTransactionState(123534, rowTable, List.of(
+                                            new TTabletCommitInfo(CatalogTestUtil.testTabletId2,
+                                                    CatalogTestUtil.testBackendId1)),
+                                            SubTransactionState.SubTransactionType.INSERT)), 1000);
+                        }
+                    });
+            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+            Assertions.assertNull(plainTable.getCommitLockOwner());
+            Assertions.assertNull(rowTable.getCommitLockOwner());
+            Mockito.verify(proxy, Mockito.never()).commitTxn(Mockito.any());
+        } finally {
+            rowTable.setBinlogConfig(originalBinlogConfig);
             Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
