@@ -360,13 +360,13 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
         def test_true_false = {
             sql """ set enable_parquet_filter_by_min_max = true; """
             sql """ set enable_parquet_lazy_materialization = false; """
-            // in v2 lazy materialization is always enabled.
+            // Versioned Parquet requires V2, whose lazy materialization stays enabled.
             sql """ set enable_file_scanner_v2=false; """
 
             def metrics = q1()
             logger.info("metrics = ${metrics}")
             assertEquals("99", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(0L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("1", metrics["RawRowsRead"])
             assertEquals("99", metrics["RowGroupsFiltered"])
@@ -378,7 +378,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q2()
             logger.info("metrics = ${metrics}")
             assertEquals("99", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(0L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("1", metrics["RawRowsRead"])
             assertEquals("99", metrics["RowGroupsFiltered"])
@@ -390,7 +390,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q3()
             logger.info("metrics = ${metrics}")
             assertEquals("100", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(0L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("0", metrics["RawRowsRead"])
             assertEquals("100", metrics["RowGroupsFiltered"])
@@ -402,7 +402,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q4()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(20L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("7.279K (7279)", metrics["FilteredRowsByPage"])
             assertEquals("21", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -414,7 +414,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q5()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(28L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("7.258K (7258)", metrics["FilteredRowsByPage"])
             assertEquals("42", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -426,7 +426,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q6()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(1L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertTrue(metrics["RawRowsRead"].contains("7300"))
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -438,7 +438,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q7()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(19L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("7.279K (7279)", metrics["FilteredRowsByPage"])
             assertEquals("21", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -456,7 +456,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             def metrics = q1()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(99L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("100", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -468,7 +468,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q2()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(99L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("100", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -480,7 +480,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q3()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(100L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("100", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -492,7 +492,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q4()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(7299L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("7.3K (7300)", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -504,7 +504,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q5()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(7286L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("7.3K (7300)", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -516,7 +516,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q6()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(1L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("7.3K (7300)", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -528,7 +528,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             metrics = q7()
             logger.info("metrics = ${metrics}")
             assertEquals("0", metrics["FilteredRowsByGroup"])
-            assertEquals("0", metrics["FilteredRowsByLazyRead"])
+            assertEquals(7298L, metricValueAsLong(metrics["FilteredRowsByLazyRead"]))
             assertEquals("0", metrics["FilteredRowsByPage"])
             assertEquals("7.3K (7300)", metrics["RawRowsRead"])
             assertEquals("0", metrics["RowGroupsFiltered"])
@@ -628,8 +628,8 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
             assertEquals("1", metrics["RowGroupsTotalNum"])
         }
 
-        // The existing profile counter expectations below describe the legacy reader. Keep them
-        // isolated from the format v2 default; q8() is the format v2 lazy-materialization check.
+        // Versioned Parquet forces V2 even when these session preferences are disabled. Keep
+        // checking exact pruning counters; disabling lazy materialization cannot select V1.
         sql """ set enable_file_scanner_v2=false; """
         test_true_true();
         test_true_false();

@@ -196,14 +196,20 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nested_structs.rust.parquet"
-            // This fixture labels nanosecond-sized min/max values as TIMESTAMP_MICROS. Reject
-            // those out-of-range instants, but retain coverage for every valid nested column.
-            test {
-                sql """ select ul_observation_date from HDFS(
-                        "uri" = "${uri}",
-                        "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet") limit 10; """
-                exception "Parquet dictionary entry"
+            // Strict conversion must reject the fixture's nanosecond-sized TIMESTAMP_MICROS.
+            // Permissive scans can substitute defaults, so do not depend on the session default.
+            def previousStrictCast = sql("show variables like 'enable_strict_cast'")[0][1]
+            sql "set enable_strict_cast = true"
+            try {
+                test {
+                    sql """ select ul_observation_date from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "parquet") limit 10; """
+                    exception "Parquet dictionary entry"
+                }
+            } finally {
+                sql "set enable_strict_cast = ${previousStrictCast}"
             }
             order_qt_test_24 """ select * except (ul_observation_date) from HDFS(
                         "uri" = "${uri}",
