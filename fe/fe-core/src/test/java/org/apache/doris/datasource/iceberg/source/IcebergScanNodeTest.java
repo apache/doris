@@ -1799,6 +1799,68 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testSplitKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() throws Exception {
+        // A file written under identity(p) keeps p=7 only in its manifest partition metadata. Gating on
+        // the CURRENT spec drops that value once the default spec evolves to unpartitioned, and keying
+        // the partition-key classification off the columns common to all specs leaves BE reading p from
+        // a file that does not store it, so the column comes back NULL in both cases.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        String location = temporaryFolder.newFolder("identity_evolved_table").toURI().toString();
+        Table table = new HadoopTables(new Configuration()).create(schema, spec, location);
+        table.newFastAppend()
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath(location + "data/p=7/old.parquet")
+                        .withFileSizeInBytes(1024L)
+                        .withRecordCount(2L)
+                        .withFormat(FileFormat.PARQUET)
+                        .withPartitionPath("p=7")
+                        .build())
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assert.assertTrue(table.spec().isUnpartitioned());
+
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableFileScannerV2 = true;
+        TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        setIcebergTable(node, table);
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "partitionMapInfos", new HashMap<>());
+        // Exactly what doInitialize computes for this table.
+        setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
+        setPrivateField(node, "hasPartitionedSpec", IcebergUtils.hasPartitionedSpec(table));
+
+        // p must stay a partition key even though the current spec no longer mentions it; otherwise BE
+        // ignores the split value and reads the (absent) physical column.
+        Assert.assertEquals(ImmutableList.of("p"), orderedPathPartitionKeys(node));
+
+        FileScanTask task;
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            Iterator<FileScanTask> iterator = tasks.iterator();
+            Assert.assertTrue(iterator.hasNext());
+            task = iterator.next();
+        }
+
+        IcebergSplit split = createIcebergSplit(node, task);
+        Assert.assertEquals(ImmutableMap.of("p", "7"), split.getIcebergPartitionValues());
+        Assert.assertEquals(Integer.valueOf(0), split.getPartitionSpecId());
+        Assert.assertEquals("[\"7\"]", split.getPartitionDataJson());
+
+        // What BE actually receives: p=7 as a columns-from-path constant for this range.
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        setIcebergParams(node, rangeDesc, split);
+        Assert.assertEquals(ImmutableList.of("p"), rangeDesc.getColumnsFromPathKeys());
+        Assert.assertEquals(ImmutableList.of("7"), rangeDesc.getColumnsFromPath());
+
+        // Display parity: the CURRENT spec is unpartitioned, so the table still reports no scanned
+        // partitions and the batch-mode estimate stays at the unpartitioned default.
+        Assert.assertEquals(1, node.numApproximateSplits());
+    }
+
+    @Test
     public void testBatchSplitCarriesDroppedEqualitySchemaThroughThrift() throws Exception {
         Types.NestedField id = Types.NestedField.required(1, "id", Types.LongType.get());
         Types.NestedField equalityKey = Types.NestedField.required("k")
@@ -3574,6 +3636,13 @@ public class IcebergScanNodeTest {
         Mockito.when(task.length()).thenReturn(128L);
         Mockito.when(task.deletes()).thenReturn(ImmutableList.of(deleteFile));
         return task;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> orderedPathPartitionKeys(IcebergScanNode node) throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("getOrderedPathPartitionKeys");
+        method.setAccessible(true);
+        return (List<String>) method.invoke(node);
     }
 
     private static IcebergSplit createIcebergSplit(IcebergScanNode node, FileScanTask task)
