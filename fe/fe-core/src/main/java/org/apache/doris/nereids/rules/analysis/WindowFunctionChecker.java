@@ -68,8 +68,6 @@ import java.util.stream.Collectors;
  *  window frame (RANGE between UNBOUNDED PRECEDING and CURRENT ROW)
  */
 public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, Void> {
-    private static final BigDecimal MAX_ROWS_OFFSET_VALUE = BigDecimal.valueOf(Long.MAX_VALUE);
-
     private WindowExpression windowExpression;
 
     public WindowFunctionChecker(WindowExpression window) {
@@ -236,8 +234,8 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
 
         if (frameUnits == FrameUnitsType.ROWS) {
-            Preconditions.checkArgument(offsetValue.compareTo(MAX_ROWS_OFFSET_VALUE) <= 0,
-                    "BoundOffset of ROWS WindowFrame must not exceed " + Long.MAX_VALUE);
+            Preconditions.checkArgument(offsetValue.compareTo(WindowFrame.MAX_ROWS_OFFSET) <= 0,
+                    "BoundOffset of ROWS WindowFrame must not exceed " + WindowFrame.MAX_ROWS_OFFSET);
         }
     }
 
