@@ -503,10 +503,13 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(table.getName()).thenReturn(tableName);
         Mockito.when(scan.getTable()).thenReturn(table);
         Mockito.when(scan.getOutput()).thenReturn(List.copyOf(outputs));
-        // default scan state: no scan parameters, no partition selection, no sample
+        // default scan state: no scan parameters, no partition selection, no sample,
+        // no user-pinned partition list and no user-pinned tablet list
         Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
         Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of());
         Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of());
+        Mockito.when(scan.getManuallySpecifiedTabletIds()).thenReturn(List.of());
         stubAccept(scan);
         return scan;
     }
@@ -1091,23 +1094,48 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(second.getName()).thenReturn("p2");
         Mockito.when(third.getName()).thenReturn("p3");
         OlapTable table = scan.getTable();
-        Mockito.when(table.getPartitions()).thenReturn(List.of(first, second, third));
         Mockito.when(table.getPartition(1L)).thenReturn(first);
         Mockito.when(table.getPartition(2L)).thenReturn(second);
         Mockito.when(table.getPartition(3L)).thenReturn(third);
 
-        // a strict subset of the partitions is a data-visible modifier and must be frozen
-        // (ids sorted, so the text is deterministic whatever order the optimizer produced)
-        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(2L, 1L));
+        // a user-pinned partition list is frozen from the MANUAL provenance (ids sorted,
+        // so the text is deterministic whatever order the user / optimizer produced)
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(2L, 1L));
         Assertions.assertEquals("t1 PARTITION(p1, p2)",
                 new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
-                "an olap partition subset must be frozen");
+                "a user partition pin must be frozen");
 
-        // the full partition set reads the whole table: no clause is emitted
-        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(1L, 2L, 3L));
+        // a pin that happens to cover every CURRENT partition still freezes: after ADD
+        // PARTITION the same pinned query would otherwise replay over the new partition
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(1L, 2L, 3L));
+        Assertions.assertEquals("t1 PARTITION(p1, p2, p3)",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
+                "a full-cardinality pin must not be dropped");
+
+        // partition pruning also shrinks selectedPartitionIds; without a user pin no
+        // clause is emitted (the replayed SQL re-derives the same selection)
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of());
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(1L));
         Assertions.assertEquals("t1",
                 new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
-                "the full partition set needs no PARTITION clause");
+                "a pruned-but-unpinned scan must not freeze a partition pin");
+
+        // a temporaray partition pin keeps its namespace
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(1L));
+        Mockito.when(table.isTemporaryPartition(1L)).thenReturn(true);
+        Assertions.assertEquals("t1 TEMPORARY PARTITION(p1)",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
+                "a TEMPORARY partition pin must not bind the formal namespace");
+        Mockito.when(table.isTemporaryPartition(1L)).thenReturn(false);
+
+        // a user-pinned TABLET list is frozen too (without it a replayed scan reads
+        // every tablet of the selected partitions)
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of());
+        Mockito.when(scan.getManuallySpecifiedTabletIds()).thenReturn(List.of(20L, 10L));
+        Assertions.assertEquals("t1 TABLET(10, 20)",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
+                "a user TABLET pin must be frozen");
+        Mockito.when(scan.getManuallySpecifiedTabletIds()).thenReturn(List.of());
 
         // TABLESAMPLE on olap
         PhysicalOlapScan sampled = mockScan("t1", List.of(a));

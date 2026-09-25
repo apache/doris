@@ -210,6 +210,15 @@ public class StatementContext implements Closeable {
     // is outside that whitelist (see getOrCacheDisableRules)
     private BitSet disableRules;
 
+    /**
+     * SPM-local rule exclusion mask: the rules a baseline-creation statement must not
+     * apply. Installed only by SPMOptimizer on its private StatementContext, so the public
+     * enable_nereids_rules variable keeps its established (planning-inert) behavior - a
+     * session value such as enable_nereids_rules='ELIMINATE_GROUP_BY_KEY_BY_UNIFORM' must
+     * not forbid every binding / implementation rule for ordinary statements.
+     */
+    private BitSet spmExcludedRules = null;
+
     // A per-statement memoization arena for connectors: e.g. Iceberg loads a table once and shares that
     // single object across read + write resolvers within the statement. Lazily built (see
     // getOrCreateConnectorStatementScope), values stored opaquely by the connector. Like snapshots, it is
@@ -786,14 +795,21 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Installs the SPM rule exclusion mask on this (private) statement context.
+     */
+    public synchronized void setSpmExcludedRules(BitSet spmExcludedRules) {
+        this.spmExcludedRules = spmExcludedRules;
+    }
+
+    /**
      * The rules this statement must not apply, derived from the session variables and
      * cached per statement:
      *
      * - disable_nereids_rules (a blacklist), plus
-     * - when enable_nereids_rules is non-empty it is a WHITELIST: every rule outside it
-     *   is forbidden as well.
+     * - the SPM-local exclusion mask (set by SPMOptimizer for the nested
+     *   baseline-creation statement only; see {@link #setSpmExcludedRules}).
      *
-     * CHECK_PRIVILEGES / CHECK_ROW_POLICY are never gated by either variable (privilege
+     * CHECK_PRIVILEGES / CHECK_ROW_POLICY are never gated by either source (privilege
      * and row-policy enforcement must always run; mirrors
      * SessionVariable#getDisableNereidsRules(), which refuses to disable them).
      */
@@ -802,16 +818,12 @@ public class StatementContext implements Closeable {
             return this.disableRules;
         }
         BitSet forbiddenRules = sessionVariable.getDisableNereidsRules();
-        Set<Integer> enabledWhitelist = sessionVariable.getEnableNereidsRules();
-        if (!enabledWhitelist.isEmpty()) {
-            for (RuleType ruleType : RuleType.values()) {
-                if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
-                    continue;
-                }
-                if (!enabledWhitelist.contains(ruleType.type())) {
-                    forbiddenRules.set(ruleType.type());
-                }
-            }
+        if (spmExcludedRules != null) {
+            // clone before OR: the session's bitset is shared state
+            forbiddenRules = (BitSet) forbiddenRules.clone();
+            forbiddenRules.or(spmExcludedRules);
+            forbiddenRules.clear(RuleType.CHECK_PRIVILEGES.type());
+            forbiddenRules.clear(RuleType.CHECK_ROW_POLICY.type());
         }
         this.disableRules = forbiddenRules;
         return this.disableRules;

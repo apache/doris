@@ -76,7 +76,7 @@ public class BaselinePlan {
     private BaselineSource source = BaselineSource.USER;
 
     /** Status: ENABLED / DISABLED. */
-    private BaselineStatus status = BaselineStatus.ENABLED;
+    private volatile BaselineStatus status = BaselineStatus.ENABLED;
 
     /**
      * Storage scope: GLOBAL (persisted in the shared spm_baselines internal table, the
@@ -91,7 +91,7 @@ public class BaselinePlan {
     private long createTime;
 
     /** Last update time (epoch millis). */
-    private long updateTime;
+    private volatile long updateTime;
 
     /**
      * The parameterized whole-query bind plan tree (transient, not persisted): the

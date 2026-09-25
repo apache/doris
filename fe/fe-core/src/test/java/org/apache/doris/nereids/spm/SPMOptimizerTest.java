@@ -113,26 +113,49 @@ public class SPMOptimizerTest {
 
     @Test
     public void testWhitelistMaskEqualsExcludedRuleMask() throws Exception {
-        // New mechanism (enable_nereids_rules whitelist, installed during CREATE) vs old
-        // mechanism (disable list containing exactly the excluded rules): the statement-level
-        // forbidden mask must be IDENTICAL, i.e. baseline creation is semantically unchanged.
+        // The SPM mask (installed on the private statement context of a baseline-creation
+        // statement) vs the equivalent disable list: the statement-level forbidden mask
+        // must be IDENTICAL, i.e. baseline creation is semantically unchanged.
         SessionVariable disableBased = new SessionVariable();
         disableBased.setDisableNereidsRules(String.join(",", SPMOptimizer.getSpmExcludedRuleNames()));
         BitSet disableMask = new StatementContext().getOrCacheDisableRules(disableBased);
 
-        SessionVariable whitelistBased = new SessionVariable();
-        whitelistBased.setEnableNereidsRules(SPMOptimizer.buildSpmEnabledRules(""));
-        BitSet whitelistMask = new StatementContext().getOrCacheDisableRules(whitelistBased);
+        StatementContext spmContext = new StatementContext();
+        spmContext.setSpmExcludedRules(SPMOptimizer.buildSpmExcludedRuleMask(""));
+        BitSet whitelistMask = spmContext.getOrCacheDisableRules(new SessionVariable());
 
         Assertions.assertEquals(disableMask, whitelistMask,
-                "whitelist mode must forbid exactly the same rules as the disable list");
+                "the SPM mask must forbid exactly the same rules as the disable list");
 
-        // a narrow session whitelist still never gates the engine-essential checks
-        SessionVariable tinyWhitelist = new SessionVariable();
-        tinyWhitelist.setEnableNereidsRules(RuleType.CHECK_PRIVILEGES.name());
-        BitSet tinyMask = new StatementContext().getOrCacheDisableRules(tinyWhitelist);
+        // the engine-essential checks are never gated, even when the whitelist is tiny
+        StatementContext tinyContext = new StatementContext();
+        tinyContext.setSpmExcludedRules(SPMOptimizer.buildSpmExcludedRuleMask(
+                RuleType.CHECK_PRIVILEGES.name()));
+        BitSet tinyMask = tinyContext.getOrCacheDisableRules(new SessionVariable());
         Assertions.assertFalse(tinyMask.get(RuleType.CHECK_PRIVILEGES.ordinal()));
         Assertions.assertFalse(tinyMask.get(RuleType.CHECK_ROW_POLICY.ordinal()));
         Assertions.assertTrue(tinyMask.get(RuleType.INFER_PREDICATES.ordinal()));
+    }
+
+    // ==================== the public variable keeps its inert planning behavior ====================
+
+    /**
+     * The SPM rule mask lives on the baseline-creation statement's private context only.
+     * enable_nereids_rules must keep its established behavior: setting it does NOT forbid
+     * the rules outside the list, otherwise an existing session such as
+     * set enable_nereids_rules='ELIMINATE_GROUP_BY_KEY_BY_UNIFORM' would disable every
+     * binding and physical implementation rule for ordinary SELECTs (even BINDING_RELATION).
+     */
+    @Test
+    public void testEnableNereidsRulesDoesNotMaskOrdinaryStatements() {
+        SessionVariable session = new SessionVariable();
+        session.setEnableNereidsRules("ELIMINATE_GROUP_BY_KEY_BY_UNIFORM");
+        BitSet mask = new StatementContext().getOrCacheDisableRules(session);
+        Assertions.assertFalse(mask.get(RuleType.BINDING_RELATION.ordinal()),
+                "binding must stay enabled for an ordinary statement");
+        Assertions.assertFalse(mask.get(RuleType.LOGICAL_PROJECT_TO_PHYSICAL_PROJECT_RULE.ordinal()),
+                "implementation rules must stay enabled for an ordinary statement");
+        Assertions.assertEquals(session.getDisableNereidsRules(), mask,
+                "the statement mask is exactly the disable list again");
     }
 }

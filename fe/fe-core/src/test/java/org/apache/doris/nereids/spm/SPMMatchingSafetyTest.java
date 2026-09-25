@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -41,12 +44,15 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
 import java.util.List;
@@ -446,7 +452,7 @@ public class SPMMatchingSafetyTest {
                 new JoinReorderContext());
     }
 
-    /** The (unbound) relation node of "SELECT * FROM <table>". */
+    /** The (unbound) relation node of a "SELECT * FROM t"-shaped query. */
     private static LogicalPlan relation(String table) {
         LogicalPlan project = (LogicalPlan) parse("SELECT * FROM " + table).child(0);
         return (LogicalPlan) project.child(0);
@@ -608,6 +614,16 @@ public class SPMMatchingSafetyTest {
                 "SELECT * FROM t1 PARTITION(p1, p1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1",
                 "SELECT * FROM t1 PARTITION(p1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
                 "a duplicated partition name must not collapse into a smaller selection");
+
+        // tablet pins are sets too (the decompiler emits them in id order)
+        Assertions.assertTrue(matches(
+                "SELECT * FROM t1 TABLET(1, 2) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1",
+                "SELECT * FROM t1 TABLET(2, 1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
+                "the same tablet selection in another order reads the same data");
+        Assertions.assertFalse(matches(
+                "SELECT * FROM t1 TABLET(1, 2) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1",
+                "SELECT * FROM t1 TABLET(1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
+                "a smaller tablet selection must not match");
     }
 
     // ==================== user-visible alias identifiers are part of the match ====================
@@ -744,5 +760,71 @@ public class SPMMatchingSafetyTest {
         Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus());
         Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED));
         Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
+    }
+
+    // ==================== view guard (#10) ====================
+
+    /**
+     * A plan referencing a VIEW must be detected so that SPM neither freezes a planSql
+     * from it nor replays a matched baseline for it: the replay is planned BEFORE the
+     * normal authorization pass and expands the view into its base tables, so
+     * authorization would check those base tables instead of the view (a view-only user
+     * is denied on them, a base-table user passes the same view query unchecked).
+     */
+    @Test
+    public void testViewRelationIsDetected() {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+                Mockito.any())).thenReturn(Mockito.mock(View.class));
+        LogicalPlan viewPlan = parse("SELECT v.a FROM cat.db.v AS v WHERE v.a > 1");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctx, viewPlan),
+                "a view relation must be reported as a view reference");
+    }
+
+    @Test
+    public void testTableRelationIsNotReportedAsView() {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+                Mockito.any())).thenReturn(Mockito.mock(TableIf.class));
+        LogicalPlan tablePlan = parse("SELECT t.a FROM cat.db.t AS t WHERE t.a > 1");
+        Assertions.assertFalse(SPMPlanTreeSupport.referencesView(ctx, tablePlan),
+                "a plain table must not be reported as a view");
+        // a view hidden in a subquery is still a view reference
+        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+                Mockito.any())).thenReturn(Mockito.mock(TableIf.class),
+                Mockito.mock(View.class));
+        LogicalPlan subqueryPlan = parse(
+                "SELECT x FROM (SELECT t.a AS x FROM cat.db.t AS t) s JOIN cat.db.v AS v ON s.x = v.a");
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctx, subqueryPlan),
+                "a view nested in a join / subquery must be reported as a view reference");
+    }
+
+    @Test
+    public void testUnresolvableOrUnknownContextIsNotAView() {
+        // no statement context: no catalog access, nothing can be resolved -> not a view
+        ConnectContext bareCtx = Mockito.mock(ConnectContext.class);
+        LogicalPlan plan = parse("SELECT t.a FROM cat.db.t AS t");
+        Assertions.assertFalse(SPMPlanTreeSupport.referencesView(bareCtx, plan));
+        Assertions.assertFalse(SPMPlanTreeSupport.referencesView(null, plan));
+        // an unresolvable relation is left to the normal analysis pass (error reported there)
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+                Mockito.any())).thenThrow(new RuntimeException("catalog not ready"));
+        Assertions.assertFalse(SPMPlanTreeSupport.referencesView(ctx, plan));
+    }
+
+    @Test
+    public void testAnalyzedViewNodeIsDetected() {
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(Mockito.mock(StatementContext.class));
+        LogicalView<?> view = Mockito.mock(LogicalView.class);
+        Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctx, view),
+                "an analyzed LogicalView node must be reported as a view reference");
     }
 }

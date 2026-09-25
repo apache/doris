@@ -98,6 +98,15 @@ ORDER BY
         assertEquals("ENABLED", own[0][9])
         assertTrue(own[0][4].toString().contains("supplier"),
                 "q15 plan_sql should reference supplier: ${own[0][4]}")
+        // q15 reads the VIEW revenue1: SPM freezes / replays plans over the BASE
+        // tables a view expands to, and the replay is planned BEFORE the normal
+        // authorization pass - replaying a view query would authorize the base
+        // tables instead of the view. Such a plan is therefore never frozen
+        // (the stored plan_sql stays the user text) and never replayed.
+        assertTrue(own[0][4].toString().contains("revenue1"),
+                "a view baseline must keep the user plan_sql text: ${own[0][4]}")
+        assertFalse(own[0][4].toString().contains("internal."),
+                "a view baseline must not store a decompiled plan over the base tables: ${own[0][4]}")
         // print the exact baseline columns (bind_sql / bind_sql_digest / plan_sql)
         // into the .out file as three separate labeled blocks so the three values stay
         // readable and distinguishable. The real decompiled subquery aliases (t_0,
@@ -313,10 +322,29 @@ WHERE
 ORDER BY
       s_suppkey"""
         sql 'set enable_spm_rewrite=false'
-        assertTrue(explainOrig.toString().contains("SPM baseline hit: id=" + id),
-                "EXPLAIN of the original q15 query should report SPM baseline hit id " + id + ", got: " + explainOrig)
-        assertTrue(explainSimilar.toString().contains("SPM baseline hit: id=" + id),
-                "EXPLAIN of the similar q15 query should report SPM baseline hit id " + id + ", got: " + explainSimilar)
+        // q15 references the VIEW revenue1: the view guard keeps the ORIGINAL plan
+        // (no baseline hit), so that the view itself is analyzed and authorized
+        // exactly like without SPM. A replay would run over the view's base tables
+        // and bypass the view check.
+        assertFalse(explainOrig.toString().contains("SPM baseline hit: id="),
+                "EXPLAIN of a view query must not report an SPM baseline hit, got: " + explainOrig)
+        assertFalse(explainSimilar.toString().contains("SPM baseline hit: id="),
+                "EXPLAIN of a similar view query must not report an SPM baseline hit, got: " + explainSimilar)
+
+        // ===== control: a query WITHOUT a view still rewrites (the guard is view-only) =====
+        sql 'set enable_spm_rewrite=true'
+        String plainSql = "SELECT L_SUPPKEY FROM lineitem WHERE L_SHIPDATE >= '1996-01-01'"
+        def createPlain = sql ("CREATE GLOBAL BASELINE PLAN \"" + plainSql
+                + "\" WITH \"" + plainSql + "\"")
+        long plainId = Long.parseLong(createPlain[0][0].toString())
+        try {
+            def explainPlain = sql """EXPLAIN SELECT L_SUPPKEY FROM lineitem WHERE L_SHIPDATE >= '1996-02-01'"""
+            assertTrue(explainPlain.toString().contains("SPM baseline hit: id=" + plainId),
+                    "a non-view query must still hit its baseline, got: " + explainPlain)
+        } finally {
+            sql """DROP BASELINE PLAN IF EXISTS ${plainId}"""
+        }
+        sql 'set enable_spm_rewrite=false'
     } finally {
         // ===== cleanup own baseline (also runs when an assertion fails above) =====
         sql """DROP BASELINE PLAN IF EXISTS ${id}"""

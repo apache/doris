@@ -30,10 +30,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.annotations.VisibleForTesting;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -195,9 +194,21 @@ public class BaselineManager {
      * from a snapshot (digest filter, priority sort) run OUTSIDE the lock. Rewrite
      * lookups (hasBaselines + findCandidateBaselines on every query) take the read lock
      * and therefore never serialize on each other; create / drop / status / load /
-     * refresh take the write lock.
+     * refresh take the write lock for their in-memory validation / publication only.
      */
     private final ReentrantReadWriteLock stateLock = new ReentrantReadWriteLock();
+
+    /**
+     * Serializes WRITERS (create / drop / status) against each other for their
+     * internal-table read-modify-write sequences. Deliberately separate from stateLock:
+     * every SPM query takes stateLock.readLock() in hasBaselines / findCandidateBaselines
+     * BEFORE its rewrite timeout can help, so ONE slow persistence statement (each
+     * auto-capture candidate issues one) would stall planning for every such query on the
+     * FE. The state lock only protects in-memory validation and publication - see the
+     * two-phase structure of {@link #createBaseline} / {@link #dropBaseline} /
+     * {@link #updateStatus}. Readers never touch this lock.
+     */
+    private final Object writerLock = new Object();
 
     /**
      * Monotonic version of the in-memory state, bumped by every local mutation (create /
@@ -247,27 +258,29 @@ public class BaselineManager {
      */
     public long createBaseline(BaselinePlan plan) {
         ensureLoadedOrThrow();
-        // Id watermark first (see the class javadoc "Id source"): the generator must be
-        // advanced past the persistence layer BEFORE an id is handed out. The read runs
-        // OUTSIDE the write lock (an internal query must not run under it) and before the
-        // dedup below - a create whose watermark read fails fails visibly and allocates
-        // nothing, instead of silently colliding with a row written by a newer master.
-        final long watermark = readPersistedWatermark();
-        // Dedup + id allocation + persistence + in-memory commit form ONE critical
-        // section: a second create that passed dedup on the same
-        // (bindSqlHash, bindSqlDigest, planSql) would race the DELETE-BY-KEY + INSERT
-        // pair (leaving a stale row behind) and break the persist-before-memory
-        // invariant. Creates are rare (DDL / capture cycle), so holding the write lock
-        // here never affects the rewrite hot path (which only takes the read lock).
-        stateLock.writeLock().lock();
-        try {
-            if (plan.getBindSqlHash() != 0) {
-                for (BaselinePlan existing : findByHash(plan.getBindSqlHash())) {
-                    if (existing.getBindSqlDigest().equals(plan.getBindSqlDigest())
-                            && existing.getPlanSql().equals(plan.getPlanSql())) {
-                        return existing.getId(); // exact duplicate -> skip
+        // Two-phase create. I/O (watermark read, durable-key dedup, repair deletes, INSERT)
+        // runs under writerLock but NEVER under stateLock: the state lock only protects the
+        // in-memory duplicate validation (phase 1) and the publication (phase 2). Holding
+        // the state lock across the I/O would stall every SPM query's rewrite lookup.
+        synchronized (writerLock) {
+            // Id watermark first (see the class javadoc "Id source"): the generator must be
+            // advanced past the persistence layer BEFORE an id is handed out. A create whose
+            // watermark read fails fails visibly and allocates nothing, instead of silently
+            // colliding with a row written by a newer master.
+            final long watermark = readPersistedWatermark();
+            // Phase 1: exact-duplicate validation against the in-memory index (read lock).
+            stateLock.readLock().lock();
+            try {
+                if (plan.getBindSqlHash() != 0) {
+                    for (BaselinePlan existing : findByHash(plan.getBindSqlHash())) {
+                        if (existing.getBindSqlDigest().equals(plan.getBindSqlDigest())
+                                && existing.getPlanSql().equals(plan.getPlanSql())) {
+                            return existing.getId(); // exact duplicate -> skip
+                        }
                     }
                 }
+            } finally {
+                stateLock.readLock().unlock();
             }
             // Durable-key check: the in-memory index can be stale (e.g. a follower that
             // loaded=true before becoming master missed rows written after its last
@@ -275,6 +288,7 @@ public class BaselineManager {
             // baseline - changing its id and, on an INSERT failure, losing the old row.
             // A durable duplicate returns its id and is adopted into memory instead;
             // extra same-key rows (partial-state survivors) are repaired away idempotently.
+            // writerLock keeps another writer's INSERT/DELETE pair out of this window.
             if (persistenceEnabled() && plan.getBindSqlDigest() != null) {
                 List<BaselinePlan> durable =
                         readPersistedByKey(plan.getBindSqlDigest(), plan.getPlanSql());
@@ -295,9 +309,7 @@ public class BaselineManager {
                             }
                         }
                     }
-                    baselines.put(winner.getId(), winner);
-                    addToHashIndex(winner);
-                    stateVersion++;
+                    publishBaseline(winner);
                     LOG.info("SPM baseline create deduplicated against the durable key: id={}",
                             winner.getId());
                     return winner.getId();
@@ -309,9 +321,9 @@ public class BaselineManager {
             plan.setScope(BaselineScope.GLOBAL);
             if (watermark >= idGenerator.get()) {
                 // watermark + 1 is an id the table has never seen; the generator is
-                // monotonic and the watermark was read before the lock, so concurrent
-                // local creates can only jump the generator further up, never below a
-                // watermark any create has observed
+                // monotonic and the watermark was read at the top of this create, so
+                // concurrent local creates can only jump the generator further up, never
+                // below a watermark any create has observed
                 idGenerator.set(watermark + 1);
             }
             long id = idGenerator.getAndIncrement();
@@ -323,10 +335,27 @@ public class BaselineManager {
             // fails the DDL visibly; no same-key row can exist here (the durable-key check
             // above returned any), so the INSERT cannot overwrite an existing baseline
             persistInsert(plan);
-            baselines.put(id, plan);
+            // Phase 2: publish (the only state-lock section of a create).
+            publishBaseline(plan);
+            return id;
+        }
+    }
+
+    /**
+     * Phase 2 of a writer: publishes a baseline into the in-memory store. No I/O - only
+     * the hash index / map / version are touched, under the write lock. Replaces a row a
+     * concurrent refresh may have loaded for the same id (its index entry is dropped
+     * first, so no id is indexed twice).
+     */
+    private void publishBaseline(BaselinePlan plan) {
+        stateLock.writeLock().lock();
+        try {
+            BaselinePlan replaced = baselines.put(plan.getId(), plan);
+            if (replaced != null) {
+                removeFromHashIndex(replaced);
+            }
             addToHashIndex(plan);
             stateVersion++;
-            return id;
         } finally {
             stateLock.writeLock().unlock();
         }
@@ -340,9 +369,16 @@ public class BaselineManager {
      */
     public boolean dropBaseline(long id) {
         ensureLoadedOrThrow();
-        stateLock.writeLock().lock();
-        try {
-            BaselinePlan removed = baselines.get(id);
+        // Two-phase drop: the DELETE I/O runs under writerLock but NOT under stateLock;
+        // the state lock only removes the in-memory entry afterwards.
+        synchronized (writerLock) {
+            BaselinePlan removed;
+            stateLock.readLock().lock();
+            try {
+                removed = baselines.get(id);
+            } finally {
+                stateLock.readLock().unlock();
+            }
             if (removed == null) {
                 return false;
             }
@@ -350,12 +386,19 @@ public class BaselineManager {
             // the delete is keyed by id + content, so a stale id can never remove an
             // unrelated row that reused the id
             persistDeleteByIdentity(removed);
-            baselines.remove(id);
-            removeFromHashIndex(removed);
-            stateVersion++;
-            return true;
-        } finally {
-            stateLock.writeLock().unlock();
+            stateLock.writeLock().lock();
+            try {
+                BaselinePlan gone = baselines.remove(id);
+                if (gone == null) {
+                    // raced with a concurrent drop / refresh: the row is gone either way
+                    return true;
+                }
+                removeFromHashIndex(gone);
+                stateVersion++;
+                return true;
+            } finally {
+                stateLock.writeLock().unlock();
+            }
         }
     }
 
@@ -368,9 +411,18 @@ public class BaselineManager {
      */
     public boolean updateStatus(long id, BaselineStatus status) {
         ensureLoadedOrThrow();
-        stateLock.writeLock().lock();
-        try {
-            BaselinePlan plan = baselines.get(id);
+        // Two-phase status change: the INSERT(new) + DELETE(old) pair is internal-table I/O
+        // and runs under writerLock, never under stateLock. Matching tolerates a status
+        // flip racing with a lookup exactly like an ALTER landing right after the lookup
+        // (see findCandidateBaselines); on failure the in-memory flip is reverted.
+        synchronized (writerLock) {
+            BaselinePlan plan;
+            stateLock.readLock().lock();
+            try {
+                plan = baselines.get(id);
+            } finally {
+                stateLock.readLock().unlock();
+            }
             if (plan == null) {
                 return false;
             }
@@ -408,10 +460,13 @@ public class BaselineManager {
                 plan.setUpdateTime(previousUpdateTime);
                 throw e;
             }
-            stateVersion++;
+            stateLock.writeLock().lock();
+            try {
+                stateVersion++;
+            } finally {
+                stateLock.writeLock().unlock();
+            }
             return true;
-        } finally {
-            stateLock.writeLock().unlock();
         }
     }
 
@@ -454,8 +509,8 @@ public class BaselineManager {
     }
 
     /**
-     * Finds baselines by hash (internal helper; the caller must hold the write lock:
-     * only createBaseline uses it, inside its dedup critical section).
+     * Finds baselines by hash (internal helper). Only reads the maps and the index, so a
+     * READ lock is enough; {@link #createBaseline} calls it in its phase-1 validation.
      */
     private List<BaselinePlan> findByHash(long hash) {
         List<Long> ids = hashIndex.get(hash);
