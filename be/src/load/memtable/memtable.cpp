@@ -275,8 +275,10 @@ Status MemTable::insert(const Block* input_block, const TabletAddRowsPayload& ro
                 ->replace_column_data_range(*lsn_column, 0, num_rows, cursor_in_mutableblock);
     }
     for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks->emplace_back(std::make_shared<RowInBlock>(
-                cursor_in_mutableblock + i, _need_lsn ? allocated_lsns[i] : 0));
+        // Track both the row and the shared_ptr control block in the memtable tracker.
+        _row_in_blocks->emplace_back(std::allocate_shared<RowInBlock>(
+                CustomStdAllocator<RowInBlock>(), cursor_in_mutableblock + i,
+                _need_lsn ? allocated_lsns[i] : 0));
     }
 
     _stat.raw_rows += num_rows;
@@ -454,9 +456,8 @@ Status MemTable::_sort_by_cluster_keys() {
         DCHECK_EQ(_output_allocated_lsns->size(), mutable_block.rows());
     }
     for (size_t i = 0; i < mutable_block.rows(); i++) {
-        row_in_blocks.emplace_back(
-                _need_lsn ? std::make_shared<RowInBlock>(i, (*_output_allocated_lsns)[i])
-                          : std::make_shared<RowInBlock>(i));
+        row_in_blocks.emplace_back(std::allocate_shared<RowInBlock>(
+                CustomStdAllocator<RowInBlock>(), i, _need_lsn ? (*_output_allocated_lsns)[i] : 0));
     }
     if (_need_lsn) {
         _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
