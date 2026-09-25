@@ -70,6 +70,29 @@ public class ConfigTest {
         }
     }
 
+    // The FE TLS private-key password and the FE HTTPS key-store password are operator-supplied
+    // secrets in fe.conf. #67338 marked them sensitive; this pins that behaviour down so a later
+    // edit to either annotation cannot silently put them back into a config dump.
+    @Test
+    public void testTlsAndKeyStorePasswordsAreMaskedWhenSet() {
+        String oldTlsPassword = Config.tls_private_key_password;
+        String oldKeyStorePassword = Config.key_store_password;
+        try {
+            Config.tls_private_key_password = "super-secret-tls-password";
+            Config.key_store_password = "super-secret-key-store-password";
+
+            Map<String, String> dumped = ConfigBase.dump();
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, dumped.get("tls_private_key_password"));
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, dumped.get("key_store_password"));
+
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("tls_private_key_password"));
+            Assertions.assertEquals(ConfigBase.SENSITIVE_CONF_MASK, configInfoValue("key_store_password"));
+        } finally {
+            Config.tls_private_key_password = oldTlsPassword;
+            Config.key_store_password = oldKeyStorePassword;
+        }
+    }
+
     // An empty sensitive config is left as-is (no secret to hide), so "unset" stays visible.
     @Test
     public void testEmptySensitiveConfigIsNotMasked() {
