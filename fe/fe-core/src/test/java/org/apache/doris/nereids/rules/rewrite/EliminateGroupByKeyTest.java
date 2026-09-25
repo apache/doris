@@ -18,18 +18,29 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.properties.FuncDeps;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -97,19 +108,22 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
 
     @Test
     void testEliminateByUniform() {
+        // Uniform-based elimination is now handled by EliminateGroupByKeyByUniform.
+        // EliminateGroupByKey only handles FD-based elimination.
         PlanChecker.from(connectContext)
                 .analyze("select count(name) from t1 where id = 1 group by name, id")
-                .rewrite()
+                .customRewrite(new EliminateGroupByKeyByUniform())
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
-                        agg.getGroupByExpressions().size() == 1 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("name")));
     }
 
     @Test
     void testProjectAlias() {
         PlanChecker.from(connectContext)
                 .analyze("select id as c from t1 where id = 1 group by name, id")
-                .rewrite()
+                .customRewrite(new EliminateGroupByKey())
                 .printlnTree()
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1));
@@ -179,6 +193,120 @@ class EliminateGroupByKeyTest extends TestWithFeService implements MemoPatternMa
                 .matches(logicalAggregate().when(agg ->
                         agg.getGroupByExpressions().size() == 1
                                 && agg.getGroupByExpressions().get(0).toSql().equals("name")));
+    }
+
+    @Test
+    void testEliminateByPkWithOutputNeeded() throws Exception {
+        // Regression: when a group-by key (name) is FD-redundant (id -> name)
+        // but still appears in SELECT, it should be removed from group-by
+        // and wrapped with ANY_VALUE in the output.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        PlanChecker.from(connectContext)
+                .analyze("select id, name, count(*) from t1 group by id, name")
+                .customRewrite(new EliminateGroupByKey())
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("id")
+                                && agg.getOutputExpressions().stream().anyMatch(
+                                        e -> e instanceof Alias
+                                                && e.child(0) instanceof AnyValue)));
+        dropConstraint("alter table t1 drop constraint pk2");
+    }
+
+    @Test
+    void testEliminateByPkWithOutputNeededProductionPath() throws Exception {
+        // Production path: same query through .rewrite() (RuleType.ELIMINATE_GROUP_BY_KEY)
+        // instead of .customRewrite() (RuleType.TEST_REWRITE).
+        // Use cross join so the aggregate cannot be constant-folded away.
+        // Use alias on name to force a Project above the Aggregate, which is
+        // the entry point that EliminateGroupByKey.visitLogicalProject needs.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        PlanChecker.from(connectContext)
+                .analyze("select t1.id, t1.name as n, count(*) from t1 as t1"
+                        + " cross join t1 as t2 group by t1.id, t1.name")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg ->
+                        agg.getGroupByExpressions().size() == 1
+                                && agg.getGroupByExpressions().get(0).toSql().equals("id")
+                                && agg.getOutputExpressions().stream().anyMatch(
+                                        e -> e instanceof Alias
+                                                && e.child(0) instanceof AnyValue)));
+        dropConstraint("alter table t1 drop constraint pk2");
+    }
+
+    @Test
+    void testEliminateByPkDisabled() throws Exception {
+        // Verify that disable_nereids_rules=ELIMINATE_GROUP_BY_KEY prevents the rule
+        // from eliminating the FD-redundant group-by key.
+        // Use cross join so the aggregate cannot be constant-folded away.
+        addConstraint("alter table t1 add constraint pk2 primary key (id)");
+        try {
+            connectContext.getSessionVariable()
+                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,ELIMINATE_GROUP_BY_KEY");
+            PlanChecker.from(connectContext)
+                    .analyze("select t1.id, t1.name, count(*) from t1 as t1"
+                            + " cross join t1 as t2 group by t1.id, t1.name")
+                    .rewrite()
+                    .printlnTree()
+                    .matches(logicalAggregate().when(agg ->
+                            agg.getGroupByExpressions().size() == 2));
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            dropConstraint("alter table t1 drop constraint pk2");
+        }
+    }
+
+    @Test
+    void testNestedAggregateUsesRewrittenRequireOutput() {
+        // Inner aggregate: GROUP BY id, name on unique-key table 'uni'.
+        // id → name FD (unique key) eliminates name from group-by,
+        // wrapping it with any_value(name) as a new alias (new ExprId).
+        // The outer EliminateGroupByKey must rewrite its project through the
+        // accumulated replaceMap before computing requireOutput; otherwise the
+        // stale ExprId would incorrectly cause name to be removed from output.
+        // Bug: proj.getInputSlots() returned old ExprIds → CheckAfterRewrite fails.
+        PlanChecker.from(connectContext)
+                .analyze("select t.id, t.name from "
+                        + "(select id, name from uni group by id, name) t "
+                        + "group by t.id, t.name")
+                .customRewrite(new EliminateGroupByKey())
+                .matches(
+                        logicalAggregate().when(agg ->
+                                agg.getGroupByExpressions().size() == 1
+                                        && agg.getGroupByExpressions().get(0).toSql().equals("id")));
+    }
+
+    @Test
+    void testCteConsumerSlotMapUpdatedByReplaceMap() {
+        // Verify that visitLogicalCTEConsumer correctly updates the slot maps
+        // when the replaceMap contains an ExprId replacement from the producer.
+        Slot oldProducerSlot = new SlotReference("old", IntegerType.INSTANCE, false);
+        Slot consumerSlot = new SlotReference("cons", IntegerType.INSTANCE, false);
+
+        LogicalCTEConsumer consumer = new LogicalCTEConsumer(
+                new RelationId(1), new CTEId(0), "cte",
+                ImmutableMap.of(consumerSlot, oldProducerSlot),
+                ImmutableMultimap.of(oldProducerSlot, consumerSlot));
+
+        // Simulate replaceMap with ExprId replacement from aggregate rewrite
+        ExprId newProducerExprId = new ExprId(999);  // fresh Id from any_value alias
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        replaceMap.put(oldProducerSlot.getExprId(), newProducerExprId);
+
+        EliminateGroupByKey rewriter = new EliminateGroupByKey();
+        LogicalCTEConsumer updated = (LogicalCTEConsumer) rewriter.visitLogicalCTEConsumer(
+                consumer, replaceMap);
+
+        // The updated consumer's producerToConsumerSlotMap should be keyed by the new ExprId
+        Multimap<Slot, Slot> updatedMap = updated.getProducerToConsumerOutputMap();
+        Assertions.assertEquals(1, updatedMap.keySet().size());
+        Slot updatedProducerKey = updatedMap.keySet().iterator().next();
+        Assertions.assertEquals(newProducerExprId, updatedProducerKey.getExprId(),
+                "Producer slot ExprId should be updated to the new one from replaceMap");
+        Assertions.assertTrue(updatedMap.get(updatedProducerKey).contains(consumerSlot),
+                "Consumer slot should still be mapped");
     }
 
     @Test
