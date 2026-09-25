@@ -159,6 +159,7 @@ public class LanceManagedVersioningTest {
     @BeforeAll
     public void setUp() throws Exception {
         LanceJniTestSupport.assumeJniBindingsLoadable();
+        LanceJniTestSupport.assumeArrowCDataLoadable();
         tempDir = Files.createTempDirectory("lance_managed_versioning");
         Path datasetDir = tempDir.resolve("time_travel.lance");
         datasetUri = datasetDir.toUri().toString();
