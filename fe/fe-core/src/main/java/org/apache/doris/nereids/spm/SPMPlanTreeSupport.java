@@ -58,6 +58,7 @@ import org.apache.doris.qe.GlobalVariable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.List;
@@ -1097,13 +1098,28 @@ public final class SPMPlanTreeSupport {
      * equals, so their stable textual form is compared as well.
      */
     private static boolean sameScanIdentity(UnboundRelation bind, UnboundRelation user) {
-        return Objects.equals(bind.getPartNames(), user.getPartNames())
+        return samePartitionSelection(bind.getPartNames(), user.getPartNames())
                 && Objects.equals(bind.getTabletIds(), user.getTabletIds())
                 && Objects.equals(bind.getHints(), user.getHints())
                 && Objects.equals(bind.getIndexName(), user.getIndexName())
                 && sameOptionalValue(bind.getTableSample(), user.getTableSample())
                 && sameOptionalValue(bind.getTableSnapshot(), user.getTableSnapshot())
                 && sameScanParams(bind.getScanParams(), user.getScanParams());
+    }
+
+    /**
+     * Partition names form a set: FROM t PARTITION(p1, p2) and FROM t PARTITION(p2, p1)
+     * read exactly the same data, while the decompiler emits the selected partitions in
+     * partition-id order regardless of how the user ordered them. A multiset comparison
+     * (with a size check, so PARTITION(p1, p1) stays distinct from PARTITION(p1)) keeps
+     * the two spellings matchable without letting a duplicated name hide a partition.
+     */
+    private static boolean samePartitionSelection(List<String> bind, List<String> user) {
+        if (bind == null || user == null) {
+            return bind == user;
+        }
+        return bind.equals(user)
+                || (bind.size() == user.size() && new HashSet<>(bind).equals(new HashSet<>(user)));
     }
 
     /** Optional value equality with a textual fallback for value types without equals. */

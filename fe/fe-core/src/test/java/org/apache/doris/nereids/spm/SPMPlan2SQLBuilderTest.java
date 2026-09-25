@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
@@ -59,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -80,6 +84,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -498,6 +503,10 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(table.getName()).thenReturn(tableName);
         Mockito.when(scan.getTable()).thenReturn(table);
         Mockito.when(scan.getOutput()).thenReturn(List.copyOf(outputs));
+        // default scan state: no scan parameters, no partition selection, no sample
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of());
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
         stubAccept(scan);
         return scan;
     }
@@ -1007,23 +1016,114 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     @Test
-    public void testFileScanModifiersAreRejected() {
-        // partition pruning state, TABLESAMPLE, FOR VERSION AS OF snapshots and scan
-        // parameters are not expressible in the plain catalog.db.table text: freezing
-        // such a scan would replay against the unrestricted table
-        PhysicalFileScan partitionPruned = mockFileScan();
-        Mockito.when(partitionPruned.getSelectedPartitions())
-                .thenReturn(Mockito.mock(LogicalFileScan.SelectedPartitions.class));
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> new SPMPlan2SQLBuilder().visitPhysicalRelation(partitionPruned, null),
-                "a pruned file scan must fail the decompile");
-
+    public void testFileScanModifiersAreRendered() {
+        // TABLESAMPLE: the sample (and its REPEATABLE seed) must survive the freeze -
+        // dropping it would replay over the full table
         PhysicalFileScan sampled = mockFileScan();
         Mockito.when(sampled.getTableSample())
-                .thenReturn(Optional.of(Mockito.mock(TableSample.class)));
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> new SPMPlan2SQLBuilder().visitPhysicalRelation(sampled, null),
-                "a sampled file scan must fail the decompile");
+                .thenReturn(Optional.of(new TableSample(10, true, -1)));
+        Assertions.assertEquals("ext_t TABLESAMPLE(10 PERCENT)",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(sampled, null).getFrom(),
+                "a sampled file scan must freeze its sample");
+
+        PhysicalFileScan sampledRows = mockFileScan();
+        Mockito.when(sampledRows.getTableSample())
+                .thenReturn(Optional.of(new TableSample(1000, false, 5)));
+        Assertions.assertEquals("ext_t TABLESAMPLE(1000 ROWS) REPEATABLE 5",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(sampledRows, null).getFrom(),
+                "a ROWS sample with a REPEATABLE seed must survive as well");
+
+        // FOR VERSION AS OF / FOR TIME AS OF: a time-travel read must stay pinned
+        PhysicalFileScan versioned = mockFileScan();
+        Mockito.when(versioned.getTableSnapshot()).thenReturn(Optional.of(
+                new TableSnapshot("123", TableSnapshot.VersionType.VERSION)));
+        Assertions.assertEquals("ext_t FOR VERSION AS OF 123",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(versioned, null).getFrom(),
+                "a numeric version is emitted as a version literal");
+
+        PhysicalFileScan versionedString = mockFileScan();
+        Mockito.when(versionedString.getTableSnapshot()).thenReturn(Optional.of(
+                new TableSnapshot("v2", TableSnapshot.VersionType.VERSION)));
+        Assertions.assertEquals("ext_t FOR VERSION AS OF 'v2'",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(versionedString, null).getFrom(),
+                "a non-numeric version is emitted as a string literal");
+
+        PhysicalFileScan timed = mockFileScan();
+        Mockito.when(timed.getTableSnapshot()).thenReturn(Optional.of(
+                TableSnapshot.timeOf("2024-01-02 03:04:05")));
+        Assertions.assertEquals("ext_t FOR TIME AS OF '2024-01-02 03:04:05'",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(timed, null).getFrom(),
+                "a time-travel read keeps its timestamp");
+
+        // @paramType(...) read parameters, map and identifier-list form
+        PhysicalFileScan incremental = mockFileScan();
+        Mockito.when(incremental.getScanParams()).thenReturn(Optional.of(
+                new TableScanParams("incr", Map.of("branch", "main"), List.of())));
+        Assertions.assertEquals("ext_t @incr(branch = 'main')",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(incremental, null).getFrom(),
+                "scan parameters must survive the freeze in map form");
+
+        PhysicalFileScan listed = mockFileScan();
+        Mockito.when(listed.getScanParams()).thenReturn(Optional.of(
+                new TableScanParams("snapshot", Map.of(), List.of("a", "b"))));
+        Assertions.assertEquals("ext_t @snapshot(a, b)",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(listed, null).getFrom(),
+                "scan parameters must survive the freeze in list form");
+
+        // partition pruning state has a predicate-derivable origin: replay re-prunes, so
+        // it is not a modifier and the scan decompiles as the bare table
+        PhysicalFileScan pruned = mockFileScan();
+        Mockito.when(pruned.getSelectedPartitions())
+                .thenReturn(Mockito.mock(LogicalFileScan.SelectedPartitions.class));
+        Assertions.assertEquals("ext_t",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(pruned, null).getFrom(),
+                "file-scan partition pruning is re-derived by replay and is not a modifier");
+    }
+
+    @Test
+    public void testOlapScanModifiersAreRendered() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
+        Partition first = Mockito.mock(Partition.class);
+        Partition second = Mockito.mock(Partition.class);
+        Partition third = Mockito.mock(Partition.class);
+        Mockito.when(first.getName()).thenReturn("p1");
+        Mockito.when(second.getName()).thenReturn("p2");
+        Mockito.when(third.getName()).thenReturn("p3");
+        OlapTable table = scan.getTable();
+        Mockito.when(table.getPartitions()).thenReturn(List.of(first, second, third));
+        Mockito.when(table.getPartition(1L)).thenReturn(first);
+        Mockito.when(table.getPartition(2L)).thenReturn(second);
+        Mockito.when(table.getPartition(3L)).thenReturn(third);
+
+        // a strict subset of the partitions is a data-visible modifier and must be frozen
+        // (ids sorted, so the text is deterministic whatever order the optimizer produced)
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(2L, 1L));
+        Assertions.assertEquals("t1 PARTITION(p1, p2)",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
+                "an olap partition subset must be frozen");
+
+        // the full partition set reads the whole table: no clause is emitted
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(1L, 2L, 3L));
+        Assertions.assertEquals("t1",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(scan, null).getFrom(),
+                "the full partition set needs no PARTITION clause");
+
+        // TABLESAMPLE on olap
+        PhysicalOlapScan sampled = mockScan("t1", List.of(a));
+        Mockito.when(sampled.getTableSample())
+                .thenReturn(Optional.of(new TableSample(20, true, 9)));
+        Assertions.assertEquals("t1 TABLESAMPLE(20 PERCENT) REPEATABLE 9",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(sampled, null).getFrom(),
+                "an olap sample must survive the freeze");
+
+        // binlog read parameters
+        PhysicalOlapScan binlog = mockScan("t1", List.of(a));
+        Mockito.when(binlog.getScanParams()).thenReturn(Optional.of(
+                new TableScanParams("incr", Map.of("branch", "main"), List.of())));
+        Assertions.assertEquals("t1 @incr(branch = 'main')",
+                new SPMPlan2SQLBuilder().visitPhysicalRelation(binlog, null).getFrom(),
+                "olap scan parameters must survive the freeze");
     }
 
     private static PhysicalFileScan mockFileScan() {
@@ -1031,7 +1131,26 @@ public class SPMPlan2SQLBuilderTest {
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Mockito.when(table.getName()).thenReturn("ext_t");
         Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
         return scan;
+    }
+
+    @Test
+    public void testLazyMaterializeFileScanDecompilesAsScan() {
+        // the lazy wrapper must not fail the decompile: it subclasses PhysicalFileScan,
+        // so the plain scan (including its scan modifiers) is the faithful rendering
+        PhysicalLazyMaterializeFileScan scan = Mockito.mock(PhysicalLazyMaterializeFileScan.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("ext_t");
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.of(new TableSample(10, true, -1)));
+        Assertions.assertEquals("ext_t TABLESAMPLE(10 PERCENT)",
+                new SPMPlan2SQLBuilder().visitPhysicalLazyMaterializeFileScan(scan, null).getFrom(),
+                "a lazily materialized file scan must decompile as its scan, modifiers included");
     }
 
     // ==================== identifier quoting ====================
@@ -1101,19 +1220,56 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
-     * The cloud storage-layer pushdown (COUNT / COUNT_ON_MATCH / MIN_MAX / MIX) REPLACES
-     * the aggregate: the plan visitor default would decompile only the wrapped relation
-     * and silently drop the aggregation (freezing "SELECT * FROM t" for a count(*)
-     * query). The decompile must fail loudly so CREATE keeps the user planSql text.
+     * The storage-layer aggregate shortcut is transparent: AggregateStrategies keeps the
+     * enclosing aggregate (or the constant-only project) on top with expressions written
+     * over the wrapped scan's slots, so decompiling the wrapped relation publishes exactly
+     * those slots and the enclosing operators render the same SQL aggregation
+     * (count(*) / min(x) / ...).
      */
     @Test
-    public void testStorageLayerAggregatePushdownIsRejected() {
+    public void testStorageLayerAggregateDecompilesWrappedRelation() {
+        // the shortcut is transparent: AggregateStrategies keeps the enclosing
+        // aggregate / constant project on top with expressions written over the wrapped
+        // scan's slots, so the frozen text re-plans the same aggregation (count(*) /
+        // min(x) / ...) against the same table instead of dropping it
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(a));
         PhysicalStorageLayerAggregate storageAgg =
                 Mockito.mock(PhysicalStorageLayerAggregate.class);
+        Mockito.when(storageAgg.getRelation()).thenReturn(scan);
         stubAccept(storageAgg);
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> new SPMPlan2SQLBuilder().toSQL(storageAgg),
-                "a storage-layer aggregate pushdown has no faithful SQL rendering");
+        String sql = new SPMPlan2SQLBuilder().toSQL(storageAgg);
+        Assertions.assertTrue(sql.contains("FROM t1"),
+                "a storage-layer aggregate pushdown must decompile as its wrapped relation: " + sql);
+    }
+
+    /**
+     * MergeGenerates can fold two independent stacked generators into ONE node; the
+     * executor rolls several table functions over each child row (cartesian), so one
+     * LATERAL VIEW per generator is the faithful rendering of the merged node.
+     */
+    @Test
+    public void testMultiGeneratorRendersOneLateralViewPerGenerator() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        PhysicalGenerate<?> generate = Mockito.mock(PhysicalGenerate.class);
+        Mockito.when(generate.child(0)).thenReturn(scan);
+        Mockito.when(generate.getGenerators()).thenReturn(List.of(
+                (Function) new Explode(new IntegerLiteral(1)),
+                (Function) new Explode(new IntegerLiteral(2))));
+        Mockito.when(generate.getGeneratorOutput()).thenReturn(List.of(
+                (Slot) new SlotReference("x", IntegerType.INSTANCE, true, List.of("g1")),
+                (Slot) new SlotReference("y", IntegerType.INSTANCE, true, List.of("g2"))));
+        Mockito.when(generate.getConjuncts()).thenReturn(List.of());
+        stubAccept(generate);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(generate);
+        Assertions.assertEquals(2, countOccurrences(sql, "LATERAL VIEW"),
+                "a merged multi-generator node must render one LATERAL VIEW per generator: " + sql);
+        Assertions.assertTrue(sql.contains("LATERAL VIEW explode(1) g1 AS x"),
+                "the first generator keeps its own alias and column name: " + sql);
+        Assertions.assertTrue(sql.contains("LATERAL VIEW explode(2) g2 AS y"),
+                "the second generator keeps its own alias and column name: " + sql);
     }
 
     /** Counts the occurrences of a literal fragment in a string. */
