@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.View;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -29,9 +31,9 @@ import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
-import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -51,7 +53,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
@@ -60,8 +64,8 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
-import java.util.Locale;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -974,6 +978,20 @@ public final class SPMPlanTreeSupport {
             if (bindJoin.isMarkJoin() != userJoin.isMarkJoin()) {
                 return false;
             }
+            // The MARK_SLOT name is the user-visible result header of a "SELECT *" over a
+            // mark join: neither toDigest nor getExpressions exposes it, so without this
+            // comparison MARK_SLOT m1 and MARK_SLOT m2 match and the frozen replay would
+            // restore the captured header instead of the requested one. Identifiers are
+            // matched case-insensitively (the same rule the analyzer applies).
+            Optional<MarkJoinSlotReference> bindMarkSlot = bindJoin.getMarkJoinSlotReference();
+            Optional<MarkJoinSlotReference> userMarkSlot = userJoin.getMarkJoinSlotReference();
+            if (bindMarkSlot.isPresent() != userMarkSlot.isPresent()) {
+                return false;
+            }
+            if (bindMarkSlot.isPresent() && !bindMarkSlot.get().getName()
+                    .equalsIgnoreCase(userMarkSlot.get().getName())) {
+                return false;
+            }
             List<Expression> bindMark = bindJoin.getMarkJoinConjuncts();
             List<Expression> userMark = userJoin.getMarkJoinConjuncts();
             if (bindMark.size() != userMark.size()) {
@@ -1098,8 +1116,8 @@ public final class SPMPlanTreeSupport {
      * equals, so their stable textual form is compared as well.
      */
     private static boolean sameScanIdentity(UnboundRelation bind, UnboundRelation user) {
-        return samePartitionSelection(bind.getPartNames(), user.getPartNames())
-                && Objects.equals(bind.getTabletIds(), user.getTabletIds())
+        return sameSelectionIgnoreOrder(bind.getPartNames(), user.getPartNames())
+                && sameSelectionIgnoreOrder(bind.getTabletIds(), user.getTabletIds())
                 && Objects.equals(bind.getHints(), user.getHints())
                 && Objects.equals(bind.getIndexName(), user.getIndexName())
                 && sameOptionalValue(bind.getTableSample(), user.getTableSample())
@@ -1108,18 +1126,65 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Partition names form a set: FROM t PARTITION(p1, p2) and FROM t PARTITION(p2, p1)
-     * read exactly the same data, while the decompiler emits the selected partitions in
-     * partition-id order regardless of how the user ordered them. A multiset comparison
+     * Partition and tablet selections are sets: FROM t PARTITION(p1, p2) / TABLET(1, 2)
+     * read exactly the same data as the opposite order, while the decompiler emits the
+     * selection in id order regardless of how the user ordered it. A multiset comparison
      * (with a size check, so PARTITION(p1, p1) stays distinct from PARTITION(p1)) keeps
-     * the two spellings matchable without letting a duplicated name hide a partition.
+     * the two spellings matchable without letting a duplicated entry hide a member.
      */
-    private static boolean samePartitionSelection(List<String> bind, List<String> user) {
+    private static boolean sameSelectionIgnoreOrder(List<?> bind, List<?> user) {
         if (bind == null || user == null) {
             return bind == user;
         }
         return bind.equals(user)
                 || (bind.size() == user.size() && new HashSet<>(bind).equals(new HashSet<>(user)));
+    }
+
+    // ==================== view guard ====================
+
+    /**
+     * Whether an unbound plan references a VIEW in any FROM position.
+     *
+     * SPM freezes / replays plans over the BASE tables a view expands to (InlineLogicalView
+     * replaces the LogicalView wrapper during analysis), and the replay is planned BEFORE
+     * the normal authorization pass: authorizing the expanded plan checks the base tables
+     * instead of the view, so a view-only user is denied on the base tables while a
+     * base-table user passes the same view query without ever being checked against the
+     * view. A plan that references a view must therefore never be replayed, and a frozen
+     * plan must never be produced from it: the parameterized bind / plan trees keep the
+     * view reference text, so the rewrite replays them through normal analysis and
+     * authorization. Unresolvable relations are reported as not-a-view here; the normal
+     * analysis pass surfaces the resolution error.
+     */
+    public static boolean referencesView(ConnectContext ctx, Plan plan) {
+        if (plan == null || ctx == null || ctx.getStatementContext() == null) {
+            return false;
+        }
+        if (plan instanceof LogicalView) {
+            return true;
+        }
+        if (plan instanceof UnboundRelation) {
+            return isViewRelation(ctx, (UnboundRelation) plan);
+        }
+        for (Plan child : plan.children()) {
+            if (referencesView(ctx, child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isViewRelation(ConnectContext ctx, UnboundRelation relation) {
+        try {
+            TableIf table = ctx.getStatementContext().getAndCacheTable(
+                    RelationUtil.getQualifierName(ctx, relation.getNameParts()),
+                    StatementContext.TableFrom.QUERY, Optional.of(relation));
+            return table instanceof View;
+        } catch (RuntimeException e) {
+            // unresolvable / plugin table without metadata here: not treated as a view,
+            // the normal analysis pass reports the error
+            return false;
+        }
     }
 
     /** Optional value equality with a textual fallback for value types without equals. */

@@ -160,13 +160,23 @@ public class ExplainCommand extends Command implements NoForward {
                 // path (StmtExecutor): clear the applied flag and replan the ORIGINAL
                 // tree, so EXPLAIN cannot fail for a query that succeeds. The rewritten
                 // tree is validated again at execution time, so a broken frozen text
-                // must not make EXPLAIN unusable.
+                // must not make EXPLAIN unusable. When the operator disabled the
+                // fallback (enable_spm_fallback = false), the failure is reported
+                // instead - a broken baseline must not be hidden.
                 if (explainCtx.getStatementContext().isSpmBaselineApplied()
+                        && explainCtx.getSessionVariable().isEnableSpmFallback()
                         && originalPlan != null && originalPlan != explainPlan) {
                     LOG.warn("SPM EXPLAIN planning failed on the rewritten tree,"
                             + " retrying with the original plan", t);
                     explainCtx.getStatementContext().setSpmBaselineApplied(false);
                     explainCtx.getStatementContext().setSpmUsedBaselineId(-1);
+                    // Authorization must never be inherited from the abandoned rewrite: planning the
+                    // REWRITTEN tree already ran (and passed) CheckPrivileges and set privChecked, which
+                    // would make the retry below skip the privilege check on the ORIGINAL plan - and the
+                    // two trees may reference different objects (e.g. a rewritten tree over base tables
+                    // where the original reads a view). Reset it so the retry is authorized exactly like a
+                    // normal EXPLAIN of the original statement (mirrors StmtExecutor's SPM fallback).
+                    explainCtx.getStatementContext().setPrivChecked(false);
                     explainPlan = originalPlan;
                     Optional<NereidsPlanner> retryPlanner =
                             explainable.getExplainPlanner(explainPlan,

@@ -25,7 +25,9 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
-import org.apache.doris.nereids.trees.expressions.BinaryOperator;import org.apache.doris.nereids.trees.expressions.BitNot;import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
+import org.apache.doris.nereids.trees.expressions.BitAnd;
+import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.BitOr;
 import org.apache.doris.nereids.trees.expressions.BitXor;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
@@ -225,8 +227,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     /**
      * BitNot (~x): the generic fallback would print the expression through toSql() and
      * bypass the column mapping; above a join whose colliding column was renamed, that
-     * froze the stale slot text. Render the child recursively instead so ~left.a becomes
-     * ~<mapped reference>.
+     * freezes the stale slot text. Render the child recursively instead so the mapped
+     * column reference stays mapped.
      */
     @Override
     public String visitBitNot(BitNot bitNot, SQLRelation context) {
@@ -420,20 +422,6 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     // ==================== other common types ====================
 
-    /**
-     * Renders a group_concat / multi_distinct_group_concat call with its DEDICATED grammar
-     * (GROUP_CONCAT([DISTINCT] value [ORDER BY key...] [SEPARATOR sep])). The separator and
-     * the ORDER BY keys are stored as function children; the generic comma-joined form
-     * would print an order expression as an extra argument
-     * (group_concat(v, ',', k DESC)), which is not a legal call and cannot be re-parsed
-     * after an FE restart / reload.
-     *
-     * @param fn      the concrete group_concat function (GroupConcat or
-     *                MultiDistinctGroupConcat)
-     * @param context the relation carrying the column-name mapping
-     * @return the SQL text, or null when the shape (multi-distinct values combined with
-     *         an ORDER BY) cannot be represented by the dedicated grammar
-     */
     /**
      * Renders a GROUP_CONCAT / MULTI_DISTINCT_GROUP_CONCAT into the dedicated
      * GROUP_CONCAT grammar.

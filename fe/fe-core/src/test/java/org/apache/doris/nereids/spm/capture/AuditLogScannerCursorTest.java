@@ -169,6 +169,32 @@ public class AuditLogScannerCursorTest {
                 "an exhausted window advances the watermark to the window end");
     }
 
+    // ==================== truncated windows keep their bounds ====================
+
+    /**
+     * A truncated window must be paged to its end: the next cycle has to keep BOTH bounds
+     * of the pending window. Deriving a fresh interval window would start around the
+     * previous window's end (currentTime - interval) and permanently skip every row the
+     * cursor has not reached yet.
+     */
+    @Test
+    public void testTruncatedWindowBoundsStayFixed() {
+        long[] pending = PlanCaptureManager.resolveScanWindow(
+                0L, 1000L, 2000L, 99_000L, 60_000L, 5_000L);
+        Assertions.assertArrayEquals(new long[] {1000L, 2000L}, pending,
+                "a pending window keeps its start AND end across cycles");
+
+        long[] first = PlanCaptureManager.resolveScanWindow(
+                0L, 0L, 0L, 99_000L, 60_000L, 5_000L);
+        Assertions.assertArrayEquals(new long[] {39_000L, 99_000L}, first,
+                "without a pending window the first cycle scans one interval");
+
+        long[] resumed = PlanCaptureManager.resolveScanWindow(
+                50_000L, 0L, 0L, 99_000L, 60_000L, 5_000L);
+        Assertions.assertArrayEquals(new long[] {45_000L, 99_000L}, resumed,
+                "without a pending window the watermark (with overlap) starts the window");
+    }
+
     // ==================== zero / NULL query_time cursors ====================
 
     /**

@@ -25,20 +25,26 @@ import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -127,6 +133,21 @@ public class SPMOptimizer {
             "ELIMINATE_LIMIT_ON_EMPTY_RELATION",
             "PRUNE_EMPTY_PARTITION"
     );
+
+    /**
+     * SET_VAR keys that carry the SPM safety overrides (see optimize()): a plan-SQL hint
+     * must never clear or weaken them for the nested statement, otherwise the frozen plan
+     * could be produced with state-sensitive rewrites re-enabled (e.g.
+     * SET_VAR(enable_nereids_rules='') re-enables FK join elimination, so a join could be
+     * frozen away and return different rows once constraint state changes) or with TopN
+     * lazy materialization / CTE inlining undoing the plan-serialization guards.
+     */
+    private static final Set<String> SPM_LOCKED_SET_VAR_KEYS = ImmutableSet.of(
+            SessionVariable.ENABLE_NEREIDS_RULES,
+            "topn_lazy_materialization_threshold",
+            SessionVariable.ENABLE_CTE_MATERIALIZE,
+            SessionVariable.INLINE_CTE_REFERENCED_THRESHOLD,
+            SessionVariable.CTE_INLINE_MODE);
 
     private SPMOptimizer() {
     }
@@ -256,6 +277,12 @@ public class SPMOptimizer {
      */
     public static OptimizeResult optimize(ConnectContext ctx, LogicalPlan logicalPlan, String originSql)
             throws UserException {
+        // Plan-SQL hints are applied DURING analysis (after the SPM overrides below are
+        // installed): SelectHintSetVar writes the SAME SessionVariable object, so a hint
+        // such as SET_VAR(enable_nereids_rules='') would silently clear the whitelist and
+        // the TopN / CTE guards for the nested statement. Reject such hints up front -
+        // CREATE then keeps the user's planSql text instead of freezing an unguarded plan.
+        checkProtectedSetVarHints(logicalPlan);
         StatementContext statementContext = new StatementContext(ctx,
                 new OriginStatement(originSql, 0));
         NereidsPlanner planner = new NereidsPlanner(statementContext);
@@ -269,9 +296,13 @@ public class SPMOptimizer {
         int originalCteInlineMode = sessionVar.cteInlineMode;
         try {
             // WHITELIST mode: only the rules SPM allows may apply while the baseline plan
-            // is produced. disable_nereids_rules is left untouched, so the user's own
-            // disable list keeps applying on top of this whitelist.
-            sessionVar.setEnableNereidsRules(buildSpmEnabledRules(originalEnabled));
+            // is produced. The mask is installed on THIS nested statement's context - NOT
+            // by redefining the public enable_nereids_rules variable, which would change
+            // its established behavior for every ordinary statement in the session (a
+            // session value like enable_nereids_rules='ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'
+            // would forbid every binding / implementation rule not named there). The
+            // user's own disable_nereids_rules keeps applying on top of the mask.
+            statementContext.setSpmExcludedRules(buildSpmExcludedRuleMask(originalEnabled));
             // TopN lazy materialization is an execution detail (post-process): it prunes
             // base-table columns from the physical plan and re-reads them later by rowid
             // (PhysicalLazyMaterialize). Such pruned columns would be missing from the
@@ -319,16 +350,84 @@ public class SPMOptimizer {
             if (!(resultPlan instanceof PhysicalPlan)) {
                 throw new AnalysisException("SPM failed to plan SQL: " + originSql);
             }
+            // Belt-and-braces for any hint path the pre-scan does not model: the protected
+            // variables must still carry the SPM values after planning, otherwise the plan
+            // may have been produced without a guard - fail the freeze instead of
+            // publishing it.
+            verifySpmOverridesIntact(sessionVar);
             return new OptimizeResult((PhysicalPlan) resultPlan,
                     extractCost((PhysicalPlan) resultPlan));
         } finally {
-            sessionVar.setEnableNereidsRules(originalEnabled);
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
             sessionVar.inlineCTEReferencedThreshold = originalInlineCteThreshold;
             sessionVar.cteInlineMode = originalCteInlineMode;
             ctx.setStatementContext(originalCtx);
         }
+    }
+
+    /**
+     * Rejects SET_VAR hints that target an SPM-protected session variable. Public for
+     * tests (the hint objects are constructed directly there).
+     */
+    public static void rejectProtectedSetVarHints(List<SelectHint> hints) throws AnalysisException {
+        if (hints == null) {
+            return;
+        }
+        for (SelectHint hint : hints) {
+            if (!(hint instanceof SelectHintSetVar)) {
+                continue;
+            }
+            for (String key : ((SelectHintSetVar) hint).getParameters().keySet()) {
+                if (key != null && SPM_LOCKED_SET_VAR_KEYS.contains(key.toLowerCase(Locale.ROOT))) {
+                    throw new AnalysisException("SPM cannot freeze a plan whose SET_VAR hint targets the"
+                            + " SPM-protected session variable '" + key + "'");
+                }
+            }
+        }
+    }
+
+    /** Walks the plan tree and rejects any SELECT hint targeting a protected variable. */
+    private static void checkProtectedSetVarHints(Plan node) throws AnalysisException {
+        if (node instanceof LogicalSelectHint) {
+            rejectProtectedSetVarHints(((LogicalSelectHint<?>) node).getHints());
+        }
+        for (Plan child : node.children()) {
+            checkProtectedSetVarHints(child);
+        }
+    }
+
+    /**
+     * Fails when the SPM overrides were altered while the nested statement was planned.
+     */
+    private static void verifySpmOverridesIntact(SessionVariable sessionVar) throws AnalysisException {
+        if (SessionVariable.getTopNLazyMaterializationThreshold() != -1
+                || !sessionVar.enableCTEMaterialize
+                || sessionVar.inlineCTEReferencedThreshold != 0
+                || sessionVar.cteInlineMode != -1) {
+            throw new AnalysisException("SPM safety overrides were altered during planning;"
+                    + " the plan cannot be frozen");
+        }
+    }
+
+    /**
+     * The per-statement rule mask for a baseline-creation plan: every RuleType outside the
+     * SPM whitelist (built from the session's own enable_nereids_rules value, if any) is
+     * forbidden, except the engine-essential privilege / row-policy checks which are never
+     * gated.
+     */
+    public static BitSet buildSpmExcludedRuleMask(String originalEnabled) throws AnalysisException {
+        Set<String> enabled = new HashSet<>(Arrays.asList(buildSpmEnabledRules(originalEnabled).split(",")));
+        BitSet mask = new BitSet();
+        for (RuleType ruleType : RuleType.values()) {
+            if (ruleType == RuleType.CHECK_PRIVILEGES || ruleType == RuleType.CHECK_ROW_POLICY) {
+                continue;
+            }
+            if (!enabled.contains(ruleType.name())) {
+                mask.set(ruleType.type());
+            }
+        }
+        return mask;
     }
 
     /**
