@@ -284,7 +284,10 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         return mayFailOnNonNullInput(child().getDataType(), targetType);
     }
 
-    /** Whether the BE conversion from sourceType to targetType can fail on a non-null input. */
+    /**
+     * Whether the BE conversion from sourceType to targetType can fail on a non-null input.
+     * The type pair must already have passed cast type checking.
+     */
     public static boolean mayFailOnNonNullInput(DataType sourceType, DataType targetType) {
         if (sourceType.equals(targetType)) {
             return false;
@@ -316,26 +319,46 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
 
-        // BE casts to a character type through to_string_batch for these source types.
-        // JSON and VARIANT take separate paths and are intentionally left conservative.
-        boolean concreteNumber = (sourceType.isIntegralType() && sourceType.width() > 0)
-                || sourceType.isFloatLikeType() || sourceType.isDecimalLikeType();
+        // Every valid typed value has a string representation. The generic serde path and the
+        // dedicated JSON/VARIANT paths do not report data-dependent conversion failures.
         if (targetType.isStringLikeType()) {
-            return !(sourceType.isStringLikeType() || sourceType.isBooleanType() || concreteNumber
-                    || sourceType.isDateLikeType() || sourceType.isTimeType()
-                    || sourceType.isArrayType() || sourceType.isMapType() || sourceType.isStructType());
+            return false;
         }
-        // The number-to-boolean and number-to-floating BE kernels cannot report a conversion
-        // failure. Precision loss (including floating overflow to infinity) is not a failure.
-        if (targetType.isBooleanType() || targetType.isFloatLikeType()) {
-            return !(sourceType.isBooleanType() || concreteNumber);
+
+        // For numeric and boolean casts, castNullable(false, ...) precisely records whether the
+        // BE kernel has a value-dependent overflow or conversion failure. Precision loss alone,
+        // such as truncating a decimal fraction when casting to BIGINT, is not a failure.
+        boolean sourceNumberOrBoolean = sourceType.isNumericType() || sourceType.isBooleanType();
+        boolean targetNumberOrBoolean = targetType.isNumericType() || targetType.isBooleanType();
+        if (sourceNumberOrBoolean && targetNumberOrBoolean) {
+            return castNullable(false, sourceType, targetType);
         }
-        // All Doris integral types are signed; a cast to an equal or wider integral type fits.
-        if (sourceType.isIntegralType() && sourceType.width() > 0
-                && targetType.isIntegralType() && targetType.width() > 0) {
-            return sourceType.width() > targetType.width();
+
+        // DATETIMEV2 and TIMESTAMPTZ scale reduction can overflow only when rounding carries the
+        // maximum value into the next second. Scale expansion just copies the stored value.
+        if (sourceType instanceof DateTimeV2Type && targetType instanceof DateTimeV2Type) {
+            return ((DateTimeV2Type) sourceType).getScale() > ((DateTimeV2Type) targetType).getScale();
         }
-        if (sourceType.isBooleanType() && targetType.isIntegralType() && targetType.width() > 0) {
+        if (sourceType instanceof TimeStampTzType && targetType instanceof TimeStampTzType) {
+            return ((TimeStampTzType) sourceType).getScale() > ((TimeStampTzType) targetType).getScale();
+        }
+        // TIMEV2 scale changes round within the valid TIMEV2 range and never report failure.
+        if (sourceType.isTimeType() && targetType.isTimeType()) {
+            return false;
+        }
+
+        // For the remaining temporal casts, castNullable(false, ...) mirrors the BE failure
+        // conditions: range overflow for TIMESTAMP_NS/time-to-narrow-int and timezone conversion
+        // failures. Dropping time fields or sub-microsecond precision does not fail in strict mode.
+        boolean sourceTemporal = sourceType.isDateLikeType() || sourceType.isTimeType();
+        boolean targetTemporalOrNumber = targetType.isDateLikeType() || targetType.isTimeType()
+                || targetType.isIntegralType() || targetType.isFloatLikeType();
+        if (sourceTemporal && targetTemporalOrNumber) {
+            return castNullable(false, sourceType, targetType);
+        }
+
+        // BE maps all IPv4 bits into IPv6 without parsing or range checks.
+        if (sourceType.isIPv4Type() && targetType.isIPv6Type()) {
             return false;
         }
         return true;
