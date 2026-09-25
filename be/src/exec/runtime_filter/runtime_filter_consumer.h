@@ -91,10 +91,16 @@ private:
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _registration_time(MonotonicMillis()),
               _rf_state(State::NOT_READY) {
-        auto* query_ctx = state->get_query_ctx();
-        bool wait_infinitely = state->runtime_filter_wait_infinitely() || !has_remote_target();
-        _rf_wait_time_ms = wait_infinitely ? query_ctx->execution_timeout() * 1000
-                                           : query_ctx->runtime_filter_wait_time_ms();
+        if (desc->__isset.wait_time_ms) {
+            _rf_wait_time_ms = desc->wait_time_ms;
+        } else {
+            // local rf must wait until timeout, otherwise it may lead results incorrectness,
+            // because LEFT_SEMI_DIRECT_RETURN_OPT
+            auto* query_ctx = state->get_query_ctx();
+            bool wait_infinitely = state->runtime_filter_wait_infinitely() || !has_remote_target();
+            _rf_wait_time_ms = wait_infinitely ? query_ctx->execution_timeout() * 1000
+                                               : query_ctx->runtime_filter_wait_time_ms();
+        }
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);
     }
 
