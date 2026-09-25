@@ -65,6 +65,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
+        Config.enable_feature_binlog = true;
     }
 
     @Test

@@ -75,10 +75,16 @@ public class CreateMTMVCommandTest extends TestWithFeService {
 
     @Override
     public void createTable(String sql) throws Exception {
-        resetStatementContext(sql);
-        LogicalPlan plan = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(plan instanceof CreateTableCommand);
-        ((CreateTableCommand) plan).run(connectContext, null);
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            resetStatementContext(sql);
+            LogicalPlan plan = new NereidsParser().parseSingle(sql);
+            Assertions.assertTrue(plan instanceof CreateTableCommand);
+            ((CreateTableCommand) plan).run(connectContext, null);
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
     }
 
     private void resetStatementContext(String sql) {
@@ -456,10 +462,16 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     @Test
     public void testCreateIncrementalMTMVRejectsNonIvmMtmvBase() throws Exception {
         createIvmMowTable("mtmv_non_ivm_base_source");
-        createMtmv("CREATE MATERIALIZED VIEW mtmv_non_ivm_base\n"
-                + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
-                + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n"
-                + " AS SELECT k1, v1 FROM mtmv_non_ivm_base_source;");
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = true;
+            createMtmv("CREATE MATERIALIZED VIEW mtmv_non_ivm_base\n"
+                    + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + " PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')\n"
+                    + " AS SELECT k1, v1 FROM mtmv_non_ivm_base_source;");
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
 
         assertCreateMtmvFails("CREATE MATERIALIZED VIEW mtmv_ivm_on_non_ivm_base\n"
                 + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
