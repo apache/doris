@@ -79,21 +79,23 @@ public class PercentileReservoir extends NullableAggregateFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        // An explicit cast to another agg_state layout (ConvertAggStateCast) wraps the validated level in
-        // Nullable / NonNullable, also nested and under a Cast when such casts are chained, to keep the
-        // requested state layout. BE only changes the nullability there, so check the level beneath them.
-        checkLevel(getArgument(1).rewriteUp(expression -> expression instanceof Nullable
-                || expression instanceof NonNullable ? expression.child(0) : expression));
+        checkLevel(getArgument(1));
     }
 
     /**
      * Execute the level literal that checkLevel() validated. BE would otherwise evaluate the constant
      * expression itself wherever it is not folded (load planning, DISTINCT, debug_skip_fold_constant),
      * and a cast such as FLOAT to DOUBLE can compute a different value there than the FE folding.
+     * The level nullability is part of the agg_state layout of the _state / _combine combinators, which
+     * is derived from the children again whenever the analyzer rebuilds them, so a nullable level such
+     * as CAST('0.25' AS DOUBLE) keeps its nullability through a Nullable wrapper over the literal.
      */
     @Override
     public Expression rewriteWhenAnalyze() {
-        return withChildren(ImmutableList.of(getArgument(0), checkLevel(getArgument(1))));
+        Expression levelArgument = getArgument(1);
+        Literal level = checkLevel(levelArgument);
+        return withChildren(ImmutableList.of(getArgument(0),
+                levelArgument.nullable() && !level.nullable() ? new Nullable(level) : level));
     }
 
     /**
@@ -108,10 +110,24 @@ public class PercentileReservoir extends NullableAggregateFunction
      * @return the folded level literal
      */
     private Literal checkLevel(Expression levelArgument) {
-        Expression level = levelArgument.isConstant()
+        // The analyzed level and an explicit cast to another agg_state layout (ConvertAggStateCast) wrap the
+        // validated level in Nullable / NonNullable, also nested and under a Cast when such casts are chained,
+        // to keep the state layout. FE does not fold them, so check the value beneath them: Nullable never
+        // changes it, and NonNullable only when it is not NULL, as BE rejects a NULL value there.
+        Expression unwrappedLevel = levelArgument.rewriteUp(expression -> {
+            if (expression instanceof Nullable) {
+                return expression.child(0);
+            }
+            if (expression instanceof NonNullable) {
+                Expression value = FoldConstantRuleOnFE.evaluateWithoutContext(expression.child(0));
+                return value instanceof Literal && !(value instanceof NullLiteral) ? value : expression;
+            }
+            return expression;
+        });
+        Expression level = unwrappedLevel.isConstant()
                 ? FoldConstantRuleOnFE.evaluateWithoutContext(
-                        TypeCoercionUtils.castIfNotSameType(levelArgument, DoubleType.INSTANCE))
-                : levelArgument;
+                        TypeCoercionUtils.castIfNotSameType(unwrappedLevel, DoubleType.INSTANCE))
+                : unwrappedLevel;
         if (!(level instanceof Literal)) {
             throw new AnalysisException(
                     "percentile_reservoir requires second parameter must be a constant : " + this.toSql());

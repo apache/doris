@@ -66,6 +66,64 @@ suite("test_percentile_reservoir_constant_level") {
         FROM numbers('number' = '10')
     """
 
+    // a nullable constant level such as CAST('0.25' AS DOUBLE) keeps the DOUBLE NULL level in the state
+    // layout, so the state unions and merges with a stored state of that layout
+    sql "DROP TABLE IF EXISTS test_percentile_reservoir_constant_level_nullable_state"
+    sql """
+        CREATE TABLE test_percentile_reservoir_constant_level_nullable_state (
+            k INT NOT NULL,
+            s AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NULL)> GENERIC
+        ) AGGREGATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_percentile_reservoir_constant_level_nullable_state
+        SELECT 1, percentile_reservoir_state(CAST(number AS DOUBLE), CAST('0.25' AS DOUBLE))
+        FROM numbers('number' = '5')
+    """
+    qt_nullable_level_state_union_merge """
+        SELECT percentile_reservoir_merge(s) FROM (
+            SELECT s FROM test_percentile_reservoir_constant_level_nullable_state
+            UNION ALL
+            SELECT percentile_reservoir_state(CAST(number + 5 AS DOUBLE), CAST('0.25' AS DOUBLE))
+            FROM numbers('number' = '5')
+        ) states
+    """
+
+    // INSERT OVERWRITE is not planned by the fast VALUES path and analyzes the row again after the cast to the
+    // NOT NULL level of the column wrapped the analyzed Nullable(0.25) level in NonNullable
+    sql "DROP TABLE IF EXISTS test_percentile_reservoir_constant_level_overwrite"
+    sql """
+        CREATE TABLE test_percentile_reservoir_constant_level_overwrite (
+            k INT NOT NULL,
+            s AGG_STATE<percentile_reservoir(DOUBLE NOT NULL, DOUBLE NOT NULL)> GENERIC
+        ) AGGREGATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT OVERWRITE TABLE test_percentile_reservoir_constant_level_overwrite
+        VALUES (1, percentile_reservoir_state(CAST(7 AS DOUBLE), if(true, 0.25, NULL)))
+    """
+    qt_overwrite_nullable_level_state """
+        SELECT k, percentile_reservoir_merge(s)
+        FROM test_percentile_reservoir_constant_level_overwrite GROUP BY k ORDER BY k
+    """
+
+    // non_nullable is not folded on FE and rejects a NULL value, so a level beneath it is not a constant
+    test {
+        sql "SELECT percentile_reservoir(number, non_nullable(CAST('' AS DOUBLE))) FROM numbers('number' = '10')"
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
+    test {
+        sql """
+            SELECT percentile_reservoir(number, nvl(non_nullable(CAST('' AS DOUBLE)), 0.25))
+            FROM numbers('number' = '10')
+        """
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
+
     // INSERT ... VALUES is planned without the rewrite phase, the level is still validated there
     sql "DROP TABLE IF EXISTS test_percentile_reservoir_constant_level_state"
     sql """

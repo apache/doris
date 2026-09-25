@@ -27,9 +27,12 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -42,6 +45,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -93,6 +97,27 @@ public class PercentileReservoirParameterTest {
         for (Expression expression : variants(new Pow(new DoubleLiteral(0.5), new DoubleLiteral(1)))) {
             assertRejected(expression, "must be a constant");
         }
+    }
+
+    @Test
+    void testUserNonNullableLevelIsNotUnwrappedInAnalysis() {
+        // non_nullable rejects a NULL value and FE does not fold it, so analysis must not look beneath it,
+        // otherwise non_nullable(CAST('' AS DOUBLE)) would run as a NULL level and nvl(...) as 0.25
+        Expression nullLevel = new NonNullable(new Cast(new VarcharLiteral(""), DoubleType.INSTANCE));
+        withStrictCast(false, () -> {
+            for (Expression level : Arrays.asList(nullLevel, new Nvl(nullLevel, new DoubleLiteral(0.25)))) {
+                for (Expression expression : variants(level)) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                            expression::checkLegalityBeforeTypeCoercion);
+                    Assertions.assertTrue(exception.getMessage().contains("must be a constant"),
+                            exception.getMessage());
+                    Assertions.assertThrows(AnalysisException.class,
+                            ((RewriteWhenAnalyze) expression)::rewriteWhenAnalyze);
+                }
+            }
+            // nullable never changes the value, so the level beneath it is validated and executed
+            assertAnalyzedLevel(new Nullable(new DoubleLiteral(0.25)), new Nullable(new DoubleLiteral(0.25)));
+        });
     }
 
     @Test
@@ -227,6 +252,33 @@ public class PercentileReservoirParameterTest {
     }
 
     @Test
+    void testAnalyzedLevelKeepsStateLayout() {
+        // CAST('0.25' AS DOUBLE) is nullable, so percentile_reservoir_state(v, CAST('0.25' AS DOUBLE)) has the
+        // layout percentile_reservoir(DOUBLE, DOUBLE NULL). The analyzer rebuilds functions without keeping their
+        // signatures, so the executed literal must stay nullable to keep that layout for union / merge.
+        Expression nullableLevel = new Cast(new VarcharLiteral("0.25"), DoubleType.INSTANCE);
+        Assertions.assertTrue(nullableLevel.nullable());
+        withStrictCast(false, () -> {
+            for (Expression expression : variants(nullableLevel)) {
+                Expression rewritten = MoreFieldsThread.keepFunctionSignature(false,
+                        () -> ((RewriteWhenAnalyze) expression).rewriteWhenAnalyze());
+                Assertions.assertEquals(new Nullable(new DoubleLiteral(0.25)), rewritten.child(1));
+                Assertions.assertEquals(expression.getDataType(), rewritten.getDataType());
+                Assertions.assertEquals(expression.nullable(), rewritten.nullable());
+                // a later rebuild during analysis, e.g. NormalizeAggregate, derives the same layout again
+                Expression rebuilt = MoreFieldsThread.keepFunctionSignature(false,
+                        () -> rewritten.withChildren(rewritten.children()));
+                Assertions.assertEquals(expression.getDataType(), rebuilt.getDataType());
+                // the executed level is accepted when the rewritten plan is analyzed or checked again
+                assertAccepted(rewritten);
+            }
+        });
+        Assertions.assertEquals(aggStateType(DoubleType.INSTANCE, true),
+                StateCombinator.create(new PercentileReservoir(
+                        new SlotReference("value", DoubleType.INSTANCE, false), nullableLevel)).getDataType());
+    }
+
+    @Test
     void testLevelWrappedByAggStateCastIsAccepted() {
         PercentileReservoir function = new PercentileReservoir(
                 new SlotReference("value", DoubleType.INSTANCE, false), new DoubleLiteral(0.25));
@@ -236,19 +288,31 @@ public class PercentileReservoirParameterTest {
         Expression state = convertAggStateCast(StateCombinator.create(function), nullableLevel);
         Assertions.assertInstanceOf(Nullable.class, state.child(1));
         Assertions.assertEquals(nullableLevel, state.getDataType());
-        Assertions.assertDoesNotThrow(state::checkLegalityAfterRewrite);
+        assertAccepted(state);
 
         // chained casts convert the same state again: back to a NOT NULL level gives NonNullable(Nullable(0.25))
         Expression chained = convertAggStateCast(state, aggStateType(DoubleType.INSTANCE, false));
         Assertions.assertInstanceOf(NonNullable.class, chained.child(1));
-        Assertions.assertDoesNotThrow(chained::checkLegalityAfterRewrite);
+        assertAccepted(chained);
 
         // through a nullable FLOAT level to a nullable DOUBLE level gives Cast(Nullable(Cast(0.25 AS FLOAT)))
         chained = convertAggStateCast(convertAggStateCast(StateCombinator.create(function),
                 aggStateType(FloatType.INSTANCE, true)), nullableLevel);
         Assertions.assertInstanceOf(Cast.class, chained.child(1));
         Assertions.assertInstanceOf(Nullable.class, chained.child(1).child(0));
-        Assertions.assertDoesNotThrow(chained::checkLegalityAfterRewrite);
+        assertAccepted(chained);
+
+        // the analyzed level of a nullable constant such as if(true, 0.25, NULL) is Nullable(0.25), and a cast to
+        // a NOT NULL level gives NonNullable(Nullable(0.25)), which an INSERT that is not planned by the fast
+        // VALUES path analyzes again
+        PercentileReservoir nullableLevelFunction = new PercentileReservoir(
+                new SlotReference("value", DoubleType.INSTANCE, false),
+                new If(BooleanLiteral.TRUE, new DoubleLiteral(0.25), new NullLiteral(DoubleType.INSTANCE)));
+        Expression analyzedState = StateCombinator.create(nullableLevelFunction).rewriteWhenAnalyze();
+        Assertions.assertEquals(new Nullable(new DoubleLiteral(0.25)), analyzedState.child(1));
+        Expression notNullState = convertAggStateCast(analyzedState, aggStateType(DoubleType.INSTANCE, false));
+        Assertions.assertInstanceOf(NonNullable.class, notNullState.child(1));
+        assertAccepted(notNullState);
 
         for (Expression level : Arrays.asList(new Nullable(new DoubleLiteral(1.5)),
                 new NonNullable(new Nullable(new DoubleLiteral(1.5))))) {

@@ -35,6 +35,12 @@
 -- !chained_float_level_state_cast --
 2.25
 
+-- !nullable_level_state_union_merge --
+2.25
+
+-- !overwrite_nullable_level_state --
+1	7
+
 -- !values_foldable_level_state --
 1	7
 
