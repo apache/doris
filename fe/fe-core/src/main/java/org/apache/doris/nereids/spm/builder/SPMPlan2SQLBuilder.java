@@ -17,10 +17,15 @@
 
 package org.apache.doris.nereids.spm.builder;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -32,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
@@ -48,16 +54,19 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -77,8 +86,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -93,6 +100,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -724,21 +732,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     // ==================== pass-through mode ====================
     /**
-     * PhysicalStorageLayerAggregate: the cloud storage-layer aggregation pushdown
-     * (COUNT / COUNT_ON_MATCH / MIN_MAX / MIX) REPLACES the aggregate - the pushdown node
-     * itself computes the result and the enclosing operator references its output slot
-     * directly, so the plan visitor default (decompile the wrapped relation) would
-     * silently drop the aggregation and freeze e.g. "SELECT * FROM t" for a count(*)
-     * query. No clause re-expresses the pushed-down state faithfully, so fail the
-     * decompile: CREATE keeps the user-supplied planSql text and the rewrite degrades to
-     * the parameterized-tree path.
+     * PhysicalStorageLayerAggregate: a scan-shaped shortcut that returns COUNT / MIN / MAX
+     * for the wrapped scan from table or footer metadata instead of reading the data.
+     * AggregateStrategies keeps the enclosing aggregate (or the constant-only project) on
+     * TOP of the shortcut and keeps every expression in terms of the wrapped relation's
+     * slots, so decompiling the wrapped relation publishes exactly those slots and the
+     * enclosing operators render the same SQL aggregate (count(*) / min(x) / ...) over the
+     * same table. Replaying that SQL re-derives an equivalent plan; there is no clause that
+     * describes the shortcut itself and none is needed, because the shortcut is an
+     * execution strategy of the aggregate rather than a different result.
      */
     @Override
     public SQLRelation visitPhysicalStorageLayerAggregate(
             PhysicalStorageLayerAggregate storageLayerAggregate, Void context) {
-        throw new UnsupportedOperationException(
-                "SPM decompile: storage-layer aggregate pushdown (cloud count / min-max)"
-                        + " is not supported yet");
+        return visitPhysicalRelation(storageLayerAggregate.getRelation(), context);
     }
 
     /**
@@ -766,6 +773,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     @Override
     public SQLRelation visitPhysicalLazyMaterializeOlapScan(
             PhysicalLazyMaterializeOlapScan scan, Void context) {
+        return visitPhysicalRelation(scan, context);
+    }
+
+    /**
+     * PhysicalLazyMaterializeFileScan: a file scan wrapped with lazy column
+     * materialization; decompiled as a normal scan (including its scan modifiers -
+     * the wrapper subclasses PhysicalFileScan, so the TABLESAMPLE / snapshot / scan
+     * parameter rendering applies unchanged).
+     */
+    @Override
+    public SQLRelation visitPhysicalLazyMaterializeFileScan(
+            PhysicalLazyMaterializeFileScan scan, Void context) {
         return visitPhysicalRelation(scan, context);
     }
 
@@ -917,7 +936,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPMPlan2SQLBuilder does not support relation: " + relation.getClass().getSimpleName());
         }
         PhysicalCatalogRelation catalogRelation = (PhysicalCatalogRelation) relation;
-        rejectUnsupportedScan(relation);
         SQLRelation sqlRelation = new SQLRelation();
         // Emit the fully qualified name (catalog.db.table) so the frozen planSql resolves
         // the same table when it is replayed from a session whose current database (or
@@ -925,10 +943,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // information_schema, ...). Tables without a database (e.g. FunctionGenTable)
         // keep the bare name. Each component is backtick-quoted when it is not a plain
         // identifier, so a metadata name containing operators is re-parsed as an
-        // identifier instead of an expression.
-        sqlRelation.setFrom(catalogRelation.getTable().getDatabase() == null
+        // identifier instead of an expression. Scan modifiers (partition selection,
+        // TABLESAMPLE, snapshot, scan parameters) follow the name in grammar order.
+        String table = catalogRelation.getTable().getDatabase() == null
                 ? quoteIdentifier(catalogRelation.getTable().getName())
-                : quoteQualifiedName(catalogRelation.getTable().getNameWithFullQualifiers()));
+                : quoteQualifiedName(catalogRelation.getTable().getNameWithFullQualifiers());
+        sqlRelation.setFrom(table + renderScanModifiers(relation));
         // Register output columns: ExprId -> real column name. Internal system columns
         // (e.g. rowid columns a join may request from the scan) are execution details
         // and are never registered so they cannot leak into projections / ON clauses.
@@ -970,69 +990,186 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * A scan carrying execution modifiers the decompiler cannot express in plain SQL must
-     * never be frozen as an unrestricted catalog.db.table scan: replay would silently run
-     * over all eligible partitions (e.g. FROM t PARTITION(p1) freezes and later executes
-     * over every partition), use the wrong index, or drop the sampling. Fail the decompile
-     * so CREATE falls back to the user-supplied planSql text instead.
+     * Renders the scan modifiers that the frozen SQL must carry, in the order the grammar
+     * accepts them after the table name
+     * (optScanParams, materializedViewName, tableSnapshot, specifiedPartition, sample):
      *
-     * Note: selectedTabletIds is deliberately NOT a rejection criterion - bucket pruning
-     * is derived from the query's own predicates (rule PruneOlapScanTablet), so the
-     * replayed SQL re-derives the same selection; only sample / partition / index
-     * selections are not reconstructible from the frozen text.
+     * <ul>
+     * <li>olap scans: {@code @paramType(...)} parameters (binlog reads), the partition list
+     *     when the scan reads a strict non-empty subset of the table partitions, and
+     *     {@code TABLESAMPLE};</li>
+     * <li>file scans: {@code @paramType(...)} parameters, {@code FOR VERSION/TIME AS OF}
+     *     snapshots and {@code TABLESAMPLE}.</li>
+     * </ul>
+     *
+     * Dropping any of them would silently change what the frozen planSql reads: a
+     * "FROM t PARTITION(p1)" baseline would replay over every partition, a snapshot read
+     * would run against the moving head of the table, and a sampled scan would return the
+     * full table.
+     *
+     * The partition list is emitted even when it was derived from predicates instead of
+     * being pinned by the user - the frozen text then simply does not match the bare user
+     * query (a safe miss, never a replay over the wrong partitions).
+     *
+     * Two scan states are deliberately NOT emitted. The selected index is an optimizer
+     * choice (a rollup is a consistent copy, so the choice carries no semantics) that
+     * cannot be told apart from a user-written INDEX clause; freezing it would pin the
+     * optimization and stop the plain user query from matching. The selected tablets are
+     * bucket pruning, re-derived by replay just like file-scan partition pruning. A
+     * user-written INDEX / TABLET / file PARTITION() pin only survives in the user tree,
+     * so such queries never match a frozen text that dropped the pin.
      */
-    private static void rejectUnsupportedScan(PhysicalRelation relation) {
-        if (relation instanceof org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan) {
-            org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan scan =
-                    (org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan) relation;
-            boolean partitionSubset = !scan.getSelectedPartitionIds().isEmpty()
-                    && scan.getSelectedPartitionIds().size()
-                            != scan.getTable().getPartitions().size();
-            if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId() || partitionSubset
-                    || scan.getTableSample().isPresent()) {
-                throw new UnsupportedOperationException(
-                        "SPM decompile: restricted olap scan (index/partition/sample selection)"
-                                + " is not supported yet");
-            }
-            return;
-        }
-        if (relation instanceof PhysicalFileScan) {
-            // File scans (external catalogs) carry the same class of modifiers - partition
-            // pruning state, TABLESAMPLE, FOR VERSION AS OF snapshot state and scan
-            // parameters - while the generic serializer emits only catalog.db.table. A
-            // placeholder-bearing "FOR VERSION AS OF 123 ... WHERE k = 1" baseline would
-            // replay against the current unrestricted table and return different rows,
-            // so every non-default modifier fails the decompile: CREATE keeps the user
-            // planSql text and the rewrite degrades to the parameterized-tree path.
+    private static String renderScanModifiers(PhysicalRelation relation) {
+        StringBuilder modifiers = new StringBuilder();
+        if (relation instanceof PhysicalOlapScan) {
+            PhysicalOlapScan scan = (PhysicalOlapScan) relation;
+            modifiers.append(renderScanParams(scan.getScanParams()));
+            modifiers.append(renderPartitionSelection(scan));
+            modifiers.append(renderTableSample(scan.getTableSample()));
+        } else if (relation instanceof PhysicalFileScan) {
             PhysicalFileScan scan = (PhysicalFileScan) relation;
-            boolean partitionPruned = scan.getSelectedPartitions() != null
-                    && scan.getSelectedPartitions() != LogicalFileScan.SelectedPartitions.NOT_PRUNED;
-            if (partitionPruned || scan.getTableSample().isPresent()
-                    || scan.getTableSnapshot().isPresent() || scan.getScanParams().isPresent()) {
-                throw new UnsupportedOperationException(
-                        "SPM decompile: restricted file scan"
-                                + " (partition/sample/snapshot/scan params) is not supported yet");
+            modifiers.append(renderScanParams(scan.getScanParams()));
+            modifiers.append(renderTableSnapshot(scan.getTableSnapshot()));
+            modifiers.append(renderTableSample(scan.getTableSample()));
+        }
+        return modifiers.toString();
+    }
+
+    /**
+     * OLAP partition selection: emitted as {@code PARTITION(p1, p2)} when the scan reads a
+     * strict, non-empty subset of the table partitions. Partition ids are sorted so the
+     * frozen text is deterministic (the matcher compares the selection as a set).
+     */
+    private static String renderPartitionSelection(PhysicalOlapScan scan) {
+        List<Long> selectedIds = scan.getSelectedPartitionIds();
+        OlapTable table = scan.getTable();
+        if (selectedIds.isEmpty() || selectedIds.size() == table.getPartitions().size()) {
+            return "";
+        }
+        List<Long> sortedIds = new ArrayList<>(selectedIds);
+        Collections.sort(sortedIds);
+        StringBuilder partition = new StringBuilder(" PARTITION(");
+        for (int i = 0; i < sortedIds.size(); i++) {
+            if (i > 0) {
+                partition.append(", ");
+            }
+            Partition partitionMeta = table.getPartition(sortedIds.get(i));
+            partition.append(quoteIdentifier(partitionMeta.getName()));
+        }
+        return partition.append(')').toString();
+    }
+
+    /**
+     * TABLESAMPLE(n PERCENT | n ROWS) [REPEATABLE seed]: both olap and file scans keep the
+     * user's sample. Dropping it would replay over the full table and return rows the
+     * captured plan never sampled in.
+     */
+    private static String renderTableSample(Optional<TableSample> tableSample) {
+        if (!tableSample.isPresent()) {
+            return "";
+        }
+        TableSample sample = tableSample.get();
+        StringBuilder modifiers = new StringBuilder(" TABLESAMPLE(")
+                .append(sample.sampleValue)
+                .append(sample.isPercent ? " PERCENT)" : " ROWS)");
+        if (sample.seek >= 0) {
+            modifiers.append(" REPEATABLE ").append(sample.seek);
+        }
+        return modifiers.toString();
+    }
+
+    /**
+     * FOR VERSION AS OF / FOR TIME AS OF: a time-travel read must stay pinned to the
+     * captured version, otherwise the replay reads the current table contents. A numeric
+     * version is emitted as a literal, every other value (and all times) as a string.
+     */
+    private static String renderTableSnapshot(Optional<TableSnapshot> tableSnapshot) {
+        if (!tableSnapshot.isPresent()) {
+            return "";
+        }
+        TableSnapshot snapshot = tableSnapshot.get();
+        if (snapshot.getType() == TableSnapshot.VersionType.TIME) {
+            return " FOR TIME AS OF " + quoteSqlString(snapshot.getValue());
+        }
+        String value = snapshot.getValue();
+        if (value.matches("[0-9]+")) {
+            return " FOR VERSION AS OF " + value;
+        }
+        return " FOR VERSION AS OF " + quoteSqlString(value);
+    }
+
+    /**
+     * @paramType(...) read parameters (incremental / branch / tag / options / snapshot /
+     * reset): the map form when the parameters carry key/value pairs, otherwise the bare
+     * identifier list form. Dropping them would replay a different (e.g. non-incremental)
+     * read than the captured one.
+     */
+    private static String renderScanParams(Optional<TableScanParams> scanParams) {
+        if (!scanParams.isPresent()) {
+            return "";
+        }
+        TableScanParams params = scanParams.get();
+        StringBuilder modifiers = new StringBuilder(" @").append(params.getParamType()).append('(');
+        Map<String, String> mapParams = params.getMapParams();
+        if (!mapParams.isEmpty()) {
+            boolean first = true;
+            for (Map.Entry<String, String> param : mapParams.entrySet()) {
+                if (!first) {
+                    modifiers.append(", ");
+                }
+                first = false;
+                modifiers.append(quoteIdentifier(param.getKey()))
+                        .append(" = ")
+                        .append(quoteSqlString(param.getValue()));
+            }
+        } else {
+            List<String> listParams = params.getListParams();
+            for (int i = 0; i < listParams.size(); i++) {
+                if (i > 0) {
+                    modifiers.append(", ");
+                }
+                modifiers.append(quoteIdentifier(listParams.get(i)));
             }
         }
+        return modifiers.append(')').toString();
+    }
+
+    /**
+     * A single-quoted SQL string literal: embedded single quotes are doubled so the value
+     * cannot terminate the literal and change the frozen SQL structure.
+     */
+    private static String quoteSqlString(String value) {
+        return "'" + value.replace("'", "''") + "'";
     }
 
     // ==================== Generate (LATERAL VIEW) ====================
 
     /**
-     * PhysicalGenerate: one LATERAL VIEW clause over the child relation. The child
-     * relation's FROM is extended with a LATERAL VIEW clause carrying the generator,
-     * the table alias and the column list; the generator output columns are registered
-     * on the same relation so parent operators can reference them. The alias is taken
-     * from the user's alias when it survived analysis (slot qualifier), otherwise a
-     * per-decompile lv_N alias is used. Generate conjuncts (if any) are appended to the
-     * relation's WHERE.
+     * PhysicalGenerate: LATERAL VIEW clauses over the child relation - one clause per
+     * generator. The parser wraps every user-written {@code LATERAL VIEW ...} into its
+     * own single-generator node, while {@code MergeGenerates} (for two independent
+     * views) folds stacked nodes into one node carrying several generators; the
+     * executor rolls several functions over each child row, i.e. a cartesian expansion,
+     * which is exactly what stacked LATERAL VIEWs express (MergeGenerates only merges
+     * when the upper view does not reference the lower view's output). LATERAL VIEW
+     * clauses attach to the child's COMPLETE query block: the child's WHERE / GROUP BY /
+     * HAVING / ORDER BY / LIMIT clauses must stay inside the lateral-view input (a
+     * derived table with LIMIT 10 limits the input, not the exploded rows). The
+     * generator output columns are registered on the same relation so parent operators
+     * can reference them; the alias is taken from the output slot's qualifier when it
+     * survived analysis, otherwise a per-decompile lv_N alias is used. Generate
+     * conjuncts (if any) are appended to the relation's WHERE.
      */
     @Override
     public SQLRelation visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, Void context) {
         SQLRelation childRelation = process(generate.child(0));
-        if (generate.getGenerators().size() != 1) {
-            throw new UnsupportedOperationException("SPM decompile generate: expected one generator, got "
-                    + generate.getGenerators().size());
+        List<Function> generators = generate.getGenerators();
+        List<Slot> outputs = generate.getGeneratorOutput();
+        if (generators.isEmpty() || generators.size() != outputs.size()) {
+            // post-binding plans keep exactly one output slot per generator (multi-column
+            // generators carry their columns in the expand alias project above)
+            throw new UnsupportedOperationException("SPM decompile generate: generator/output arity mismatch "
+                    + generators.size() + "/" + outputs.size());
         }
         // The LATERAL VIEW must attach to the child's COMPLETE query block. Attaching it
         // to the bare FROM fragment (getFrom()) would keep the child's WHERE / GROUP BY /
@@ -1058,32 +1195,29 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             relation = childRelation;
             baseSql = relation.getFrom();
         }
-        List<Slot> outputs = generate.getGeneratorOutput();
-        String alias = "";
-        for (Slot slot : outputs) {
-            if (!slot.getQualifier().isEmpty()) {
-                alias = slot.getQualifier().get(slot.getQualifier().size() - 1);
-                break;
-            }
-        }
-        if (alias.isEmpty()) {
-            alias = "lv_" + (lateralViewSeq++);
-        }
+        List<String> aliases = new ArrayList<>(outputs.size());
         // The analyzer may name a generator output with an internal column name
         // ("$c$N"); such a name cannot be referenced in SQL, so give it a generated
         // visible name and register the slot under that name for the parent operators.
         List<String> columnNames = new ArrayList<>(outputs.size());
         for (Slot slot : outputs) {
+            String alias = slot.getQualifier().isEmpty()
+                    ? "" : slot.getQualifier().get(slot.getQualifier().size() - 1);
+            aliases.add(alias.isEmpty() ? "lv_" + (lateralViewSeq++) : alias);
             String name = slot.getName();
             columnNames.add(name == null || name.startsWith("$c$")
                     ? "lv_col_" + (lateralViewSeq++) : name);
         }
-        String generatorSql = exprSqlBuilder.print(generate.getGenerators().get(0), relation);
-        String columnList = columnNames.stream()
-                .map(SPMPlan2SQLBuilder::quoteIdentifier)
-                .collect(Collectors.joining(", "));
-        relation.setFrom(baseSql + " LATERAL VIEW " + generatorSql + " "
-                + quoteIdentifier(alias) + " AS " + columnList);
+        StringBuilder from = new StringBuilder(baseSql);
+        for (int i = 0; i < generators.size(); i++) {
+            from.append(" LATERAL VIEW ")
+                    .append(exprSqlBuilder.print(generators.get(i), relation))
+                    .append(' ')
+                    .append(quoteIdentifier(aliases.get(i)))
+                    .append(" AS ")
+                    .append(quoteIdentifier(columnNames.get(i)));
+        }
+        relation.setFrom(from.toString());
         for (int i = 0; i < outputs.size(); i++) {
             relation.registerRef(outputs.get(i).getExprId(), quoteIdentifier(columnNames.get(i)));
         }

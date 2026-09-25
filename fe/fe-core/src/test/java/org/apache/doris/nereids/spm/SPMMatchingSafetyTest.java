@@ -597,6 +597,17 @@ public class SPMMatchingSafetyTest {
         Assertions.assertFalse(matches(bind,
                 "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
                 "a query without the partition selection must not match a partitioned bind");
+
+        // partition lists are sets: the decompiler emits the selected partitions in
+        // partition-id order regardless of how the user ordered them
+        Assertions.assertTrue(matches(
+                "SELECT * FROM t1 PARTITION(p1, p2) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1",
+                "SELECT * FROM t1 PARTITION(p2, p1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
+                "the same partition selection in another order reads the same data");
+        Assertions.assertFalse(matches(
+                "SELECT * FROM t1 PARTITION(p1, p1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1",
+                "SELECT * FROM t1 PARTITION(p1) JOIN t2 ON t1.a = t2.a WHERE t1.k = 1"),
+                "a duplicated partition name must not collapse into a smaller selection");
     }
 
     // ==================== user-visible alias identifiers are part of the match ====================
