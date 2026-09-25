@@ -525,6 +525,10 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
     char* const envp[] = {const_cast<char*>("PATH=/bin:/usr/bin"), nullptr};
     ASSERT_EQ(posix_spawn(&pid, "/bin/sh", nullptr, nullptr, argv, envp), 0);
     ASSERT_GT(pid, 0);
+    // Declare the manager before the cleanup guard so that a fatal assertion destroys the guard
+    // first: it kills and reaps this direct child, and the manager's stop() then observes ECHILD
+    // instead of signalling a numeric pid whose ownership it has already given up.
+    CdcClientMgr mgr;
     bool child_needs_cleanup = true;
     Defer cleanup {[&]() {
         if (child_needs_cleanup) {
@@ -533,7 +537,6 @@ TEST_F(CdcClientMgrTest, StaleGenerationCannotTerminateAReusedNumericPid) {
         }
     }};
 
-    CdcClientMgr mgr;
     const uint64_t old_identity = mgr.set_child_pid_for_test(pid);
     // Republish the same numeric pid under a new generation. This deterministically models the
     // kernel reusing a reaped CDC pid for another same-parent child without depending on PID churn.
