@@ -611,6 +611,24 @@ TEST(SearchLoweringTest, MatchPhrasePrefixMarksItsLastSlot) {
     EXPECT_TRUE(stacked.as<Phrase>()->prefix);
 }
 
+// An edge phrase's first slot takes the terms that end with its token and its last slot the terms
+// that start with its token; a single token takes every term that contains it.
+TEST(SearchLoweringTest, MatchPhraseEdgeMarksBothEdges) {
+    FakeCatalog catalog;
+    auto phrase = match(InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, "ick brown Fo", catalog);
+    ASSERT_NE(phrase.as<Phrase>(), nullptr);
+    EXPECT_EQ(terms_of(phrase.as<Phrase>()->slots),
+              (std::vector<std::string> {"ick", "brown", "fo"}));
+    EXPECT_TRUE(phrase.as<Phrase>()->suffix);
+    EXPECT_TRUE(phrase.as<Phrase>()->prefix);
+    EXPECT_EQ(phrase.as<Phrase>()->slop, 0);
+
+    auto one = match(InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, "Uic", catalog);
+    ASSERT_NE(one.as<Expand>(), nullptr);
+    EXPECT_EQ(one.as<Expand>()->kind, ExpandKind::kContains);
+    EXPECT_EQ(one.as<Expand>()->pattern, "uic");
+}
+
 // MATCH_REGEXP matches anywhere inside a term, so its pattern is not anchored.
 TEST(SearchLoweringTest, MatchRegexpAndWildcardTakeThePatternAsWritten) {
     FakeCatalog catalog;
@@ -631,7 +649,8 @@ TEST(SearchLoweringTest, MatchValueWithoutTokensIsEmpty) {
     for (const auto query_type :
          {InvertedIndexQueryType::MATCH_ANY_QUERY, InvertedIndexQueryType::MATCH_ALL_QUERY,
           InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-          InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, InvertedIndexQueryType::EQUAL_QUERY}) {
+          InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
+          InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, InvertedIndexQueryType::EQUAL_QUERY}) {
         EXPECT_NE(match(query_type, "  ", catalog).as<Empty>(), nullptr)
                 << query_type_to_string(query_type);
     }
@@ -643,8 +662,8 @@ TEST(SearchLoweringTest, MatchRejectsQueryTypesWithoutAShape) {
         return catalog.analyze({}, std::string(text), tokens);
     };
     for (const auto query_type :
-         {InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, InvertedIndexQueryType::BOOLEAN_QUERY,
-          InvertedIndexQueryType::LESS_THAN_QUERY, InvertedIndexQueryType::RANGE_QUERY}) {
+         {InvertedIndexQueryType::BOOLEAN_QUERY, InvertedIndexQueryType::LESS_THAN_QUERY,
+          InvertedIndexQueryType::RANGE_QUERY}) {
         Node node;
         EXPECT_TRUE(lower_match(query_type, "a b", analyze, &node)
                             .is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>())

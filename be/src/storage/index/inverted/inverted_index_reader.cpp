@@ -54,7 +54,6 @@
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
-#include "storage/index/inverted/query/phrase_edge_query.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
@@ -351,38 +350,6 @@ Status InvertedIndexReader::create_index_searcher(IndexSearcherBuilder* index_se
     return Status::OK();
 };
 
-Status FullTextIndexReader::phrase_edge_search(
-        const IndexQueryContextPtr& context, const InvertedIndexQueryInfo& query_info,
-        const FulltextIndexSearcherPtr& index_searcher,
-        const std::shared_ptr<roaring::Roaring>& term_match_bitmap) {
-    auto* reader = index_searcher->getReader();
-    if (context->runtime_state &&
-        context->runtime_state->query_options().inverted_index_compatible_read) {
-        reader->setCompatibleRead(true);
-    }
-    // The phrase reads no candidate rows, so a flag left by an earlier search is cleared.
-    context->candidate_rows_consumed = false;
-    try {
-        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
-        auto query = std::make_unique<PhraseEdgeQuery>(index_searcher, context);
-        {
-            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
-            query->add(query_info);
-        }
-        {
-            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
-            query->search(*term_match_bitmap);
-        }
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
-                                                                      e.what());
-    } catch (const Exception& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occurred: {}",
-                                                                      e.what());
-    }
-    return Status::OK();
-}
-
 namespace {
 
 namespace logical = index_query::logical;
@@ -421,7 +388,7 @@ Status phrase_query(const IndexQueryContextPtr& context, const std::wstring& fie
                     "a phrase prefix with several terms at one position is not supported");
         }
         *out = std::make_shared<query_v2::PhrasePrefixQuery>(context, field, phrase.slots,
-                                                             candidates);
+                                                             candidates, phrase.suffix);
         return Status::OK();
     }
     const index_query::PhraseQueryOptions options {.slop = static_cast<uint32_t>(phrase.slop),
@@ -441,6 +408,8 @@ index_query::TermPatternKind pattern_kind(logical::ExpandKind kind) {
         return index_query::TermPatternKind::kPrefix;
     case logical::ExpandKind::kRegexp:
         return index_query::TermPatternKind::kRegexp;
+    case logical::ExpandKind::kContains:
+        return index_query::TermPatternKind::kContains;
     case logical::ExpandKind::kWildcard:
     default:
         return index_query::TermPatternKind::kWildcard;
@@ -526,55 +495,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
     std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
     VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
-    // MATCH_PHRASE_EDGE is the one query type the legacy executors still run.
-    if (query_type != InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
-        return _match(context, column_name, search_str, query_type, bit_map, analyzer_ctx);
-    }
-
-    try {
-        InvertedIndexQueryInfo query_info;
-        {
-            SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            RETURN_IF_ERROR(inverted_index::InvertedIndexAnalyzer::analyze(
-                    search_str, analyzer_ctx, _index_meta.properties(), &query_info.term_infos));
-        }
-        if (query_info.term_infos.empty()) {
-            LOG(WARNING) << fmt::format(
-                    "token parser result is empty for query, please check your query: '{}' and "
-                    "index parser: '{}'",
-                    search_str, get_parser_string_from_properties(_index_meta.properties()));
-            return Status::OK();
-        }
-        query_info.field_name = StringUtil::string_to_wstring(column_name);
-
-        const InvertedIndexQueryCache::CacheKey cache_key {
-                .index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
-                .column_name = column_name,
-                .query_type = query_type,
-                .value = query_info.generate_tokens_key()};
-        auto* cache = InvertedIndexQueryCache::instance();
-        InvertedIndexQueryCacheHandle cache_handler;
-        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
-            return Status::OK();
-        }
-
-        InvertedIndexCacheHandle inverted_index_cache_handle;
-        RETURN_IF_ERROR(handle_searcher_cache(context, &inverted_index_cache_handle));
-        auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-        auto* searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
-        if (searcher_ptr != nullptr) {
-            auto term_match_bitmap = std::make_shared<roaring::Roaring>();
-            RETURN_IF_ERROR(
-                    phrase_edge_search(context, query_info, *searcher_ptr, term_match_bitmap));
-            term_match_bitmap->runOptimize();
-            cache->insert(cache_key, term_match_bitmap, &cache_handler);
-            bit_map = term_match_bitmap;
-        }
-        return Status::OK();
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occurred, error msg: {}", e.what());
-    }
+    return _match(context, column_name, search_str, query_type, bit_map, analyzer_ctx);
 }
 
 Status InvertedIndexReader::_match(const IndexQueryContextPtr& context,
@@ -1357,7 +1278,7 @@ InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>::compare(
 }
 
 template <InvertedIndexQueryType QT>
-bkd::relation InvertedIndexVisitor<QT>::compare_prefix(std::vector<uint8_t>& prefix) {
+lucene::util::bkd::relation InvertedIndexVisitor<QT>::compare_prefix(std::vector<uint8_t>& prefix) {
     const int32_t length = cast_set<int32_t>(prefix.size());
     const uint8_t* data = prefix.data();
 
@@ -1370,12 +1291,12 @@ bkd::relation InvertedIndexVisitor<QT>::compare_prefix(std::vector<uint8_t>& pre
     int32_t cmpMin = cmp(query_min);
 
     if (cmpMax > 0 || cmpMin < 0) {
-        return bkd::relation::CELL_OUTSIDE_QUERY;
+        return lucene::util::bkd::relation::CELL_OUTSIDE_QUERY;
     }
     if (cmpMin > 0 && cmpMax < 0) {
-        return bkd::relation::CELL_INSIDE_QUERY;
+        return lucene::util::bkd::relation::CELL_INSIDE_QUERY;
     }
-    return bkd::relation::CELL_CROSSES_QUERY;
+    return lucene::util::bkd::relation::CELL_CROSSES_QUERY;
 }
 
 template <InvertedIndexQueryType QT>

@@ -46,17 +46,6 @@ public:
     std::vector<TermInfo> term_infos;
     int32_t slop = 0;
     bool ordered = false;
-
-    std::string generate_tokens_key() const {
-        std::string key;
-        for (const auto& token : term_infos) {
-            key += token.get_single_term() + std::to_string(token.position) + " ";
-        }
-        if (!key.empty()) {
-            key.pop_back();
-        }
-        return key;
-    }
 };
 
 } // namespace doris::segment_v2

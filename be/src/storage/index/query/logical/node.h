@@ -60,20 +60,23 @@ struct TermSet {
 
 // A phrase over analyzed tokens grouped by position. A slot with several terms
 // accepts any of them at that position. The tokens may be `slop` moves apart,
-// kept in order when `ordered`, and with `prefix` the last slot matches the
-// terms that start with it.
+// kept in order when `ordered`. With `prefix` the last slot matches the terms
+// that start with it, and with `suffix` the first slot the terms that end with it.
 struct Phrase {
     FieldRef field;
     std::vector<Token> slots;
     int32_t slop = 0;
     bool ordered = false;
     bool prefix = false;
+    bool suffix = false;
 };
 
-enum class ExpandKind : uint8_t { kPrefix, kWildcard, kRegexp };
+enum class ExpandKind : uint8_t { kPrefix, kWildcard, kRegexp, kContains };
 
 // Every dictionary term matching `pattern`: a prefix matches the terms that start with it, a glob
-// whole terms, and a regular expression matches anywhere in a term unless the pattern anchors it.
+// whole terms, a regular expression matches anywhere in a term unless the pattern anchors it, and
+// a contains pattern the terms that hold it anywhere. The session caps how many terms a pattern
+// expands to, except a contains pattern, which takes every such term.
 struct Expand {
     FieldRef field;
     ExpandKind kind = ExpandKind::kWildcard;

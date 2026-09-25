@@ -2783,6 +2783,76 @@ public:
         }
     }
 
+    // MATCH_PHRASE_EDGE: one token matches the terms that contain it; several put a term ending
+    // with the first token and one starting with the last around exact middle tokens.
+    void test_fulltext_phrase_edge_queries() {
+        std::vector<Slice> values = {Slice("apple banana cherry"), Slice("application running"),
+                                     Slice("grape orange"),        Slice("snappy compress"),
+                                     Slice("banana split"),        Slice("wrapper code"),
+                                     Slice("simple band checker"), Slice("people bandage achieved"),
+                                     Slice("triple bandits chest")};
+        TabletIndex idx_meta;
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test_fulltext_phrase_edge");
+        index_meta_pb.add_col_unique_id(1);
+        index_meta_pb.mutable_properties()->insert({"parser", "english"});
+        index_meta_pb.mutable_properties()->insert({"lower_case", "true"});
+        index_meta_pb.mutable_properties()->insert({"support_phrase", "true"});
+        idx_meta.init_from_pb(index_meta_pb);
+        std::string index_path_prefix;
+        prepare_string_index("test_fulltext_phrase_edge", 0, values, &idx_meta, &index_path_prefix);
+        auto reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(reader->init().ok());
+        auto fulltext_reader = FullTextIndexReader::create_shared(&idx_meta, reader);
+
+        const auto run = [&](const std::string& value, int32_t max_expansions,
+                             const roaring::Roaring* candidates, bool* consumed = nullptr) {
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = false;
+            query_options.inverted_index_max_expansions = max_expansions;
+            runtime_state.set_query_options(query_options);
+            io::IOContext io_ctx;
+            auto context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+            context->candidate_rows = candidates;
+            auto bitmap = std::make_shared<roaring::Roaring>();
+            const Status status =
+                    fulltext_reader->query(context, "1", Field::create_field<TYPE_STRING>(value),
+                                           InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, bitmap);
+            EXPECT_TRUE(status.ok()) << value << ": " << status;
+            if (consumed != nullptr) {
+                *consumed = context->candidate_rows_consumed;
+            }
+            std::vector<uint32_t> rows(bitmap->begin(), bitmap->end());
+            return rows;
+        };
+
+        EXPECT_EQ(run("app", 50, nullptr), (std::vector<uint32_t> {0, 1, 3, 5}));
+        // A contains match takes every term, whatever the limit.
+        EXPECT_EQ(run("app", 1, nullptr), (std::vector<uint32_t> {0, 1, 3, 5}));
+        EXPECT_EQ(run("ple ban", 50, nullptr), (std::vector<uint32_t> {0, 6, 7, 8}));
+        EXPECT_EQ(run("ple band che", 50, nullptr), (std::vector<uint32_t> {6}));
+        // Each end keeps its first two terms: "apple" and "people", "banana" and "band".
+        EXPECT_EQ(run("ple ban", 2, nullptr), (std::vector<uint32_t> {0}));
+        EXPECT_TRUE(run("ple ban che", 50, nullptr).empty());
+        EXPECT_TRUE(run("xyz", 50, nullptr).empty());
+
+        // Like the other phrases, several tokens read only the scan's candidate rows.
+        roaring::Roaring candidates;
+        candidates.add(6);
+        candidates.add(7);
+        bool consumed = false;
+        EXPECT_EQ(run("ple ban", 50, &candidates, &consumed), (std::vector<uint32_t> {6, 7}));
+        EXPECT_TRUE(consumed);
+    }
+
     // Test iterator comprehensive functionality
     void test_iterator_comprehensive() {
         std::string_view rowset_id = "test_iterator_comprehensive";
@@ -4565,6 +4635,10 @@ TEST_F(InvertedIndexReaderTest, CandidatePushdownCachePolicy) {
 
 TEST_F(InvertedIndexReaderTest, CandidateConsumedFlagResetBetweenReaders) {
     test_candidate_consumed_flag_reset_between_readers();
+}
+
+TEST_F(InvertedIndexReaderTest, FulltextPhraseEdgeQueries) {
+    test_fulltext_phrase_edge_queries();
 }
 
 // Test InvertedIndexResultBitmap operator|= with NULL handling

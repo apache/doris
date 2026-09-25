@@ -233,6 +233,18 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
                                     options.candidates);
 }
 
+Status phrase_edge_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
+                         std::vector<uint32_t>* docids, QueryProfile* profile,
+                         const PhrasePrefixQueryOptions& options) {
+    QueryProfileScope profile_scope(idx.reader(), profile);
+    format::PrxDecodeContext decode_context {
+            .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
+            .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
+    return phrase_edge_query_impl(idx, terms, docids, options.max_expansions,
+                                  profile == nullptr ? nullptr : &decode_context,
+                                  options.candidates);
+}
+
 Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
                                             const std::vector<std::string>& terms,
                                             std::vector<PhraseMatch>* matches,

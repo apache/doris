@@ -28,13 +28,16 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+// A phrase whose last term matches the terms that start with it. With `suffix` its first term
+// matches the terms that end with it.
 class PhrasePrefixWeight : public Weight {
 public:
     PhrasePrefixWeight(IndexQueryContextPtr context, std::wstring field,
                        std::vector<std::pair<size_t, std::string>> phrase_terms,
                        std::pair<size_t, std::string> prefix,
                        index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
-                       int32_t max_expansions, const roaring::Roaring* candidates, bool nullable)
+                       int32_t max_expansions, const roaring::Roaring* candidates, bool suffix,
+                       bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
               _phrase_terms(std::move(phrase_terms)),
@@ -43,6 +46,7 @@ public:
               _enable_scoring(enable_scoring),
               _max_expansions(max_expansions),
               _candidates(candidates),
+              _suffix(suffix),
               _nullable(nullable) {}
     ~PhrasePrefixWeight() override = default;
 
@@ -66,41 +70,48 @@ private:
 
         std::vector<std::pair<size_t, PostingsPtr>> all_postings;
         for (const auto& [offset, term] : _phrase_terms) {
-            auto posting = create_position_posting(reader.get(), _field, term, _enable_scoring,
-                                                   _similarity, _context->io_ctx);
+            PostingsPtr posting =
+                    _suffix && offset == 0
+                            ? expanded_postings(reader.get(), index_query::TermPatternKind::kSuffix,
+                                                term)
+                            : create_position_posting(reader.get(), _field, term, _enable_scoring,
+                                                      _similarity, _context->io_ctx);
             if (!posting) {
                 return std::make_shared<EmptyScorer>();
             }
             all_postings.emplace_back(offset, std::move(posting));
         }
-
-        index_query::TermPattern tail;
-        THROW_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
-                                                        _prefix.second, &tail));
-        auto expanded_terms =
-                expand_terms(reader.get(), _field, tail, _max_expansions, _context->io_ctx);
-        if (expanded_terms.empty()) {
+        PostingsPtr tail = expanded_postings(reader.get(), index_query::TermPatternKind::kPrefix,
+                                             _prefix.second);
+        if (!tail) {
             return std::make_shared<EmptyScorer>();
         }
-
-        std::vector<SegmentPostingsPtr> suffix_postings;
-        for (const auto& term : expanded_terms) {
-            auto posting = create_position_posting(reader.get(), _field, term, _enable_scoring,
-                                                   _similarity, _context->io_ctx);
-            if (posting) {
-                suffix_postings.emplace_back(std::move(posting));
-            }
-        }
-
-        if (suffix_postings.empty()) {
-            return std::make_shared<EmptyScorer>();
-        }
-
-        all_postings.emplace_back(_prefix.first, make_union_postings(std::move(suffix_postings)));
+        all_postings.emplace_back(_prefix.first, std::move(tail));
 
         uint32_t num_docs = ctx.segment_num_rows;
         return PhraseScorer<PostingsPtr>::create(all_postings, _similarity,
                                                  {.candidates = _candidates}, num_docs);
+    }
+
+    // The union of the positions of the terms `text` expands to as a `kind` pattern, or nullptr
+    // when it expands to none.
+    PostingsPtr expanded_postings(lucene::index::IndexReader* reader,
+                                  index_query::TermPatternKind kind, const std::string& text) {
+        index_query::TermPattern pattern;
+        THROW_IF_ERROR(index_query::TermPattern::create(kind, text, &pattern));
+        std::vector<SegmentPostingsPtr> postings;
+        for (const auto& term :
+             expand_terms(reader, _field, pattern, _max_expansions, _context->io_ctx)) {
+            auto posting = create_position_posting(reader, _field, term, _enable_scoring,
+                                                   _similarity, _context->io_ctx);
+            if (posting) {
+                postings.emplace_back(std::move(posting));
+            }
+        }
+        if (postings.empty()) {
+            return nullptr;
+        }
+        return make_union_postings(std::move(postings));
     }
 
     IndexQueryContextPtr _context;
@@ -111,6 +122,7 @@ private:
     bool _enable_scoring = false;
     int32_t _max_expansions = 50;
     const roaring::Roaring* _candidates = nullptr;
+    bool _suffix = false;
     bool _nullable = true;
 };
 

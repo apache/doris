@@ -79,6 +79,11 @@ Status TermPattern::create(TermPatternKind kind, std::string_view pattern, TermP
         out->_enumeration_prefix = pattern;
         return Status::OK();
     }
+    if (kind == TermPatternKind::kSuffix || kind == TermPatternKind::kContains) {
+        // Such terms can start with anything, so the whole dictionary is enumerated.
+        out->_text = pattern;
+        return Status::OK();
+    }
     if (kind == TermPatternKind::kWildcard) {
         out->_wildcard.emplace(pattern);
         if (!out->_wildcard->pattern_valid()) {
@@ -112,6 +117,12 @@ Status TermPattern::create(TermPatternKind kind, std::string_view pattern, TermP
 }
 
 bool TermPattern::matches(std::string_view term) {
+    if (_kind == TermPatternKind::kSuffix) {
+        return term.ends_with(_text);
+    }
+    if (_kind == TermPatternKind::kContains) {
+        return term.find(_text) != std::string_view::npos;
+    }
     if (_kind == TermPatternKind::kWildcard) {
         return (*_wildcard)(term);
     }
@@ -131,6 +142,10 @@ int32_t max_expansions(const segment_v2::IndexQueryContext& context) {
     return context.runtime_state == nullptr
                    ? 50
                    : context.runtime_state->query_options().inverted_index_max_expansions;
+}
+
+int32_t expansion_limit(TermPatternKind kind, int32_t max_expansions) {
+    return kind == TermPatternKind::kContains ? 0 : max_expansions;
 }
 
 } // namespace doris::index_query

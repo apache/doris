@@ -23,6 +23,7 @@
 #include <string>
 
 #include "io/fs/local_file_system.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
@@ -125,15 +126,21 @@ static std::vector<uint32_t> collect_docs(ScorerPtr scorer) {
     return result;
 }
 
-// The terms the shared expansion finds for a prefix.
+// The terms the shared expansion finds for a pattern.
+static std::vector<std::string> expand_pattern(lucene::index::IndexReader* reader,
+                                               const std::wstring& field,
+                                               index_query::TermPatternKind kind,
+                                               const std::string& text, int32_t max_expansions) {
+    index_query::TermPattern pattern;
+    EXPECT_TRUE(index_query::TermPattern::create(kind, text, &pattern).ok());
+    return expand_terms(reader, field, pattern, max_expansions, nullptr);
+}
+
 static std::vector<std::string> expand_prefix(lucene::index::IndexReader* reader,
                                               const std::wstring& field, const std::string& prefix,
                                               int32_t max_expansions) {
-    index_query::TermPattern pattern;
-    EXPECT_TRUE(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix, prefix,
-                                                 &pattern)
-                        .ok());
-    return expand_terms(reader, field, pattern, max_expansions, nullptr);
+    return expand_pattern(reader, field, index_query::TermPatternKind::kPrefix, prefix,
+                          max_expansions);
 }
 
 // --- PrefixQuery construction ---
@@ -200,6 +207,60 @@ TEST_F(PrefixQueryV2Test, expand_prefix_longer_than_terms) {
     std::wstring field = StringHelper::to_wstring("content");
     auto terms = expand_prefix(reader.get(), field, "applicationformxyz", 50);
     EXPECT_TRUE(terms.empty());
+
+    _CLDECDELETE(dir);
+}
+
+// A suffix takes the terms that end with it, the first ones in dictionary order under a limit.
+TEST_F(PrefixQueryV2Test, expand_suffix) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    const auto kind = index_query::TermPatternKind::kSuffix;
+
+    EXPECT_EQ(expand_pattern(reader.get(), field, kind, "t", 0),
+              (std::vector<std::string> {"account", "cart", "cat", "dessert", "fast", "mat",
+                                         "split", "tonight"}));
+    EXPECT_EQ(expand_pattern(reader.get(), field, kind, "t", 3),
+              (std::vector<std::string> {"account", "cart", "cat"}));
+    EXPECT_TRUE(expand_pattern(reader.get(), field, kind, "an", 0).empty());
+
+    _CLDECDELETE(dir);
+}
+
+// A contains pattern takes the terms that hold its text anywhere, read literally.
+TEST_F(PrefixQueryV2Test, expand_contains) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    const auto kind = index_query::TermPatternKind::kContains;
+
+    EXPECT_EQ(expand_pattern(reader.get(), field, kind, "an", 0),
+              (std::vector<std::string> {"balance", "banana", "band", "bank"}));
+    EXPECT_TRUE(expand_pattern(reader.get(), field, kind, "a.p", 0).empty());
+
+    _CLDECDELETE(dir);
+}
+
+// The session limit caps a prefix but not a contains pattern, which takes every term holding it.
+TEST_F(PrefixQueryV2Test, contains_ignores_the_session_limit) {
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 1;
+    RuntimeState runtime_state;
+    runtime_state.set_query_options(query_options);
+    auto ctx = std::make_shared<IndexQueryContext>();
+    ctx->runtime_state = &runtime_state;
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+
+    ExpandWeight contains(ctx, field, index_query::TermPatternKind::kContains, "an");
+    EXPECT_EQ(collect_docs(contains.scorer(exec_ctx, "")), (std::vector<uint32_t> {3, 4, 5}));
+    ExpandWeight prefix(ctx, field, index_query::TermPatternKind::kPrefix, "ban");
+    EXPECT_EQ(collect_docs(prefix.scorer(exec_ctx, "")), (std::vector<uint32_t> {3}));
 
     _CLDECDELETE(dir);
 }

@@ -98,8 +98,11 @@ suite("test_match_format_parity") {
     same("phrase_prefix_one", "body match_phrase_prefix 'qui'")
     // MATCH_REGEXP matches anywhere inside a term.
     same("regexp", "body match_regexp 'uic'")
+    // Both formats answer MATCH_PHRASE_EDGE from the index; evaluating rows would fail here.
+    sql "set enable_match_without_inverted_index = false"
     same("phrase_edge", "body match_phrase_edge 'ick fo'")
     same("phrase_edge_one", "body match_phrase_edge 'uic'")
+    sql "set enable_match_without_inverted_index = true"
     // A value that analyzes to nothing matches nothing.
     same("no_tokens", "body match_any '...'")
 

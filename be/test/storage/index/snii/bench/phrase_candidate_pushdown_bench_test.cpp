@@ -126,7 +126,24 @@ constexpr BenchQuery kDocIdQueries[] = {
         {.label = "regexp", .type = InvertedIndexQueryType::MATCH_REGEXP_QUERY, .text = "etr"},
         {.label = "regexp_anchored",
          .type = InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-         .text = "^ret.*"}};
+         .text = "^ret.*"},
+        // MATCH_PHRASE_EDGE reads the whole dictionary for the terms that contain one token, or
+        // that end with a phrase's first token; "0 logi" starts with fifty such terms.
+        {.label = "edge_one",
+         .type = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY,
+         .text = "etr"},
+        {.label = "edge_two",
+         .type = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY,
+         .text = "ogin regi"},
+        {.label = "edge_multi",
+         .type = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY,
+         .text = "try attempt 2 jo"},
+        {.label = "edge_rare",
+         .type = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY,
+         .text = "est 424242 comp"},
+        {.label = "edge_many",
+         .type = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY,
+         .text = "0 logi"}};
 
 // Lookups on an untokenized index of the same rows: a value about nine rows hold, a value none
 // holds, and a prefix that expands to many values.
@@ -146,14 +163,16 @@ uint32_t env_or(const char* name, uint32_t fallback) {
     return value == nullptr ? fallback : static_cast<uint32_t>(std::stoul(value));
 }
 
-bool selected(std::string_view label) {
-    const char* cases = std::getenv("PHRASE_CANDIDATE_BENCH_CASES");
-    if (cases == nullptr) {
+// Whether the comma-separated list in `variable` names `name`; every name is selected when the
+// variable is unset.
+bool selected(const char* variable, std::string_view name) {
+    const char* names = std::getenv(variable);
+    if (names == nullptr) {
         return true;
     }
-    return std::ranges::any_of(std::views::split(std::string_view(cases), ','),
-                               [label](const auto& part) {
-                                   return std::string_view(part.begin(), part.end()) == label;
+    return std::ranges::any_of(std::views::split(std::string_view(names), ','),
+                               [name](const auto& part) {
+                                   return std::string_view(part.begin(), part.end()) == name;
                                });
 }
 
@@ -405,7 +424,7 @@ void print_row(std::string_view format, const BenchQuery& query, std::string_vie
 void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name, uint32_t doc_count,
                       uint32_t iterations) {
     for (const BenchQuery& query : kDocIdQueries) {
-        if (!selected(query.label)) {
+        if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
             continue;
         }
         roaring::Roaring full;
@@ -413,7 +432,7 @@ void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name,
         median_query_ms(reader, query, nullptr, iterations, &full, label);
     }
     for (const BenchQuery& query : kQueries) {
-        if (!selected(query.label)) {
+        if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
             continue;
         }
         roaring::Roaring full;
@@ -440,7 +459,7 @@ void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name,
 void benchmark_keyword_reader(InvertedIndexReader* reader, std::string_view format_name,
                               uint32_t iterations) {
     for (const BenchQuery& query : kKeywordQueries) {
-        if (!selected(query.label)) {
+        if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
             continue;
         }
         roaring::Roaring full;
@@ -471,6 +490,9 @@ TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
          {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::SNII}) {
         const bool is_snii = format == InvertedIndexStorageFormatPB::SNII;
         const std::string_view format_name = is_snii ? "SNII" : "V2";
+        if (!selected("PHRASE_CANDIDATE_BENCH_FORMATS", format_name)) {
+            continue;
+        }
         const std::string name = fmt::format("{}_{}", is_snii ? "snii" : "clucene", doc_count);
         const std::string keyword_name =
                 fmt::format("{}_keyword_{}", is_snii ? "snii" : "clucene", doc_count);

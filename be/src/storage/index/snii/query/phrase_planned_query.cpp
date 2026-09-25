@@ -62,6 +62,29 @@ using query::internal::TermPlan;
 using reader::LogicalIndexReader;
 using internal::PhraseVerifyTimer;
 
+namespace {
+
+// Appends the terms `text` expands to as a `kind` pattern, at most `max_expansions` of them when
+// that is positive. The visitor range-seeks past typed internal namespaces before counting and
+// decodes escaped physical keys before matching.
+Status expand_resolved_terms(const LogicalIndexReader& idx, index_query::TermPatternKind kind,
+                             const std::string& text, int32_t max_expansions,
+                             std::vector<ResolvedQueryTerm>* terms) {
+    index_query::TermPattern pattern;
+    RETURN_IF_ERROR(index_query::TermPattern::create(kind, text, &pattern));
+    return internal::visit_expanded_plain_terms(
+            idx, pattern,
+            [terms](LogicalIndexReader::PrefixHit&& hit, bool*) {
+                terms->push_back(ResolvedQueryTerm {.entry = std::move(hit.entry),
+                                                    .frq_base = hit.frq_base,
+                                                    .prx_base = hit.prx_base});
+                return Status::OK();
+            },
+            max_expansions);
+}
+
+} // namespace
+
 Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                          std::vector<uint32_t>* const docids,
                          format::PrxDecodeContext* decode_context,
@@ -140,34 +163,78 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
         return Status::OK();
     }
 
-    // Expand the tail in the logical plain namespace. The visitor range-seeks
-    // past typed internal namespaces before counting max_expansions and decodes
-    // escaped physical keys before applying the logical prefix.
-    index_query::TermPattern tail;
-    RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
-                                                     terms.back(), &tail));
-    std::vector<LogicalIndexReader::PrefixHit> tail_hits;
-    RETURN_IF_ERROR(internal::visit_expanded_plain_terms(
-            idx, tail,
-            [&](LogicalIndexReader::PrefixHit&& hit, bool*) {
-                tail_hits.push_back(std::move(hit));
-                return Status::OK();
-            },
-            max_expansions));
-    if (tail_hits.empty()) {
-        return Status::OK();
-    }
     std::vector<ResolvedQueryTerm> tail_terms;
-    tail_terms.reserve(tail_hits.size());
-    for (auto& hit : tail_hits) {
-        tail_terms.push_back(ResolvedQueryTerm {
-                .entry = std::move(hit.entry), .frq_base = hit.frq_base, .prx_base = hit.prx_base});
+    RETURN_IF_ERROR(expand_resolved_terms(idx, index_query::TermPatternKind::kPrefix, terms.back(),
+                                          max_expansions, &tail_terms));
+    if (tail_terms.empty()) {
+        return Status::OK();
     }
     auto exact_plan = build_resolved_phrase_plan(std::move(exact_terms));
     DORIS_CHECK_LE(terms.size() - 1, static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
     return execute_resolved_phrase_prefix_terms(idx, std::move(exact_plan), std::move(tail_terms),
                                                 static_cast<uint32_t>(terms.size() - 1), docids,
                                                 decode_context, matches, candidates);
+}
+
+Status phrase_edge_query_impl(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
+                              std::vector<uint32_t>* const docids, int32_t max_expansions,
+                              format::PrxDecodeContext* decode_context,
+                              const roaring::Roaring* candidates) {
+    if (docids == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("phrase_edge_query: null out");
+    }
+    docids->clear();
+    if (terms.empty()) {
+        return Status::OK();
+    }
+    if (terms.size() == 1) {
+        index_query::TermPattern pattern;
+        RETURN_IF_ERROR(index_query::TermPattern::create(index_query::TermPatternKind::kContains,
+                                                         terms.front(), &pattern));
+        index_query::VectorDocIdSink sink(*docids);
+        RETURN_IF_ERROR(internal::emit_expanded_docid_union(
+                idx, pattern, &sink,
+                index_query::expansion_limit(index_query::TermPatternKind::kContains,
+                                             max_expansions)));
+        if (candidates != nullptr) {
+            retain_candidates(*candidates, docids);
+        }
+        return Status::OK();
+    }
+    const std::vector<std::string> middle(terms.begin() + 1, terms.end() - 1);
+    for (const std::string& term : middle) {
+        RETURN_IF_ERROR(internal::check_term_outside_internal_namespace(term));
+    }
+    std::vector<ResolvedQueryTerm> middle_terms;
+    bool all_present = false;
+    RETURN_IF_ERROR(internal::resolve_all_query_terms(idx, middle, &middle_terms, &all_present));
+    if (!all_present) {
+        return Status::OK();
+    }
+    std::vector<ResolvedQueryTerm> heads;
+    RETURN_IF_ERROR(expand_resolved_terms(idx, index_query::TermPatternKind::kSuffix, terms.front(),
+                                          max_expansions, &heads));
+    std::vector<ResolvedQueryTerm> tails;
+    RETURN_IF_ERROR(expand_resolved_terms(idx, index_query::TermPatternKind::kPrefix, terms.back(),
+                                          max_expansions, &tails));
+    if (heads.empty() || tails.empty()) {
+        return Status::OK();
+    }
+    // Each expanded head leads its own phrase prefix, and a row matches when any of them does.
+    roaring::Roaring matched;
+    for (ResolvedQueryTerm& head : heads) {
+        std::vector<ResolvedQueryTerm> leading {std::move(head)};
+        leading.insert(leading.end(), middle_terms.begin(), middle_terms.end());
+        std::vector<uint32_t> head_docids;
+        RETURN_IF_ERROR(execute_resolved_phrase_prefix_terms(
+                idx, build_resolved_phrase_plan(std::move(leading)), tails,
+                static_cast<uint32_t>(terms.size() - 1), &head_docids, decode_context, nullptr,
+                candidates));
+        matched.addMany(head_docids.size(), head_docids.data());
+    }
+    docids->resize(matched.cardinality());
+    matched.toUint32Array(docids->data());
+    return Status::OK();
 }
 
 } // namespace doris::snii::query::phrase_impl

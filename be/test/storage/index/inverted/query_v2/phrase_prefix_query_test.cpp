@@ -526,4 +526,53 @@ TEST_F(PhrasePrefixQueryV2Test, candidates_restrict_the_phrase_prefix) {
     _CLDECDELETE(dir);
 }
 
+// With `suffix` the first slot takes the terms that end with it: "s ar" finds "dogs are" and
+// "cats are", and "ts are pe" finds "cats are pets".
+TEST_F(PhrasePrefixQueryV2Test, suffix_expands_the_first_slot) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+
+    PhrasePrefixQuery two(ctx, field, make_term_infos({"s", "ar"}), nullptr, /*suffix=*/true);
+    EXPECT_EQ(collect_docs(two.weight(false)->scorer(exec_ctx, "")),
+              (std::vector<uint32_t> {1, 7}));
+    PhrasePrefixQuery three(ctx, field, make_term_infos({"ts", "are", "pe"}), nullptr,
+                            /*suffix=*/true);
+    EXPECT_EQ(collect_docs(three.weight(false)->scorer(exec_ctx, "")), (std::vector<uint32_t> {7}));
+    PhrasePrefixQuery none(ctx, field, make_term_infos({"xyz", "ar"}), nullptr, /*suffix=*/true);
+    EXPECT_TRUE(collect_docs(none.weight(false)->scorer(exec_ctx, "")).empty());
+
+    _CLDECDELETE(dir);
+}
+
+// The first slot keeps the first terms in dictionary order that end with it: "animals" and
+// "barks" under a limit of two, and "cats" too under a limit of three.
+TEST_F(PhrasePrefixQueryV2Test, suffix_expansions_follow_the_session_limit) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    std::wstring field = StringHelper::to_wstring("content");
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = reader->maxDoc();
+    exec_ctx.field_reader_bindings.emplace(field, reader);
+
+    for (const auto& [limit, expected] :
+         {std::pair {2, std::vector<uint32_t> {}}, std::pair {3, std::vector<uint32_t> {7}}}) {
+        TQueryOptions query_options;
+        query_options.inverted_index_max_expansions = limit;
+        RuntimeState runtime_state;
+        runtime_state.set_query_options(query_options);
+        auto ctx = std::make_shared<IndexQueryContext>();
+        ctx->runtime_state = &runtime_state;
+        PhrasePrefixQuery q(ctx, field, make_term_infos({"s", "ar"}), nullptr, /*suffix=*/true);
+        EXPECT_EQ(collect_docs(q.weight(false)->scorer(exec_ctx, "")), expected)
+                << "limit " << limit;
+    }
+
+    _CLDECDELETE(dir);
+}
+
 } // namespace doris::segment_v2

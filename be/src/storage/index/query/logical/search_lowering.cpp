@@ -121,6 +121,19 @@ void lower_phrase_prefix(std::vector<Token> tokens, Node* out) {
     out->value = Phrase {.field = {}, .slots = std::move(slots), .prefix = true};
 }
 
+// Sets `out` to a phrase whose first slot takes the terms that end with its token and whose last
+// slot the terms that start with its token; a single token takes every term that contains it.
+void lower_phrase_edge(std::vector<Token> tokens, Node* out) {
+    std::vector<Token> slots = group_by_position(std::move(tokens));
+    if (slots.size() == 1 && slots.front().is_single_term()) {
+        out->value = Expand {.field = {},
+                             .kind = ExpandKind::kContains,
+                             .pattern = std::move(std::get<std::string>(slots.front().term))};
+        return;
+    }
+    out->value = Phrase {.field = {}, .slots = std::move(slots), .prefix = true, .suffix = true};
+}
+
 // Moves the trailing " ~N" or " ~N+" of a MATCH_PHRASE value into `phrase`.
 void take_slop(std::string_view* value, Phrase* phrase) {
     const size_t space = value->find_last_of(' ');
@@ -328,6 +341,7 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
     case InvertedIndexQueryType::MATCH_ALL_QUERY:
     case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
         break;
     default:
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -350,6 +364,8 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
         lower_phrase(std::move(phrase), std::move(tokens), out);
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
         lower_phrase_prefix(std::move(tokens), out);
+    } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
+        lower_phrase_edge(std::move(tokens), out);
     } else {
         // A row equal to the value holds every one of its tokens.
         out->value =

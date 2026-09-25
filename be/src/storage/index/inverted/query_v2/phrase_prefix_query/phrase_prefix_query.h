@@ -31,8 +31,11 @@ class PhrasePrefixQuery : public Query {
 public:
     PhrasePrefixQuery(IndexQueryContextPtr context, std::wstring field,
                       const std::vector<TermInfo>& terms,
-                      const roaring::Roaring* candidates = nullptr)
-            : _context(std::move(context)), _field(std::move(field)), _candidates(candidates) {
+                      const roaring::Roaring* candidates = nullptr, bool suffix = false)
+            : _context(std::move(context)),
+              _field(std::move(field)),
+              _candidates(candidates),
+              _suffix(suffix) {
         std::vector<std::pair<size_t, std::string>> terms_with_offset;
         for (size_t i = 0; i < terms.size(); ++i) {
             terms_with_offset.emplace_back(i, terms[i].get_single_term());
@@ -81,7 +84,7 @@ private:
         return std::make_shared<PhrasePrefixWeight>(
                 _context, std::move(_field), std::move(_phrase_terms), std::move(_prefix.value()),
                 std::move(bm25_similarity), enable_scoring, index_query::max_expansions(*_context),
-                _candidates, _nullable);
+                _candidates, _suffix, _nullable);
     }
 
     IndexQueryContextPtr _context;
@@ -89,6 +92,7 @@ private:
     std::vector<std::pair<size_t, std::string>> _phrase_terms;
     std::optional<std::pair<size_t, std::string>> _prefix;
     const roaring::Roaring* _candidates = nullptr;
+    bool _suffix = false;
     bool _nullable = true;
 };
 

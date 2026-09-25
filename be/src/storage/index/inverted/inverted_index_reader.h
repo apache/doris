@@ -342,13 +342,6 @@ public:
     }
 
     InvertedIndexReaderType type() override;
-
-private:
-    // Runs MATCH_PHRASE_EDGE with its legacy CLucene executor.
-    Status phrase_edge_search(const IndexQueryContextPtr& context,
-                              const InvertedIndexQueryInfo& query_info,
-                              const FulltextIndexSearcherPtr& index_searcher,
-                              const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {

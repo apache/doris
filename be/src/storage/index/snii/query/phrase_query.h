@@ -91,6 +91,15 @@ Status phrase_prefix_query(const reader::LogicalIndexReader& idx,
                            std::vector<uint32_t>* const docids, QueryProfile* profile,
                            const PhrasePrefixQueryOptions& options);
 
+// phrase_edge_query -- MATCH_PHRASE_EDGE: the items of `terms` sit at consecutive
+// positions, the first matching the terms that end with it, the last the terms
+// that start with it and the others exactly. Each end keeps its first
+// `options.max_expansions` terms in dictionary order. One item matches every
+// term that contains it. Empty terms -> empty result.
+Status phrase_edge_query(const reader::LogicalIndexReader& idx,
+                         const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
+                         QueryProfile* profile, const PhrasePrefixQueryOptions& options);
+
 // Scoring-only multi-term entry point. Tail expansions are one logical phrase
 // clause, so each phrase start contributes at most once even when several
 // expanded terms share that position.

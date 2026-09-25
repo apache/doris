@@ -34,6 +34,7 @@
 
 #include <boost/locale/encoding_utf.hpp>
 #include <roaring/roaring.hh>
+#include <string_view>
 
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query_v2/const_score_query/const_score_scorer.h"
@@ -56,19 +57,23 @@ std::vector<std::string> expand_terms(lucene::index::IndexReader* reader, const 
     }
     const std::string& prefix = pattern.enumeration_prefix();
     const std::wstring start_text = StringHelper::to_wstring(prefix);
+    // A term without the text every match holds is skipped before it is converted.
+    const std::wstring required = StringHelper::to_wstring(pattern.required_text());
     Term start(field.c_str(), start_text.c_str());
     TermEnum* enumerator = reader->terms(&start, io_ctx);
-    Term* term = nullptr;
     try {
         do {
-            term = enumerator->term();
+            // The enumerator keeps its current term until next(), so no reference is taken.
+            const Term* term = enumerator->term(false);
             if (term == nullptr || field != term->field()) {
                 break;
             }
-            const TCHAR* chars = term->text();
-            std::string text =
-                    boost::locale::conv::utf_to_utf<char>(chars, chars + term->textLength());
-            _CLDECDELETE(term);
+            const std::wstring_view chars(term->text(), term->textLength());
+            if (!required.empty() && chars.find(required) == std::wstring_view::npos) {
+                continue;
+            }
+            std::string text = boost::locale::conv::utf_to_utf<char>(chars.data(),
+                                                                     chars.data() + chars.size());
             if (!text.starts_with(prefix)) {
                 break;
             }
@@ -81,7 +86,6 @@ std::vector<std::string> expand_terms(lucene::index::IndexReader* reader, const 
         } while (enumerator->next());
     }
     _CLFINALLY({
-        _CLDECDELETE(term);
         enumerator->close();
         _CLDELETE(enumerator);
     });
@@ -102,8 +106,10 @@ ScorerPtr ExpandWeight::scorer(const QueryExecutionContext& context,
     ScorerPtr scorer = std::make_shared<EmptyScorer>();
     auto reader = lookup_reader(_field, context, binding_key);
     if (reader != nullptr) {
-        const auto terms = expand_terms(reader.get(), _field, pattern,
-                                        index_query::max_expansions(*_context), _context->io_ctx);
+        const auto terms = expand_terms(
+                reader.get(), _field, pattern,
+                index_query::expansion_limit(_kind, index_query::max_expansions(*_context)),
+                _context->io_ctx);
         if (!terms.empty()) {
             auto docs = std::make_shared<roaring::Roaring>();
             index_query::RoaringDocIdSink sink(*docs);

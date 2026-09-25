@@ -822,21 +822,47 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueryLeaderRecordsPrxWork) {
     EXPECT_GT(execution.stats.snii_stats.prx_total_docs, 0);
 }
 
-TEST_F(SniiIndexReaderCountFallback, PublicPhraseEdgeQueryDowngradesToEvaluateSkipped) {
-    // SNII has no native edge-phrase operator yet; V3 answers MATCH_PHRASE_EDGE_QUERY via
-    // PhraseEdgeQuery and a row implementation exists (match_phrase_edge), so the SNII reader
-    // must downgrade to scalar evaluation instead of failing the query outright.
-    // INVERTED_INDEX_NOT_SUPPORTED is accepted by neither the top-level fallback
-    // (segment_iterator.cpp _downgrade_without_index) nor the compound fallback
-    // (vsearch.cpp search_status_allows_row_fallback), so returning it here turns this
-    // predicate into a deterministic query error despite enable_fallback_on_missing_inverted_index.
+TEST_F(SniiIndexReaderCountFallback, PublicPhraseEdgeQueryRunsOnTheIndex) {
+    // "ailed ord" puts a term ending with "ailed" right before one starting with "ord"; a single
+    // token matches the rows holding a term that contains it.
+    for (const auto& [value, expected] :
+         {std::pair {std::string("ailed ord"), std::vector<uint32_t> {0, 2, 3, 5}},
+          std::pair {std::string("iled ordered ware"), std::vector<uint32_t> {2}},
+          std::pair {std::string("rdere"), std::vector<uint32_t> {2}}}) {
+        QueryExecutionContext execution(/*enable_query_cache=*/false);
+        Field query_value = Field::create_field<TYPE_STRING>(value);
+        std::shared_ptr<roaring::Roaring> bitmap;
+
+        assert_ok(_index_reader->query(execution.context, "content", query_value,
+                                       InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, bitmap));
+
+        ASSERT_NE(bitmap, nullptr) << value;
+        EXPECT_EQ(bitmap_docids(*bitmap), expected) << value;
+    }
+}
+
+TEST_F(SniiIndexReaderCountFallback, KeywordPhraseEdgeQueryDowngradesToEvaluateSkipped) {
+    // A keyword index drops values longer than ignore_above, which a contains match may still
+    // need, so rows answer MATCH_PHRASE_EDGE there.
+    TabletIndex keyword_meta;
+    {
+        TabletIndexPB pb;
+        pb.set_index_type(IndexType::INVERTED);
+        pb.set_index_id(kIndexId);
+        pb.set_index_name("keyword_idx");
+        pb.add_col_unique_id(0);
+        keyword_meta.init_from_pb(pb);
+    }
+    auto keyword_reader = SniiIndexReader::create_shared(
+            &keyword_meta, _file_reader, InvertedIndexReaderType::STRING_TYPE,
+            /*rows_of_segment=*/kPositionalSegmentDocCount, /*column_is_array=*/false);
     QueryExecutionContext execution(/*enable_query_cache=*/false);
-    Field query_value = Field::create_field<TYPE_STRING>(std::string("failed order"));
+    Field query_value = Field::create_field<TYPE_STRING>(std::string("rdere"));
     std::shared_ptr<roaring::Roaring> bitmap;
 
     const Status status =
-            _index_reader->query(execution.context, "content", query_value,
-                                 InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, bitmap);
+            keyword_reader->query(execution.context, "keyword_content", query_value,
+                                  InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY, bitmap);
 
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED) << status;
 }

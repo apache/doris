@@ -402,6 +402,11 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 std::vector<PhraseMatch>* matches = nullptr,
                                 const roaring::Roaring* candidates = nullptr);
 
+Status phrase_edge_query_impl(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
+                              std::vector<uint32_t>* const docids, int32_t max_expansions,
+                              format::PrxDecodeContext* decode_context,
+                              const roaring::Roaring* candidates);
+
 } // namespace doris::snii::query::phrase_impl
 
 #ifdef BE_TEST

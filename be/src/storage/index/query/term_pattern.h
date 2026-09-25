@@ -120,17 +120,22 @@ private:
     bool _needs_code_points = false;
 };
 
-enum class TermPatternKind : uint8_t { kPrefix, kWildcard, kRegexp };
+enum class TermPatternKind : uint8_t { kPrefix, kWildcard, kRegexp, kSuffix, kContains };
 
-// The dictionary terms a PREFIX, WILDCARD or REGEXP clause expands to. Every term the pattern
-// matches starts with enumeration_prefix(), so a format enumerates its dictionary in order from
-// there and stops at the first term that does not start with it.
+// The dictionary terms a PREFIX, WILDCARD or REGEXP clause, or an edge of a phrase, expands to:
+// kSuffix takes the terms that end with the text and kContains the terms that hold it anywhere.
+// Every term the pattern matches starts with enumeration_prefix(), so a format enumerates its
+// dictionary in order from there and stops at the first term that does not start with it.
 class TermPattern {
 public:
     // Fails for a glob that is not valid UTF-8 and for a regular expression Hyperscan runs slowly.
     static Status create(TermPatternKind kind, std::string_view pattern, TermPattern* out);
 
     const std::string& enumeration_prefix() const { return _enumeration_prefix; }
+
+    // Text every matching term holds, empty when the pattern names none. A format may skip the
+    // terms without it before decoding them.
+    const std::string& required_text() const { return _text; }
 
     // False when no term can match, as for a regular expression Hyperscan cannot compile.
     bool can_match() const { return _can_match; }
@@ -147,6 +152,7 @@ private:
 
     TermPatternKind _kind = TermPatternKind::kPrefix;
     std::string _enumeration_prefix;
+    std::string _text;
     bool _can_match = true;
     std::optional<WildcardMatcher> _wildcard;
     std::unique_ptr<hs_database, HyperscanDeleter> _database;
@@ -156,5 +162,9 @@ private:
 // The number of terms a pattern may expand to, 0 for no limit: the session's
 // inverted_index_max_expansions, or 50 when the query has no runtime state.
 int32_t max_expansions(const segment_v2::IndexQueryContext& context);
+
+// The number of terms a pattern of `kind` may expand to under a session limit of
+// `max_expansions`, 0 for no limit: a contains pattern takes every term that holds its text.
+int32_t expansion_limit(TermPatternKind kind, int32_t max_expansions);
 
 } // namespace doris::index_query

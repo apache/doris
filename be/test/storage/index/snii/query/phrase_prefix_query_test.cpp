@@ -20,11 +20,14 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/internal/phrase_query_split.h"
@@ -139,6 +142,56 @@ struct Corpus {
                 }
                 if (exact && allowed.contains(doc[start + terms.size() - 1])) {
                     match = true;
+                }
+            }
+            if (match) {
+                out.push_back(d);
+            }
+        }
+        return out;
+    }
+
+    // MATCH_PHRASE_EDGE: the terms sit at consecutive positions, the first ending with terms[0],
+    // the last starting with terms.back() and the others equal to theirs. Each end keeps its
+    // first `max_expansions` terms in dictionary order when that is positive. One term matches
+    // the docs holding a term that contains it, with no limit.
+    std::vector<uint32_t> phrase_edge_docs(const std::vector<std::string>& terms,
+                                           int32_t max_expansions) const {
+        std::set<std::string> vocab;
+        for (const std::vector<std::string>& doc : docs) {
+            vocab.insert(doc.begin(), doc.end());
+        }
+        const auto expand = [&](const std::function<bool(const std::string&)>& matches) {
+            std::set<std::string> kept;
+            for (const std::string& term : vocab) {
+                if (max_expansions > 0 && std::cmp_greater_equal(kept.size(), max_expansions)) {
+                    break;
+                }
+                if (matches(term)) {
+                    kept.insert(term);
+                }
+            }
+            return kept;
+        };
+        std::vector<uint32_t> out;
+        for (uint32_t d = 0; d < docs.size(); ++d) {
+            const std::vector<std::string>& doc = docs[d];
+            bool match = false;
+            if (terms.size() == 1) {
+                match = std::ranges::any_of(doc, [&](const std::string& term) {
+                    return term.find(terms.front()) != std::string::npos;
+                });
+            } else {
+                const std::set<std::string> heads = expand(
+                        [&](const std::string& term) { return term.ends_with(terms.front()); });
+                const std::set<std::string> tails = expand(
+                        [&](const std::string& term) { return term.starts_with(terms.back()); });
+                for (size_t start = 0; start + terms.size() <= doc.size() && !match; ++start) {
+                    match = heads.contains(doc[start]) &&
+                            tails.contains(doc[start + terms.size() - 1]);
+                    for (size_t i = 1; match && i + 1 < terms.size(); ++i) {
+                        match = doc[start + i] == terms[i];
+                    }
                 }
             }
             if (match) {
@@ -441,6 +494,62 @@ TEST(SniiPhrasePrefixQuery, MatchesPositionOracle) {
         EXPECT_TRUE(std::ranges::is_sorted(got));
         EXPECT_EQ(got, corpus.phrase_prefix_docs(terms));
     }
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPhraseEdgeQuery, MatchesPositionOracleUnderEachLimit) {
+    const Corpus corpus = BuildPhraseCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    // "row" is held by "brown" and "brownish"; the others end or start edge phrases.
+    const std::vector<std::vector<std::string>> cases = {{"ick", "bro"},
+                                                         {"e", "fo"},
+                                                         {"own", "fo"},
+                                                         {"ck", "brown", "fo"},
+                                                         {"ick", "absent", "fo"},
+                                                         {"zzz", "fo"},
+                                                         {"ick", "zzz"},
+                                                         {"row"},
+                                                         {"zzz"}};
+    for (const std::vector<std::string>& terms : cases) {
+        for (int32_t limit : {0, 1, 2, 3, 50}) {
+            std::vector<uint32_t> got;
+            const Status st =
+                    query::phrase_edge_query(idx, terms, &got, nullptr, {.max_expansions = limit});
+            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_EQ(got, corpus.phrase_edge_docs(terms, limit))
+                    << "terms " << terms.front() << ".." << terms.back() << ", limit " << limit;
+        }
+    }
+
+    std::remove(path.c_str());
+}
+
+TEST(SniiPhraseEdgeQuery, CandidatesRestrictTheResult) {
+    const Corpus corpus = BuildPhraseCorpus();
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader file;
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenIndex(&file, &segment, path);
+
+    // "ick bro" matches docs 0, 2, 4, 5, 6 and 7.
+    roaring::Roaring candidates;
+    candidates.add(2);
+    candidates.add(3);
+    candidates.add(5);
+    std::vector<uint32_t> got;
+    ASSERT_TRUE(query::phrase_edge_query(idx, {"ick", "bro"}, &got, nullptr,
+                                         {.candidates = &candidates})
+                        .ok());
+    EXPECT_EQ(got, (std::vector<uint32_t> {2, 5}));
 
     std::remove(path.c_str());
 }
