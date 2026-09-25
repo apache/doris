@@ -499,7 +499,10 @@ Status BucketedAggLocalState::_output_bucket(RuntimeState* state, Block* block, 
 Status BucketedAggLocalState::_merge_and_output_null_keys(RuntimeState* state, Block* block) {
     auto& shared_state = *_shared_state;
     size_t key_size = shared_state.probe_expr_ctxs.size();
-    int merge_target = shared_state.merge_target_instance.load(std::memory_order_relaxed);
+    // acquire: the loaded index is used to dereference per-instance data
+    // published by other threads; relaxed would rely on data-dependency
+    // ordering, which the C++ memory model does not guarantee (aarch64).
+    int merge_target = shared_state.merge_target_instance.load(std::memory_order_acquire);
 
     // Merge null keys from all 256 buckets (in merge target) into bucket 0.
     // After per-bucket merge, each bucket in merge target may have its own null key data.
