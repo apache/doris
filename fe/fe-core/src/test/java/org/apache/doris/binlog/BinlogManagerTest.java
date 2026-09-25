@@ -38,6 +38,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -249,8 +251,42 @@ public class BinlogManagerTest {
         Assertions.assertNull(pair.second);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testPersist(boolean rowBinlogEnabled) throws NoSuchMethodException,
+            InvocationTargetException, IllegalAccessException, IOException, NoSuchFieldException {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = rowBinlogEnabled;
+            checkPersist();
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
     @Test
-    public void testPersist() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException,
+    public void testCcrRecordsRemainAvailableWhenRowBinlogDisabled() {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = false;
+            enableDbBinlog = true;
+            BinlogManager manager = new BinlogManager();
+            DropTableRecord record = DropTableRecord.fromJson("{\"commitSeq\":10,\"dbId\":" + dbBaseId
+                    + ",\"tableId\":" + tableBaseId + ",\"tableName\":\"ccr_table\"}");
+            manager.addDropTableRecord(record);
+
+            Pair<TStatus, TBinlog> result = manager.getBinlog(dbBaseId, -1, 0);
+            Assertions.assertEquals(TStatusCode.OK, result.first.getStatusCode());
+            Assertions.assertEquals(10, result.second.getCommitSeq());
+            Assertions.assertEquals(TBinlogType.DROP_TABLE, result.second.getType());
+            Assertions.assertEquals(List.of(Pair.of(tableBaseId, 10L)), manager.getDroppedTables(dbBaseId));
+        } finally {
+            enableDbBinlog = false;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    private void checkPersist() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException,
             IOException, NoSuchFieldException {
         // reflect BinlogManager
         // addBinlog method

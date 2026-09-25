@@ -911,6 +911,10 @@ public class DatabaseTransactionMgr {
             checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                     tableToPartition, totalInvolvedBackends);
         }
+        // Fetch before callbacks can acquire job locks or mark a job as committing. A disabled or
+        // unavailable TSO service must fail without leaving callback state behind.
+        long commitTSO = TransactionUtil.getCommitTSO(transactionId, db, is2PC
+                ? transactionState.getIdToTableCommitInfos().keySet() : tableToPartition.keySet());
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
@@ -918,10 +922,10 @@ public class DatabaseTransactionMgr {
         EditLog.EditLogItem logItem = null;
         synchronized (transactionState) {
             if (is2PC) {
-                unprotectedCommitTransaction2PC(transactionState, db);
+                unprotectedCommitTransaction2PC(transactionState, db, commitTSO);
             } else {
                 unprotectedCommitTransaction(transactionState, errorReplicaIds,
-                        tableToPartition, totalInvolvedBackends, db);
+                        tableToPartition, totalInvolvedBackends, db, commitTSO);
             }
             if (Config.enable_txn_log_outside_lock) {
                 logItem = enqueueTransactionState(transactionState);
@@ -984,6 +988,10 @@ public class DatabaseTransactionMgr {
             }
         }
 
+        // As in the single-transaction path, allocate TSO before invoking job callbacks.
+        Set<Long> tableIds = subTransactionStates.stream()
+                .map(subTransactionState -> subTransactionState.getTable().getId()).collect(Collectors.toSet());
+        long commitTSO = TransactionUtil.getCommitTSO(transactionId, db, tableIds);
         // before state transform
         transactionState.beforeStateTransform(TransactionStatus.COMMITTED);
         // transaction state transform
@@ -991,7 +999,7 @@ public class DatabaseTransactionMgr {
         EditLog.EditLogItem logItem = null;
         synchronized (transactionState) {
             unprotectedCommitTransaction(transactionState, errorReplicaIds, subTxnToPartition, totalInvolvedBackends,
-                    subTransactionStates, db);
+                    subTransactionStates, db, commitTSO);
             if (Config.enable_txn_log_outside_lock) {
                 logItem = enqueueTransactionState(transactionState);
             } else {
@@ -1690,7 +1698,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                 Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) throws TransactionCommitFailedException {
+                                                Database db, long commitTSO) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1698,8 +1706,6 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
-        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
-                tableToPartition.keySet());
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1709,13 +1715,13 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
 
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (table.enableTso()) {
                     tableCommitInfo.addPartitionCommitInfo(
                             generatePartitionCommitInfo(table, partitionId, partition.getNextVersion(), commitTSO));
                 } else {
@@ -1736,7 +1742,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
             Map<Long, Set<Long>> subTxnToPartition, Set<Long> totalInvolvedBackends,
-            List<SubTransactionState> subTransactionStates, Database db) throws TransactionCommitFailedException {
+            List<SubTransactionState> subTransactionStates, Database db, long commitTSO) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1744,12 +1750,6 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         long commitTime = System.currentTimeMillis();
         transactionState.setCommitTime(commitTime);
-        Set<Long> tableIds = new HashSet<>();
-        for (SubTransactionState subTransactionState : subTransactionStates) {
-            long tableId = subTransactionState.getTable().getId();
-            tableIds.add(tableId);
-        }
-        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db, tableIds);
         transactionState.setCommitTSO(commitTSO);
 
         if (MetricRepo.isInit) {
@@ -1779,7 +1779,7 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (table.enableTso()) {
                     tableCommitInfo.setCommitTSO(commitTSO);
                 }
 
@@ -1791,7 +1791,7 @@ public class DatabaseTransactionMgr {
                     partitionToVersion.put(partitionId, partitionNextVersion);
 
                     PartitionCommitInfo partitionCommitInfo;
-                    if (Config.enable_feature_binlog && table.enableTso()) {
+                    if (table.enableTso()) {
                         partitionCommitInfo = generatePartitionCommitInfo(table, partitionId,
                                 partitionNextVersion, commitTSO);
                     } else {
@@ -1815,8 +1815,7 @@ public class DatabaseTransactionMgr {
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
-    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db)
-            throws TransactionCommitFailedException {
+    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db, long commitTSO) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
             LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
@@ -1825,8 +1824,6 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
-        long commitTSO = TransactionUtil.getCommitTSO(transactionState.getTransactionId(), db,
-                transactionState.getIdToTableCommitInfos().keySet());
         transactionState.setCommitTSO(commitTSO);
 
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
@@ -1845,7 +1842,7 @@ public class DatabaseTransactionMgr {
                         transactionState);
                 continue;
             }
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
@@ -1864,7 +1861,7 @@ public class DatabaseTransactionMgr {
                 }
                 partitionCommitInfo.setVersion(partition.getNextVersion());
                 partitionCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (table.enableTso()) {
                     partitionCommitInfo.setTso(commitTSO);
                 }
             }

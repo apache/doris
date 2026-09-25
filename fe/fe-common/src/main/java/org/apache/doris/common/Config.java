@@ -2566,8 +2566,9 @@ public class Config extends ConfigBase {
             + "specific reason why they are unqueryable, will be printed out.")
     public static boolean show_details_for_unaccessible_tablet = true;
 
-    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Whether "
-            + "to " + "enable " + "the " + "binlog " + "feature")
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to enable ROW binlog features and TSO service. "
+                    + "CCR binlog is controlled by database and table binlog properties.")
     public static boolean enable_feature_binlog = false;
 
     @ConfField(mutable = false, description = "Whether to enable the binlog feature for databases/tables by default")

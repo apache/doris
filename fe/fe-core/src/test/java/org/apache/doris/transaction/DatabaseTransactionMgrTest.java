@@ -62,6 +62,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -75,6 +78,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DatabaseTransactionMgrTest {
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgrTest.class);
@@ -936,6 +940,130 @@ public class DatabaseTransactionMgrTest {
         binlogConfig.setEnable(true);
         binlogConfig.setBinlogFormat(binlogFormat);
         table.setBinlogConfig(binlogConfig);
+    }
+
+    @Test
+    public void testDisabledRowBinlogFailsBeforeCommitCallback() throws Exception {
+        checkDisabledRowBinlogCommit(false, false);
+    }
+
+    @Test
+    public void testDisabledRowBinlogFailsBeforeTwoPhaseCommitCallback() throws Exception {
+        checkDisabledRowBinlogCommit(true, false);
+    }
+
+    @Test
+    public void testDisabledRowBinlogFailsBeforeMultiTableCommitCallback() throws Exception {
+        checkDisabledRowBinlogCommit(false, true);
+    }
+
+    private void checkDisabledRowBinlogCommit(boolean twoPhase, boolean multiTable) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = false;
+            FakeEnv.setEnv(masterEnv);
+            Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            setTableBinlogFormat(table, BinlogConfig.BinlogFormat.ROW);
+            setEnvTSOService(masterEnv, new TSOService());
+
+            long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
+                    "disabled_row_binlog", transactionSource, LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            TransactionState transactionState = masterTransMgr.getTransactionState(db.getId(), txnId);
+            List<Table> tables = Lists.newArrayList(table);
+            List<TabletCommitInfo> tabletCommitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
+                    CatalogTestUtil.testTabletId1, allBackends);
+            List<SubTransactionState> subTransactions = new ArrayList<>();
+            if (twoPhase) {
+                masterTransMgr.preCommitTransaction2PC(db, tables, txnId, tabletCommitInfos, 1000, null);
+            }
+            if (multiTable) {
+                OlapTable ccrTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
+                setTableBinlogFormat(ccrTable, BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT);
+                tables.add(ccrTable);
+                subTransactions.addAll(GlobalTransactionMgrTest.generateSubTransactionStates(
+                        masterTransMgr, transactionState, Lists.newArrayList(
+                                new SubTransactionInfo(table, CatalogTestUtil.testTabletId1, allBackends),
+                                new SubTransactionInfo(ccrTable, CatalogTestUtil.testTabletId2, allBackends))));
+            }
+            AtomicBoolean beforeCommitCalled = new AtomicBoolean();
+            masterTransMgr.getCallbackFactory().addCallback(new AbstractTxnStateChangeCallback() {
+                @Override
+                public long getId() {
+                    return txnId;
+                }
+
+                @Override
+                public void beforeCommitted(TransactionState state) {
+                    beforeCommitCalled.set(true);
+                }
+            });
+            transactionState.setCallbackId(txnId);
+            long nextVersion = table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion();
+            long commitTime = transactionState.getCommitTime();
+            int tableCommitInfoCount = transactionState.getIdToTableCommitInfos().size();
+
+            Executable commit = () -> {
+                if (twoPhase) {
+                    masterTransMgr.commitTransaction2PC(db, tables, txnId, 1000);
+                } else if (multiTable) {
+                    masterTransMgr.commitTransactionWithoutLock(db.getId(), tables, txnId,
+                            subTransactions, 1000);
+                } else {
+                    masterTransMgr.commitTransactionWithoutLock(db.getId(), tables, txnId, tabletCommitInfos, null);
+                }
+            };
+            TransactionCommitFailedException exception = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, commit);
+
+            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+            Assertions.assertFalse(beforeCommitCalled.get());
+            Assertions.assertEquals(twoPhase ? TransactionStatus.PRECOMMITTED : TransactionStatus.PREPARE,
+                    transactionState.getTransactionStatus());
+            Assertions.assertEquals(commitTime, transactionState.getCommitTime());
+            Assertions.assertEquals(-1L, transactionState.getCommitTSO());
+            Assertions.assertEquals(tableCommitInfoCount, transactionState.getIdToTableCommitInfos().size());
+            Assertions.assertEquals(nextVersion,
+                    table.getPartition(CatalogTestUtil.testPartitionId1).getNextVersion());
+
+            Config.enable_feature_binlog = true;
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getTSO()).thenReturn(12345L);
+            setEnvTSOService(masterEnv, tsoService);
+            Assertions.assertDoesNotThrow(commit);
+            Assertions.assertTrue(beforeCommitCalled.get());
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+            Assertions.assertEquals(12345L, transactionState.getCommitTSO());
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testDisabledFeatureAllowsNonRowBinlog(boolean ccrEnabled) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        try {
+            Config.enable_feature_binlog = false;
+            FakeEnv.setEnv(masterEnv);
+            Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+            OlapTable table = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+            BinlogConfig config = new BinlogConfig();
+            config.setEnable(ccrEnabled);
+            table.setBinlogConfig(config);
+            setEnvTSOService(masterEnv, new TSOService());
+            long txnId = masterTransMgr.beginTransaction(db.getId(), Lists.newArrayList(table.getId()),
+                    "non_row_binlog", transactionSource, LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            masterTransMgr.commitTransactionWithoutLock(db.getId(), Lists.newArrayList(table), txnId,
+                    GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends), null);
+            TransactionState transaction = masterTransMgr.getTransactionState(db.getId(), txnId);
+            Assertions.assertEquals(TransactionStatus.COMMITTED, transaction.getTransactionStatus());
+            Assertions.assertEquals(-1L, transaction.getCommitTSO());
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
     }
 
     @Test
