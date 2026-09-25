@@ -1330,7 +1330,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         # named): a new connector ships a template and needs no change here.
         for conn_conf_tpl in "${conn_plugin_target}"/*.conf.template; do
             [ -e "${conn_conf_tpl}" ] || continue
-            cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+            # macOS cp -n returns 1 when the destination exists, which aborts this script under set -e.
+            if [[ ! -e "${conn_conf_tpl%.template}" ]]; then
+                # Keep no-clobber protection if a live config appears after the check.
+                cp -n "${conn_conf_tpl}" "${conn_conf_tpl%.template}"
+            fi
         done
     done
     unset CONN_PLUGIN_DIR conn_module conn_plugin_target conn_module_dir conn_zip conn_conf_tpl
