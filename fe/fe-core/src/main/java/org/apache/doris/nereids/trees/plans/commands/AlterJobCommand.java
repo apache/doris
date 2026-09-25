@@ -41,6 +41,7 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -277,7 +278,19 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     }
 
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
-        StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
+        Map<String, String> validatedProperties = new HashMap<>(properties);
+        String reloadSourceSchema = validatedProperties.remove(
+                StreamingJobProperties.RELOAD_SOURCE_SCHEMA_PROPERTY);
+        if (reloadSourceSchema != null) {
+            Preconditions.checkArgument(
+                    "true".equalsIgnoreCase(reloadSourceSchema)
+                            || "false".equalsIgnoreCase(reloadSourceSchema),
+                    "The reload_source_schema property must be true or false");
+            Preconditions.checkArgument(
+                    streamingJob.getDataSourceType() != null,
+                    "The reload_source_schema property is only supported for CDC jobs");
+        }
+        StreamingJobProperties jobProperties = new StreamingJobProperties(validatedProperties);
         jobProperties.validate();
         if (jobProperties.getOffsetProperty() != null) {
             streamingJob.validateAlterOffset(jobProperties.getOffsetProperty());

@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.service;
 import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.exception.CommonException;
+import org.apache.doris.cdcclient.exception.SourceRecordProcessingException;
 import org.apache.doris.cdcclient.exception.StreamException;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
@@ -452,15 +453,18 @@ public class PipelineCoordinator {
                                         writeRecordRequest.getTaskId())) {
                             closeJobStreamLoad(writeRecordRequest.getJobId());
                         }
-                        String rootCauseMessage = ExceptionUtils.getRootCauseMessage(ex);
-                        taskErrorMaps.put(writeRecordRequest.getTaskId(), rootCauseMessage);
+                        String failureMessage =
+                                ex instanceof SourceRecordProcessingException
+                                        ? ex.getMessage()
+                                        : ExceptionUtils.getRootCauseMessage(ex);
+                        taskErrorMaps.put(writeRecordRequest.getTaskId(), failureMessage);
                         taskProgressMap.remove(writeRecordRequest.getTaskId());
                         DorisBatchStreamLoad.reportTaskFailure(
                                 writeRecordRequest.getFrontendAddress(),
                                 writeRecordRequest.getToken(),
                                 writeRecordRequest.getJobId(),
                                 writeRecordRequest.getTaskId(),
-                                rootCauseMessage);
+                                failureMessage);
                         LOG.error(
                                 "Failed to process async write record, jobId={} taskId={}",
                                 writeRecordRequest.getJobId(),
@@ -636,8 +640,15 @@ public class PipelineCoordinator {
                     }
 
                     // Process data messages
-                    DeserializeResult result =
-                            sourceReader.deserialize(deserializeContext, element);
+                    DeserializeResult result;
+                    try {
+                        result = sourceReader.deserialize(deserializeContext, element);
+                    } catch (Exception e) {
+                        throw new SourceRecordProcessingException(
+                                formatSourceRecordFailure(
+                                        "Failed to deserialize source record", element, e),
+                                e);
+                    }
 
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
@@ -645,12 +656,19 @@ public class PipelineCoordinator {
                         if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
                             ddlCount += result.getSchemaChanges().size();
                         }
-                        SchemaChangeManager.executeChanges(
-                                feAddr,
-                                targetDb,
-                                token,
-                                writeRecordRequest.getJobId(),
-                                result.getSchemaChanges());
+                        try {
+                            SchemaChangeManager.executeChanges(
+                                    feAddr,
+                                    targetDb,
+                                    token,
+                                    writeRecordRequest.getJobId(),
+                                    result.getSchemaChanges());
+                        } catch (Exception e) {
+                            throw new SourceRecordProcessingException(
+                                    formatSourceRecordFailure(
+                                            "Failed to execute Doris DDL", element, e),
+                                    e);
+                        }
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
@@ -834,9 +852,39 @@ public class PipelineCoordinator {
         }
     }
 
-    private String extractTable(SourceRecord record) {
+    private static String extractTable(SourceRecord record) {
         Struct value = (Struct) record.value();
         return value.getStruct(Envelope.FieldName.SOURCE).getString("table");
+    }
+
+    static String formatSourceRecordFailure(String action, SourceRecord record, Throwable failure) {
+        try {
+            StringBuilder message = new StringBuilder(action);
+            String reason = ExceptionUtils.getMessage(failure);
+            message.append(". Reason: ").append(reason);
+            Throwable rootCause = ExceptionUtils.getRootCause(failure);
+            if (rootCause != null
+                    && rootCause != failure
+                    && (rootCause.getMessage() == null
+                            || !reason.contains(rootCause.getMessage()))) {
+                message.append("; caused by: ").append(ExceptionUtils.getMessage(rootCause));
+            }
+            if (record.value() instanceof Struct) {
+                Struct value = (Struct) record.value();
+                if (value.schema().field(Envelope.FieldName.SOURCE) != null) {
+                    String table = extractTable(record);
+                    message.append(". Source table: ").append(table);
+                }
+            }
+            if (record.sourceOffset() != null && !record.sourceOffset().isEmpty()) {
+                String sourceOffset = objectMapper.valueToTree(record.sourceOffset()).toString();
+                message.append(". Source offset: ").append(sourceOffset);
+            }
+            return message.toString();
+        } catch (Exception e) {
+            LOG.warn("Failed to format source record failure", e);
+            return ExceptionUtils.getRootCauseMessage(failure);
+        }
     }
 
     public String getTaskFailReason(String taskId) {
