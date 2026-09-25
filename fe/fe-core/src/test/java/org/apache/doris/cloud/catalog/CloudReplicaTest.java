@@ -465,7 +465,7 @@ public class CloudReplicaTest {
             replica.updateClusterToSecondaryBe(CLUSTER_ID_2, 2001L);
 
             // one primary entry plus one secondary entry, both pointing at the dropped backend
-            Assertions.assertEquals(2, replica.removeInvalidRoutes());
+            Assertions.assertEquals(2, replica.removeInvalidRoutes(mockInfoService));
 
             Assertions.assertEquals(1, replica.getPrimaryComputeGroupIds().size());
             Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_1));
@@ -492,7 +492,7 @@ public class CloudReplicaTest {
             replica.updateClusterToPrimaryBe(CLUSTER_ID_2, 2001L);
             replica.updateClusterToSecondaryBe(CLUSTER_ID_2, 2001L);
 
-            Assertions.assertEquals(0, replica.removeInvalidRoutes());
+            Assertions.assertEquals(0, replica.removeInvalidRoutes(mockInfoService));
 
             Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_2));
             Backend revivedBe = createBackend(2001L, true, false);
@@ -521,7 +521,7 @@ public class CloudReplicaTest {
             replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 2001L);
             replica.updateClusterToSecondaryBe(CLUSTER_ID_1, 1001L);
 
-            Assertions.assertEquals(0, replica.removeInvalidRoutes());
+            Assertions.assertEquals(0, replica.removeInvalidRoutes(mockInfoService));
 
             // FrontendServiceImpl's lazy fetch reaches the secondary through the primary key set
             Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(CLUSTER_ID_1));

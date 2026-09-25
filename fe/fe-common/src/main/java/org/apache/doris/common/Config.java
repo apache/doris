@@ -3548,10 +3548,25 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false,
             description = "Whether to drop the primary/secondary route entries of a CloudReplica whose backend no "
-                    + "longer exists, when loading the image and in the tablet rebalancer round. Those entries are "
-                    + "already ignored at query time (the replica is rehashed), so they only waste FE memory and "
-                    + "image size. Set to false to keep the legacy leaking behavior. Default is true.")
+                    + "longer exists, when loading the image, in the tablet rebalancer round, and once per replayed "
+                    + "batch of backend-removal journals (on Followers too, since each FE applies this locally). "
+                    + "Those entries are already ignored at query time (the replica is rehashed), so they only "
+                    + "waste FE memory and image size. Set to false to keep the legacy leaking behavior. "
+                    + "Default is true.")
     public static boolean enable_cloud_replica_stale_route_clean = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Start time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. Used with "
+            + "`cloud_tablet_rebalancer_stale_route_clean_end_time` to decide the window. Only gates the "
+            + "rebalancer's own sweep -- image loading and replayed backend-removal batches always clean "
+            + "regardless of this window. If set to the same value as the end time (the default), the "
+            + "rebalancer sweeps any time it would otherwise sweep, i.e. the window is unrestricted.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_start_time = "00:00";
+
+    @ConfField(mutable = true, masterOnly = true, description = "End time of the window in which the cloud "
+            + "tablet rebalancer is allowed to sweep stale CloudReplica routes, in HH:mm format. See "
+            + "`cloud_tablet_rebalancer_stale_route_clean_start_time`.")
+    public static String cloud_tablet_rebalancer_stale_route_clean_end_time = "00:00";
 
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "

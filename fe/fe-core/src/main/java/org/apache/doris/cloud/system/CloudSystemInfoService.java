@@ -107,6 +107,13 @@ public class CloudSystemInfoService extends SystemInfoService {
 
     private InstanceInfoPB.Status instanceStatus;
 
+    // Written and consumed by the journal replay thread; additions never strand existing routes.
+    private long replayBackendRemovalVersion;
+
+    public long getReplayBackendRemovalVersion() {
+        return replayBackendRemovalVersion;
+    }
+
     public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds, long idx) {
         return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1);
     }
@@ -946,6 +953,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         List<Backend> toDel = new ArrayList<>();
         toDel.add(backend);
         updateCloudClusterMap(new ArrayList<>(), toDel);
+        replayBackendRemovalVersion++;
     }
 
     @Override
