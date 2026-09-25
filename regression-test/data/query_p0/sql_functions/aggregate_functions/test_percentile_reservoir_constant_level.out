@@ -35,6 +35,9 @@
 -- !empty_string_cast_level --
 \N
 
+-- !nan_payload_cast --
+NaN	NaN	\N
+
 -- !decimalv2_divide --
 0E-9	\N
 
@@ -67,6 +70,9 @@
 
 -- !skip_fold_empty_string_cast_level --
 \N
+
+-- !skip_fold_nan_payload_cast --
+NaN	NaN	\N
 
 -- !skip_fold_decimalv2_divide --
 0E-9	\N

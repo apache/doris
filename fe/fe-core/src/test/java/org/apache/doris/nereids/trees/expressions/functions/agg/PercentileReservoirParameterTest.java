@@ -129,6 +129,22 @@ public class PercentileReservoirParameterTest {
     }
 
     @Test
+    void testNanPayloadStringLevelIsRejected() {
+        // BE parses a NaN payload as NaN, so the check must see NaN instead of a failed cast
+        List<Expression> levels = Arrays.asList(new VarcharLiteral("nan(foo)"),
+                new Cast(new VarcharLiteral(" -nan(ind) "), DoubleType.INSTANCE));
+        for (boolean strictCast : new boolean[] {false, true}) {
+            withStrictCast(strictCast, () -> {
+                for (Expression level : levels) {
+                    for (Expression expression : variants(level)) {
+                        assertRejected(expression, "level must be in [0, 1], but got NaN");
+                    }
+                }
+            });
+        }
+    }
+
+    @Test
     void testDecimalV2DivisionLevelFoldsLikeBe() {
         DecimalV2Type type = DecimalV2Type.createDecimalV2Type(27, 9);
         // 0 / 2 is the valid level 0; FoldConstantTest pins that it folds to 0 rather than NULL

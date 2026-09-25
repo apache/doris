@@ -170,6 +170,23 @@ public class StringLikeLiteralTest {
         Assertions.assertTrue(expression instanceof DoubleLiteral);
         Assertions.assertEquals(Float.NaN, ((DoubleLiteral) expression).getValue().doubleValue());
 
+        // BE (fast_float) also parses a NaN payload and only skips ASCII whitespace around the number
+        for (String nan : new String[] {"nan(foo)", " -NaN(ind_1) ", "+nan()"}) {
+            expression = new StringLiteral(nan).uncheckedCastTo(DoubleType.INSTANCE);
+            Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+            Assertions.assertTrue(Double.isNaN(((DoubleLiteral) expression).getValue()));
+            expression = new StringLiteral(nan).uncheckedCastTo(FloatType.INSTANCE);
+            Assertions.assertInstanceOf(FloatLiteral.class, expression);
+            Assertions.assertTrue(Float.isNaN(((FloatLiteral) expression).getValue()));
+        }
+        expression = new StringLiteral("\t\n\u000B\f\r 0.25 \r\f\u000B\n\t").uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertEquals(0.25, ((DoubleLiteral) expression).getValue().doubleValue());
+        for (String invalid : new String[] {"nan(foo", "nan(a-b)", "nan)", "0.25\u0001", "\u00010.25", "1.5d", "0x10"}) {
+            StringLiteral literal = new StringLiteral(invalid);
+            Assertions.assertThrows(CastException.class, () -> literal.uncheckedCastTo(DoubleType.INSTANCE));
+            Assertions.assertThrows(CastException.class, () -> literal.uncheckedCastTo(FloatType.INSTANCE));
+        }
+
         // To decimal
         s = new StringLiteral("1234.5678");
         expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(10, 4));

@@ -120,6 +120,26 @@ suite("test_percentile_reservoir_constant_level") {
     }
     sql "SET enable_strict_cast = false"
 
+    // FE parses a NaN payload like BE, so such a string level is rejected as NaN instead of
+    // being accepted as a failed (NULL) cast that BE would still execute as NaN
+    qt_nan_payload_cast """
+        SELECT cast('nan(foo)' as double), cast(' -nan(ind) ' as double), cast('nan(a-b)' as double)
+    """
+    for (String level : ["'nan(foo)'", "cast('nan(foo)' as double)"]) {
+        test {
+            sql "SELECT percentile_reservoir(number, ${level}) FROM numbers('number' = '10')"
+            exception "percentile_reservoir level must be in [0, 1], but got NaN"
+        }
+        test {
+            sql "SELECT percentile_reservoir(DISTINCT number, ${level}) FROM numbers('number' = '10')"
+            exception "percentile_reservoir level must be in [0, 1], but got NaN"
+        }
+        test {
+            sql "SELECT percentile_reservoir_state(number, ${level}) FROM numbers('number' = '10')"
+            exception "percentile_reservoir level must be in [0, 1], but got NaN"
+        }
+    }
+
     // DECIMALV2 division folds on FE the way BE executes it: NULL only for a zero divisor
     qt_decimalv2_divide """
         SELECT cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)),
@@ -194,6 +214,23 @@ suite("test_percentile_reservoir_constant_level") {
         exception "can't cast to double in strict mode"
     }
     sql "SET enable_strict_cast = false"
+    qt_skip_fold_nan_payload_cast """
+        SELECT cast('nan(foo)' as double), cast(' -nan(ind) ' as double), cast('nan(a-b)' as double)
+    """
+    for (String level : ["'nan(foo)'", "cast('nan(foo)' as double)"]) {
+        test {
+            sql "SELECT percentile_reservoir(number, ${level}) FROM numbers('number' = '10')"
+            exception "percentile_reservoir level must be in [0, 1], but got NaN"
+        }
+        test {
+            sql "SELECT percentile_reservoir(DISTINCT number, ${level}) FROM numbers('number' = '10')"
+            exception "percentile_reservoir level must be in [0, 1], but got NaN"
+        }
+        test {
+            sql "SELECT percentile_reservoir_state(number, ${level}) FROM numbers('number' = '10')"
+            exception "percentile_reservoir level must be in [0, 1], but got NaN"
+        }
+    }
     qt_skip_fold_decimalv2_divide """
         SELECT cast(0 as decimalv2(27, 9)) / cast(2 as decimalv2(27, 9)),
                cast(1 as decimalv2(27, 9)) / cast(0 as decimalv2(27, 9))
