@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -581,6 +582,10 @@ public class SPMPlan2SQLBuilderTest {
         if (plan instanceof PhysicalLimit) {
             return builder.visitPhysicalLimit((PhysicalLimit<? extends Plan>) plan, null);
         }
+        if (plan instanceof PhysicalStorageLayerAggregate) {
+            return builder.visitPhysicalStorageLayerAggregate(
+                    (PhysicalStorageLayerAggregate) plan, null);
+        }
         if (plan instanceof PhysicalGenerate) {
             return builder.visitPhysicalGenerate((PhysicalGenerate<? extends Plan>) plan, null);
         }
@@ -1093,6 +1098,22 @@ public class SPMPlan2SQLBuilderTest {
                 "a plain scan child stays inline: " + sql);
         Assertions.assertFalse(sql.contains("(SELECT * FROM t1)"),
                 "a plain scan child needs no subquery wrapper: " + sql);
+    }
+
+    /**
+     * The cloud storage-layer pushdown (COUNT / COUNT_ON_MATCH / MIN_MAX / MIX) REPLACES
+     * the aggregate: the plan visitor default would decompile only the wrapped relation
+     * and silently drop the aggregation (freezing "SELECT * FROM t" for a count(*)
+     * query). The decompile must fail loudly so CREATE keeps the user planSql text.
+     */
+    @Test
+    public void testStorageLayerAggregatePushdownIsRejected() {
+        PhysicalStorageLayerAggregate storageAgg =
+                Mockito.mock(PhysicalStorageLayerAggregate.class);
+        stubAccept(storageAgg);
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> new SPMPlan2SQLBuilder().toSQL(storageAgg),
+                "a storage-layer aggregate pushdown has no faithful SQL rendering");
     }
 
     /** Counts the occurrences of a literal fragment in a string. */
