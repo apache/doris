@@ -89,6 +89,11 @@ github:
         require_code_owner_reviews: true
         required_approving_review_count: 1
         dismiss_stale_reviews: true
+    branch-4.2:
+      required_pull_request_reviews:
+        require_code_owner_reviews: true
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
     branch-4.0:
       required_status_checks:
         strict: false
