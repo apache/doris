@@ -90,6 +90,16 @@ suite("test_width_bucket_function", "arrow_flight_sql") {
     qt_select_width_bucket_4 "select width_bucket(10,0,10.1,10);"
     qt_select_width_bucket_5 "select width_bucket(10,0,10.10,10);"
 
+    // Test the case where `(max_value - min_value) < num_buckets`.
+    qt_width_bucket_dense_1 "select width_bucket(9, 0, 10, 20);"
+    qt_width_bucket_dense_2 "select width_bucket(3, 0, 10, 20);"
+    qt_width_bucket_dense_3 "select width_bucket(1, 0, 2, 5);"
+    qt_width_bucket_dense_4 "select width_bucket(0, 0, 10, 20);"
+
+    // Test the case where `max_value = min_value`.
+    qt_width_bucket_dense_5 "select width_bucket(0, 10, 10, 20);"
+
+    
     test {
       sql "select width_bucket(4, 0, 8, 0)"
       exception "buckets must be a positive integer value"

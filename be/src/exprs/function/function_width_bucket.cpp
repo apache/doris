@@ -115,9 +115,6 @@ private:
             } else if (expr_data[i] >= max_value) {
                 nested_data[i] = num_buckets + 1;
             } else {
-                if ((max_value - min_value) / num_buckets == 0) {
-                    continue;
-                }
                 nested_data[i] = (int64_t)(1 + (expr_data[i] - min_value) / average_value);
             }
         }
