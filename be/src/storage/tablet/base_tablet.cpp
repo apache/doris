@@ -62,6 +62,7 @@
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/jsonb/serialize.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -153,6 +154,13 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
+
+    // The counters start at zero with this object, so treating construction as the first
+    // baseline makes the first report carry everything that happened since, over a window
+    // that really is the time since construction. Leaving it at zero would make collect()
+    // skip the first round while commit() still advanced the baseline, silently discarding
+    // that activity.
+    last_reported_time_ms.store(UnixMillis(), std::memory_order_relaxed);
 
     // construct _timestamped_versioned_tracker from rs and stale rs meta
     _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
