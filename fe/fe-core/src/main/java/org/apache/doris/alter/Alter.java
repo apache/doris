@@ -284,9 +284,6 @@ public class Alter {
             AlterOp alterOp = alterOps.get(0);
             processModifyMinLoadReplicaNum(db, olapTable, alterOp);
         } else if (currentAlterOps.checkBinlogConfigChange(alterOps)) {
-            if (!Config.enable_feature_binlog) {
-                throw new DdlException("Binlog feature is not enabled");
-            }
             // TODO(Drogon): check error
             ((SchemaChangeHandler) schemaChangeHandler).updateBinlogConfig(db, olapTable, alterOps);
         } else if (currentAlterOps.hasSchemaChangeOp()) {

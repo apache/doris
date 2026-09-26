@@ -153,9 +153,13 @@ public abstract class TestWithFeService {
     private static final String[] ENV_FIELDS_RESTORED_PER_TEST = new String[] {
             "accessManager", "systemInfo", "authenticationIntegrationMgr"};
     private final Map<String, Object> envFieldBaseline = Maps.newHashMap();
+    private boolean originalEnableFeatureBinlog;
 
     @BeforeAll
     public final void beforeAll() throws Exception {
+        // The test cluster supports ROW binlog fixtures. Feature-gate tests override this explicitly.
+        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        Config.enable_feature_binlog = true;
         // this.enableAdvanceNextId may be reset by children classes
         Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
@@ -182,7 +186,11 @@ public abstract class TestWithFeService {
 
     @AfterAll
     public final void afterAll() throws Exception {
-        runAfterAll();
+        try {
+            runAfterAll();
+        } finally {
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
         Env.getCurrentEnv().clear();
         StatementScopeIdGenerator.clear();
         if (needCleanDir) {

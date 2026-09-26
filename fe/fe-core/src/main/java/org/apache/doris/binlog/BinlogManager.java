@@ -145,10 +145,6 @@ public class BinlogManager {
     }
 
     private void addBinlog(TBinlog binlog, Object raw) {
-        if (!Config.enable_feature_binlog) {
-            return;
-        }
-
         if (isAsyncMvBinlog(binlog) || isTemporaryTable(binlog)) {
             return;
         }
@@ -176,10 +172,6 @@ public class BinlogManager {
 
     private void addBinlog(long dbId, List<Long> tableIds, long commitSeq, long timestamp, TBinlogType type,
             String data, boolean removeEnableCache, Object raw) {
-        if (!Config.enable_feature_binlog) {
-            return;
-        }
-
         TBinlog binlog = new TBinlog();
         // set commitSeq, timestamp, type, dbId, data
         binlog.setCommitSeq(commitSeq);
@@ -734,10 +726,6 @@ public class BinlogManager {
 
     // not thread safety, do this without lock
     public long write(DataOutputStream dos, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         List<TBinlog> binlogs = Lists.newArrayList();
         // Step 1: get all binlogs
         for (DBBinlog dbBinlog : dbBinlogMap.values()) {
@@ -805,10 +793,6 @@ public class BinlogManager {
             for (int i = 0; i < size; i++) {
                 // Step 2.1: read a binlog
                 TBinlog binlog = readTBinlogFromStream(dis);
-
-                if (!Config.enable_feature_binlog) {
-                    continue;
-                }
 
                 long dbId = binlog.getDbId();
                 if (binlog.getType().getValue() >= TBinlogType.MIN_UNKNOWN.getValue()) {

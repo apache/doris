@@ -3059,10 +3059,6 @@ public class Env {
     }
 
     public long saveBinlogs(CountingDataOutputStream out, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         this.binlogManager.write(out, checksum);
         LOG.info("Save binlogs to image");
         return checksum;
@@ -4278,11 +4274,9 @@ public class Env {
             sb.append(olapTable.variantEnableFlattenNested()).append("\"");
         }
 
-        // binlog
-        if (Config.enable_feature_binlog) {
-            BinlogConfig binlogConfig = olapTable.getBinlogConfig();
-            binlogConfig.appendToShowCreateTable(sb);
-        }
+        // SHOW CREATE and CREATE TABLE LIKE must retain the persisted configuration even when
+        // the ROW feature is disabled; otherwise LIKE silently drops the source table's binlog.
+        olapTable.getBinlogConfig().appendToShowCreateTable(sb);
 
         // group commit interval ms
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS).append("\" = \"");
@@ -7499,29 +7493,27 @@ public class Env {
             getTableMeta(olapTable, dbMeta);
         }
 
-        if (Config.enable_feature_binlog) {
-            BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
-            // id -> commit seq
-            List<Pair<Long, Long>> droppedPartitions = binlogManager.getDroppedPartitions(db.getId());
-            List<Pair<Long, Long>> droppedTables = binlogManager.getDroppedTables(db.getId());
-            List<Pair<Long, Long>> droppedIndexes = binlogManager.getDroppedIndexes(db.getId());
-            dbMeta.setDroppedPartitionMap(droppedPartitions.stream()
-                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
-            dbMeta.setDroppedTableMap(droppedTables.stream()
-                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
-            dbMeta.setDroppedIndexMap(droppedIndexes.stream()
-                    .collect(Collectors.toMap(p -> p.first, p -> p.second)));
-            // Keep compatibility with old version
-            dbMeta.setDroppedPartitions(droppedPartitions.stream()
-                    .map(p -> p.first)
-                    .collect(Collectors.toList()));
-            dbMeta.setDroppedTables(droppedTables.stream()
-                    .map(p -> p.first)
-                    .collect(Collectors.toList()));
-            dbMeta.setDroppedIndexes(droppedIndexes.stream()
-                    .map(p -> p.first)
-                    .collect(Collectors.toList()));
-        }
+        BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
+        // CCR deletion metadata is independent of the ROW feature switch. id -> commit seq.
+        List<Pair<Long, Long>> droppedPartitions = binlogManager.getDroppedPartitions(db.getId());
+        List<Pair<Long, Long>> droppedTables = binlogManager.getDroppedTables(db.getId());
+        List<Pair<Long, Long>> droppedIndexes = binlogManager.getDroppedIndexes(db.getId());
+        dbMeta.setDroppedPartitionMap(droppedPartitions.stream()
+                .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+        dbMeta.setDroppedTableMap(droppedTables.stream()
+                .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+        dbMeta.setDroppedIndexMap(droppedIndexes.stream()
+                .collect(Collectors.toMap(p -> p.first, p -> p.second)));
+        // Keep compatibility with old version
+        dbMeta.setDroppedPartitions(droppedPartitions.stream()
+                .map(p -> p.first)
+                .collect(Collectors.toList()));
+        dbMeta.setDroppedTables(droppedTables.stream()
+                .map(p -> p.first)
+                .collect(Collectors.toList()));
+        dbMeta.setDroppedIndexes(droppedIndexes.stream()
+                .map(p -> p.first)
+                .collect(Collectors.toList()));
 
         result.setDbMeta(dbMeta);
         return result;

@@ -19,6 +19,7 @@ package org.apache.doris.cloud.transaction;
 
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
@@ -52,6 +53,8 @@ import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -66,7 +69,9 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -77,6 +82,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -94,6 +101,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class CloudGlobalTransactionMgrTest {
 
@@ -264,6 +272,107 @@ public class CloudGlobalTransactionMgrTest {
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
             masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
                     transactionId, null, null);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testDisabledRowBinlogDoesNotSendCommitRpc(boolean streamingJob) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        ReentrantReadWriteLock jobLock = new ReentrantReadWriteLock(true);
+        StreamingTaskTxnCommitAttachment attachment = streamingJob
+                ? new StreamingTaskTxnCommitAttachment(9876, 9877, 1, 1, 1, 1, 0, "[]") : null;
+        if (streamingJob) {
+            StreamingInsertJob callback = Mockito.mock(StreamingInsertJob.class, Mockito.CALLS_REAL_METHODS);
+            Deencapsulation.setField(callback, "lock", jobLock);
+            Mockito.doReturn(9876L).when(callback).getId();
+            // Reproduce beforeCommitted's lock/attachment contract; exercise the real failure callback.
+            Mockito.doAnswer(invocation -> {
+                jobLock.writeLock().lock();
+                ((TransactionState) invocation.getArgument(0)).setTxnCommitAttachment(attachment);
+                return null;
+            }).when(callback).beforeCommitted(Mockito.any());
+            masterTransMgr.getCallbackFactory().addCallback(callback);
+        }
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            Config.enable_feature_binlog = false;
+            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
+            binlogConfig.setEnable(true);
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+            table.setBinlogConfig(binlogConfig);
+            Mockito.doReturn(new TSOService()).when(masterEnv).getTSOService();
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenThrow(
+                    new AssertionError("A disabled ROW binlog transaction must not reach MetaService"));
+
+            for (int attempt = 0; attempt < 2; attempt++) {
+                TransactionCommitFailedException exception = Assertions.assertThrows(
+                        TransactionCommitFailedException.class,
+                        () -> masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                                Lists.newArrayList(table), 123533, null, attachment));
+                Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+                Assertions.assertEquals(0, jobLock.getWriteHoldCount());
+            }
+            Mockito.verify(proxy, Mockito.never()).commitTxn(Mockito.any());
+        } finally {
+            masterTransMgr.getCallbackFactory().removeCallback(9876);
+            while (jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+            table.setBinlogConfig(originalBinlogConfig);
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testDisabledRowBinlogRejectsCloudCommitVariants(boolean twoPhase) throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        OlapTable plainTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        OlapTable rowTable = (OlapTable) db.getTableOrMetaException(CatalogTestUtil.testTableId2);
+        BinlogConfig originalBinlogConfig = new BinlogConfig(rowTable.getBinlogConfig());
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            Config.enable_feature_binlog = false;
+            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
+            binlogConfig.setEnable(true);
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+            rowTable.setBinlogConfig(binlogConfig);
+            Mockito.doReturn(new TSOService()).when(masterEnv).getTSOService();
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenThrow(
+                    new AssertionError("A disabled ROW binlog transaction must not reach MetaService"));
+
+            TransactionCommitFailedException exception = Assertions.assertThrows(
+                    TransactionCommitFailedException.class, () -> {
+                        if (twoPhase) {
+                            masterTransMgr.commitTransaction2PC(db, Lists.newArrayList(plainTable, rowTable),
+                                    123533, 1000);
+                        } else {
+                            masterTransMgr.commitAndPublishTransaction(db, 123533, List.of(
+                                    new SubTransactionState(123533, plainTable, List.of(
+                                            new TTabletCommitInfo(CatalogTestUtil.testTabletId1,
+                                                    CatalogTestUtil.testBackendId1)),
+                                            SubTransactionState.SubTransactionType.INSERT),
+                                    new SubTransactionState(123534, rowTable, List.of(
+                                            new TTabletCommitInfo(CatalogTestUtil.testTabletId2,
+                                                    CatalogTestUtil.testBackendId1)),
+                                            SubTransactionState.SubTransactionType.INSERT)), 1000);
+                        }
+                    });
+            Assertions.assertTrue(exception.getCause().getMessage().contains("enable_feature_binlog"));
+            Assertions.assertNull(plainTable.getCommitLockOwner());
+            Assertions.assertNull(rowTable.getCommitLockOwner());
+            Mockito.verify(proxy, Mockito.never()).commitTxn(Mockito.any());
+        } finally {
+            rowTable.setBinlogConfig(originalBinlogConfig);
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
         }
     }
 
