@@ -59,7 +59,6 @@ import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
-import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
@@ -69,6 +68,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -109,9 +109,9 @@ public class MTMV extends OlapTable {
     @SerializedName("mpi")
     private MTMVPartitionInfo mvPartitionInfo;
     @SerializedName("rs")
-    private MTMVRefreshSnapshot refreshSnapshot;
+    private MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
     @SerializedName("ii")
-    private IvmInfo ivmInfo;
+    private IvmInfo ivmInfo = new IvmInfo();
     /**
      * The refresh epoch of every MV partition, keyed by MV partition name.
      *
@@ -120,13 +120,12 @@ public class MTMV extends OlapTable {
      * the ADD_TASK payload and ALTER_PARTITION_STATES are all no-ops for a non-IVM MV, so for one an
      * empty map is the complete answer.
      *
-     * <p>Null means the same thing -- no state -- and has three causes: an image written before the
-     * field existed, a non-IVM MV, and a live MV that has not been aligned yet. Only
-     * {@link #gsonPostProcess()} turns it into an empty map, on load; nothing else needs to, because a
-     * reader treats the two the same.
+     * <p>Never null, so a reader has no null case to answer: an MV is created with an empty map, and
+     * {@link #gsonPostProcess()} gives an MV loaded from an image written before the field existed the
+     * same one.
      */
     @SerializedName("pst")
-    private Map<String, MTMVPartitionState> partitionStates;
+    private Map<String, MTMVPartitionState> partitionStates = Maps.newLinkedHashMap();
     // Increased every time rewrite cache is invalidated to prevent publishing stale in-flight cache builds.
     private transient long rewriteCacheGeneration;
     private long schemaChangeVersion;
@@ -229,6 +228,17 @@ public class MTMV extends OlapTable {
         }
     }
 
+    /**
+     * Applies a status change, together with the invalidation it stands for: the version bump that
+     * discards a task result computed against the state being replaced, and the snapshot drop that stops
+     * the transparent rewrite serving rows from it.
+     *
+     * <p>This is the step that <em>applies</em> a change, not the one that records it -- it takes the MV
+     * lock and moves all three, but nothing here is journaled. It is what {@code Alter#processAlterMTMV}
+     * calls for an {@code ALTER_STATUS} op, both live and on replay; a live caller reaches it through
+     * {@link #invalidateWholeMv}, which goes the journaled way round. A new invalidation belongs there:
+     * calling this directly would leave the MV in a state a restart forgets.
+     */
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
@@ -297,6 +307,10 @@ public class MTMV extends OlapTable {
         EditLogItem editLogItem;
         writeMvLock();
         try {
+            // Read once, here: the task's worker thread may still be merging into this map, and the two
+            // places that use it -- applying the epochs and journaling them -- have to describe the same
+            // set of partitions. The getter hands out a detached copy for the same reason.
+            Map<String, Long> capturedEpochs = task.getIvmCapturedEpochs();
             if (!isReplay && task.getMtmvSchemaChangeVersion() != this.schemaChangeVersion) {
                 LOG.warn(
                         "addTaskResult failed, schemaChangeVersion has changed. "
@@ -305,14 +319,31 @@ public class MTMV extends OlapTable {
                         name, task.getTaskId(), task.getMtmvSchemaChangeVersion(), this.schemaChangeVersion);
                 return false;
             }
-            if (isReplay && alterMTMV.getIvmInfo() != null) {
-                // Replay the final IVM state; ADD_TASK does not change schemaChangeVersion.
-                ivmInfo = new IvmInfo(alterMTMV.getIvmInfo());
-            }
-            if (isReplay && alterMTMV.getPartitionStates() != null) {
-                // A journal written before the field existed carries no state at all: leave the
-                // partition states alone rather than clearing them.
-                partitionStates = MTMVPartitionState.copyOf(alterMTMV.getPartitionStates());
+            if (isReplay) {
+                if (alterMTMV.getIvmInfo() != null) {
+                    // Replay the final IVM state; ADD_TASK does not change schemaChangeVersion.
+                    ivmInfo = new IvmInfo(alterMTMV.getIvmInfo());
+                }
+                if (alterMTMV.getPartitionStates() != null) {
+                    // A journal written before the field existed carries no state at all: leave the
+                    // partition states alone rather than clearing them. What a payload does carry is
+                    // merged rather than assigned: a task result journals only the partitions it
+                    // published, so the entries it does not mention belong to other records -- an
+                    // invalidation that ran during the task, or an entry alignment added -- and
+                    // assigning would drop them. The state-map channel proper
+                    // (ALTER_PARTITION_STATES) still replaces, because that one carries the whole map.
+                    for (Entry<String, MTMVPartitionState> entry : alterMTMV.getPartitionStates().entrySet()) {
+                        partitionStates.put(entry.getKey(), new MTMVPartitionState(entry.getValue()));
+                    }
+                }
+            } else {
+                if (ivmInfo.isEnableIvm()) {
+                    // The batches this task committed now hold data read at the epoch they captured, so
+                    // the requirement is met for exactly those partitions. Recorded for a failed task
+                    // too: its snapshots and epochs only ever cover the batches that succeeded, and
+                    // leaving their rebuilt work unrecorded would only make the next refresh redo it.
+                    applyRefreshedEpochs(capturedEpochs);
+                }
             }
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
@@ -324,7 +355,6 @@ public class MTMV extends OlapTable {
                     if (refreshedIvmPlanSignature != null) {
                         ivmInfo.setPlanSignature(refreshedIvmPlanSignature);
                     }
-                    ivmInfo.clearBaselineRebuild();
                 }
                 // The refresh publishes a new plan, so every cache built before this commit is stale.
                 // Bump before publishing so an in-flight build cannot pass its generation check later.
@@ -346,7 +376,14 @@ public class MTMV extends OlapTable {
             }
             this.jobInfo.addHistoryTask(task);
             compatiblePctSnapshot(partitionSnapshots);
-            this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
+            // What this task wrote is described by the epochs just recorded, so a partition the result
+            // left dirty is left out: its snapshot would otherwise come back after an invalidation
+            // dropped it, and transparent rewrite reads that map to decide what it may serve.
+            Map<String, MTMVRefreshPartitionSnapshot> snapshotsToWrite = partitionSnapshots;
+            if (!isReplay && ivmInfo.isEnableIvm()) {
+                snapshotsToWrite = snapshotsOfCleanPartitions(partitionSnapshots);
+            }
+            this.refreshSnapshot.updateSnapshots(snapshotsToWrite, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
             if (isReplay) {
@@ -354,10 +391,17 @@ public class MTMV extends OlapTable {
             }
             if (ivmInfo.isEnableIvm()) {
                 alterMTMV.setIvmInfo(ivmInfo);
-                // Same condition as ivmInfo, so the journal of a non-IVM MV stays byte-for-byte what it
-                // was. The map is null until the states are first aligned, and a payload without the
-                // member means the same as one carrying an empty map.
-                alterMTMV.setPartitionStates(partitionStates);
+                // Only the partitions this result published, not the whole map: the map has one entry per
+                // MV partition, so a scheduled refresh of an MV with many partitions would deep-copy and
+                // journal all of them on every run to say what almost all of them already said. What the
+                // record has to carry is the change; the replay merges it. A result that published nothing
+                // carries nothing, which is what a payload without the member already means.
+                alterMTMV.setPartitionStates(publishedPartitionStates(capturedEpochs));
+                // Journal the map that was applied, not the one the task proposed: a partition this result
+                // left dirty was dropped from it above, and a replay that restored the raw map would put
+                // back the snapshot of a partition an invalidation has just cleared. The replay skips the
+                // filter, so what the payload carries is exactly what a restart ends up with.
+                alterMTMV.setPartitionSnapshots(snapshotsToWrite);
             }
             editLogItem = submitAlterLog(alterMTMV);
         } finally {
@@ -370,100 +414,139 @@ public class MTMV extends OlapTable {
 
     public void alterMvProperties(AlterMTMV alterMTMV, boolean isReplay) {
         EditLogItem editLogItem;
+        EditLogItem invalidation = null;
         writeMvLock();
         try {
             Map<String, String> mvProperties = alterMTMV.getMvProperties();
-            boolean containsExcludedTriggerTables = mvProperties.containsKey(
-                    PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
-            Set<TableNameInfo> oldExcludedTriggerTables = containsExcludedTriggerTables
-                    ? parseExcludedTriggerTables()
-                    : Sets.newHashSet();
-            // Enlarging or removing ivm_partition_window_limit brings previously lossy
-            // partitions back into the refresh range. Their stream backlog was skipped by
-            // the windowed refreshes, so a strict incremental refresh would wrongly judge
-            // "all partitions are synced" and return SUCCESS with stale data. Force the
-            // next refresh to rebuild a complete baseline instead.
-            boolean containsPartitionWindowLimit = mvProperties.containsKey(
-                    PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT);
-            Map<TableNameInfo, Integer> oldWindowLimits = containsPartitionWindowLimit
-                    ? MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties)
-                    : Maps.newHashMap();
-            // A partition_sync_limit window decides which base partitions the MV maintains. Only a change
-            // that can bring a partition back into that set needs a complete baseline rebuild -- a removed
-            // or wider limit -- because its deltas were skipped while it was outside and nothing
-            // incremental can repair them. That is the same trade as the two properties around it. A
-            // window that starts applying, a narrower one, and one that describes the same set as before
-            // leave the applied deltas intact; the partitions they take out are dropped by partition sync
-            // before the refresh plans, and taking one back in is the widening this answers. Doing it here,
-            // in the critical section that applies the ALTER, is also what keeps a window set and cleared
-            // while an invalidation reads the mapping from making that mapping look unwindowed.
-            boolean containsSyncWindow = MTMVPropertyUtil.containsPartitionSyncWindow(mvProperties);
-            Map<String, String> oldSyncWindow = containsSyncWindow
-                    ? MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties) : null;
+            // Read the old values before the properties are applied, and unconditionally: a property that is
+            // not part of this ALTER has to be compared against the value the MV actually holds. Reading it
+            // only when its key is present would compare an empty default against the real value, report a
+            // change that is not there, and drop the snapshot of an unrelated ALTER.
+            Set<TableNameInfo> oldExcludedTriggerTables = parseExcludedTriggerTables();
+            Map<TableNameInfo, Integer> oldWindowLimits =
+                    MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
+            Map<String, String> oldSyncWindow = MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties);
             this.mvProperties.putAll(mvProperties);
-            // Both excluded_trigger_tables changes and window limit enlargement/removal
-            // change the refresh baseline semantics: partitions previously skipped become
-            // refreshable again, and their stream backlog was not applied. Invalidate the
-            // snapshots (once) and require a complete baseline rebuild so the next refresh
-            // covers the new range instead of wrongly judging "all partitions are synced".
-            boolean invalidateRefreshSnapshot = false;
-            boolean requireCompleteBaselineRebuild = false;
-            if (containsExcludedTriggerTables) {
-                Set<TableNameInfo> newExcludedTriggerTables = parseExcludedTriggerTables();
-                if (!oldExcludedTriggerTables.equals(newExcludedTriggerTables)) {
-                    invalidateRefreshSnapshot = true;
-                    if (ivmInfo != null && ivmInfo.isEnableIvm()
-                            && relation != null && relation.getBaseTables() != null) {
-                        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
-                            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
-                                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
-                            if (MTMVPartitionUtil.isTableExcluded(oldExcludedTriggerTables, baseTableName)
-                                    && !MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
-                                requireCompleteBaselineRebuild = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if (containsPartitionWindowLimit && ivmInfo != null && ivmInfo.isEnableIvm()
-                    && relation != null && relation.getBaseTables() != null) {
-                Map<TableNameInfo, Integer> newWindowLimits =
-                        MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
-                for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
-                    TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
-                            baseTableInfo.getDbName(), baseTableInfo.getTableName());
-                    int oldLimit = MTMVPropertyUtil.getPartitionWindowLimit(oldWindowLimits, baseTableName);
-                    if (oldLimit == -1) {
-                        continue;
-                    }
-                    int newLimit = MTMVPropertyUtil.getPartitionWindowLimit(newWindowLimits, baseTableName);
-                    if (newLimit == -1 || newLimit > oldLimit) {
-                        requireCompleteBaselineRebuild = true;
-                        break;
-                    }
-                }
-            }
-            if (containsSyncWindow && ivmInfo != null && ivmInfo.isEnableIvm()
-                    && MTMVPropertyUtil.partitionSyncWindowWidens(oldSyncWindow,
-                            MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties))) {
-                requireCompleteBaselineRebuild = true;
-            }
-            if (invalidateRefreshSnapshot || requireCompleteBaselineRebuild) {
-                this.schemaChangeVersion++;
-                this.refreshSnapshot = new MTMVRefreshSnapshot();
-            }
-            if (requireCompleteBaselineRebuild) {
-                ivmInfo.requireCompleteBaselineRebuild();
-            }
+            // The one thing a property change can owe the refresh baseline: a whole-MV rebuild, when it
+            // brings base table partitions back into the set the MV maintains. Their stream backlog was
+            // skipped while they were outside that set, so no delta can repair them -- and the rebuild is
+            // whole-MV rather than per-partition because it covers the partitions partition sync has not
+            // created yet. invalidateWholeMv owns all of it: the state the refresh reads, the version bump
+            // that discards a task result computed before the change, and the snapshot drop that stops
+            // transparent rewrite serving rows from it.
+            //
+            // Narrowing that set owes nothing. The MV's rows for a table it no longer maintains are allowed
+            // to be stale by design, and the snapshot entry describing them is skipped by the next
+            // incremental refresh anyway, so dropping the whole snapshot and discarding a running task
+            // result for them buys nothing. A change that leaves the maintained set alone owes nothing
+            // either.
             if (isReplay) {
+                // The property change itself is applied above. Nothing else on this path has to run for a
+                // replay: the state, the version and the snapshot a whole-MV invalidation moves come back
+                // from the status record that precedes this one, through MTMV#alterStatus, and this
+                // property record never carried a snapshot.
                 return;
+            }
+            if (rebuildsWholeMv(oldExcludedTriggerTables, oldWindowLimits, oldSyncWindow)) {
+                // Journaled on its own record, ahead of the property change below; a replay applies both
+                // in that order. Submitted here and awaited below, outside the lock: the order is the
+                // enqueue order, which the lock already fixes, so there is nothing to gain by holding the
+                // lock across the flush.
+                invalidation = invalidateWholeMv("The MV's refresh baseline changed with its properties");
             }
             editLogItem = submitAlterLog(alterMTMV);
         } finally {
             writeMvUnlock();
         }
+        if (invalidation != null) {
+            invalidation.await();
+        }
         editLogItem.await();
+    }
+
+    /**
+     * Whether a property change brings base table partitions back into the set the MV maintains, and so
+     * owes a whole-MV rebuild.
+     *
+     * <p>Takes the values the MV held before the change; see the call site for why they are read
+     * unconditionally. Widening decides on its own: a change that both takes a partition out of the
+     * maintained set and puts one back is the rebuild, because the partition coming back is the one whose
+     * backlog was skipped.
+     */
+    private boolean rebuildsWholeMv(Set<TableNameInfo> oldExcludedTriggerTables,
+            Map<TableNameInfo, Integer> oldWindowLimits, Map<String, String> oldSyncWindow) {
+        // Judged once here rather than in each of the three: they answer "did this property move in the
+        // direction that owes a rebuild", which is only a question an MV maintaining an IVM baseline has.
+        if (!maintainsIvmBaseline()) {
+            return false;
+        }
+        return unexcludesABaseTable(oldExcludedTriggerTables)
+                || widensPartitionWindowLimit(oldWindowLimits)
+                || widensSyncWindow(oldSyncWindow);
+    }
+
+    /**
+     * Whether this MV has an IVM baseline to maintain at all, which every widening check needs.
+     *
+     * <p>No null check on {@code ivmInfo}: it is initialized where an MV is built and
+     * {@link #gsonPostProcess()} gives an MV loaded from an image written before the field existed the
+     * same one, so it is non-null by the time anything reads it.
+     */
+    private boolean maintainsIvmBaseline() {
+        return ivmInfo.isEnableIvm() && relation != null && relation.getBaseTables() != null;
+    }
+
+    /**
+     * Whether a base table of this MV stopped being excluded.
+     *
+     * <p>An excluded table has no stream, so the partitions the MV read from it have no backlog to apply;
+     * while it was excluded the MV did not maintain them.
+     */
+    private boolean unexcludesABaseTable(Set<TableNameInfo> oldExcludedTriggerTables) {
+        Set<TableNameInfo> newExcludedTriggerTables = parseExcludedTriggerTables();
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
+            if (MTMVPartitionUtil.isTableExcluded(oldExcludedTriggerTables, baseTableName)
+                    && !MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether an ivm_partition_window_limit was removed or enlarged for some base table, which brings the
+     * partitions the windowed refreshes skipped back into range with their backlog unapplied.
+     */
+    private boolean widensPartitionWindowLimit(Map<TableNameInfo, Integer> oldWindowLimits) {
+        Map<TableNameInfo, Integer> newWindowLimits =
+                MTMVPropertyUtil.getIvmPartitionWindowLimit(this.mvProperties);
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
+            int oldLimit = MTMVPropertyUtil.getPartitionWindowLimit(oldWindowLimits, baseTableName);
+            if (oldLimit == -1) {
+                continue;
+            }
+            int newLimit = MTMVPropertyUtil.getPartitionWindowLimit(newWindowLimits, baseTableName);
+            if (newLimit == -1 || newLimit > oldLimit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether a partition_sync_limit window was widened.
+     *
+     * <p>A window that starts applying, a narrower one, and one that describes the same set as before all
+     * leave the applied deltas intact: the partitions they take out are dropped by partition sync before
+     * the refresh plans, and taking one back in is the widening this answers.
+     */
+    private boolean widensSyncWindow(Map<String, String> oldSyncWindow) {
+        return MTMVPropertyUtil.partitionSyncWindowWidens(oldSyncWindow,
+                MTMVPropertyUtil.partitionSyncWindowOf(this.mvProperties));
     }
 
     public long getGracePeriod() {
@@ -626,7 +709,7 @@ public class MTMV extends OlapTable {
             // IVM only needs to know whether a baseline has ever been built.
             // A newly added MV partition legitimately has no PCT snapshot yet,
             // but that must not block row-level incremental refresh.
-            return refreshSnapshot != null && !MapUtils.isEmpty(refreshSnapshot.getPartitionSnapshots());
+            return !MapUtils.isEmpty(refreshSnapshot.getPartitionSnapshots());
         } finally {
             readMvUnlock();
         }
@@ -663,16 +746,60 @@ public class MTMV extends OlapTable {
      * into the journal, and a replay that replaces the field would leave the caller's reference
      * pointing at state that is no longer the MV's. Changing the states is the MV's own job, under its
      * write lock.
-     *
-     * <p>A missing map -- an image written before the field existed, or a non-IVM MV -- reads as empty.
      */
     public Map<String, MTMVPartitionState> getPartitionStates() {
         readMvLock();
         try {
-            if (partitionStates == null) {
-                return Collections.emptyMap();
-            }
             return Collections.unmodifiableMap(MTMVPartitionState.copyOf(partitionStates));
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    /**
+     * The partitions whose requirement has been raised and not met, which a refresh has to rebuild rather
+     * than catch up.
+     *
+     * <p>Detached names rather than the states themselves: a caller that only routes by them has no
+     * business holding the map the MV journals, and it needs nothing else from an entry.
+     */
+    public Set<String> getPartitionsNeedingRebuild() {
+        // Built before the lock, like the map getLatestEpochs returns: which entries go in is what needs
+        // the lock, not having somewhere to put them.
+        Set<String> res = Sets.newLinkedHashSet();
+        readMvLock();
+        try {
+            for (Entry<String, MTMVPartitionState> entry : partitionStates.entrySet()) {
+                if (entry.getValue().isDirty()) {
+                    res.add(entry.getKey());
+                }
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    /**
+     * Whether every partition the MV holds needs a rebuild, which is when a whole-MV refresh does nothing
+     * the per-partition routing would not.
+     *
+     * <p>A partition that holds data and does not need one makes this false: a whole-MV refresh would
+     * recompute it for nothing, which is the waste the per-partition routing exists to avoid. A partition
+     * that was never refreshed does not count against it -- a whole-MV refresh fills it, which its
+     * per-partition branch would do as well -- and it needs no clause of its own: an aligned entry is
+     * {@code {0, 1}}, so it is behind its requirement already. An MV with no partitions is not an
+     * escalation either.
+     *
+     * <p>Read in place rather than through {@link #getPartitionStates()}: the caller asks a yes/no
+     * question, and copying the map to answer it would allocate a state object per partition, under this
+     * lock, on every refresh -- including the ones that escalate nothing.
+     */
+    public boolean allPartitionsNeedRebuild() {
+        readMvLock();
+        try {
+            return !partitionStates.isEmpty()
+                    && partitionStates.values().stream().allMatch(MTMVPartitionState::isDirty);
         } finally {
             readMvUnlock();
         }
@@ -684,33 +811,222 @@ public class MTMV extends OlapTable {
     // A payload without the member carries no state at all, which is not the same as an empty map that
     // says the states are now empty: leaving them alone is the only answer that cannot lose state.
     public void alterPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
-        if (partitionStates == null) {
-            return;
-        }
+        replayAlterPartitionStates(partitionStates, null);
+    }
+
+    /**
+     * ALTER_PARTITION_STATES replay: applies the states the payload carries, and drops the snapshots it
+     * names. Both in one lock acquisition, because a reader that saw the new requirement while the
+     * snapshot was still there could let a transparent rewrite serve rows the rebuild has to replace.
+     *
+     * <p>A payload without the states carries none, which is not the same as an empty map that says the
+     * states are now empty: leaving them alone is the only answer that cannot lose state.
+     */
+    public void replayAlterPartitionStates(Map<String, MTMVPartitionState> partitionStates,
+            Set<String> removedSnapshotPartitions) {
         writeMvLock();
         try {
-            this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+            if (partitionStates != null) {
+                this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+            }
+            refreshSnapshot.removeSnapshots(removedSnapshotPartitions);
         } finally {
             writeMvUnlock();
         }
     }
 
-    public void invalidateIvmBaseline() {
-        EditLogItem editLogItem;
+    /**
+     * The {@code latestEpoch} of the given MV partitions, taken under the MV read lock.
+     *
+     * <p>This is the value a refresh has to remember: what it read from the base tables is described by
+     * the requirement in force when it started reading, so writing that value back as the new
+     * {@code refreshEpoch} is what keeps an invalidation arriving mid-refresh from being swallowed. A
+     * partition without an entry is left out -- a caller writes an epoch only for what it captured.
+     */
+    public Map<String, Long> getLatestEpochs(Set<String> partitionNames) {
+        if (CollectionUtils.isEmpty(partitionNames)) {
+            return Collections.emptyMap();
+        }
+        // Sized before the lock: the state map is what needs it, and building the map is not part of that.
+        Map<String, Long> res = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        readMvLock();
+        try {
+            for (String partitionName : partitionNames) {
+                MTMVPartitionState state = partitionStates.get(partitionName);
+                if (state != null) {
+                    res.put(partitionName, state.getLatestEpoch());
+                }
+            }
+            return res;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    /**
+     * Brings the partition states in line with the MV's partitions: every partition gets an entry, and
+     * every entry whose partition is gone is dropped.
+     *
+     * <p>Alignment is what makes "the partition exists" and "the entry exists" the same thing, and it is
+     * why an invalidation cannot miss: rows are only written by a refresh, and every refresh aligns
+     * before it reads a base table, so a partition that holds rows always has an entry for the mark to
+     * land on. The other direction is what makes the criterion safe -- an entry created here describes a
+     * partition with no rows yet, so requiring one generation of it discards no requirement that was
+     * made earlier.
+     *
+     * <p>What it changes is journaled, because the entry has to be on disk before the rows it describes
+     * can be: a crash between this and the task result would otherwise leave a partition that holds rows
+     * with no entry at all, and every later invalidation of it would find nothing to land on. That is the
+     * one shape in which the criterion cannot be read -- "no entry" is supposed to mean "no rows" -- so
+     * the entry is made durable before any base table is read rather than derived again on the next run.
+     *
+     * <p>It is deliberately not a hook on every path that creates or drops a partition. An entry is
+     * derived state, and rebuilding it from the live partition set also repairs whatever a crash left
+     * behind: the drop of a partition and the removal of its entry are two journal records, and only
+     * their order -- partition first -- is safe, which leaves at most a stale entry that the next
+     * alignment drops.
+     *
+     * <p>Only an IVM MV is aligned. For a non-IVM MV the map stays as it is, and every reader treats
+     * "empty" and "no state" the same.
+     */
+    public void alignPartitionStates() {
+        if (!isIvm()) {
+            return;
+        }
+        EditLogItem editLogItem = null;
         writeMvLock();
         try {
-            if (ivmInfo == null) {
-                ivmInfo = new IvmInfo();
+            // Read here rather than handed in by the caller: a caller has to read the names before it takes
+            // this lock, and a partition created in between -- by a concurrent refresh's partition sync --
+            // would then be dropped by the retainAll below, taking with it the state a following
+            // invalidation has to land on. The read is cheap and takes no lock of its own, so doing it here
+            // does not add an edge to the lock order.
+            Set<String> livePartitions = Sets.newHashSet(getPartitionNames());
+            boolean changed = partitionStates.keySet().retainAll(livePartitions);
+            for (String partitionName : livePartitions) {
+                if (!partitionStates.containsKey(partitionName)) {
+                    partitionStates.put(partitionName, MTMVPartitionState.initial());
+                    changed = true;
+                }
             }
-            ivmInfo.requireCompleteBaselineRebuild();
-            // Bump the version even when a rebuild is already pending, so a task that started before
-            // this visible base-table change cannot clear the barrier with an old result.
-            schemaChangeVersion++;
-            editLogItem = submitIvmInfoChange();
+            if (changed) {
+                editLogItem = submitPartitionStatesChange(Collections.emptySet());
+            }
         } finally {
             writeMvUnlock();
         }
-        editLogItem.await();
+        if (editLogItem != null) {
+            editLogItem.await();
+        }
+    }
+
+    /**
+     * The snapshots of the partitions that are clean after this result's epochs were applied.
+     *
+     * <p>An invalidation that reached a partition while the task ran leaves it dirty, and its snapshot
+     * must stay gone: dropping the entry is what keeps transparent rewrite away from rows the rebuild has
+     * to replace, and a result written back afterwards would undo exactly that. Removing only the entry
+     * keeps the rest of the map, which the removal on the invalidation side cannot express.
+     *
+     * <p>The caller holds the MV write lock and has already applied the epochs, so {@code isDirty} here
+     * reads the state the data is actually described by.
+     *
+     * <p>Only an IVM MV has partition states, so only its write-back is narrowed here: every entry of a
+     * non-IVM MV has no state to be dirty in and is written back as it always was.
+     */
+    private Map<String, MTMVRefreshPartitionSnapshot> snapshotsOfCleanPartitions(
+            Map<String, MTMVRefreshPartitionSnapshot> snapshots) {
+        if (MapUtils.isEmpty(snapshots)) {
+            return snapshots;
+        }
+        Map<String, MTMVRefreshPartitionSnapshot> res = Maps.newHashMapWithExpectedSize(snapshots.size());
+        for (Entry<String, MTMVRefreshPartitionSnapshot> entry : snapshots.entrySet()) {
+            MTMVPartitionState state = partitionStates.get(entry.getKey());
+            // No entry means the partition was created after the alignment, so it can only hold rows this
+            // task wrote; a dirty one needs its rebuild before anything may read it through the MV.
+            if (state == null || !state.isDirty()) {
+                res.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return res;
+    }
+
+    /**
+     * Records the epochs the given partitions were read at, which is how a refresh turns a requirement
+     * into the state of the data.
+     *
+     * <p>Only {@code refreshEpoch} is written: a refresh writes back the requirement it captured, and the
+     * requirement may have been raised again since that capture. A payload built from the captured map
+     * would overwrite the newer value and lose the rebuild it asks for, so {@code latestEpoch} is left
+     * alone here.
+     *
+     * <p>The caller holds the MV write lock (it is applied together with the rest of a task result).
+     */
+    private void applyRefreshedEpochs(Map<String, Long> capturedEpochs) {
+        if (MapUtils.isEmpty(capturedEpochs)) {
+            return;
+        }
+        for (Entry<String, Long> entry : capturedEpochs.entrySet()) {
+            MTMVPartitionState state = partitionStates.get(entry.getKey());
+            if (state == null) {
+                // The partition was dropped while the task ran, so its state went with it.
+                continue;
+            }
+            state.setRefreshEpoch(entry.getValue());
+        }
+    }
+
+    /**
+     * The states a task result publishes: the partitions whose epochs this result just wrote.
+     *
+     * <p>Read under the MV write lock, after {@link #applyRefreshedEpochs}, so what it captures is the state
+     * as published. A requirement raised during the task is carried along rather than recomputed: the
+     * write-back only moves {@code refreshEpoch}, and a payload that omitted the newer {@code latestEpoch}
+     * would let a replay restore the older one and lose the rebuild it asks for.
+     */
+    private Map<String, MTMVPartitionState> publishedPartitionStates(Map<String, Long> capturedEpochs) {
+        if (MapUtils.isEmpty(capturedEpochs)) {
+            return Collections.emptyMap();
+        }
+        Map<String, MTMVPartitionState> published = Maps.newLinkedHashMapWithExpectedSize(capturedEpochs.size());
+        for (String partitionName : capturedEpochs.keySet()) {
+            MTMVPartitionState state = partitionStates.get(partitionName);
+            if (state != null) {
+                published.put(partitionName, state);
+            }
+        }
+        return published;
+    }
+
+    /**
+     * Invalidates the whole MV: the state the refresh reads, the version bump that discards a task result
+     * computed against the state being replaced, and the snapshot drop that stops the transparent rewrite
+     * serving rows from it.
+     *
+     * <p>Applies the change and submits its journal record, and hands back the write for the caller to
+     * await. Both happen under one acquisition of the MV write lock, which is what keeps a refresh from
+     * publishing its result in between: the record has to be enqueued in the same critical section as the
+     * state it stands for, or a task result that slips into the gap is enqueued first and a replay applies
+     * it first -- leaving the follower in SCHEMA_CHANGE where the leader ended NORMAL. The callers that
+     * hold no outer MV lock are the ones this matters for; {@link #alterStatus} takes the same lock
+     * reentrantly, so holding it here is free.
+     *
+     * <p>The caller awaits outside the MV lock. It does not have to hold the lock across the flush to keep
+     * the order -- the record is enqueued in call order, so submitting this one before the next one is what
+     * puts it first -- and holding the lock across a journal wait is what the rest of this class avoids.
+     */
+    public EditLogItem invalidateWholeMv(String detail) {
+        MTMVStatus status = new MTMVStatus(MTMVState.SCHEMA_CHANGE, detail);
+        writeMvLock();
+        try {
+            alterStatus(status);
+            AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo(getQualifiedDbName(), getName()),
+                    MTMVAlterOpType.ALTER_STATUS);
+            alterMTMV.setStatus(status);
+            return submitAlterLog(alterMTMV);
+        } finally {
+            writeMvUnlock();
+        }
     }
 
     /**
@@ -721,7 +1037,8 @@ public class MTMV extends OlapTable {
      * @return whether a barrier was recorded. The caller reports the two outcomes differently: a change
      *         that no MV partition reads leaves nothing to rebuild and must not be logged as one.
      */
-    public boolean invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions) {
+    public boolean invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions,
+            String reason) {
         // Computed before the MV lock is taken, not inside it: the mapping reads the partition items of the
         // MV and of every PCT table, so it takes those tables' locks, and the MV lock has to stay a leaf
         // (nothing may be acquired under it) the way the rest of this class assumes. The selection does not
@@ -738,26 +1055,59 @@ public class MTMV extends OlapTable {
                     + "changedPartitions={}", name, baseTableInfo, changedPartitions);
             return false;
         }
+        if (!affectedMvPartitions.isPresent()) {
+            // A narrower rebuild could leave a partition holding rows of the changed base partition
+            // untouched, and those rows cannot be repaired later: the change emitted no row binlog. The
+            // whole MV is invalidated instead, which says "every partition, including the ones partition
+            // sync has not created yet" -- what a per-partition requirement cannot express.
+            invalidateWholeMv(reason).await();
+            return true;
+        }
         EditLogItem editLogItem;
         writeMvLock();
         try {
-            if (ivmInfo == null) {
-                ivmInfo = new IvmInfo();
+            // Placed: the partitions that read the change get the requirement raised, which is what sends
+            // them to a rebuild while every other partition keeps catching up incrementally. No version
+            // bump here -- a partial invalidation does not invalidate a task result, and the requirement it
+            // raises survives the write-back by construction.
+            Set<String> marked = markIvmPartitionsInvalidated(affectedMvPartitions.get());
+            if (marked.isEmpty()) {
+                LOG.debug("No MV partition holds the changed base partitions, mv={}, baseTable={}, "
+                        + "changedPartitions={}", name, baseTableInfo, changedPartitions);
+                return false;
             }
-            if (!affectedMvPartitions.isPresent()) {
-                // A narrower rebuild could leave a partition holding rows of the changed base partition
-                // untouched, and those rows cannot be repaired later: the change emitted no row binlog.
-                ivmInfo.requireCompleteBaselineRebuild();
-            } else {
-                ivmInfo.addPendingBaselineRebuildPartitions(affectedMvPartitions.get());
-            }
-            schemaChangeVersion++;
-            editLogItem = submitIvmInfoChange();
+            editLogItem = submitPartitionStatesChange(marked);
         } finally {
             writeMvUnlock();
         }
         editLogItem.await();
         return true;
+    }
+
+    /**
+     * Raises the requirement of the given MV partitions and drops their snapshots.
+     *
+     * <p>Only partitions that have an entry are marked: an entry is created before anything reads a base
+     * table, so a partition without one holds no rows and there is nothing of its to rebuild. The two
+     * halves belong together -- the requirement is what sends the partition to a rebuild, and the missing
+     * snapshot is what keeps a transparent rewrite away from rows that are about to be replaced.
+     *
+     * <p>The caller holds the MV write lock, which is what keeps this read-modify-write of
+     * {@code latestEpoch} from losing a concurrent invalidation, and which makes the journal enqueue
+     * follow the mutation order.
+     */
+    private Set<String> markIvmPartitionsInvalidated(Set<String> mvPartitionNames) {
+        Set<String> marked = Sets.newLinkedHashSet();
+        for (String partitionName : mvPartitionNames) {
+            MTMVPartitionState state = partitionStates.get(partitionName);
+            if (state == null) {
+                continue;
+            }
+            state.setLatestEpoch(state.getLatestEpoch() + 1);
+            marked.add(partitionName);
+        }
+        refreshSnapshot.removeSnapshots(marked);
+        return marked;
     }
 
     /**
@@ -947,67 +1297,62 @@ public class MTMV extends OlapTable {
         return null;
     }
 
-    /**
-     * Release the IVM baseline barrier after the partitions it named have been rebuilt, or after
-     * partition sync removed them (a dropped partition resolves its own entry: the partition and its
-     * IVM offsets are both gone).
-     *
-     * <p>Guarded by schemaChangeVersion, like {@link #persistIvmBaselineGuard}: a base-table change
-     * landing while the rebuild runs carries its own barrier entry, and a blind clear would swallow
-     * it. Failing instead preserves that entry -- the next refresh rebuilds it together with the
-     * partitions this task handled.
-     *
-     * <p>Journals the new state right away, like every other ivmInfo mutation here. A task that dies
-     * before {@link #addTaskResult} would otherwise leave the release in memory only, and a restart
-     * would resurrect the barrier from disk.
-     */
-    public void releaseIvmBaselineRebuild(long expectedSchemaChangeVersion) throws JobException {
-        EditLogItem editLogItem;
-        writeMvLock();
-        try {
-            if (ivmInfo == null || !ivmInfo.isBaselineRebuildRequired()) {
-                // Nothing to release: skip both the mutation and the journal entry. Any base-table
-                // change that raced us in is still caught by validateIvmRefreshStart() below.
-                return;
-            }
-            if (schemaChangeVersion != expectedSchemaChangeVersion) {
-                throw new JobException("Base table metadata changed before IVM baseline refresh, mv="
-                        + getName());
-            }
-            ivmInfo.clearBaselineRebuild();
-            editLogItem = submitIvmInfoChange();
-        } finally {
-            writeMvUnlock();
-        }
-        editLogItem.await();
-    }
-
-    public void persistIvmBaselineGuard(RefreshMode refreshMode, Set<String> baselinePartitions,
-            long expectedSchemaChangeVersion) throws JobException {
-        EditLogItem editLogItem;
-        writeMvLock();
-        try {
-            if (schemaChangeVersion != expectedSchemaChangeVersion) {
-                throw new JobException("Base table metadata changed before IVM baseline refresh, mv=" + getName());
-            }
-            if (refreshMode == RefreshMode.COMPLETE) {
-                ivmInfo.requireCompleteBaselineRebuild();
-            } else {
-                ivmInfo.addPendingBaselineRebuildPartitions(baselinePartitions);
-            }
-            editLogItem = submitIvmInfoChange();
-        } finally {
-            writeMvUnlock();
-        }
-        editLogItem.await();
-    }
-
     private EditLogItem submitIvmInfoChange() {
         // The caller has already mutated ivmInfo under the MV write lock. Submit its snapshot directly;
         // replay later applies the payload through alterIvmInfo().
         AlterMTMV alterMTMV = new AlterMTMV(
                 new TableNameInfo(getQualifiedDbName(), getName()), MTMVAlterOpType.ALTER_IVM_INFO);
         alterMTMV.setIvmInfo(ivmInfo);
+        return submitAlterLog(alterMTMV);
+    }
+
+    /**
+     * Raises the requirement of the given MV partitions, so the next refresh rebuilds them.
+     *
+     * <p>This is an invalidation-shaped mutation, journaled as the whole state map before whatever needs
+     * it is done. A caller about to make a partition's rows unusable says so with it: the raised
+     * requirement survives a crash, so a refresh that never got to publish its rebuild leaves partitions
+     * naming a generation they do not hold, and the next refresh rebuilds them.
+     */
+    public void markPartitionsForRebuild(Set<String> partitionNames) {
+        if (CollectionUtils.isEmpty(partitionNames)) {
+            return;
+        }
+        EditLogItem editLogItem;
+        writeMvLock();
+        try {
+            boolean changed = false;
+            for (String partitionName : partitionNames) {
+                MTMVPartitionState state = partitionStates.get(partitionName);
+                if (state == null) {
+                    // A partition dropped since the caller planned it has no rows to protect.
+                    continue;
+                }
+                state.setLatestEpoch(state.getLatestEpoch() + 1);
+                changed = true;
+            }
+            if (!changed) {
+                return;
+            }
+            editLogItem = submitPartitionStatesChange(Collections.emptySet());
+        } finally {
+            writeMvUnlock();
+        }
+        editLogItem.await();
+    }
+
+    /**
+     * Journals the current states, and the MV partitions whose snapshots the same change dropped.
+     *
+     * <p>Same shape as submitIvmInfoChange: the caller mutated under the MV write lock, and replay applies
+     * this payload through replayAlterPartitionStates(). The states ride as the MV's own map -- the setter
+     * copies them -- so the payload cannot be written out half-mutated.
+     */
+    private EditLogItem submitPartitionStatesChange(Set<String> removedSnapshotPartitions) {
+        AlterMTMV alterMTMV = new AlterMTMV(
+                new TableNameInfo(getQualifiedDbName(), getName()), MTMVAlterOpType.ALTER_PARTITION_STATES);
+        alterMTMV.setPartitionStates(partitionStates);
+        alterMTMV.setRemovedSnapshotPartitions(removedSnapshotPartitions);
         return submitAlterLog(alterMTMV);
     }
 
@@ -1041,9 +1386,6 @@ public class MTMV extends OlapTable {
         try {
             if (schemaChangeVersion != expectedSchemaChangeVersion) {
                 throw new JobException("Base table metadata changed before IVM refresh, mv=" + getName());
-            }
-            if (ivmInfo != null && ivmInfo.isBaselineRebuildRequired()) {
-                throw new JobException("IVM baseline rebuild is pending, mv=" + getName());
             }
         } finally {
             readMvUnlock();
@@ -1284,11 +1626,12 @@ public class MTMV extends OlapTable {
             sessionVariables = Maps.newHashMap();
         }
         if (ivmInfo == null) {
+            // Created with the MV as well; this covers an image that carries the member as null.
             ivmInfo = new IvmInfo();
         }
         if (partitionStates == null) {
-            // An image written before the field existed deserializes it as null, and so does a non-IVM MV.
-            // Both mean "no state", so an empty map is the whole answer.
+            // The field is created with the MV, so an image that leaves it out keeps that empty map. This
+            // covers the one image that carries it as null, which reader code has no case for.
             partitionStates = Maps.newLinkedHashMap();
         }
         if (refreshInfo != null && refreshInfo.getRefreshMethod() == null) {

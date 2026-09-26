@@ -92,6 +92,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -137,6 +138,13 @@ public class MTMVTaskTest {
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.COMPLETE);
 
         Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(true);
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus());
+        // Sane defaults for the epoch state: no partition needs a rebuild unless a case says so. The
+        // routing reads the states themselves, so a case that wants a rebuild gives it a state whose
+        // requirement is ahead of what it holds. What the escalation reads is the MV's own verdict over
+        // those states (MTMVTest covers it), so a case that wants it stubs the verdict.
+        Mockito.when(mtmv.getPartitionStates()).thenReturn(Collections.emptyMap());
+        Mockito.when(mtmv.allPartitionsNeedRebuild()).thenReturn(false);
     }
 
     @AfterEach
@@ -157,6 +165,173 @@ public class MTMVTaskTest {
         Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.COMPLETE, complete);
         Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, partial);
         Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL, differentPartitions);
+    }
+
+    /**
+     * An epoch a batch captures is clamped to the one the routing decision saw.
+     *
+     * <p>An invalidation that lands between that decision and the batch's read raises the partition's
+     * requirement above what the batch is about to read; recording what it read would describe the data as
+     * current, and the delta this refresh applies cannot remove the rows the invalidation made unusable.
+     * Recording the planned value leaves the partition dirty, so the next refresh rebuilds it.
+     */
+    @Test
+    public void testCapturedEpochIsClampedToTheOneTheRoutingDecisionSaw() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        // The routing decided on p1 at epoch 2, and an invalidation raised it to 5 before the read.
+        Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L)));
+        Deencapsulation.invoke(task, "commitCapturedEpochs", Maps.newHashMap(Map.of(poneName, 5L)));
+
+        Assertions.assertEquals(Map.of(poneName, 2L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
+
+        // A partition no routing decision named keeps what the batch read: there is no ceiling to clamp to.
+        MTMVTask unnamed = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.invoke(unnamed, "commitCapturedEpochs", Maps.newHashMap(Map.of(ptwoName, 7L)));
+
+        Assertions.assertEquals(Map.of(ptwoName, 7L), Deencapsulation.getField(unnamed, "ivmCapturedEpochs"));
+    }
+
+    /**
+     * A PARTITIONS request that may not fall back is not widened by an invalidated baseline.
+     *
+     * <p>What the invalidation needs rebuilt is not what the request names -- it covers partitions partition
+     * sync has not created yet -- so refreshing the named ones would leave the MV in SCHEMA_CHANGE with rows
+     * nothing rebuilt, and widening to COMPLETE would rebuild partitions the caller deliberately kept out.
+     * The forms whose scope already includes a whole-MV rebuild are the ones that can answer it.
+     */
+    @Test
+    public void testAStrictPartitionsRefreshIsRefusedRatherThanWidened() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "invalidated"));
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+
+        JobException exception = Assertions.assertThrows(JobException.class,
+                () -> Deencapsulation.invoke(task, "buildAttempts", request, false));
+
+        Assertions.assertTrue(exception.getMessage().contains("PARTITIONS FALLBACK"), exception.getMessage());
+
+        // The same request with fallback allowed reaches the COMPLETE its scope already carries.
+        MTMVTask fallbackTask = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
+        Object fallbackRequest = Deencapsulation.invoke(fallbackTask, "resolveRefreshRequest");
+
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"),
+                toNames((List<?>) Deencapsulation.invoke(fallbackTask, "buildAttempts", fallbackRequest, false)));
+    }
+
+    /**
+     * The captured epochs are handed out as a copy: a caller writing through the getter would be editing
+     * what the task publishes, and a STOP publishes while the executing worker may still be merging into
+     * the map the caller would be iterating.
+     */
+    @Test
+    public void testCapturedEpochsAreHandedOutAsACopy() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        task.getIvmCapturedEpochs().put(poneName, 3L);
+
+        Assertions.assertTrue(((Map<?, ?>) Deencapsulation.getField(task, "ivmCapturedEpochs")).isEmpty());
+    }
+
+    /**
+     * A task read back from the journal carries no captured epochs: the field is transient, so gson leaves
+     * it null and the constructor that would have initialized it never runs. A replay applies the states
+     * the record carries instead, so the getter has to answer for that case rather than throw.
+     */
+    @Test
+    public void testCapturedEpochsOfATaskReadBackFromTheJournalAreEmpty() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "ivmCapturedEpochs", null);
+
+        Assertions.assertTrue(task.getIvmCapturedEpochs().isEmpty());
+    }
+
+    /**
+     * The rebuilt-partition count is an IVM diagnostic, and a plain MV reaches the COMPLETE success path
+     * through an ordinary AUTO refresh -- where rebuilding is what the refresh does, not a side effect of an
+     * invalidated baseline.
+     */
+    @Test
+    public void testANonIvmRefreshReportsNoRebuiltPartitions() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(false);
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.AUTO, false, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+
+        Deencapsulation.invoke(task, "recordRebuiltPartitions", request);
+
+        Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    /**
+     * The count is what the refresh has replaced, so it is read from the same accumulator the task reports
+     * its progress with. That accumulator is created by the first phase that reports one, which leaves the
+     * attempt that reports before any phase has: a whole-MV refresh of an MV with nothing to refresh, and
+     * one the stream reconciliation threw out of, both report on a task that has committed nothing. That is
+     * no partitions, and it must read as zero where the refresh is reported rather than throw there.
+     */
+    @Test
+    public void testARefreshThatReplacedNothingReportsNoRebuiltPartitions() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.AUTO, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        Assertions.assertNull(Deencapsulation.getField(task, "completedPartitions"));
+
+        Deencapsulation.invoke(task, "recordRebuiltPartitions", request);
+
+        Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    /**
+     * And the count is what committed, not what was planned: the accumulator grows as batches commit, so a
+     * rebuild that replaced one of its partitions and failed on the next reports one.
+     */
+    @Test
+    public void testTheRebuiltCountFollowsThePartitionsThatCommitted() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        MTMVTask task = new MTMVTask(mtmv, relation,
+                MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.AUTO, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        Deencapsulation.invoke(task, "recordRefreshCompleted", Lists.newArrayList(poneName));
+
+        Deencapsulation.invoke(task, "recordRebuiltPartitions", request);
+
+        Assertions.assertEquals(1, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+
+        // A later attempt that replaced both keeps the larger count rather than the last one it read.
+        Deencapsulation.invoke(task, "recordRefreshCompleted", Lists.newArrayList(poneName, ptwoName));
+        Deencapsulation.invoke(task, "recordRebuiltPartitions", request);
+
+        Assertions.assertEquals(2, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    /**
+     * A retry that synchronized partitions has to be judged again: alignment gives a partition it creates
+     * {@code {0, 1}} -- behind its requirement -- and the routing decision was taken before it existed.
+     * Without the fresh read the retried attempt would hand it to the delta path with no ceiling to be
+     * clamped against, and its capture is all that path can produce: the partition would be recorded as
+     * caught up while it has never received a baseline.
+     */
+    @Test
+    public void testRetryAdoptsThePartitionsAlignmentCreated() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        // The routing saw p1 as caught up at epoch 2; p2 is what the retry's alignment added, and
+        // alignment gives a partition it creates {0, 1}.
+        Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L)));
+        Mockito.when(mtmv.getPartitionStates()).thenReturn(Maps.newHashMap(Map.of(
+                poneName, new MTMVPartitionState(2, 2),
+                ptwoName, MTMVPartitionState.initial())));
+        Set<String> dirtyPartitions = Sets.newLinkedHashSet();
+
+        Deencapsulation.invoke(task, "adoptPartitionsCreatedByTheRetry", dirtyPartitions);
+
+        Assertions.assertEquals(Sets.newHashSet(ptwoName), dirtyPartitions);
+        Assertions.assertEquals(Map.of(poneName, 2L, ptwoName, 1L),
+                Deencapsulation.getField(task, "ivmPlannedEpochs"));
     }
 
     @Test
@@ -391,6 +566,211 @@ public class MTMVTaskTest {
                 Sets.newHashSet(baseTable), Sets.newHashSet(), Sets.newHashSet());
     }
 
+    @Test
+    public void testBuildAttemptsEscalatesToCompleteWhenEveryPartitionNeedsARebuild() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        // Every partition either holds rows read before a change or was never filled: COMPLETE does exactly
+        // what their routing branches would, in a single read of the MV. Which partition states make that
+        // verdict true is MTMVTest's, next to the predicate that reads them.
+        Mockito.when(mtmv.allPartitionsNeedRebuild()).thenReturn(true);
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+    }
+
+    /**
+     * The all-dirty shortcut answers a whole-MV refresh, which a request that may not fall back has not
+     * authorized -- and COMPLETE is not merely more work: it reconciles the IVM streams and resets their
+     * baselines, the same reset the unusable-stream shortcut above permits only when a fallback is allowed.
+     * The routing those partitions would take is the incremental attempt, which rebuilds every one of them,
+     * finds nothing left to catch up, and fails on an unusable stream instead of resetting it. So the
+     * shortcut is gated on that permission, and a strict request keeps the chain that reaches the attempt.
+     */
+    @Test
+    public void testTheAllDirtyShortcutNeedsARequestThatMayFallBack() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.allPartitionsNeedRebuild()).thenReturn(true);
+
+        MTMVTask strictTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, false, null));
+        Object strictRequest = Deencapsulation.invoke(strictTask, "resolveRefreshRequest");
+
+        List<?> strictAttempts = (List<?>) Deencapsulation.invoke(strictTask, "buildAttempts", strictRequest,
+                false);
+
+        Assertions.assertEquals(Lists.newArrayList("IVM"), toNames(strictAttempts));
+
+        // Same MV, same verdict, a request that may fall back: the shortcut still applies.
+        MTMVTask fallbackTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object fallbackRequest = Deencapsulation.invoke(fallbackTask, "resolveRefreshRequest");
+
+        List<?> fallbackAttempts = (List<?>) Deencapsulation.invoke(fallbackTask, "buildAttempts",
+                fallbackRequest, false);
+
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(fallbackAttempts));
+    }
+
+    @Test
+    public void testBuildAttemptsDoesNotEscalateWithoutAnInvalidatedPartition() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        // Nothing needs a rebuild, so COMPLETE would be a full recomputation for no reason. The verdict is
+        // the default in setUp (false); asserted here so a change to it is a failure rather than a shrug.
+        Assertions.assertFalse(mtmv.allPartitionsNeedRebuild());
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsEscalatesAnIvmMvInSchemaChangeToComplete() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(
+                MTMVState.SCHEMA_CHANGE, "the base table has been updated"));
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.AUTO, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // A schema-level invalidation is not a set of dirty partitions: it covers the partitions partition
+        // sync has not created yet as well, so no per-partition branch can express it. The task says how
+        // many partitions the request did not ask to rebuild, which is what the INCREMENTAL attempt would
+        // have left out of the trace otherwise.
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+        // Planning does not claim the work: the count is recorded once the rebuild has actually run, so a
+        // refresh that fails before replacing anything reports nothing rather than the whole MV. What this
+        // route owes the request is the escalation itself, which is the assertion above.
+        Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    /**
+     * The initial-refresh shortcut also answers COMPLETE, and it is judged after the schema-change
+     * refusal: an MV that has never been refreshed and reads an excluded trigger table needs a whole-MV
+     * rebuild, so a strict `PARTITIONS` request must hear that rather than have that shortcut widen it
+     * silently. Judging the shortcut first is what makes the refusal unreachable in exactly the state it
+     * names.
+     */
+    @Test
+    public void testABuildInitialRefreshDoesNotWidenAStrictPartitionsRequest() {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Sets.newHashSet(
+                new TableNameInfo("internal", "test_db", "excluded_agg")));
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(
+                MTMVState.SCHEMA_CHANGE, "the base table has been updated"));
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        // The shortcut is what this state would take without the refusal, so this is the ordering under
+        // test rather than a request that would never have reached it.
+        Assertions.assertTrue(
+                (Boolean) Deencapsulation.invoke(task, "shouldUseCompleteForInitialIvmRefresh", false));
+
+        JobException refusal = Assertions.assertThrows(JobException.class,
+                () -> Deencapsulation.invoke(task, "buildAttempts", request, false));
+        Assertions.assertTrue(refusal.getMessage().contains("Use COMPLETE, AUTO, or PARTITIONS FALLBACK"),
+                refusal.getMessage());
+    }
+
+    @Test
+    public void testBuildAttemptsLeavesANonIvmMvInSchemaChangeOnItsOwnChain() throws Exception {
+        // setUp stubs a non-IVM MV. Its state is not what its attempt chain is built from: the cleared
+        // snapshot of a schema change already sends every partition to a rebuild, so the chain stays as it
+        // was, which is what keeps this change from moving a non-IVM MV's behaviour.
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(
+                MTMVState.SCHEMA_CHANGE, "the base table has been updated"));
+
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        Assertions.assertEquals(Lists.newArrayList("PARTITIONS", "COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    @Test
+    public void testBuildAttemptsKeepsAnExplicitPartitionListOutOfTheSchemaChangeEscalation() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(
+                MTMVState.SCHEMA_CHANGE, "the base table has been updated"));
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName), RefreshMode.AUTO));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // An explicit partition list is an exact request and is never widened to COMPLETE. (An IVM MV
+        // rejects one at analysis time, so this is the belt to that suspender.)
+        Assertions.assertEquals(Lists.newArrayList("PARTITIONS"), toNames(attempts));
+        Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    @Test
+    public void testBuildAttemptsRebuildsTheWholeMvForAStrictIncrementalInSchemaChange() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(
+                MTMVState.SCHEMA_CHANGE, "the base table has been updated"));
+
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, false, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // Asking against the fallback does not refuse this one: the baseline the incremental attempt would
+        // read is gone, while a COMPLETE refresh restores exactly it. Reporting the count is what keeps the
+        // request honest -- the result says the partitions it did not ask for were rebuilt.
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+        // The request's count is reported by the result, not decided here: recorded once the rebuild has
+        // run, so a refresh that never replaced anything reports nothing.
+        Assertions.assertEquals(0, (int) Deencapsulation.getField(task, "ivmRebuiltPartitions"));
+    }
+
+    @Test
+    public void testIncrementalAttemptLeavesTheRebuiltPartitionsOutOfItsScope() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.same(refreshContext), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(poneName, ptwoName));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.same(refreshContext), Mockito.nullable(Set.class), Mockito.nullable(Set.class)))
+                .thenReturn(Collections.emptyMap());
+
+        try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
+                (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(IvmIncrRefreshResult.success()))) {
+            // poneName was rebuilt by the partition executor before this attempt, so the incremental
+            // refresh must not treat it as needing a catch-up: it can only append, and it would record the
+            // partition as current while its rows are exactly what the rebuild replaced.
+            IvmIncrRefreshResult result = (IvmIncrRefreshResult) Deencapsulation.invoke(
+                    task, "executeSingleIvmAttempt", refreshContext, Sets.newHashSet(poneName));
+            Assertions.assertTrue(result.isSuccess());
+        }
+
+        Assertions.assertEquals(Sets.newHashSet(ptwoName),
+                Deencapsulation.getField(task, "needRefreshPartitions"));
+    }
+
     private static List<String> toNames(List<?> attempts) {
         List<String> names = Lists.newArrayList();
         for (Object attempt : attempts) {
@@ -425,6 +805,221 @@ public class MTMVTaskTest {
 
         Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), attempts.stream()
                 .map(Object::toString).collect(Collectors.toList()));
+    }
+
+    /**
+     * A refresh that rebuilt a partition and then fell back out of the incremental attempt must not plan
+     * to refresh that partition again. The plan is computed from the snapshot the MV holds, which such a
+     * refresh has not published yet, so without the rebuild's own record the partition still looks unsynced
+     * and the fallback replaces the work the rebuild just did.
+     */
+    @Test
+    public void testFallbackPlanLeavesTheRebuiltPartitionsOut() throws Exception {
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
+                Mockito.nullable(Set.class))).thenReturn(false);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(poneName, ptwoName));
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+        // poneName was rebuilt by the partition executor before this attempt, so the task's accumulator
+        // already holds it.
+        Map<String, MTMVRefreshPartitionSnapshot> accumulated = Maps.newConcurrentMap();
+        accumulated.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Deencapsulation.setField(task, "partitionSnapshots", accumulated);
+
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
+                Mockito.mock(MTMVRefreshContext.class), request);
+
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
+        Assertions.assertEquals(Lists.newArrayList(ptwoName),
+                Deencapsulation.getField(plan, "partitions"));
+    }
+
+    /**
+     * A partition the criterion says must be rebuilt is planned even though the snapshots say the MV is in
+     * sync. The two answer different questions -- what a refresh last read, and what a later read cannot
+     * catch up -- and they disagree in the one state a whole-MV rebuild that did not finish leaves behind:
+     * every requirement raised, every snapshot kept. Planning by snapshots alone would report NOT_REFRESH
+     * over partitions whose rows nothing repaired, and only the entry points that reach the incremental
+     * attempt would ever recover them.
+     */
+    @Test
+    public void testPlanPartitionRefreshPlansThePartitionsThatNeedARebuild() throws Exception {
+        // setUp stubs isMTMVSync true and getMTMVNeedRefreshPartitions empty: by themselves they say there
+        // is nothing to refresh, which is the early return this has to get past.
+        Mockito.when(mtmv.getPartitionsNeedingRebuild())
+                .thenReturn(Sets.newLinkedHashSet(Sets.newHashSet(poneName)));
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.PARTITIONS, true, null));
+
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
+                Mockito.mock(MTMVRefreshContext.class), request);
+
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
+        Assertions.assertEquals(Lists.newArrayList(poneName),
+                Deencapsulation.getField(plan, "partitions"));
+    }
+
+    /**
+     * The two answers are both planned when they disagree in the other direction as well: a partition the
+     * snapshots call unsynced joins the ones that need a rebuild, rather than replacing them.
+     */
+    @Test
+    public void testPlanPartitionRefreshKeepsTheCriterionAlongsideTheSnapshots() throws Exception {
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
+                Mockito.nullable(Set.class))).thenReturn(false);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(ptwoName));
+        Mockito.when(mtmv.getPartitionsNeedingRebuild())
+                .thenReturn(Sets.newLinkedHashSet(Sets.newHashSet(poneName)));
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.PARTITIONS, true, null));
+
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
+                Mockito.mock(MTMVRefreshContext.class), request);
+
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName),
+                Sets.newHashSet((List<?>) Deencapsulation.getField(plan, "partitions")));
+    }
+
+    /**
+     * The partitions an earlier phase replaced survive the incremental attempt that falls back after them.
+     * The task keeps one accumulator for the whole of it, because that is what the MV publishes: a phase
+     * that started from empty would drop the work of the phases before it, and the next refresh would find
+     * those partitions unsynced and replace them once more.
+     */
+    @Test
+    public void testFallbackKeepsTheSnapshotsOfThePartitionsTheRebuildReplaced() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVRefreshPartitionSnapshot rebuiltSnapshot = Mockito.mock(MTMVRefreshPartitionSnapshot.class);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(ptwoName));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
+                Mockito.nullable(Set.class))).thenReturn(Collections.emptyMap());
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+        Map<String, MTMVRefreshPartitionSnapshot> accumulated = Maps.newConcurrentMap();
+        accumulated.put(poneName, rebuiltSnapshot);
+        Deencapsulation.setField(task, "partitionSnapshots", accumulated);
+
+        try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(
+                IvmIncrRefreshManager.class, (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(IvmIncrRefreshResult.fallback(
+                                IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, "forced")))) {
+            Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+            Object result = Deencapsulation.invoke(task, "executeIvmAttempt",
+                    Mockito.mock(MTMVRefreshContext.class), request, Mockito.mock(ConnectContext.class),
+                    Lists.newArrayList());
+            Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
+        }
+
+        Assertions.assertSame(rebuiltSnapshot,
+                ((Map<?, ?>) Deencapsulation.getField(task, "partitionSnapshots")).get(poneName));
+    }
+
+    /**
+     * The same holds for what the task reports: an attempt adds to it rather than replacing it. The
+     * partition the rebuild phase committed is part of the refresh the user asked for -- and the MV has
+     * published it, along with its epoch -- so a report that dropped it would describe work this task did
+     * as work it never did.
+     */
+    @Test
+    public void testALaterAttemptAddsToTheReportInsteadOfReplacingIt() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(ptwoName));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
+                Mockito.nullable(Set.class))).thenReturn(Collections.emptyMap());
+        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null,
+                RefreshMode.INCREMENTAL, true, null));
+        // The rebuild phase ran first and reported poneName as both its scope and its result.
+        Deencapsulation.setField(task, "needRefreshPartitions",
+                new ConcurrentSkipListSet<>(Sets.newHashSet(poneName)));
+        Deencapsulation.setField(task, "completedPartitions",
+                new ConcurrentSkipListSet<>(Sets.newHashSet(poneName)));
+
+        try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(
+                IvmIncrRefreshManager.class, (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(IvmIncrRefreshResult.fallback(
+                                IvmFailureReason.INCREMENTAL_EXECUTION_FAILED, "forced")))) {
+            Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+            Object result = Deencapsulation.invoke(task, "executeIvmAttempt",
+                    Mockito.mock(MTMVRefreshContext.class), request, Mockito.mock(ConnectContext.class),
+                    Lists.newArrayList());
+            Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
+        }
+
+        // The incremental attempt took a scope of its own and committed nothing, which must leave the
+        // rebuild's partition in both sets rather than replacing them with its own.
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName),
+                Deencapsulation.getField(task, "needRefreshPartitions"));
+        Assertions.assertEquals(Sets.newHashSet(poneName),
+                Deencapsulation.getField(task, "completedPartitions"));
+    }
+
+    /**
+     * And a partition is reported once, however many attempts cover it: a whole-MV rebuild after a
+     * per-partition one names the partitions the rebuild already reported, and counting them twice would
+     * report more work than the MV has partitions.
+     */
+    @Test
+    public void testTheReportCountsAPartitionOnce() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        Deencapsulation.invoke(task, "recordRefreshScope", Lists.newArrayList(poneName, ptwoName));
+        Deencapsulation.invoke(task, "recordRefreshCompleted", Lists.newArrayList(poneName));
+        Deencapsulation.invoke(task, "recordRefreshScope", Lists.newArrayList(ptwoName));
+        Deencapsulation.invoke(task, "recordRefreshCompleted", Lists.newArrayList(poneName, ptwoName));
+
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName),
+                Deencapsulation.getField(task, "needRefreshPartitions"));
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName),
+                Deencapsulation.getField(task, "completedPartitions"));
+    }
+
+    /**
+     * The two columns these sets feed are persisted, so what changes about them is the field's type and not
+     * the record it reads: a task written by an older FE carries them as arrays of names, which is what a
+     * set is written as, and reads back into either shape.
+     */
+    @Test
+    public void testThePartitionColumnsAreStillArraysInTheJournal() {
+        MTMVTask task = GsonUtils.GSON.fromJson("{\"di\":1,\"mi\":2}", MTMVTask.class);
+        Deencapsulation.invoke(task, "recordRefreshScope", Lists.newArrayList(ptwoName, poneName));
+        Deencapsulation.invoke(task, "recordRefreshCompleted", Lists.newArrayList(poneName));
+
+        String json = GsonUtils.GSON.toJson(task);
+        Assertions.assertTrue(
+                json.contains("\"needRefreshPartitions\":[\"" + poneName + "\",\"" + ptwoName + "\"]"), json);
+        Assertions.assertTrue(json.contains("\"completedPartitions\":[\"" + poneName + "\"]"), json);
+
+        // And the reader gets a set back, whichever version wrote the record.
+        MTMVTask readBack = GsonUtils.GSON.fromJson(json, MTMVTask.class);
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName),
+                Deencapsulation.getField(readBack, "needRefreshPartitions"));
+        Assertions.assertEquals(Sets.newHashSet(poneName),
+                Deencapsulation.getField(readBack, "completedPartitions"));
+
+        // Which is the same record an older task carries, read the same way.
+        MTMVTask older = GsonUtils.GSON.fromJson("{\"di\":1,\"mi\":2,\"needRefreshPartitions\":[\"p1\",\"p2\"],"
+                + "\"completedPartitions\":[\"p1\"]}", MTMVTask.class);
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName),
+                Deencapsulation.getField(older, "needRefreshPartitions"));
+        Assertions.assertEquals(Sets.newHashSet(poneName),
+                Deencapsulation.getField(older, "completedPartitions"));
     }
 
     @Test
@@ -472,12 +1067,12 @@ public class MTMVTaskTest {
 
     @Test
     public void testTaskSchemaContainsComputeGroup() {
-        Column computeGroupColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 2);
-        Column fallbackReasonColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 1);
+        Column computeGroupColumn = MTMVTask.SCHEMA.get(MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase()));
+        Column fallbackReasonColumn = MTMVTask.SCHEMA.get(MTMVTask.COLUMN_TO_INDEX.get("ivmfallbackreason"));
+        Column rebuiltPartitionsColumn = MTMVTask.SCHEMA.get(MTMVTask.COLUMN_TO_INDEX.get("ivmrebuiltpartitions"));
         Assertions.assertEquals(COMPUTE_GROUP, computeGroupColumn.getName());
         Assertions.assertEquals("IvmFallbackReason", fallbackReasonColumn.getName());
-        Assertions.assertEquals(MTMVTask.SCHEMA.size() - 2,
-                MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase()).intValue());
+        Assertions.assertEquals("IvmRebuiltPartitions", rebuiltPartitionsColumn.getName());
     }
 
     @Test
@@ -855,183 +1450,9 @@ public class MTMVTaskTest {
         }
     }
 
-    @Test
-    public void testStrictIncrementalRejectsPendingBaselineBeforePartitionSync() throws Exception {
-        Mockito.when(mtmv.isIvm()).thenReturn(true);
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.requireCompleteBaselineRebuild();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-        Mockito.when(mtmv.getPartitionNames()).thenReturn(Collections.singleton(poneName));
-        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
-                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, false, null));
-        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
-
-        JobException exception = Assertions.assertThrows(JobException.class,
-                () -> Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request));
-
-        Assertions.assertTrue(exception.getMessage().contains("run an AUTO or COMPLETE refresh first"));
-        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
-                Deencapsulation.getField(task, "ivmFallbackReason"));
-    }
-
-    @Test
-    public void testBarePartitionsRejectsCompletePendingBaseline() throws Exception {
-        Mockito.when(mtmv.isIvm()).thenReturn(true);
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.requireCompleteBaselineRebuild();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
-                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
-        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
-
-        JobException exception = Assertions.assertThrows(JobException.class,
-                () -> Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request));
-
-        Assertions.assertTrue(exception.getMessage().contains("run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh"));
-    }
-
-    @Test
-    public void testPartitionsFallbackRebuildsPendingBaselineWithComplete() throws Exception {
-        Mockito.when(mtmv.isIvm()).thenReturn(true);
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.requireCompleteBaselineRebuild();
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-        Mockito.when(mtmv.getPartitionNames()).thenReturn(Collections.emptySet());
-        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
-                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
-        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
-
-        Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request);
-        List<Object> attempts = Lists.newArrayList();
-        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
-        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
-
-        Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
-                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext(), attempts);
-
-        // A pending COMPLETE rebuild reshapes the attempt list instead of rebuilding inline, so
-        // PARTITIONS FALLBACK rebuilds the whole MV through the COMPLETE attempt it keeps.
-        Assertions.assertEquals("[COMPLETE]", attempts.toString());
-        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
-                Deencapsulation.getField(task, "ivmFallbackReason"));
-        // The barrier is released by the caller once the reshaped attempts have run.
-        Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
-    }
-
-    @Test
-    public void testPendingBaselineRebuildChecksTheStreamsItsPartitionsRead() throws Exception {
-        // A partial barrier left by an earlier failed refresh. The pre-step rebuilds those partitions
-        // before the attempts run, and that rebuild reads their streams, so a stream missing for them
-        // decides the request just as it does for the partition attempt -- and PARTITIONS FALLBACK
-        // reaches this pre-step without an IVM attempt for buildAttempts to have judged.
-        Mockito.when(mtmv.isIvm()).thenReturn(true);
-        Mockito.when(mtmv.getName()).thenReturn("test_mv");
-        Mockito.when(mtmv.getId()).thenReturn(7L);
-        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.addPendingBaselineRebuildPartitions(Sets.newHashSet(poneName));
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-        OlapTable t1 = mockBaseTable("t1");
-        BaseTableInfo t1Info = Mockito.mock(BaseTableInfo.class);
-        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t1Info)).thenReturn(t1);
-        // t1 is not a PCT table, so every partition this rebuild refreshes reads it through its stream,
-        // and the MV's database holds no stream for it.
-        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
-        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
-        Mockito.when(context.getByPartitionName(Mockito.anyString())).thenReturn(Maps.newHashMap());
-
-        MTMVRelation relation = new MTMVRelation(Sets.newHashSet(t1Info), Sets.newHashSet(t1Info),
-                Sets.newHashSet(t1Info), Sets.newHashSet(), Sets.newHashSet());
-        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
-                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
-        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
-        List<Object> attempts = Lists.newArrayList();
-        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
-        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
-
-        try {
-            Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild", context, request,
-                    new ConnectContext(), attempts);
-        } catch (Exception expected) {
-            // Without the stream check the pre-step rebuilds inline, and how far that rebuild gets
-            // against these mocks is not what this test is about; the attempts it leaves behind are.
-        }
-
-        // The rebuild that cannot read its streams is skipped rather than attempted: its own barrier
-        // would have guarded nothing but the data it never wrote, and the COMPLETE attempt left in the
-        // list reconciles the stream and clears the barrier that is already pending.
-        Assertions.assertEquals("[COMPLETE]", attempts.toString());
-        Assertions.assertEquals(IvmFailureReason.STREAM_UNSUPPORTED.name(),
-                Deencapsulation.getField(task, "ivmFallbackReason"));
-        Mockito.verify(mtmv, Mockito.never()).persistIvmBaselineGuard(Mockito.any(), Mockito.anySet(),
-                Mockito.anyLong());
-        Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
-
-        // The same rebuild without fallback is not covered by a COMPLETE attempt, so it fails here
-        // rather than starting a rebuild that cannot read its streams.
-        MTMVTask strictTask = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
-                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, false, null));
-        Object strictRequest = Deencapsulation.invoke(strictTask, "resolveRefreshRequest");
-        List<Object> strictAttempts = Lists.newArrayList();
-        strictAttempts.addAll(Deencapsulation.invoke(strictTask, "buildAttempts", strictRequest, false));
-        Assertions.assertEquals("[PARTITIONS]", strictAttempts.toString());
-
-        JobException exception = Assertions.assertThrows(JobException.class,
-                () -> Deencapsulation.invoke(strictTask, "handlePendingIvmBaselineRebuild", context,
-                        strictRequest, new ConnectContext(), strictAttempts));
-
-        Assertions.assertTrue(exception.getMessage().contains("IVM stream is unusable"));
-    }
-
-    @Test
-    public void testCompleteAttemptWritesTheBarrierBeforeReconcilingStreams() throws Exception {
-        Mockito.when(mtmv.isIvm()).thenReturn(true);
-        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName));
-        // The reconcile starts from the MV's database, which is what makes it visible to the order check.
-        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
-        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
-        InOrder inOrder = Mockito.inOrder(mtmv);
-
-        try {
-            Deencapsulation.invoke(task, "executeCompleteAttempt",
-                    Mockito.mock(MTMVRefreshContext.class), new ConnectContext());
-        } catch (Exception expected) {
-            // How far the rebuild itself gets is not what this test is about.
-        }
-
-        // A recreated stream starts from the base table's current rows, so the barrier that makes the
-        // next refresh rebuild the MV has to be durable before the stream is replaced. The other order
-        // loses those rows with no error anywhere.
-        inOrder.verify(mtmv).persistIvmBaselineGuard(Mockito.any(), Mockito.anySet(), Mockito.anyLong());
-        inOrder.verify(mtmv).getDatabase();
-    }
 
 
-    @Test
-    public void testDroppedBaselinePartitionsReleaseBarrierWithoutRebuild() throws Exception {
-        Mockito.when(mtmv.isIvm()).thenReturn(true);
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.addPendingBaselineRebuildPartitions(Sets.newHashSet(poneName));
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-        // Partition sync already dropped the partition the barrier named, so nothing is left to
-        // pre-rebuild and the surviving partitions catch up through the attempts themselves.
-        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(ptwoName));
-        MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
-                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
-        Deencapsulation.setField(task, "mtmvSchemaChangeVersion", 7L);
-        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
-        List<Object> attempts = Lists.newArrayList();
-        attempts.addAll(Deencapsulation.invoke(task, "buildAttempts", request, false));
-        Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
-                Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext(), attempts);
-
-        Assertions.assertEquals("[PARTITIONS, COMPLETE]", attempts.toString());
-        Assertions.assertNull(Deencapsulation.getField(task, "refreshMode"));
-        Assertions.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
-                Deencapsulation.getField(task, "ivmFallbackReason"));
-        Mockito.verify(mtmv).releaseIvmBaselineRebuild(7L);
-    }
 
     @Test
     public void testExecuteIvmAttemptKeepsRefreshScopeForNonSignatureFallbackInAutoMode() throws Exception {
@@ -1039,7 +1460,8 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         MTMVRefreshContext refreshContext = mockIvmIncrRefreshContext();
-        Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName));
+        // What an earlier phase had already put in the report: the fallback must not take it back out.
+        Deencapsulation.setField(task, "needRefreshPartitions", new ConcurrentSkipListSet<>(Sets.newHashSet(poneName)));
         Deencapsulation.setField(task, "refreshMode", MTMVTask.MTMVTaskRefreshMode.PARTIAL);
 
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
@@ -1052,7 +1474,7 @@ public class MTMVTaskTest {
             Assertions.assertEquals("FALLBACK_ALLOWED", result.toString());
         }
 
-        Assertions.assertEquals(Lists.newArrayList(poneName),
+        Assertions.assertEquals(Sets.newHashSet(poneName),
                 Deencapsulation.getField(task, "needRefreshPartitions"));
         Assertions.assertEquals(MTMVTask.MTMVTaskRefreshMode.PARTIAL,
                 Deencapsulation.getField(task, "refreshMode"));
@@ -1079,7 +1501,8 @@ public class MTMVTaskTest {
 
             MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
             MTMVRefreshContext refreshContext = mockIvmIncrRefreshContext();
-            Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName));
+            Deencapsulation.setField(task, "needRefreshPartitions",
+                    new ConcurrentSkipListSet<>(Sets.newHashSet(poneName)));
             Deencapsulation.setField(task, "refreshMode", MTMVTask.MTMVTaskRefreshMode.PARTIAL);
 
             try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
@@ -1142,7 +1565,6 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.getRefreshPartitionNum()).thenReturn(1);
         Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
-        Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName, ptwoName));
 
         MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
         Mockito.when(refreshContext.preparePartitionSnapshots(Sets.newHashSet(poneName, ptwoName)))
@@ -1169,11 +1591,12 @@ public class MTMVTaskTest {
 
             AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
                     () -> Deencapsulation.invoke(task, "executePartitionBasedRefresh",
-                            refreshContext, RefreshMode.COMPLETE, mtmvCtx));
+                            refreshContext, RefreshMode.COMPLETE, mtmvCtx,
+                            Lists.newArrayList(poneName, ptwoName)));
             Assertions.assertTrue(failure.getMessage().contains("second group failed"));
         }
 
-        Assertions.assertEquals(Collections.singletonList(poneName),
+        Assertions.assertEquals(Sets.newHashSet(poneName),
                 Deencapsulation.getField(task, "completedPartitions"));
         Map<String, MTMVRefreshPartitionSnapshot> snapshots = Deencapsulation.getField(task, "partitionSnapshots");
         Assertions.assertSame(firstSnapshot, snapshots.get(poneName));
@@ -1253,7 +1676,6 @@ public class MTMVTaskTest {
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
                 Mockito.same(refreshContext), Mockito.anySet(), Mockito.anySet()))
                 .thenReturn(Collections.emptyMap());
-        Deencapsulation.setField(task, "needRefreshPartitions", Lists.newArrayList(poneName, ptwoName));
 
         ConnectContext mtmvCtx = new ConnectContext();
         mtmvCtx.setQueryId(new TUniqueId(1L, 2L));
@@ -1282,7 +1704,7 @@ public class MTMVTaskTest {
                     });
 
             Deencapsulation.invoke(task, "executePartitionBasedRefresh",
-                    refreshContext, RefreshMode.COMPLETE, mtmvCtx);
+                    refreshContext, RefreshMode.COMPLETE, mtmvCtx, Lists.newArrayList(poneName, ptwoName));
         } finally {
             ConnectContext.remove();
         }

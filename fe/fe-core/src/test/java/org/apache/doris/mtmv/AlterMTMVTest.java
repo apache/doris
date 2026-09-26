@@ -35,6 +35,8 @@ import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
@@ -399,18 +401,15 @@ public class AlterMTMVTest extends TestWithFeService {
 
         IvmInfo newInfo = new IvmInfo(initialInfo);
         newInfo.setPlanSignature("sig-1");
-        newInfo.requireCompleteBaselineRebuild();
 
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
         AlterMTMV replayAlter = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_IVM_INFO);
         replayAlter.setIvmInfo(newInfo);
         long schemaChangeVersion = mtmv.getSchemaChangeVersion();
-        newInfo.clearBaselineRebuild();
         Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
 
         IvmInfo updatedInfo = mtmv.getIvmInfo();
         Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
-        Assertions.assertTrue(updatedInfo.isBaselineRebuildRequired());
         Assertions.assertEquals(schemaChangeVersion, mtmv.getSchemaChangeVersion());
     }
 
@@ -484,6 +483,45 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     /** Replays an alter record the way a restart does: from what the journal wrote, not from memory. */
+    @Test
+    public void testReplayAlterPartitionStatesRemovesSnapshots() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_partition_states_snapshot_test");
+        createTable("CREATE TABLE alter_partition_states_snapshot_test.states_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW states_snapshot_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM states_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_partition_states_snapshot_test").get()
+                .getTableOrMetaException("states_snapshot_mv");
+        String partitionName = mtmv.getPartitionNames().iterator().next();
+        mtmv.getRefreshSnapshot().updateSnapshots(
+                Maps.newHashMap(Map.of(partitionName, new MTMVRefreshPartitionSnapshot())),
+                Sets.newHashSet(partitionName));
+        Assertions.assertEquals(Sets.newHashSet(partitionName),
+                mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
+
+        // The invalidation journaled the raised requirement and the snapshot it dropped together, so a
+        // replay has to apply both: a reader that saw the requirement while the snapshot was still there
+        // could let a transparent rewrite serve rows the rebuild has to replace.
+        AlterMTMV payload = new AlterMTMV(
+                new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()),
+                MTMVAlterOpType.ALTER_PARTITION_STATES);
+        payload.setPartitionStates(Map.of(partitionName, new MTMVPartitionState(1, 2)));
+        payload.setRemovedSnapshotPartitions(Sets.newHashSet(partitionName));
+
+        replayFromJournal(payload);
+
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        Assertions.assertTrue(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
     private static void replayFromJournal(AlterMTMV alter) throws Exception {
         AlterMTMV replayed;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(journalBytes(alter)))) {

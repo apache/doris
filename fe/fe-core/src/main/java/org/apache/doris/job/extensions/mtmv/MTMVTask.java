@@ -54,6 +54,7 @@ import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionState;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -68,7 +69,6 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshResult;
-import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -101,6 +101,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -109,6 +111,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -143,7 +146,8 @@ public class MTMVTask extends AbstractTask {
             new Column("Progress", ScalarType.createStringType()),
             new Column("LastQueryId", ScalarType.createStringType()),
             new Column("ComputeGroup", ScalarType.createStringType()),
-            new Column("IvmFallbackReason", ScalarType.createStringType()));
+            new Column("IvmFallbackReason", ScalarType.createStringType()),
+            new Column("IvmRebuiltPartitions", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -241,10 +245,17 @@ public class MTMVTask extends AbstractTask {
     private long mtmvId;
     @SerializedName("taskContext")
     private MTMVTaskContext taskContext;
+    // What this task reports as refreshed, and what it reports as done, for the whole task rather than for
+    // its last attempt: an attempt takes a scope of its own and a later one would otherwise replace it,
+    // hiding the partitions an earlier one committed -- which the MV has already published. Sets, because
+    // a later attempt's scope can cover an earlier one's (a whole-MV rebuild after a per-partition one),
+    // and a partition counted twice would report more work than the MV has partitions. Sorted, so that the
+    // column a task reports with reads the same on every look. The record is an array of names either way,
+    // which is what it was when these were lists.
     @SerializedName("needRefreshPartitions")
-    List<String> needRefreshPartitions;
+    Set<String> needRefreshPartitions;
     @SerializedName("completedPartitions")
-    List<String> completedPartitions;
+    Set<String> completedPartitions;
     @SerializedName("refreshMode")
     MTMVTaskRefreshMode refreshMode;
     @SerializedName("lastQueryId")
@@ -260,7 +271,25 @@ public class MTMVTask extends AbstractTask {
     // Written by the executing (Disruptor worker) thread via the executeCommand consumer
     // callback and read by the cancel (command) thread, so it must be volatile.
     private volatile StmtExecutor executor;
-    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+    // What this task has committed, per MV partition: the snapshot each partition's rows were read at.
+    // One accumulator for the whole task rather than one per phase, because that is what the MV publishes
+    // at the end of it -- a phase that started from empty would publish its own work and drop the work of
+    // the phases before it, leaving partitions a preceding rebuild replaced looking unsynced.
+    private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = Maps.newConcurrentMap();
+    // The requirement each refreshed partition was read under, captured before the base tables were read
+    // and recorded only once that batch's data committed (see commitCapturedEpochs). In memory only: the
+    // journal carries the resulting states, and a replay applies those instead of recomputing anything.
+    private transient Map<String, Long> ivmCapturedEpochs = Maps.newConcurrentMap();
+    // The requirement every partition had when this refresh planned its work. What a batch records is
+    // clamped to it (see commitCapturedEpochs): a mark that lands after the plan must leave its partition
+    // dirty rather than be written back as satisfied. Empty on a path that does not plan partition work,
+    // which is the plain COMPLETE path -- a whole-MV rebuild replaces every partition, so whatever it read
+    // is what it repaired.
+    private transient Map<String, Long> ivmPlannedEpochs = Maps.newHashMap();
+    // How many partitions this refresh rebuilt because the criterion demanded it, which a strict
+    // INCREMENTAL request reports so that "the request was incremental but the work was not" is visible.
+    @SerializedName("irp")
+    private int ivmRebuiltPartitions;
     private long mtmvSchemaChangeVersion;
     // Published only after a signature-mismatch fallback succeeds and its task result is accepted.
     private transient String refreshedIvmPlanSignature;
@@ -313,15 +342,20 @@ public class MTMVTask extends AbstractTask {
             // refresh fallback: incompatible MV definitions must fail directly.
             ensureQueryUsableIfNeeded(ctx, tableIfs);
             RefreshRequest request = resolveRefreshRequest();
-            validateIvmBaselineBeforePartitionSync(request);
-            List<RefreshAttemptType> attempts = buildAttempts(request, queryAnalysis.containsOneRowRelation());
             try {
                 syncPartitionsIfNeeded(ctx, tableIfs);
             } catch (PartitionPlanningException e) {
                 throw new JobException(e.getMessage(), e);
             }
+            // Partition sync has decided which partitions exist, and nothing has read a base table yet:
+            // this is the point where an entry and the partition it describes become the same thing.
+            // Doing it any later would let a partition that sync has just added be refreshed without an
+            // entry, and an invalidation arriving in between would have nothing to land on.
+            mtmv.alignPartitionStates();
+            // Decided after the sync and the alignment, because the escalation it can take reads the
+            // partition states and only then is the partition set they describe final.
+            List<RefreshAttemptType> attempts = buildAttempts(request, queryAnalysis.containsOneRowRelation());
             MTMVRefreshContext refreshContext = buildRefreshContext(tableIfs);
-            handlePendingIvmBaselineRebuild(refreshContext, request, ctx, attempts);
             boolean disablePartitionRefresh = false;
             for (RefreshAttemptType attemptType : attempts) {
                 switch (attemptType) {
@@ -343,7 +377,16 @@ public class MTMVTask extends AbstractTask {
                         }
                         break;
                     case COMPLETE:
-                        executeCompleteAttempt(refreshContext, ctx);
+                        try {
+                            executeCompleteAttempt(refreshContext, ctx);
+                        } finally {
+                            // Counted from the groups that committed, like the rebuild phase above: a
+                            // whole-MV rebuild that failed in a later group has still replaced the groups
+                            // before it, and those keep the epochs and snapshots they published (see
+                            // MTMV#addTaskResult), so reporting none of them would hide the partial work
+                            // this count exists to expose.
+                            recordRebuiltPartitions(request);
+                        }
                         return;
                     default:
                         throw new JobException("Unsupported refresh attempt type: " + attemptType);
@@ -445,7 +488,33 @@ public class MTMVTask extends AbstractTask {
                 Lists.newArrayList(), false);
     }
 
-    private List<RefreshAttemptType> buildAttempts(RefreshRequest request, boolean containsOneRowRelation) {
+    private List<RefreshAttemptType> buildAttempts(RefreshRequest request, boolean containsOneRowRelation)
+            throws JobException {
+        // A schema-level invalidation is not a set of dirty partitions: it means every partition, including
+        // the ones partition sync has not created yet, and no per-partition requirement can express that.
+        // IVM only -- a non-IVM MV reaches the same effect through its cleared snapshot, which its own
+        // refresh already depends on.
+        //
+        // Judged before the initial-refresh shortcut below, which also answers COMPLETE: an MV that has
+        // never been refreshed and reads an excluded trigger table (or a one-row relation) has to be built
+        // by a whole-MV refresh, and a request that may not fall back has to hear that rather than have it
+        // decided for it -- otherwise the refusal here would be unreachable in exactly the state it names.
+        if (mtmv.isIvm() && !request.explicitPartitions
+                && mtmv.getStatus().getState() == MTMVState.SCHEMA_CHANGE) {
+            if (request.refreshMode == RefreshMode.PARTITIONS && !request.allowFallback) {
+                // A PARTITIONS request that may not fall back asked for a scope, and this invalidation needs
+                // one it did not ask for. Refreshing the partitions it names would leave the MV in
+                // SCHEMA_CHANGE with rows nothing rebuilt, and widening it here would rebuild partitions the
+                // caller deliberately kept out -- the answer is that this request cannot do it, and the
+                // three that can are the ones whose scope already includes a whole-MV rebuild.
+                throw new JobException("The refresh baseline of MV " + mtmv.getName()
+                        + " was invalidated, so the partitions it needs to rebuild are not the ones a"
+                        + " PARTITIONS refresh names. Use COMPLETE, AUTO, or PARTITIONS FALLBACK.");
+            }
+            LOG.info("IVM MV is in SCHEMA_CHANGE, rebuilding the whole MV, mv={}, taskId={}",
+                    mtmv.getName(), getTaskId());
+            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
+        }
         if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
@@ -511,7 +580,56 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getName(), getTaskId());
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
+        // Every partition either needs a rebuild or was never filled, and at least one needs a rebuild:
+        // COMPLETE then does nothing the per-partition routing would not, in one read of the MV.
+        //
+        // Only for a request that may fall back, like the stream shortcut above. The routing those
+        // partitions would take is the incremental attempt, which rebuilds every one of them and then finds
+        // no scope left to catch up -- and it reads the streams, so a request that may not fall back still
+        // fails there when one is unusable. Answering COMPLETE instead does what such a request forbids: it
+        // reconciles the streams and resets their baselines, which is the same reset the shortcut above
+        // gates on allowing a fallback. A strict request reaches the incremental attempt, as its intent is
+        // stated there.
+        //
+        // No clause for an explicit partition list: the attempt list says it already. Such a list is
+        // rejected for an IVM MV when the statement is analyzed, and it becomes a PARTITIONS request here,
+        // which never reaches the incremental attempt -- so an attempt list that holds one cannot hold the
+        // other. The schema-change shortcut above needs its own clause because it is judged for requests
+        // that do name partitions.
+        if (request.allowFallback && attempts.contains(RefreshAttemptType.IVM)
+                && mtmv.allPartitionsNeedRebuild()) {
+            LOG.info("Every MV partition needs a rebuild or has no data yet, mv={}, taskId={}. "
+                    + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
+            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
+        }
         return attempts;
+    }
+
+    /**
+     * Notes that this refresh rebuilds partitions the request did not ask to rebuild, which is what a
+     * strict INCREMENTAL request cannot tell from its result otherwise: it reports the count, and a request
+     * that asked for a complete refresh reports nothing because rebuilding everything is what it asked for.
+     *
+     * <p>What it counts is the partitions this task has replaced by now -- the batches that committed, read
+     * from the same accumulator the task reports its progress with, so a refresh that failed part-way
+     * through cannot report partitions it never replaced. None of them is the empty case: an attempt that
+     * found nothing to refresh, and one the stream reconciliation threw out of before it reached the
+     * executor, both report on a task that has committed nothing. That has no count, and it reads as zero
+     * rather than throwing where the refresh is being reported.
+     *
+     * <p>The value describes the refresh rather than its last attempt: a later attempt's count covers the
+     * partitions an earlier one rebuilt -- a whole-MV attempt replaces every partition it commits -- so the
+     * largest any of them reported is the number this refresh replaced, and an attempt that replaced fewer
+     * of them must not lower it.
+     */
+    private void recordRebuiltPartitions(RefreshRequest request) {
+        // Only an IVM MV has a baseline to rebuild: a plain MV's COMPLETE is the only way it refreshes at
+        // all, so reporting it there would put a rebuild count on every ordinary refresh.
+        if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE) {
+            return;
+        }
+        int replaced = CollectionUtils.isEmpty(completedPartitions) ? 0 : completedPartitions.size();
+        ivmRebuiltPartitions = Math.max(ivmRebuiltPartitions, replaced);
     }
 
     private boolean shouldUseCompleteForInitialIvmRefresh(boolean containsOneRowRelation) {
@@ -533,6 +651,14 @@ public class MTMVTask extends AbstractTask {
         if (request.explicitPartitions) {
             return PartitionRefreshPlan.success(context, request.partitions);
         }
+        // The partitions the criterion says have to be rebuilt, whatever the snapshots say: a snapshot
+        // records what a refresh last read, and a raised requirement says that read cannot be caught up.
+        // The two disagree in the one state a whole-MV rebuild that did not finish leaves behind -- every
+        // requirement raised, every snapshot kept -- and planning by snapshots alone would report
+        // NOT_REFRESH over partitions whose rows nothing repaired. A partition refresh is what rebuilds
+        // them (the incremental path rebuilds its own dirty set the same way), so they are planned here
+        // rather than left to an attempt this request may never take.
+        Set<String> rebuildRequired = mtmv.getPartitionsNeedingRebuild();
         boolean fresh;
         try {
             fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevelAndFromView(),
@@ -540,7 +666,7 @@ public class MTMVTask extends AbstractTask {
         } catch (Exception e) {
             return PartitionRefreshPlan.fallback(e.getMessage());
         }
-        if (fresh) {
+        if (fresh && rebuildRequired.isEmpty()) {
             return PartitionRefreshPlan.success(context, Lists.newArrayList());
         }
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
@@ -551,12 +677,41 @@ public class MTMVTask extends AbstractTask {
                             + "does not support refreshing by partition");
         }
         try {
+            Set<String> planned = Sets.newLinkedHashSet(MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context,
+                    relation.getBaseTablesOneLevelAndFromView()));
+            planned.addAll(rebuildRequired);
             return PartitionRefreshPlan.success(context,
-                    MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context,
-                            relation.getBaseTablesOneLevelAndFromView()));
+                    excludingRebuiltPartitions(Lists.newArrayList(planned)));
         } catch (Exception e) {
             return PartitionRefreshPlan.fallback(e.getMessage());
         }
+    }
+
+    /**
+     * Takes the partitions this task has already replaced out of a planned set.
+     *
+     * <p>The plan is computed from the snapshot the MV holds, which this task has not published yet, so a
+     * partition this task has just filled still looks unsynced to it. Refreshing it here would replace the
+     * rows it holds with a second read of the same base table, and would do it in the one case that has
+     * already paid for it: the same refresh falling back out of the incremental attempt. What the
+     * accumulator holds at this point is exactly those partitions -- the fallback runs after an attempt
+     * that committed nothing, and a plan is built before anything is written.
+     *
+     * <p>An explicit partition list is left alone. It is the request itself rather than an inference from
+     * the MV's snapshot, and the rebuild phase does not take partitions out of it either: what the request
+     * names is refreshed, and at worst it is refreshed twice within one task.
+     */
+    private List<String> excludingRebuiltPartitions(List<String> plannedPartitions) {
+        if (partitionSnapshots.isEmpty()) {
+            return plannedPartitions;
+        }
+        List<String> remaining = Lists.newArrayListWithCapacity(plannedPartitions.size());
+        for (String partitionName : plannedPartitions) {
+            if (!partitionSnapshots.containsKey(partitionName)) {
+                remaining.add(partitionName);
+            }
+        }
+        return remaining;
     }
 
     private MTMVRefreshContext buildRefreshContext(List<TableIf> tableIfs) throws AnalysisException {
@@ -568,142 +723,40 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    /**
-     * Makes the barrier that says "these MV partitions must be rebuilt before their IVM offsets may be
-     * used again" durable. Every caller writes it as soon as it has decided the partition set and
-     * before anything that touches MV data or base table streams, so that a crash or a rejection can
-     * only ever leave a barrier with no rebuild behind it, which merely costs one extra rebuild, and
-     * never a rebuild with no barrier, which silently loses rows.
-     */
-    private void writeIvmBaselineBarrier(RefreshMode refreshMode) throws JobException {
-        if (mtmv.isIvm()) {
-            // Persist the guard before the first baseline data transaction.
-            mtmv.persistIvmBaselineGuard(refreshMode, Sets.newHashSet(needRefreshPartitions),
-                    mtmvSchemaChangeVersion);
-        }
-    }
-
     private void executeCompleteAttempt(MTMVRefreshContext context, ConnectContext ctx)
             throws JobException, AnalysisException {
-        this.needRefreshPartitions = Lists.newArrayList(mtmv.getPartitionNames());
-        this.refreshMode = generateRefreshMode(needRefreshPartitions);
+        List<String> partitions = Lists.newArrayList(mtmv.getPartitionNames());
+        // Reported here rather than by the executor alone: a whole-MV attempt covers every partition from
+        // this point on, and the reconciliation below can throw before the executor is reached -- leaving a
+        // report that names what the attempt was about to rebuild rather than one that names nothing.
+        recordRefreshScope(partitions);
+        // Nothing to clamp a captured epoch against: a whole-MV rebuild replaces every partition, so what
+        // this refresh read is what it repaired. Dropped rather than kept, so the partitions an earlier
+        // partial rebuild did replace do not stay looking like they still owe one.
+        this.ivmPlannedEpochs = Maps.newHashMap();
+        this.refreshMode = generateRefreshMode(partitions);
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return;
         }
-        // The barrier goes first: a stream this rebuild reconciles carries the base table's current
-        // rows as its initial snapshot, and a later incremental refresh that consumed it as a delta
-        // against data still built from the old baseline would double-count them.
-        writeIvmBaselineBarrier(RefreshMode.COMPLETE);
+        // Marked before the streams are reconciled, not merely before the rebuild: reconciling durably
+        // creates a replacement stream whose historical rows are read as an append, so a crash after that
+        // create and before this rebuild publishes its epochs would leave a populated MV with clean epochs
+        // and a usable stream -- and the next incremental refresh would add those rows to the old baseline
+        // again. The requirement is raised as a real mark on the partitions, which is what "these must be
+        // rebuilt" means to the refresh, and it is journaled as the whole map before the reconcile below.
+        mtmv.markPartitionsForRebuild(Sets.newHashSet(partitions));
         // A complete rebuild resets the stream baselines, so reconcile missing or unusable streams
         // before reading anything. Only COMPLETE may do this: a stream baseline is global, resetting
         // it during a partial refresh would corrupt the partitions that refresh does not touch.
         if (mtmv.isIvm()) {
             reconcileIvmStreams(ctx);
         }
-        executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx);
-    }
-
-    /**
-     * Rebuild the MV partitions whose IVM baseline is broken, before the normal refresh runs.
-     *
-     * <p>This is a pre-step, not a terminal branch: the caller keeps running {@code attempts}
-     * afterwards, so a broken baseline no longer skips the refresh entirely. The list is rewritten
-     * in place when the baseline demands a different set of attempts.
-     *
-     * <p>Partition sync drops the MV partitions whose base partition disappeared, which is exactly
-     * what the barrier recorded when that base partition was dropped. Those partitions are resolved
-     * by the drop itself (the partition and its IVM offsets are both gone), so only the partitions
-     * that still exist need a rebuild. The barrier is released either way, otherwise the IVM attempt
-     * that follows would be rejected by {@link MTMV#validateIvmRefreshStart}.
-     */
-    private void handlePendingIvmBaselineRebuild(MTMVRefreshContext context,
-            RefreshRequest request, ConnectContext ctx, List<RefreshAttemptType> attempts)
-            throws JobException, AnalysisException {
-        if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE
-                || !mtmv.getIvmInfo().isBaselineRebuildRequired()) {
-            return;
-        }
-        ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
-        IvmInfo ivmInfo = mtmv.getIvmInfo();
-        // A lone COMPLETE attempt rebuilds every partition anyway, so a partial pre-rebuild here
-        // would be redundant; it also releases the barrier by itself once it succeeds.
-        if (attempts.size() == 1 && attempts.get(0) == RefreshAttemptType.COMPLETE) {
-            LOG.info("IVM baseline barrier is covered by the pending COMPLETE attempt, mv={}, taskId={}",
-                    mtmv.getName(), getTaskId());
-            return;
-        }
-        if (ivmInfo.requiresCompleteBaselineRebuild()) {
-            LOG.warn("IVM baseline requires a complete rebuild, mv={}, taskId={}. "
-                    + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
-            attempts.clear();
-            attempts.add(RefreshAttemptType.COMPLETE);
-            return;
-        }
-        List<String> baselinePartitions = Lists.newArrayList(Sets.intersection(
-                ivmInfo.getPendingBaselineRebuildPartitions(), mtmv.getPartitionNames()));
-        if (baselinePartitions.isEmpty()) {
-            // Partition sync has already dropped every partition the barrier named, so there is
-            // nothing left to rebuild. The surviving partitions are picked up by the attempts below.
-            LOG.info("IVM baseline partitions were removed by partition sync, mv={}, taskId={}",
-                    mtmv.getName(), getTaskId());
-        } else {
-            baselinePartitions.sort(String::compareTo);
-            // This rebuild reads the streams of the partitions it rebuilds, exactly like any other
-            // partition refresh, so it judges them before it commits to the rebuild. A request that may
-            // not fall back fails instead of rebuilding less than it asked for; one that may reaches the
-            // COMPLETE attempt, which is also the only attempt that reconciles the stream this rebuild
-            // cannot read. Judging it here rather than in buildAttempts matters for a request whose
-            // attempt list holds no IVM attempt -- PARTITIONS FALLBACK is exactly that -- because the
-            // pre-step runs before the attempts do.
-            if (mtmv.isIvm()
-                    && hasUnusableIvmStreamForPartitions(context, baselinePartitions)) {
-                if (!request.allowFallback) {
-                    throw new JobException("IVM stream is unusable for the partitions of this refresh, mv="
-                            + mtmv.getName());
-                }
-                ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
-                LOG.warn("IVM stream is unusable for the partitions this baseline rebuild plans, mv={}, "
-                        + "taskId={}. Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
-                attempts.clear();
-                attempts.add(RefreshAttemptType.COMPLETE);
-                return;
-            }
-            this.needRefreshPartitions = baselinePartitions;
-            this.refreshMode = generateRefreshMode(baselinePartitions);
-            writeIvmBaselineBarrier(RefreshMode.PARTITIONS);
-            // Anything else that fails here is reported as it is -- leaving the barrier behind would
-            // make the IVM attempt that follows reject the task with "baseline rebuild is pending"
-            // instead of the real reason.
-            executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
-        }
-        mtmv.releaseIvmBaselineRebuild(mtmvSchemaChangeVersion);
-    }
-
-    private void validateIvmBaselineBeforePartitionSync(RefreshRequest request) throws JobException {
-        if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE) {
-            return;
-        }
-        IvmInfo ivmInfo = mtmv.getIvmInfo();
-        if (!ivmInfo.isBaselineRebuildRequired()) {
-            return;
-        }
-        ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
-        if ((request.refreshMode == RefreshMode.INCREMENTAL && !request.allowFallback)
-                || request.explicitPartitions) {
-            refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
-            throw new JobException("IVM baseline rebuild is pending for mv=" + mtmv.getName()
-                    + "; run an AUTO or COMPLETE refresh first");
-        }
-        if (request.refreshMode == RefreshMode.PARTITIONS && !request.allowFallback
-                && ivmInfo.requiresCompleteBaselineRebuild()) {
-            refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
-            throw new JobException("COMPLETE IVM baseline rebuild is pending for mv=" + mtmv.getName()
-                    + "; run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh");
-        }
+        executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx, partitions);
     }
 
     private AttemptResultType executeIvmAttempt(MTMVRefreshContext refreshContext,
-            RefreshRequest request, ConnectContext ctx, List<TableIf> tableIfs) throws JobException {
+            RefreshRequest request, ConnectContext ctx, List<TableIf> tableIfs)
+            throws JobException, AnalysisException {
         if (!mtmv.isIvm()) {
             throw new JobException("Cannot use " + request.refreshMode
                     + " refresh on a materialized view without INCREMENTAL capability.");
@@ -716,12 +769,47 @@ public class MTMVTask extends AbstractTask {
                     + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
             return AttemptResultType.FALLBACK_TO_COMPLETE;
         }
+        // The partitions the criterion says must be rebuilt rather than caught up: the delta path can only
+        // append, so a partition it treated as current would record that in its epoch while its rows still
+        // come from before the change. Rebuilt first, with the partition executor, because that is the
+        // full recomputation they need -- and only in this task's batches, so a change that arrives while
+        // it runs leaves them dirty for the next round instead of being swallowed.
+        // One read of the states decides both what has to be rebuilt and the requirement each batch may
+        // write back. Reading them separately would leave a window between the two in which a mark lands,
+        // the routing decision does not see it, and the batch that follows captures the raised requirement
+        // and records it as met by a delta that cannot remove the rows that mark made unusable.
+        Map<String, MTMVPartitionState> plannedStates = mtmv.getPartitionStates();
+        Set<String> livePartitionNames = mtmv.getPartitionNames();
+        Set<String> dirtyPartitions = Sets.newLinkedHashSet();
+        Map<String, Long> plannedEpochs = Maps.newHashMap();
+        for (Entry<String, MTMVPartitionState> plannedState : plannedStates.entrySet()) {
+            if (!livePartitionNames.contains(plannedState.getKey())) {
+                continue;
+            }
+            plannedEpochs.put(plannedState.getKey(), plannedState.getValue().getLatestEpoch());
+            if (plannedState.getValue().isDirty()) {
+                dirtyPartitions.add(plannedState.getKey());
+            }
+        }
+        this.ivmPlannedEpochs = plannedEpochs;
+        if (!dirtyPartitions.isEmpty()) {
+            LOG.info("Rebuilding {} invalidated MV partitions before the incremental refresh, mv={}, taskId={}",
+                    dirtyPartitions.size(), mtmv.getName(), getTaskId());
+            List<String> toRebuild = Lists.newArrayList(dirtyPartitions);
+            toRebuild.sort(Comparator.naturalOrder());
+            this.refreshMode = generateRefreshMode(toRebuild);
+            try {
+                executePartitionBasedRefresh(refreshContext, RefreshMode.PARTITIONS, ctx, toRebuild);
+            } finally {
+                recordRebuiltPartitions(request);
+            }
+        }
         MTMVRefreshContext currentRefreshContext = refreshContext;
         int ivmAttemptLimit = Math.max(Config.max_query_retry_time, 0) + 1;
         IvmIncrRefreshResult ivmResult = null;
         for (int partitionSyncRetryCount = 0;
                 partitionSyncRetryCount < ivmAttemptLimit; partitionSyncRetryCount++) {
-            ivmResult = executeSingleIvmAttempt(currentRefreshContext);
+            ivmResult = executeSingleIvmAttempt(currentRefreshContext, dirtyPartitions);
             if (ivmResult.isSuccess()) {
                 return AttemptResultType.SUCCESS;
             }
@@ -733,6 +821,16 @@ public class MTMVTask extends AbstractTask {
             }
             try {
                 syncPartitionsIfNeeded(ctx, tableIfs);
+                // The retry can add a partition that did not exist at the first alignment. It has to get
+                // its entry before the retried refresh reads a base table, or an invalidation arriving
+                // in between would have nothing to land on for rows this task is about to write.
+                mtmv.alignPartitionStates();
+                // Alignment gives a partition it creates {0, 1} -- behind its requirement -- and the routing
+                // decision was taken before that partition existed. Without a fresh read the retried attempt
+                // would hand it to the delta path with no ceiling to be clamped against, and its capture,
+                // which is all that path can produce, would be recorded as the partition being caught up:
+                // a baseline it never received, and no repairing delta to notice.
+                adoptPartitionsCreatedByTheRetry(dirtyPartitions);
                 currentRefreshContext = buildRefreshContext(tableIfs);
             } catch (Exception e) {
                 throw new JobException("Failed to synchronize MV partitions before IVM retry for mv="
@@ -745,14 +843,17 @@ public class MTMVTask extends AbstractTask {
                 + mtmv.getName() + ", detail=" + ivmResult.getDetailMessage());
     }
 
-    private IvmIncrRefreshResult executeSingleIvmAttempt(MTMVRefreshContext refreshContext)
+    private IvmIncrRefreshResult executeSingleIvmAttempt(MTMVRefreshContext refreshContext,
+            Set<String> dirtyPartitions)
             throws JobException {
-        this.completedPartitions = Lists.newCopyOnWriteArrayList();
-        this.partitionSnapshots = Maps.newConcurrentMap();
-        // Determine which partitions need refresh, same as partition-based flow.
-        this.needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(refreshContext,
-                relation.getBaseTablesOneLevelAndFromView());
-        if (CollectionUtils.isEmpty(needRefreshPartitions)) {
+        // Determine which partitions need refresh, same as partition-based flow. The partitions the
+        // rebuild above handled are taken out: an incremental refresh of one of them would record it as
+        // caught up while its rows are exactly what the rebuild had to replace.
+        Set<String> incrementalScope = Sets.newLinkedHashSet(MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                refreshContext, relation.getBaseTablesOneLevelAndFromView()));
+        incrementalScope.removeAll(dirtyPartitions);
+        recordRefreshScope(incrementalScope);
+        if (CollectionUtils.isEmpty(incrementalScope)) {
             LOG.info("IVM incremental refresh skipped for mv={}: all partitions are synced, taskId={}",
                     mtmv.getName(), getTaskId());
             return IvmIncrRefreshResult.success();
@@ -765,10 +866,13 @@ public class MTMVTask extends AbstractTask {
         try {
             capturedSnapshots = MTMVPartitionUtil.generatePartitionSnapshots(
                     refreshContext, relation.getBaseTablesOneLevelAndFromView(),
-                    Sets.newHashSet(needRefreshPartitions));
+                    Sets.newHashSet(incrementalScope));
         } catch (Exception e) {
             throw new JobException("IVM snapshot generation failed for mv=" + mtmv.getName(), e);
         }
+        // The requirement these partitions are read under, captured before the read inside doRefresh and
+        // recorded only if the refresh commits; see captureLatestEpochs.
+        Map<String, Long> capturedEpochs = captureLatestEpochs(incrementalScope);
         IvmIncrRefreshResult ivmResult;
         try {
             ivmResult = executeWithRetry(() -> {
@@ -778,7 +882,7 @@ public class MTMVTask extends AbstractTask {
                     setupComputeGroup(ivmConnectContext);
                     IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
                             ivmConnectContext,
-                            getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
+                            getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(incrementalScope)),
                             this::recordQueryId,
                             this::registerExecutor);
                     mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
@@ -793,11 +897,115 @@ public class MTMVTask extends AbstractTask {
         }
         if (ivmResult.isSuccess()) {
             this.partitionSnapshots.putAll(capturedSnapshots);
-            this.completedPartitions.addAll(needRefreshPartitions);
+            recordRefreshCompleted(incrementalScope);
+            commitCapturedEpochs(capturedEpochs);
             LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
                     mtmv.getName(), getTaskId());
         }
         return ivmResult;
+    }
+
+    /**
+     * Adds a phase's scope to what this task reports as refreshed, and the partitions it committed to what
+     * this task reports as done. Both are the task's; see the fields for why.
+     */
+    private void recordRefreshScope(Collection<String> partitions) {
+        // Created by the first phase that records one: a task that has not refreshed anything reports
+        // nothing, which is the same state as one that has not run yet. Concurrent because the columns it
+        // feeds are read while the worker fills them -- the tasks() table function reports a running task
+        // -- and ordered because what this reports is persisted and has to read the same on every look.
+        if (needRefreshPartitions == null) {
+            needRefreshPartitions = new ConcurrentSkipListSet<>();
+        }
+        needRefreshPartitions.addAll(partitions);
+    }
+
+    private void recordRefreshCompleted(Collection<String> partitions) {
+        if (completedPartitions == null) {
+            completedPartitions = new ConcurrentSkipListSet<>();
+        }
+        completedPartitions.addAll(partitions);
+    }
+
+    /**
+     * Brings the routing decision up to date after a retry has synchronized and aligned the MV's partitions.
+     *
+     * <p>A partition the alignment creates is dirty by construction -- {@code {0, 1}}, behind its
+     * requirement -- and the decision was taken before it existed. Reading the states again is what makes
+     * the retried attempt treat it as such: it joins the dirty set, so the incremental attempt leaves it
+     * out rather than recording what a delta captured as the partition being caught up, and it gets the
+     * entry the batches are clamped against, so a mark landing later in this task cannot be written back as
+     * satisfied either.
+     *
+     * <p>A partition this leaves dirty is not rebuilt here. The rebuild phase has already run, and the
+     * partition the alignment created holds no rows yet -- there is nothing to replace in it -- so what it
+     * needs is a build, which is what the next refresh's rebuild gives it.
+     *
+     * <p>The planned value of a partition that already had one is kept: that is the value the routing
+     * decision was made on, which is what the clamp is for.
+     */
+    private void adoptPartitionsCreatedByTheRetry(Set<String> dirtyPartitions) {
+        Set<String> livePartitionNames = mtmv.getPartitionNames();
+        for (Entry<String, MTMVPartitionState> entry : mtmv.getPartitionStates().entrySet()) {
+            if (!livePartitionNames.contains(entry.getKey())) {
+                continue;
+            }
+            ivmPlannedEpochs.putIfAbsent(entry.getKey(), entry.getValue().getLatestEpoch());
+            if (entry.getValue().isDirty()) {
+                dirtyPartitions.add(entry.getKey());
+            }
+        }
+    }
+
+    /**
+     * Captures the requirement these partitions are about to be read under: the epoch in force at the
+     * moment the refresh starts reading, which is what the data it writes will be described by.
+     *
+     * <p>A refresh writes back the requirement it captured, not the one in force when it finishes, which
+     * is what keeps an invalidation that arrives while the refresh runs from being swallowed: the
+     * requirement it raises stays above the value the task writes, so the partition still counts as
+     * needing a rebuild.
+     *
+     * <p>It has to run before the base tables are read and never after. An epoch captured after the read
+     * could claim data newer than what the read saw, and the partition would then look caught up while
+     * it holds rows from before the change.
+     *
+     * <p>The caller keeps the result and hands it to {@link #commitCapturedEpochs} only once that batch's
+     * data has committed. Recording it here would credit a batch whose write never happened with data
+     * that does not exist, which is the one direction the epoch must never be wrong in.
+     *
+     * <p>A non-IVM MV carries no states, so this captures nothing for it.
+     */
+    private Map<String, Long> captureLatestEpochs(Set<String> partitionNames) {
+        if (CollectionUtils.isEmpty(partitionNames)) {
+            return Maps.newHashMap();
+        }
+        return mtmv.getLatestEpochs(partitionNames);
+    }
+
+    /**
+     * Commits the captured epochs of a batch whose data has landed, so its work is not repeated after a
+     * restart; see {@link #captureLatestEpochs} for what a captured value is. A partition read by two
+     * phases of one task keeps the higher value, which is the requirement its surviving data was read
+     * under.
+     */
+    private void commitCapturedEpochs(Map<String, Long> capturedEpochs) {
+        for (Entry<String, Long> entry : capturedEpochs.entrySet()) {
+            ivmCapturedEpochs.merge(entry.getKey(), plannedCeiling(entry), Math::max);
+        }
+    }
+
+    /**
+     * The epoch to record for a captured partition: the one it was read at, or the one the routing decision
+     * saw when that is lower -- see {@link #captureLatestEpochs} for the rule this serves.
+     *
+     * <p>The clamp is what keeps an invalidation that lands between that decision and this read from being
+     * recorded as satisfied: the delta cannot remove the rows it made unusable, so the partition has to
+     * stay dirty for the next refresh to rebuild.
+     */
+    private long plannedCeiling(Entry<String, Long> captured) {
+        Long planned = ivmPlannedEpochs.get(captured.getKey());
+        return planned == null ? captured.getValue() : Math.min(captured.getValue(), planned);
     }
 
     private AttemptResultType handleIvmFallbackResult(IvmIncrRefreshResult ivmResult, RefreshRequest request)
@@ -842,15 +1050,15 @@ public class MTMVTask extends AbstractTask {
             }
             throw new JobException(partitionPlan.fallbackReason);
         }
-        this.needRefreshPartitions = partitionPlan.partitions;
-        this.refreshMode = generateRefreshMode(needRefreshPartitions);
+        recordRefreshScope(partitionPlan.partitions);
+        this.refreshMode = generateRefreshMode(partitionPlan.partitions);
         // This attempt now knows which partitions it refreshes, and with them which streams it reads.
         // Judged here rather than in buildAttempts because only the plan knows that scope, and judged
         // before the NOT_REFRESH return below so that a fallback-capable request still reaches the only
         // attempt that reconciles streams. Falling back here continues to COMPLETE, which is what repairs
         // them; a request that may not fall back fails instead of quietly refreshing less than it asked.
         if (mtmv.isIvm()
-                && hasUnusableIvmStreamForPartitions(partitionPlan.context, needRefreshPartitions)) {
+                && hasUnusableIvmStreamForPartitions(partitionPlan.context, partitionPlan.partitions)) {
             if (!request.allowFallback) {
                 throw new JobException("IVM stream is unusable for the partitions of this refresh, mv="
                         + mtmv.getName());
@@ -863,22 +1071,27 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return true;
         }
-        writeIvmBaselineBarrier(RefreshMode.PARTITIONS);
-        executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS, ctx);
+        executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS, ctx,
+                partitionPlan.partitions);
         return true;
     }
 
     private void executePartitionBasedRefresh(MTMVRefreshContext context, RefreshMode refreshMode,
-            ConnectContext ctx)
+            ConnectContext ctx, List<String> partitions)
             throws JobException, AnalysisException {
+        // Reported here rather than by the callers alone: this is the phase that runs, so this is the scope
+        // the report cannot do without -- a caller that forgot would leave the partitions it committed in
+        // the completed side and nothing in the scope, which reads as a refresh of no partitions. The
+        // callers name a scope as well, and only where they decide one and may not get here: a whole-MV
+        // attempt before it reconciles the streams, and a partition plan before it judges their streams.
+        recordRefreshScope(partitions);
         boolean useIvmFallbackStreams = mtmv.isIvm();
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-        this.completedPartitions = Lists.newCopyOnWriteArrayList();
         try {
             // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
             // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
             // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
-            context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+            context.preparePartitionSnapshots(Sets.newHashSet(partitions));
         } catch (Exception e) {
             // Preloading is only a batching optimization. Retrying through the existing per-group load below
             // preserves completed-group progress when a later chunk of the union fails.
@@ -886,18 +1099,25 @@ public class MTMVTask extends AbstractTask {
                     + "falling back to per-group loading", mtmv.getName(), getTaskId(), e);
         }
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
-        long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
+        long execNum = (partitions.size() / refreshPartitionNum) + ((partitions.size()
                 % refreshPartitionNum) > 0 ? 1 : 0);
-        boolean refreshAllPartitions = Sets.newHashSet(needRefreshPartitions).equals(mtmv.getPartitionNames());
+        boolean refreshAllPartitions = Sets.newHashSet(partitions).equals(mtmv.getPartitionNames());
+        // Only a COMPLETE that the signature-mismatch fallback asked for publishes its signature. Widening
+        // this to every COMPLETE an IVM MV runs -- the escalation an invalidated MV takes is the other one
+        // -- is not the free saving it looks like: the fresh signature lets the following refresh take the
+        // incremental path instead of that fallback, and the incremental then re-applies rows the COMPLETE
+        // had just rebuilt. Three suites report their delta twice once it is widened (test_ivm_snapshot,
+        // test_ivm_bitmap_agg_2, test_ivm_agg_array_1), so the second COMPLETE is protection rather than
+        // waste. What has to be understood first is how the incremental path baselines itself against a
+        // plan that has changed; until then this condition stays narrow. Non-IVM MVs produce no signature.
         boolean capturePlanSignature = refreshMode == RefreshMode.COMPLETE
                 && IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name().equals(ivmFallbackReason);
-        this.partitionSnapshots = Maps.newConcurrentMap();
         IvmPlanSignature refreshedPlanSignature = null;
         for (int i = 0; i < execNum; i++) {
             int start = i * refreshPartitionNum;
             int end = start + refreshPartitionNum;
-            Set<String> execPartitionNames = Sets.newHashSet(needRefreshPartitions
-                    .subList(start, Math.min(end, needRefreshPartitions.size())));
+            Set<String> execPartitionNames = Sets.newHashSet(partitions
+                    .subList(start, Math.min(end, partitions.size())));
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
                     ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
             Optional<IvmRewriteContext> rewriteContext = Optional.empty();
@@ -907,6 +1127,11 @@ public class MTMVTask extends AbstractTask {
                 rewriteContext = Optional.of(
                         IvmRewriteContext.full(mtmv, batchResetPartitionIds, nonPctReadMode));
             }
+            // The requirement this batch is read under, captured before the read below and recorded once
+            // the read's data has committed, next to its snapshots. Capturing it per batch keeps an
+            // invalidation that arrives during the refresh from holding back the whole round: only the
+            // batches already read keep a requirement above their captured value.
+            Map<String, Long> batchCapturedEpochs = captureLatestEpochs(execPartitionNames);
             // need get names before exec
             Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
                     .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
@@ -929,8 +1154,9 @@ public class MTMVTask extends AbstractTask {
                         mtmv.getName(), getTaskId(), e);
                 throw new JobException(e.getMessage(), e);
             }
-            completedPartitions.addAll(execPartitionNames);
+            recordRefreshCompleted(execPartitionNames);
             partitionSnapshots.putAll(execPartitionSnapshots);
+            commitCapturedEpochs(batchCapturedEpochs);
         }
         if (capturePlanSignature) {
             refreshedIvmPlanSignature = refreshedPlanSignature.getSha256();
@@ -1457,6 +1683,7 @@ public class MTMVTask extends AbstractTask {
                 computeGroup == null || computeGroup.isEmpty() ? FeConstants.null_string : computeGroup));
         trow.addToColumnValue(new TCell().setStringVal(
                 ivmFallbackReason == null ? FeConstants.null_string : ivmFallbackReason));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(ivmRebuiltPartitions)));
         return trow;
     }
 
@@ -1532,6 +1759,22 @@ public class MTMVTask extends AbstractTask {
 
     public long getMtmvSchemaChangeVersion() {
         return mtmvSchemaChangeVersion;
+    }
+
+    /**
+     * The epochs this task's committed batches were read at -- the requirement each refreshed partition was
+     * read under, see {@link #captureLatestEpochs} -- as a detached copy.
+     *
+     * <p>Detached rather than live: the batches merge into the map on the thread running the task, while a
+     * STOP publishes what it holds from the callback thread -- `cancel(false)` does not wait for the
+     * execution to stop -- so a caller reading the field itself would iterate a map still being written, and
+     * would journal a result that goes on changing after it was read.
+     */
+    public Map<String, Long> getIvmCapturedEpochs() {
+        // A task read back from the journal has none: the field is transient, so gson leaves it null and the
+        // constructor that would have initialized it never runs. What a replay applies is the states the
+        // record carries, not this.
+        return ivmCapturedEpochs == null ? Collections.emptyMap() : Maps.newHashMap(ivmCapturedEpochs);
     }
 
     public String getRefreshedIvmPlanSignature() {

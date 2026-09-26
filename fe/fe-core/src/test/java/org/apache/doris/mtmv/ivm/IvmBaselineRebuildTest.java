@@ -35,9 +35,13 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVAlterOpType;
+import org.apache.doris.mtmv.MTMVPartitionState;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.RecoverInfo;
@@ -46,6 +50,7 @@ import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -54,6 +59,7 @@ import org.mockito.Mockito;
 
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -74,7 +80,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("TRUNCATE TABLE ivm_base");
 
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -84,7 +90,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
 
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -99,7 +105,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202002)");
         Assertions.assertEquals(initialSchemaChangeVersion + 2, mtmv.getSchemaChangeVersion());
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     @Test
@@ -110,7 +116,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         // SELF_MANAGE: the single MV partition reads every base partition, and the partition mapping API
         // answers nothing for it, so the whole MV has to be rebuilt.
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -119,16 +125,116 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
 
-        // ivm_mv selects dt, k1, v1. Dropping a column it does not use must leave the baseline alone.
+        // ivm_mv selects dt, k1, v1. Dropping a column it does not use must leave the baseline alone: no
+        // partition's requirement is raised, so no partition is sent to a rebuild. The MV state is not the
+        // witness here -- a column change puts any MV into SCHEMA_CHANGE through the shared base-table hook,
+        // IVM or not (see testRenameTableMarksBaselineRebuild), so telling a referenced column from an
+        // unreferenced one is that hook's criterion to refine and not this one's.
+        alignStatesOf(mtmv);
+        Map<String, Long> before = latestEpochsOf(mtmv);
         executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
         executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(before, latestEpochsOf(mtmv),
+                "a column the MV does not use must not raise any partition's requirement");
 
         // Dropping a column the MV uses makes the MV query unanalyzable: the change is metadata-only
         // and emits no binlog, so an incremental refresh would silently keep the rows of the old
         // column. The baseline has to be invalidated instead.
         executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        // And the state is the only record: the invalidation stands for the change, so the detail names
+        // the reason rather than the alter that caused it.
+        assertUnanalyzableDetail(mtmv);
+    }
+
+    /**
+     * The sync window is a property any MV can carry, but only an IVM MV maintains a baseline through it.
+     * Widening it on a plain MV brings base partitions back into a set it never stopped maintaining, so a
+     * whole-MV rebuild would recompute partitions it already has -- which is why the widening checks are
+     * judged together, under the guard that the MV maintains an IVM baseline at all.
+     */
+    @Test
+    public void testWideningTheSyncWindowDoesNotInvalidateANonIvmMv() throws Exception {
+        String db = "ivm_sync_window_non_ivm";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        // A window starts applying, is narrowed, then widened. The widen is what owes a rebuild for an IVM
+        // MV; for this one it is a change to a window nothing maintains.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1')");
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
+
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        // The window is still applied: it is the rebuild it owes that is IVM's, not the property.
+        Assertions.assertEquals("10", mtmv.getMvProperties().get("partition_sync_limit"));
+    }
+
+    /**
+     * A plain MV can name its columns itself, and the check has to keep matching those by position. The MV
+     * persists the names it was given while re-analysing its query yields the names it selects -- and only
+     * an IVM MV has the stored query rewritten with its aliases -- so a name lookup finds nothing and
+     * reports a column that exists as missing. The check runs on every refresh of an MV in SCHEMA_CHANGE,
+     * so that MV would stop refreshing for good after an otherwise compatible base-table change.
+     */
+    @Test
+    public void testAnMvWithItsOwnColumnNamesIsStillUsable() throws Exception {
+        String db = "ivm_mv_column_aliases";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv (c_dt, c_k1, c_v1)\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+        Assertions.assertEquals("c_v1", mtmv.getBaseSchema(true).get(2).getName());
+
+        Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK)));
+    }
+
+    /**
+     * The query check belongs to the MV, not to IVM. A plain MV's query is taken away by the same base
+     * table change as an IVM MV's is, and it is left in the same state -- the state its refresh re-analyzes
+     * the query under, which is how it finds out. The detail is what the two have to agree on, and it has
+     * to say the query is gone: "the base table has been updated" is true of every alter, including the
+     * ones the query survives.
+     */
+    @Test
+    public void testDroppingAReadColumnInvalidatesANonIvmMv() throws Exception {
+        String db = "ivm_query_unusable_non_ivm";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        // A column this MV does not read leaves its query alone, so the MV is put into SCHEMA_CHANGE for
+        // the ordinary reason -- which is what the shared hook does for any column change, IVM or not --
+        // and not because its query went away. The detail is what tells the two apart here, because the
+        // state is the same either way.
+        executeSql("ALTER TABLE ivm_base ADD COLUMN spare int");
+        executeSql("ALTER TABLE ivm_base DROP COLUMN spare");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        Assertions.assertFalse(
+                mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
+                "a column the MV does not read leaves the query analyzable, was: "
+                        + mtmv.getStatus().getSchemaChangeDetail());
+
+        // A column it does read takes the query away, and that is what the MV is invalidated with.
+        executeSql("ALTER TABLE ivm_base DROP COLUMN v1");
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        assertUnanalyzableDetail(mtmv);
     }
 
     /**
@@ -145,10 +251,42 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
         Assertions.assertEquals(1, expected.size());
 
+        alignStatesOf(mtmv);
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
 
-        Assertions.assertFalse(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
-        Assertions.assertEquals(expected, mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
+        // The partitions that read the dropped one have their requirement raised, and only those: every
+        // other partition keeps catching up incrementally, and no whole-MV barrier is raised.
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            long expectedLatest = expected.contains(partitionName) ? 2 : 1;
+            Assertions.assertEquals(expectedLatest,
+                    mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        }
+    }
+
+    /**
+     * The other half of an invalidation: the partitions it marks lose their refresh snapshot, which is what
+     * keeps transparent rewrite away from them until the rebuild has replaced their rows.
+     */
+    @Test
+    public void testInvalidationDropsTheSnapshotsOfThePartitionsItMarks() throws Exception {
+        String db = "ivm_invalidation_drops_snapshots";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, expected.size());
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Maps.newHashMap();
+        for (String partitionName : mtmv.getPartitionNames()) {
+            snapshots.put(partitionName, new MTMVRefreshPartitionSnapshot());
+        }
+        mtmv.getRefreshSnapshot().updateSnapshots(snapshots, mtmv.getPartitionNames());
+        alignStatesOf(mtmv);
+
+        executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
+
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet().stream()
+                .anyMatch(expected::contains));
+        Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
     }
 
     /**
@@ -168,7 +306,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202003");
 
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -218,7 +356,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + " 'partition_sync_time_unit' = 'YEAR')");
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
 
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -267,7 +405,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         // p202001 is not, which is exactly the mix a non-empty selection must not be allowed to hide.
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001, pThisYear)");
 
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -282,37 +420,37 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         String db = "ivm_sync_window_property_change";
         createPartitionedIvmTableAndPartitionedMv(db);
         MTMV mtmv = getMtmv(db);
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         // No limit is in effect, so the unit it is paired with decides nothing.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_time_unit' = 'YEAR')");
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         // The window starts applying: it takes partitions out of what the MV maintains, it brings none back.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         // The same window, restated.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         // Narrower: it only removes partitions from the maintained set.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1')");
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         // Wider: the partitions it takes back in skipped their deltas while they were outside.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '10')");
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
-        clearBaselineRebuild(mtmv);
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        resetMvState(mtmv);
 
         // The limit is gone: every partition comes back.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '0')");
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
-        clearBaselineRebuild(mtmv);
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        resetMvState(mtmv);
 
         // Still no limit in effect, so the unit decides nothing again.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_time_unit' = 'DAY')");
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -339,14 +477,15 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         try (MockedStatic<MTMVPartitionUtil> partitionUtil = Mockito.mockStatic(MTMVPartitionUtil.class,
                 Mockito.CALLS_REAL_METHODS)) {
             Assertions.assertTrue(mtmv.invalidateIvmBaseline(new BaseTableInfo(baseTable),
-                    Collections.singletonMap("p202001", baseTable.getPartition("p202001").getId())));
+                    Collections.singletonMap("p202001", baseTable.getPartition("p202001").getId()),
+                    "test partition change"));
             partitionUtil.verify(() -> MTMVPartitionUtil.isPartitionSyncLimitActive(Mockito.any()),
                     Mockito.times(2));
         }
 
         // p202001 is outside the window while it is in effect, so its rows are described by no mapping
         // entry and only the limit can tell that apart from "no MV partition reads it".
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -387,7 +526,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_dim DROP PARTITION d202001");
 
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -404,10 +543,15 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
         Assertions.assertEquals(1, expected.size());
 
+        alignStatesOf(mtmv);
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
 
-        Assertions.assertFalse(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
-        Assertions.assertEquals(expected, mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            long expectedLatest = expected.contains(partitionName) ? 2 : 1;
+            Assertions.assertEquals(expectedLatest,
+                    mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        }
     }
 
     /**
@@ -449,7 +593,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         // The batch fails on its first table here, so what this covers is the whole-MV fallback; the
         // release of the locks taken before the busy one is covered in MetaLockUtilsTest.
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -491,7 +635,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         executeSql("ALTER TABLE ivm_base REPLACE PARTITION (p202001) "
                 + "WITH TEMPORARY PARTITION (tp202001)");
 
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -499,11 +643,11 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         String db = "ivm_broken_recover_partition";
         createPartitionedIvmTableAndMv(db);
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
-        clearBaselineRebuild(getMtmv(db));
+        resetMvState(getMtmv(db));
 
         executeSql("RECOVER PARTITION p202001 FROM ivm_base");
 
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     /**
@@ -517,11 +661,11 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         createPartitionedIvmTableAndPartitionedMv(db);
         MTMV mtmv = getMtmv(db);
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
-        clearBaselineRebuild(mtmv);
+        resetMvState(mtmv);
 
         executeSql("RECOVER PARTITION p202001 FROM ivm_base");
 
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     @Test
@@ -531,13 +675,13 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         MTMV mtmv = getMtmv(db);
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         executeSql("RECOVER PARTITION p202001 FROM ivm_base");
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202002");
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     /**
@@ -556,14 +700,14 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         MTMV mtmv = getMtmv(db);
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
-        clearBaselineRebuild(mtmv);
+        resetMvState(mtmv);
         // Live again under the dropped name, with a range no MV partition covers: the RECOVER below is
         // still about the recycled partition, not about this one.
         executeSql("ALTER TABLE ivm_base ADD PARTITION p202001 VALUES [('2020-04-01'), ('2020-05-01'))");
 
         executeSql("RECOVER PARTITION p202001 AS p202003 FROM ivm_base");
 
-        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     @Test
@@ -574,7 +718,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         executeSql("ALTER TABLE ivm_base ADD PARTITION p202003 "
                 + "VALUES [('2020-03-01'), ('2020-04-01'))");
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -586,7 +730,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base DROP TEMPORARY PARTITION tp202001");
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -596,35 +740,71 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base DROP PARTITION IF EXISTS p_missing");
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
-    public void testRenameTableDoesNotMarkBaselineRebuild() throws Exception {
+    public void testRenameTableMarksBaselineRebuild() throws Exception {
         String db = "ivm_broken_rename_table";
         createPartitionedIvmTableAndMv(db);
+        MTMV mtmv = getMtmv(db);
+        alignStatesOf(mtmv);
+        Map<String, Long> before = latestEpochsOf(mtmv);
 
         executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        // A rename leaves every column alone, so it raises no partition's requirement: no partition's rows
+        // have to be recomputed, and an epoch is not the place to record this change. What the rename does
+        // move is the MV state, through the shared base-table hook: the MV query still spells the old name,
+        // so it no longer analyzes, and the state is what sends the next refresh to a whole-MV COMPLETE
+        // rather than let it report SUCCESS over rows it can no longer recompute.
+        Assertions.assertEquals(before, latestEpochsOf(mtmv));
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+    }
+
+    /**
+     * The state a rename sets is the shared hook's, not IVM's: a non-IVM MV gets it for the same reason --
+     * its refresh re-analyzes the query under it -- and an IVM MV is not exempt. What an IVM MV has instead
+     * of a re-analysis is the epoch state, and that is untouched by a rename, which is the division of
+     * labour the two tests around this one pin.
+     */
+    @Test
+    public void testRenameStillInvalidatesANonIvmMv() throws Exception {
+        String db = "ivm_broken_rename_non_ivm";
+        createPartitionedIvmTable(db);
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertFalse(mtmv.isIvm());
+
+        executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
+
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     @Test
-    public void testRenameTableBackKeepsIncrementalRefreshStartable() throws Exception {
+    public void testRenameTableBackStillRequiresAWholeMvRefresh() throws Exception {
         String db = "ivm_broken_rename_table_back";
         createPartitionedIvmTableAndMv(db);
 
+        MTMV mtmv = getMtmv(db);
+        alignStatesOf(mtmv);
+        Map<String, Long> before = latestEpochsOf(mtmv);
         executeSql("ALTER TABLE ivm_base RENAME ivm_base_renamed");
         executeSql("ALTER TABLE ivm_base_renamed RENAME ivm_base");
 
-        // A rename changes no column, so it must not invalidate the baseline in either direction:
-        // once the table is renamed back, the MV query is analyzable again and a strict INCREMENTAL
-        // refresh has to be able to start. A "baseline rebuild required" flag left behind by the
-        // rename would reject every one of them until a COMPLETE refresh had been run, even though
-        // nothing the MV depends on ever changed.
-        MTMV mtmv = getMtmv(db);
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
-        Assertions.assertDoesNotThrow(() -> mtmv.validateIvmRefreshStart(mtmv.getSchemaChangeVersion()));
+        // Renaming the table back makes the MV query analyzable again, but the state stays where the first
+        // rename put it, and the second rename is why: the dependencies are registered under the name the MV
+        // query spells, so a rename of the table away from that name finds nothing to update and the rename
+        // back finds nothing to clear. The cost of the round trip is one whole-MV COMPLETE refresh, paid on
+        // the next refresh, which is what a rename is worth here -- the state is the only durable thing that
+        // can carry the fact that the MV was un-analyzable in between, and a strict INCREMENTAL refresh is
+        // not the way to find that out. Neither direction raises a partition requirement: no rows moved.
+        Assertions.assertEquals(before, latestEpochsOf(mtmv));
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
     @Test
@@ -647,7 +827,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'false')");
 
-        Assertions.assertTrue(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -720,13 +900,13 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "AS SELECT dt, k1, v1 FROM ivm_new_base");
         MTMV oldSideMtmv = getMtmv(db);
         MTMV newSideMtmv = (MTMV) getDb(db).getTableOrMetaException("ivm_new_mv");
-        Assertions.assertFalse(oldSideMtmv.getIvmInfo().isBaselineRebuildRequired());
-        Assertions.assertFalse(newSideMtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, oldSideMtmv.getStatus().getState());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, newSideMtmv.getStatus().getState());
 
         executeSql("ALTER TABLE ivm_base REPLACE WITH TABLE ivm_new_base PROPERTIES('swap' = 'true')");
 
-        Assertions.assertTrue(oldSideMtmv.getIvmInfo().isBaselineRebuildRequired());
-        Assertions.assertTrue(newSideMtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, oldSideMtmv.getStatus().getState());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, newSideMtmv.getStatus().getState());
     }
 
     @Test
@@ -741,7 +921,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 "p202001", false, false, 0L, table.getVisibleVersion(), table.getVisibleVersionTime());
         Env.getCurrentInternalCatalog().replayDropPartition(info);
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -761,7 +941,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 Collections.emptyMap(), table.getNextVersion(), System.currentTimeMillis());
         Env.getCurrentInternalCatalog().replayTruncateTable(info);
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -779,7 +959,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 table.getVisibleVersion(), table.getVisibleVersionTime(), false);
         Env.getCurrentEnv().replayReplaceTempPartition(log);
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -790,13 +970,13 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         OlapTable table = getBaseTable(db);
         long partitionId = table.getPartition("p202001").getId();
         executeSql("ALTER TABLE ivm_base DROP PARTITION p202001");
-        clearBaselineRebuild(getMtmv(db));
+        resetMvState(getMtmv(db));
 
         RecoverInfo info = new RecoverInfo(database.getId(), table.getId(), partitionId, "", table.getName(),
                 "", "p202001", null);
         Env.getCurrentInternalCatalog().replayRecoverPartition(info);
 
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     @Test
@@ -804,10 +984,9 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         String db = "ivm_stale_task_result";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
+        mtmv.invalidateWholeMv("seed").await();
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
         long taskVersion = mtmv.getSchemaChangeVersion();
-        IvmInfo pending = mtmv.getIvmInfo();
-        pending.requireCompleteBaselineRebuild();
-        mtmv.alterIvmInfo(pending);
         Deencapsulation.setField(mtmv, "schemaChangeVersion", taskVersion + 1);
         int historySize = mtmv.getHistoryTasks().size();
 
@@ -817,13 +996,13 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         Assertions.assertFalse(mtmv.addTaskResult(result, false));
         Assertions.assertEquals(historySize, mtmv.getHistoryTasks().size());
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
         Assertions.assertEquals(planSignature, mtmv.getIvmInfo().getPlanSignature());
         Assertions.assertEquals(taskVersion + 1, mtmv.getSchemaChangeVersion());
     }
 
     @Test
-    public void testIvmRefreshStartRejectsStaleVersionOrPendingBaseline() throws Exception {
+    public void testIvmRefreshStartRejectsAStaleSchemaChangeVersion() throws Exception {
         String db = "ivm_refresh_start_validation";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
@@ -831,11 +1010,6 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         mtmv.validateIvmRefreshStart(version);
         Assertions.assertThrows(JobException.class, () -> mtmv.validateIvmRefreshStart(version + 1));
-
-        IvmInfo pending = mtmv.getIvmInfo();
-        pending.requireCompleteBaselineRebuild();
-        mtmv.alterIvmInfo(pending);
-        Assertions.assertThrows(JobException.class, () -> mtmv.validateIvmRefreshStart(version));
     }
 
     @Test
@@ -846,27 +1020,19 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         long schemaChangeVersion = mtmv.getSchemaChangeVersion();
         AlterMTMV result = taskResult(mtmv, TaskStatus.FAILED, schemaChangeVersion);
         IvmInfo replayedInfo = mtmv.getIvmInfo();
-        replayedInfo.requireCompleteBaselineRebuild();
         replayedInfo.setPlanSignature("replayed_signature");
         result.setIvmInfo(replayedInfo);
 
         Assertions.assertTrue(mtmv.addTaskResult(result, true));
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
         Assertions.assertEquals("replayed_signature", mtmv.getIvmInfo().getPlanSignature());
         Assertions.assertEquals(schemaChangeVersion, mtmv.getSchemaChangeVersion());
-
-        replayedInfo.clearBaselineRebuild();
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
     }
 
     @Test
-    public void testSuccessfulBaselineResultClearsPendingState() throws Exception {
+    public void testSuccessfulResultKeepsThePlanSignature() throws Exception {
         String db = "ivm_successful_baseline_result";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
-        IvmInfo pending = mtmv.getIvmInfo();
-        pending.requireCompleteBaselineRebuild();
-        mtmv.alterIvmInfo(pending);
         String planSignature = mtmv.getIvmInfo().getPlanSignature();
         AlterMTMV result = taskResult(mtmv, TaskStatus.SUCCESS, mtmv.getSchemaChangeVersion());
         boolean compatibilityMode = Config.enable_check_compatibility_mode;
@@ -877,8 +1043,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
             Config.enable_check_compatibility_mode = compatibilityMode;
         }
 
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
-        Assertions.assertFalse(result.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
         Assertions.assertEquals(planSignature, mtmv.getIvmInfo().getPlanSignature());
     }
 
@@ -887,9 +1052,6 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         String db = "ivm_successful_signature_fallback";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
-        IvmInfo pending = mtmv.getIvmInfo();
-        pending.requireCompleteBaselineRebuild();
-        mtmv.alterIvmInfo(pending);
         AlterMTMV result = taskResult(mtmv, TaskStatus.SUCCESS, mtmv.getSchemaChangeVersion());
         Deencapsulation.setField(result.getTask(), "refreshedIvmPlanSignature", "new_signature");
         boolean compatibilityMode = Config.enable_check_compatibility_mode;
@@ -902,27 +1064,9 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         Assertions.assertEquals("new_signature", mtmv.getIvmInfo().getPlanSignature());
         Assertions.assertEquals("new_signature", result.getIvmInfo().getPlanSignature());
-        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 
-    @Test
-    public void testFailedBaselineResultKeepsGuard() throws Exception {
-        String db = "ivm_failed_baseline_result";
-        createPartitionedIvmTableAndMv(db);
-        MTMV mtmv = getMtmv(db);
-        IvmInfo pending = mtmv.getIvmInfo();
-        pending.requireCompleteBaselineRebuild();
-        mtmv.alterIvmInfo(pending);
-        AlterMTMV result = taskResult(mtmv, TaskStatus.FAILED, mtmv.getSchemaChangeVersion());
-        Deencapsulation.setField(result.getTask(), "refreshedIvmPlanSignature", "new_signature");
-        String planSignature = mtmv.getIvmInfo().getPlanSignature();
-
-        Assertions.assertTrue(mtmv.addTaskResult(result, false));
-
-        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired());
-        Assertions.assertTrue(result.getIvmInfo().isBaselineRebuildRequired());
-        Assertions.assertEquals(planSignature, mtmv.getIvmInfo().getPlanSignature());
-    }
 
     private void createPartitionedIvmTableAndMv(String db) throws Exception {
         createPartitionedIvmTable(db);
@@ -952,7 +1096,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
     private void assertFreshMv(String db) throws Exception {
         Assertions.assertTrue(getMtmv(db).isIvm());
-        Assertions.assertFalse(getMtmv(db).getIvmInfo().isBaselineRebuildRequired());
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
     private void createPartitionedIvmTable(String db) throws Exception {
@@ -971,10 +1115,45 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
     }
 
+    /**
+     * Gives every MV partition the entry a refresh would have created. A refresh task aligns before it
+     * reads a base table, so an MV that has been refreshed has one entry per partition; the marker tests
+     * drive the marker on its own, so they set that state up directly.
+     */
+    private void alignStatesOf(MTMV mtmv) {
+        Map<String, MTMVPartitionState> aligned = Maps.newHashMap();
+        for (String partitionName : mtmv.getPartitionNames()) {
+            aligned.put(partitionName, MTMVPartitionState.initial());
+        }
+        mtmv.alterPartitionStates(aligned);
+    }
+
+    /**
+     * What each MV partition currently requires, keyed by partition name. The requirement is what an
+     * invalidation raises, so comparing two of these is how "nothing was marked" is observed.
+     */
+    private Map<String, Long> latestEpochsOf(MTMV mtmv) {
+        Map<String, Long> res = Maps.newHashMap();
+        for (Entry<String, MTMVPartitionState> entry : mtmv.getPartitionStates().entrySet()) {
+            res.put(entry.getKey(), entry.getValue().getLatestEpoch());
+        }
+        return res;
+    }
+
     private MTMV getMtmv(String db) throws Exception {
         return (MTMV) Env.getCurrentInternalCatalog()
                 .getDb(db).get()
                 .getTableOrMetaException("ivm_mv");
+    }
+
+    /**
+     * The detail a whole-MV invalidation records when the query can no longer be analyzed. It is the only
+     * record of that change, so the reason has to survive in it: a state alone cannot say why.
+     */
+    private void assertUnanalyzableDetail(MTMV mtmv) {
+        Assertions.assertTrue(
+                mtmv.getStatus().getSchemaChangeDetail().contains("no longer analyzable"),
+                "the detail must name the reason, was: " + mtmv.getStatus().getSchemaChangeDetail());
     }
 
     private Database getDb(String db) {
@@ -1001,10 +1180,9 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         return res;
     }
 
-    private void clearBaselineRebuild(MTMV mtmv) {
-        IvmInfo info = new IvmInfo(mtmv.getIvmInfo());
-        info.clearBaselineRebuild();
-        mtmv.alterIvmInfo(info);
+    /** Puts the MV back to a state where only a new invalidation can move it. */
+    private void resetMvState(MTMV mtmv) {
+        mtmv.alterStatus(new MTMVStatus(MTMVState.NORMAL, "reset"));
     }
 
     private AlterMTMV taskResult(MTMV mtmv, TaskStatus status, long schemaChangeVersion) {

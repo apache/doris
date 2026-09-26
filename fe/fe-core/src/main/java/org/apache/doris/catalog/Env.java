@@ -162,7 +162,6 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
-import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
@@ -7720,12 +7719,6 @@ public class Env {
         // Runs outside the tolerant processAlterMTMV catch so that failures (e.g. a
         // partial IVM excluded-trigger-tables stream transition) reach the client.
         this.alter.processAlterMTMVProperty(alter, false);
-    }
-
-    public void alterMTMVStatus(TableNameInfo mvName, MTMVStatus status) {
-        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_STATUS);
-        alter.setStatus(status);
-        this.alter.processAlterMTMV(alter, false);
     }
 
     public void addMTMVTaskResult(TableNameInfo mvName, MTMVTask task, MTMVRelation relation,

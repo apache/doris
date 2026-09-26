@@ -1346,7 +1346,11 @@ public class Alter {
                     break;
                 case ALTER_PARTITION_STATES:
                     // Replay only, like ALTER_IVM_INFO: a live change journals itself from inside MTMV.
-                    mtmv.alterPartitionStates(alterMTMV.getPartitionStates());
+                    // The states and the snapshot removal land in one lock acquisition: a reader that saw
+                    // the new requirement but still found the snapshot could let a transparent rewrite
+                    // serve rows the rebuild has not replaced yet.
+                    mtmv.replayAlterPartitionStates(alterMTMV.getPartitionStates(),
+                            alterMTMV.getRemovedSnapshotPartitions());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
