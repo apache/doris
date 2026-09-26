@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.capture;
 
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.SqlModeHelper;
 
 /**
  * CapturedQuery - a lightweight view of one audit_log row used by SPM auto capture
@@ -62,13 +63,29 @@ public class CapturedQuery {
     /** audit_log is_internal flag (internal maintenance queries are never captured). */
     private final boolean isInternal;
 
+    /** Parser mode (sql_mode) of the session that ran the captured statement: the build
+     *  must run under it (a literal "a || b" is CONCAT under PIPES_AS_CONCAT and a
+     *  boolean OR otherwise), and it is persisted as the baseline's creatorSqlMode so a
+     *  reload re-parses the stored bindSql the same way. */
+    private final long sqlMode;
+
     /**
      * CapturedQuery
      */
     public CapturedQuery(String stmt, long queryTimeMs, long scanRows, long returnRows,
             String sqlDigest, String sqlHash, String db, String catalog, String queryId) {
         this(stmt, queryTimeMs, scanRows, returnRows, sqlDigest, sqlHash, db, catalog, queryId,
-                false);
+                false, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    /**
+     * Full constructor (audit_log row without the sql_mode column / pre-mode rows).
+     */
+    public CapturedQuery(String stmt, long queryTimeMs, long scanRows, long returnRows,
+            String sqlDigest, String sqlHash, String db, String catalog, String queryId,
+            boolean isInternal) {
+        this(stmt, queryTimeMs, scanRows, returnRows, sqlDigest, sqlHash, db, catalog, queryId,
+                isInternal, SqlModeHelper.MODE_DEFAULT);
     }
 
     /**
@@ -76,7 +93,7 @@ public class CapturedQuery {
      */
     public CapturedQuery(String stmt, long queryTimeMs, long scanRows, long returnRows,
             String sqlDigest, String sqlHash, String db, String catalog, String queryId,
-            boolean isInternal) {
+            boolean isInternal, long sqlMode) {
         this.stmt = stmt;
         this.queryTimeMs = queryTimeMs;
         this.scanRows = scanRows;
@@ -87,6 +104,7 @@ public class CapturedQuery {
         this.catalog = catalog;
         this.queryId = queryId;
         this.isInternal = isInternal;
+        this.sqlMode = sqlMode;
     }
 
     public String getStmt() {
@@ -137,6 +155,15 @@ public class CapturedQuery {
      */
     public boolean isInternal() {
         return isInternal;
+    }
+
+    /**
+     * Returns the parser mode (sql_mode) of the session that ran the captured statement.
+     *
+     * @return the originating session's sql_mode
+     */
+    public long getSqlMode() {
+        return sqlMode;
     }
 
     /**

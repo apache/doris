@@ -35,6 +35,8 @@ import org.mockito.Mockito;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class InternalSchemaInitializerTest {
     @Test
@@ -349,5 +351,40 @@ class InternalSchemaInitializerTest {
                 "the checkpoint table must be UNIQUE-key so the INSERT upserts: " + sql);
         Assertions.assertTrue(sql.contains("enable_unique_key_merge_on_write"),
                 "merge-on-write makes the single-row replacement atomic: " + sql);
+    }
+
+    /**
+     * A transient ALTER failure must be retried INSIDE the initializer: run() calls the
+     * upgrade only once and the replica-upgrade loop never comes back, so without the
+     * retry loop an upgraded cluster stayed without the sql_mode column until a restart
+     * although BaselineManager always reads / writes it.
+     */
+    @Test
+    public void testSqlModeUpgradeRetriesUntilColumnObserved() {
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger sleeps = new AtomicInteger();
+        AtomicBoolean exists = new AtomicBoolean(false);
+        InternalSchemaInitializer.ensureSpmBaselinesSqlModeColumn(
+                exists::get,
+                () -> {
+                    if (attempts.incrementAndGet() == 1) {
+                        throw new RuntimeException("transient alter failure");
+                    }
+                    exists.set(true);
+                },
+                sleeps::incrementAndGet);
+        Assertions.assertEquals(2, attempts.get(),
+                "the first failed ALTER must be retried without a restart");
+        Assertions.assertEquals(1, sleeps.get(),
+                "exactly one back-off between the two attempts");
+    }
+
+    @Test
+    public void testSqlModeUpgradeSkipsAlterWhenColumnExists() {
+        AtomicInteger attempts = new AtomicInteger();
+        InternalSchemaInitializer.ensureSpmBaselinesSqlModeColumn(
+                () -> true, attempts::incrementAndGet, () -> { });
+        Assertions.assertEquals(0, attempts.get(),
+                "an already upgraded table must not be altered");
     }
 }

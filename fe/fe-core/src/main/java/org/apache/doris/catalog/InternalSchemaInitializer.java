@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 
@@ -108,10 +109,14 @@ public class InternalSchemaInitializer extends Thread {
         Database database = op.get();
         // Runs even when every table already exists: an upgraded cluster must gain the
         // sql_mode column although the completion gate no longer calls createTbl().
-        // Must precede the replica-upgrade loop below: that loop WAITS for enough BEs
-        // (sleeping), so anything after it would be deferred indefinitely on a small
-        // cluster.
-        upgradeSpmBaselinesSchema();
+        // Waits until the column is OBSERVED: run() reaches this point only once and the
+        // replica-upgrade loop below never comes back, so a transient ALTER failure was
+        // never retried in this process - the table stayed without sql_mode although
+        // BaselineManager always reads / writes that column, and baseline loading plus
+        // global DDL stayed broken until a restart. Must precede the replica-upgrade
+        // loop below: that loop WAITS for enough BEs (sleeping), so anything after it
+        // would be deferred indefinitely on a small cluster.
+        ensureSpmBaselinesSqlModeColumn();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
             modifyTblReplicaCount(database, tblName);
         }
@@ -431,44 +436,108 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
+     * Waits until the spm_baselines table carries the `sql_mode` column: a transient
+     * ALTER failure (BE / tablet not ready) must be retried HERE - run() calls this once
+     * and the replica-upgrade loop never comes back, so a one-shot call left an upgraded
+     * cluster without the column until a restart although BaselineManager always reads /
+     * writes it (baseline load and global DDL stayed broken).
+     */
+    static void ensureSpmBaselinesSqlModeColumn() {
+        while (!spmBaselinesSqlModeColumnExists()) {
+            try {
+                upgradeSpmBaselinesSchema();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_baselines sql_mode column, will retry", t);
+            }
+            if (spmBaselinesSqlModeColumnExists()) {
+                return;
+            }
+            try {
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted. {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Testable retry skeleton of {@link #ensureSpmBaselinesSqlModeColumn}: waits until the
+     * column is observed, retrying a failed alter. A first ALTER failure followed by a
+     * success must converge WITHOUT a restart.
+     *
+     * @param columnExists whether the sql_mode column is already observed
+     * @param alter        the idempotent upgrade attempt (may throw)
+     * @param sleeper      the wait between attempts
+     */
+    @VisibleForTesting
+    static void ensureSpmBaselinesSqlModeColumn(BooleanSupplier columnExists, Runnable alter,
+            Runnable sleeper) {
+        while (!columnExists.getAsBoolean()) {
+            try {
+                alter.run();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_baselines sql_mode column, will retry", t);
+            }
+            if (columnExists.getAsBoolean()) {
+                return;
+            }
+            sleeper.run();
+        }
+    }
+
+    /** Whether the spm_baselines table already carries the sql_mode column (false while
+     *  the table itself is not there yet - the caller keeps retrying). */
+    @VisibleForTesting
+    static boolean spmBaselinesSqlModeColumnExists() {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return false;
+        }
+        Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
+        if (table == null) {
+            return false;
+        }
+        return table.getBaseSchema().stream()
+                .anyMatch(column -> "sql_mode".equalsIgnoreCase(column.getName()));
+    }
+
+    /**
      * Adds the `sql_mode` column to a PRE-EXISTING spm_baselines table (new clusters get
      * it from the create SQL). The column carries the parser mode of the creating session:
      * without it a PIPES_AS_CONCAT baseline is re-parsed under the default mode after a
      * restart, so the stored digest still finds the row while the structural match rejects
      * every CONCAT-mode query and the baseline silently stops applying. Idempotent: a
-     * table that already carries the column is left untouched.
+     * table that already carries the column is left untouched. Throws on failure - the
+     * caller's retry loop owns the retry policy.
      */
-    private static void upgradeSpmBaselinesSchema() {
-        try {
-            Optional<Database> dbOpt =
-                    Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
-            if (!dbOpt.isPresent()) {
-                return;
-            }
-            Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
-            if (table == null) {
-                return;
-            }
-            if (table.getBaseSchema().stream()
-                    .anyMatch(column -> "sql_mode".equalsIgnoreCase(column.getName()))) {
-                return;
-            }
-            ColumnDefinition definition = new ColumnDefinition("sql_mode",
-                    DataType.fromCatalogType(ScalarType.createType(PrimitiveType.BIGINT)),
-                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
-                    Optional.empty(), "", true, Optional.empty());
-            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
-            addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
-            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                    FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_BASELINES_TBL_NAME);
-            Env.getCurrentEnv().alterTable(
-                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
-            LOG.info("SPM: added the sql_mode column to {}", InternalSchema.SPM_BASELINES_TBL_NAME);
-        } catch (Throwable t) {
-            // Retried on the next initializer iteration / FE start; the baseline load
-            // fails fast (bounded timeout) and retries until the column exists.
-            LOG.warn("SPM: failed to add the spm_baselines sql_mode column, will retry", t);
+    private static void upgradeSpmBaselinesSchema() throws UserException {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            LOG.warn("SPM: internal schema db not found yet, will retry the sql_mode upgrade");
+            return;
         }
+        Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
+        if (table == null) {
+            LOG.warn("SPM: spm_baselines table not found yet, will retry the sql_mode upgrade");
+            return;
+        }
+        if (table.getBaseSchema().stream()
+                .anyMatch(column -> "sql_mode".equalsIgnoreCase(column.getName()))) {
+            return;
+        }
+        ColumnDefinition definition = new ColumnDefinition("sql_mode",
+                DataType.fromCatalogType(ScalarType.createType(PrimitiveType.BIGINT)),
+                true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                Optional.empty(), "", true, Optional.empty());
+        AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+        addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+        TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_BASELINES_TBL_NAME);
+        Env.getCurrentEnv().alterTable(
+                new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
+        LOG.info("SPM: added the sql_mode column to {}", InternalSchema.SPM_BASELINES_TBL_NAME);
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
