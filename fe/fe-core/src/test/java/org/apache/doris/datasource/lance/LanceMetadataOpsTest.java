@@ -126,6 +126,29 @@ public class LanceMetadataOpsTest {
     }
 
     @Test
+    public void testCreateDatabaseRejectsMappedLocalNameConflict() throws DdlException {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(catalog).getDbNullable("sales_db");
+        Mockito.when(database.getRemoteName()).thenReturn("Sales");
+        LanceMetadataOps ops = new LanceMetadataOps(catalog);
+
+        try {
+            Assertions.assertTrue(ops.createDb("sales_db", true, Collections.emptyMap()));
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> ops.createDb("sales_db", false, Collections.emptyMap()));
+            Assertions.assertTrue(exception.getMessage().contains("exist"));
+        } finally {
+            client.close();
+        }
+
+        Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
+        Mockito.verify(namespace, Mockito.never()).createNamespace(Mockito.any());
+    }
+
+    @Test
     public void testCreateDatabaseHandlesConcurrentCreate() throws DdlException {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
         Mockito.doThrow(new NamespaceNotFoundException("missing"))
@@ -286,7 +309,8 @@ public class LanceMetadataOpsTest {
             client.close();
         }
 
-        Mockito.verify(catalog).unregisterDatabase("analytics");
+        Mockito.verify(catalog, Mockito.never()).unregisterDatabase(Mockito.anyString());
+        Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
         Mockito.verify(database).unregisterTable("local_table");
     }
 
@@ -307,7 +331,8 @@ public class LanceMetadataOpsTest {
 
         Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
         Mockito.verify(namespace, Mockito.never()).dropNamespace(Mockito.any());
-        Mockito.verify(catalog).unregisterDatabase("missing_db");
+        Mockito.verify(catalog, Mockito.never()).unregisterDatabase(Mockito.anyString());
+        Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Test
@@ -317,6 +342,8 @@ public class LanceMetadataOpsTest {
         LanceExternalCatalog catalog = catalogWithClient(client);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
         Mockito.doReturn(database).when(catalog).getDbNullable("sales_db");
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDbForReplay("sales_db");
+        Mockito.when(database.getFullName()).thenReturn("sales_db");
         Mockito.when(database.getRemoteName()).thenReturn("Sales");
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
@@ -330,6 +357,30 @@ public class LanceMetadataOpsTest {
         Mockito.verify(namespace).dropNamespace(request.capture());
         Assertions.assertEquals(Arrays.asList("tenant", "Sales"), request.getValue().getId());
         Mockito.verify(catalog).unregisterDatabase("sales_db");
+    }
+
+    @Test
+    public void testAfterDropDatabaseUsesCanonicalLocalName() {
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDbForReplay("sales");
+        Mockito.when(database.getFullName()).thenReturn("Sales");
+
+        new LanceMetadataOps(catalog).afterDropDb("sales");
+
+        Mockito.verify(catalog).unregisterDatabase("Sales");
+        Mockito.verify(catalog, Mockito.never()).retireAllDatabaseObjectsWithoutEngineInvalidation();
+    }
+
+    @Test
+    public void testAfterDropDatabaseRetiresAllObjectsWhenCanonicalNameIsUnavailable() {
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        Mockito.doReturn(Optional.empty()).when(catalog).getDbForReplay("sales");
+
+        new LanceMetadataOps(catalog).afterDropDb("sales");
+
+        Mockito.verify(catalog).unregisterDatabase("sales");
+        Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Test
@@ -362,7 +413,10 @@ public class LanceMetadataOpsTest {
         LanceExternalCatalog catalog = catalogWithClient(client);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
         Mockito.doReturn(database).when(catalog).getDbNullable("local_db");
+        Mockito.doReturn(database).when(catalog).getDbNullable("analytics");
         Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
+        Mockito.when(catalog.getDbForReplay("analytics")).thenReturn(Optional.of(database));
+        Mockito.when(database.getFullName()).thenReturn("analytics");
         Mockito.when(database.getRemoteName()).thenReturn("analytics");
         Mockito.when(database.getTableNullable("events")).thenReturn(null);
         ExternalTable table = table("local_db", "events", "analytics", "events");

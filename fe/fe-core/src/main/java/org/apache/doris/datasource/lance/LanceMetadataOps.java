@@ -72,6 +72,12 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             if (client.isRootDatabase(dbName)) {
                 throw new DdlException("Cannot create the configured Lance root database: " + dbName);
             }
+            if (catalog.getDbNullable(dbName) != null) {
+                if (ifNotExists) {
+                    return true;
+                }
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+            }
             if (client.databaseExists(dbName)) {
                 if (ifNotExists) {
                     catalog.resetMetaCacheNames();
@@ -137,7 +143,18 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            catalog.unregisterDatabase(db.get().getFullName());
+            return;
+        }
         catalog.unregisterDatabase(dbName);
+        catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+    }
+
+    @Override
+    public void afterDropDbNoOp(String dbName) {
+        catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Override
