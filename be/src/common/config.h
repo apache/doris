@@ -1715,6 +1715,25 @@ DECLARE_mInt32(spill_gc_work_time_ms);
 // Maximum size of each spill part file before rotation (bytes). Default 1GB.
 DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+// Where spill data is written: "local" (spill_storage_root_path) or "s3" (the storage vault of a
+// cloud instance). "s3" is only valid in cloud mode.
+DECLARE_String(spill_storage_type);
+// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". Empty
+// means the default vault of the instance.
+DECLARE_String(spill_s3_storage_vault);
+// Upper bound of spill bytes kept in object storage by this BE, including bytes reserved for
+// in-flight uploads. 0 means unlimited.
+DECLARE_mInt64(spill_s3_storage_limit_bytes);
+// Upper bound of the allocated capacity of spill upload buffers that were submitted to object
+// storage and are not yet acknowledged (every buffer counts as s3_write_buffer_size, also a
+// partially filled last one). Bounds the upload buffer memory of spill; writers block once it
+// is reached.
+DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
+// Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
+// into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);
+// a single block larger than it is still read whole. 0 reads the part footer exactly and
+// every block with its own GET.
+DECLARE_mInt64(spill_s3_read_coalesce_bytes);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);

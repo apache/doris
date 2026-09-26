@@ -274,6 +274,10 @@ public class AuditLogHelper {
                         statistics.getSpillWriteBytesToLocalStorage())
                 .setSpillReadBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getSpillReadBytesFromLocalStorage())
+                // Remote spill bytes are only reported through TQueryStatistics; for queries
+                // WorkloadRuntimeStatusMgr fills them in from the BE reports.
+                .setSpillWriteBytesToRemoteStorage(0)
+                .setSpillReadBytesFromRemoteStorage(0)
                 .setScanBytesFromLocalStorage(statistics == null ? 0 :
                         statistics.getScanBytesFromLocalStorage())
                 .setScanBytesFromRemoteStorage(statistics == null ? 0 :

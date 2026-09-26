@@ -30,6 +30,7 @@ class RuntimeState;
 
 class SpillDataDir;
 class SpillFile;
+class SpillRemoteUploadBudget;
 
 /// SpillFileWriter writes blocks to a SpillFile, automatically managing
 /// part-file rotation when a part exceeds the configured size threshold
@@ -43,7 +44,15 @@ class SpillFile;
 ///
 /// Part rotation is fully internal. Each part file has its own footer with
 /// block offset metadata. Parts are named 0, 1, 2, ... within the SpillFile's
-/// directory.
+/// directory. Parts are closed non-blocking (FileWriter::close(true)) so that the
+/// upload of a finished part overlaps with writing the next one; close() waits for
+/// all of them.
+///
+/// Files are created on the SpillDataDir's file system, which is either a local disk or
+/// the object storage of a cloud storage vault. For object storage the writer additionally
+/// bounds in-flight upload memory through SpillRemoteUploadBudget (S3FileWriter asks the
+/// budget right before it submits a buffer and gives the bytes back when the upload finished)
+/// and reports request statistics.
 class SpillFileWriter {
 public:
     SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, RuntimeState* state,
@@ -55,15 +64,28 @@ public:
     /// and rotates to a new part when the current one exceeds max_part_size.
     Status write_block(RuntimeState* state, const Block& block);
 
-    /// Finalize: close the current part, record cumulative stats in SpillFile.
-    /// After close(), no more writes are allowed.
+    /// Finalize: close the current part, wait for all parts, record cumulative stats
+    /// in SpillFile. After close(), no more writes are allowed.
     Status close();
 
 private:
-    /// Open the next part file (spill_dir/{_current_part_index}).
-    Status _open_next_part();
+    /// Remote only: budget bytes taken and given back for one part. Updated from the
+    /// appending thread (gate) and the upload threads (done callback); shared by value with
+    /// the FileWriterOptions lambdas so that it outlives the writer.
+    struct PartBudgetLedger {
+        std::atomic<int64_t> acquired {0};
+        std::atomic<int64_t> released {0};
+        std::atomic<int64_t> wait_ns {0};
+    };
 
-    /// Close the current part: write footer, close FileWriter, update stats.
+    /// Open the next part file (spill_dir/{_current_part_index}).
+    Status _open_next_part(const std::shared_ptr<SpillFile>& spill_file);
+
+    /// Close the current part: write the footer, close the file writer synchronously
+    /// (draining in-flight uploads on failure), reconcile budget and statistics, register
+    /// the part with the SpillFile (or abort its multipart upload on failure), and advance
+    /// to the next part index. Budget and statistics are reconciled whether it succeeds
+    /// or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
 
     /// If current part size >= _max_part_size, close it.
@@ -72,6 +94,16 @@ private:
     /// Serialize and write a single block to the current part.
     Status _write_internal(const Block& block, const std::shared_ptr<SpillFile>& spill_file);
 
+    struct MultipartUploadId {
+        std::string path;
+        std::string bucket;
+        std::string key;
+        std::string upload_id;
+    };
+    /// Identity of the multipart upload of `writer`, if it started one.
+    static MultipartUploadId _multipart_upload_id(doris::io::FileWriter* writer);
+    void _abort_multipart_upload(const MultipartUploadId& upload);
+
     // ── Back-reference ──
     std::weak_ptr<SpillFile> _spill_file_wptr; // weak ref; use lock() in close()
 
@@ -79,6 +111,8 @@ private:
     SpillDataDir* _data_dir = nullptr;
     std::string _spill_dir;
     int64_t _max_part_size;
+    // Non-null only for remote stores.
+    SpillRemoteUploadBudget* _budget = nullptr;
 
     // ── Current part state (reset on rotation) ──
     size_t _current_part_index = 0;
@@ -88,6 +122,8 @@ private:
     int64_t _part_written_bytes = 0;
     size_t _part_max_sub_block_size = 0;
     std::string _part_meta;
+    std::shared_ptr<PartBudgetLedger> _part_ledger;
+    std::shared_ptr<doris::io::RemoteWriteStats> _part_stats;
 
     bool _closed = false;
 
@@ -101,6 +137,12 @@ private:
     RuntimeProfile::Counter* _write_rows_counter = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _total_file_count = nullptr;
+    // Remote only, may be null when the profile does not register them.
+    RuntimeProfile::Counter* _remote_write_requests = nullptr;
+    RuntimeProfile::Counter* _remote_upload_part_requests = nullptr;
+    RuntimeProfile::Counter* _remote_upload_bytes = nullptr;
+    RuntimeProfile::Counter* _remote_upload_timer = nullptr;
+    RuntimeProfile::Counter* _remote_upload_wait_timer = nullptr;
 
     std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
 };
