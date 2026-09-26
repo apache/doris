@@ -17,16 +17,20 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.spm.capture.AuditLogScanner;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -181,6 +185,128 @@ public class SPMFrozenTreeReplayTest {
                 "a frozen plan-only placeholder (no user value) must reject the rewrite");
     }
 
+    // ==================== text classification: only REAL placeholder calls are frozen ====================
+
+    @Test
+    public void testFrozenClassificationIsTreeBased() {
+        // real placeholder calls (anywhere in the tree) mark a stored text as frozen
+        Assertions.assertTrue(SPMPlanner.isFrozenPlanSql(
+                "SELECT * FROM t1 WHERE a > _spm_const_var(1)"));
+        Assertions.assertTrue(SPMPlanner.isFrozenPlanSql(
+                "SELECT * FROM t1 WHERE a IN (_spm_const_list(3))"));
+        // ... but a mere SUBSTRING inside a literal / identifier / comment does not: the
+        // fallback path stores the ORIGINAL planSql when the decompiler rejects a node,
+        // and replaying that text would return the CAPTURED literals
+        Assertions.assertFalse(SPMPlanner.isFrozenPlanSql(
+                "SELECT 'note _spm_const_var(1) here' AS v FROM t1"));
+        Assertions.assertFalse(SPMPlanner.isFrozenPlanSql("SELECT _spm_const_list FROM t1"));
+        Assertions.assertFalse(SPMPlanner.isFrozenPlanSql(
+                "SELECT * FROM t1 /* _spm_const_var(2) */ WHERE a > 100"));
+        Assertions.assertFalse(SPMPlanner.isFrozenPlanSql("SELECT * FROM t1 WHERE a > 100"));
+        Assertions.assertFalse(SPMPlanner.isFrozenPlanSql(null));
+    }
+
+    /**
+     * An ordinary fallback text whose literal merely CONTAINS a placeholder name must not
+     * be replayed as frozen: the replacement substitutes nothing and the returned tree
+     * would carry the CAPTURED literal values.
+     */
+    @Test
+    public void testLiteralContainingPlaceholderNameIsNotReplayed() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT * FROM t1 WHERE a > 100";
+        String ordinaryPlanSql = "SELECT * FROM t1 WHERE a > 100 AND 'x _spm_const_var(1) y' <> ''";
+        manager.createBaseline(frozenBaseline(bindSql, ordinaryPlanSql));
+
+        LogicalPlan userPlan = parse("SELECT * FROM t1 WHERE a > 42");
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        // no parameterized plan tree was stored on this hand-built baseline, so a
+        // correctly rejected replay simply yields no rewrite (the captured 100 is never
+        // returned as a "frozen" tree)
+        Assertions.assertNull(rewritten,
+                "an ordinary text containing a placeholder NAME in a literal must not be"
+                        + " replayed as a frozen plan");
+    }
+
+    /**
+     * A frozen placeholder inside a SUBQUERY plan (IN / EXISTS / scalar / residual
+     * NOT IN - the LEFT NULL_AWARE ANTI JOIN case) must be substituted: the generic
+     * visitor only walks Expression.children(), so without the explicit
+     * visitSubqueryExpr the residue scan finds the call and rejects the replay.
+     */
+    @Test
+    public void testFrozenSubqueryPlaceholdersAreSubstituted() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        assertFrozenSubqueryRewrite(planner,
+                "SELECT * FROM t1 WHERE a IN (SELECT x FROM t2 WHERE y > 100)",
+                "SELECT * FROM t1 WHERE a IN (SELECT x FROM t2 WHERE y > _spm_const_var(1))",
+                "SELECT * FROM t1 WHERE a IN (SELECT x FROM t2 WHERE y > 42)");
+        assertFrozenSubqueryRewrite(planner,
+                "SELECT * FROM t1 WHERE EXISTS (SELECT x FROM t2 WHERE y > 100)",
+                "SELECT * FROM t1 WHERE EXISTS (SELECT x FROM t2 WHERE y > _spm_const_var(1))",
+                "SELECT * FROM t1 WHERE EXISTS (SELECT x FROM t2 WHERE y > 42)");
+        assertFrozenSubqueryRewrite(planner,
+                "SELECT * FROM t1 WHERE a > (SELECT max(y) FROM t2 WHERE z > 100)",
+                "SELECT * FROM t1 WHERE a > (SELECT max(y) FROM t2 WHERE z > _spm_const_var(1))",
+                "SELECT * FROM t1 WHERE a > (SELECT max(y) FROM t2 WHERE z > 42)");
+        assertFrozenSubqueryRewrite(planner,
+                "SELECT * FROM t1 WHERE a NOT IN (SELECT x FROM t2 WHERE y > 100)",
+                "SELECT * FROM t1 WHERE a NOT IN (SELECT x FROM t2 WHERE y > _spm_const_var(1))",
+                "SELECT * FROM t1 WHERE a NOT IN (SELECT x FROM t2 WHERE y > 42)");
+    }
+
+    /** Asserts one frozen-subquery replay substitutes the user value everywhere. */
+    private void assertFrozenSubqueryRewrite(SPMPlanner planner, String bindSql,
+            String frozenPlanSql, String userSql) throws Exception {
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(parse(userSql), deadline);
+        Assertions.assertNotNull(rewritten,
+                "a frozen placeholder inside a subquery plan must be substituted: "
+                        + frozenPlanSql);
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten),
+                "no placeholder call may remain anywhere in the rewritten tree");
+        String exprSqls = allExprSqlsDeep(rewritten);
+        Assertions.assertTrue(exprSqls.contains("42"),
+                "the user value must be substituted into the subquery: " + exprSqls);
+    }
+
+    /**
+     * The captured session mode is recorded on the baseline and drives the reload's
+     * re-parse of the stored bindSql: under MODE_DEFAULT "a || b" rebuilds as a boolean
+     * Or, so a CONCAT-mode baseline would silently stop matching after a restart.
+     */
+    @Test
+    public void testAuditSqlModeDrivesBuildAndReload() throws Exception {
+        long concatMode = SqlModeHelper.MODE_PIPES_AS_CONCAT;
+        Assertions.assertEquals(concatMode, AuditLogScanner.decodeAuditSqlMode("PIPES_AS_CONCAT"),
+                "the audit_log mode text must decode back to the parser mode");
+
+        String sql = "SELECT a || b FROM t1";
+        BaselinePlan baseline = SqlModeHelper.withSqlMode(concatMode, () -> {
+            try {
+                return new SPMPlanner().buildBaseline(sql, sql);
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        Assertions.assertEquals(concatMode, baseline.getCreatorSqlMode(),
+                "the build must RECORD the originating parser mode for the reload");
+
+        LogicalPlan reloadedDefault = SPMPlanner.rebuildParameterizedTrees(
+                sql, null, SqlModeHelper.MODE_DEFAULT).first;
+        LogicalPlan reloadedCaptured = SPMPlanner.rebuildParameterizedTrees(
+                sql, null, concatMode).first;
+        Assertions.assertNotNull(reloadedCaptured);
+        Assertions.assertNotEquals(reloadedDefault.toSpmDigest(),
+                reloadedCaptured.toSpmDigest(),
+                "CONCAT semantics must survive the reload (the parse is mode-dependent)");
+    }
+
     // ==================== helpers ====================
 
     /**
@@ -235,6 +361,32 @@ public class SPMFrozenTreeReplayTest {
         }
         for (Plan child : plan.children()) {
             collectExprSqls(child, sb);
+        }
+    }
+
+    /** Like {@link #allExprSqls} but also recurses into subquery PLANS. */
+    private static String allExprSqlsDeep(LogicalPlan plan) {
+        StringBuilder sb = new StringBuilder();
+        collectExprSqlsDeep(plan, sb);
+        return sb.toString();
+    }
+
+    private static void collectExprSqlsDeep(Plan plan, StringBuilder sb) {
+        for (Expression expr : plan.getExpressions()) {
+            collectExprSql(expr, sb);
+        }
+        for (Plan child : plan.children()) {
+            collectExprSqlsDeep(child, sb);
+        }
+    }
+
+    private static void collectExprSql(Expression expr, StringBuilder sb) {
+        sb.append(expr.toString()).append('\n');
+        if (expr instanceof SubqueryExpr) {
+            collectExprSqlsDeep(((SubqueryExpr) expr).getQueryPlan(), sb);
+        }
+        for (Expression child : expr.children()) {
+            collectExprSql(child, sb);
         }
     }
 }

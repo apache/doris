@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.spm.capture;
 
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
@@ -314,5 +315,47 @@ public class AuditLogScannerCursorTest {
         Assertions.assertEquals(AuditLogScanner.CURSOR_ABSENT,
                 AuditLogScanner.toBatch(List.of(), 10).getCursorQueryTime(),
                 "an empty page reports the absent sentinel");
+    }
+
+    /**
+     * The audit_log sql_mode must be projected, decoded and carried on the candidate:
+     * the capture builds the baseline under the ORIGINATING mode (a literal "a || b" is
+     * CONCAT under PIPES_AS_CONCAT, a boolean OR otherwise).
+     */
+    @Test
+    public void testSqlModeIsSelectedDecodedAndCarried() {
+        String sql = AuditLogScanner.buildScanSql(
+                "2026-01-01 00:00:00", "2026-01-01 01:00:00", 100, 0, 0);
+        Assertions.assertTrue(sql.contains("`sql_mode`"),
+                "the scan must project the originating parser mode: " + sql);
+
+        List<String> values = new ArrayList<>();
+        values.add("select a || b from t1"); // 0 stmt
+        values.add("1000");                  // 1 query_time
+        values.add("100");                   // 2 scan_rows
+        values.add("10");                    // 3 return_rows
+        values.add("d1");                    // 4 sql_digest
+        values.add("hash");                  // 5 sql_hash
+        values.add("db1");                   // 6 db
+        values.add("internal");              // 7 catalog
+        values.add("q1");                    // 8 query_id
+        values.add("false");                 // 9 is_internal
+        values.add("2026-01-01 00:00:00");   // 10 time
+        values.add("PIPES_AS_CONCAT");       // 11 sql_mode
+        CapturedQuery candidate = AuditLogScanner.toBatch(
+                List.of(new ResultRow(values)), 10).getCandidates().get(0);
+        Assertions.assertEquals(SqlModeHelper.MODE_PIPES_AS_CONCAT, candidate.getSqlMode(),
+                "the decoded mode must ride on the candidate");
+
+        Assertions.assertEquals(SqlModeHelper.MODE_DEFAULT,
+                AuditLogScanner.decodeAuditSqlMode(""),
+                "an empty mode means the default (pre-mode audit rows)");
+        Assertions.assertEquals(SqlModeHelper.MODE_DEFAULT,
+                AuditLogScanner.decodeAuditSqlMode("NO_SUCH_MODE"),
+                "an unsupported mode text falls back to the default");
+        Assertions.assertEquals(SqlModeHelper.MODE_PIPES_AS_CONCAT,
+                AuditLogScanner.decodeAuditSqlMode(
+                        String.valueOf(SqlModeHelper.MODE_PIPES_AS_CONCAT)),
+                "a numeric mode is accepted too (persisted retry-queue entries)");
     }
 }

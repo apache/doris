@@ -23,6 +23,8 @@ import org.apache.doris.nereids.spm.BaselineStatus;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.EnumSet;
+
 /**
  * Deterministic resolution of DUPLICATE durable rows (same baseline id).
  *
@@ -83,5 +85,112 @@ public class BaselinePlanDurableWinnerTest {
         Assertions.assertSame(winner, BaselineManager.pickDurableWinner(winner, enabled));
         Assertions.assertSame(winner, BaselineManager.pickDurableWinner(winner, disabled));
         Assertions.assertSame(winner, BaselineManager.pickDurableWinner(winner, winner));
+    }
+
+    /** Seeds one ENABLED in-memory baseline and returns its id. */
+    private static long seedEnabledBaseline(BaselineManager manager) {
+        BaselinePlan plan = new BaselinePlan();
+        plan.setBindSql("select 1");
+        plan.setBindSqlDigest("d");
+        plan.setBindSqlHash(1);
+        plan.setPlanSql("select 1");
+        plan.setStatus(BaselineStatus.ENABLED);
+        long id = manager.createBaseline(plan);
+        Assertions.assertTrue(id > 0);
+        return id;
+    }
+
+    /**
+     * An ambiguous status-change failure - the old-row DELETE committed but reported
+     * KV_TXN_MAYBE_COMMITTED - must be reconciled, not blindly compensated: deleting the
+     * freshly inserted row would leave NO durable baseline for the next refresh / restart.
+     */
+    @Test
+    public void testStatusUpdateReconcilesCommittedDeleteFailure() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        long id = seedEnabledBaseline(manager);
+
+        final EnumSet<BaselineStatus> durable = EnumSet.of(BaselineStatus.ENABLED);
+        BaselineManager.statusProtocolStoreForTest = new BaselineManager.StatusProtocolStoreForTest() {
+            @Override
+            public void insert(BaselinePlan inserted) {
+                durable.add(inserted.getStatus());
+            }
+
+            @Override
+            public void deleteByIdAndStatus(long rowId, BaselineStatus status) {
+                if (status == BaselineStatus.ENABLED) {
+                    // the DELETE commits, then reports the ambiguous error
+                    durable.remove(BaselineStatus.ENABLED);
+                    throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
+                }
+                durable.remove(status);
+            }
+
+            @Override
+            public int countByIdAndStatus(long rowId, BaselineStatus status) {
+                return durable.contains(status) ? 1 : 0;
+            }
+        };
+        try {
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "a committed old-row delete must be reconciled as success");
+            Assertions.assertEquals(BaselineStatus.DISABLED,
+                    manager.getBaseline(id).getStatus());
+            Assertions.assertTrue(durable.contains(BaselineStatus.DISABLED),
+                    "the new-status row must survive as the durable version");
+            Assertions.assertFalse(durable.contains(BaselineStatus.ENABLED));
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A delete failure that did NOT commit rolls the freshly inserted row back and keeps
+     * the old-status version - the update reports the failure and memory reverts.
+     */
+    @Test
+    public void testStatusUpdateRollsBackUncommittedDeleteFailure() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        long id = seedEnabledBaseline(manager);
+
+        final EnumSet<BaselineStatus> durable = EnumSet.of(BaselineStatus.ENABLED);
+        BaselineManager.statusProtocolStoreForTest = new BaselineManager.StatusProtocolStoreForTest() {
+            @Override
+            public void insert(BaselinePlan inserted) {
+                durable.add(inserted.getStatus());
+            }
+
+            @Override
+            public void deleteByIdAndStatus(long rowId, BaselineStatus status) {
+                if (status == BaselineStatus.ENABLED) {
+                    // the DELETE did NOT commit: the old row is still durable
+                    throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
+                }
+                durable.remove(status);
+            }
+
+            @Override
+            public int countByIdAndStatus(long rowId, BaselineStatus status) {
+                return durable.contains(status) ? 1 : 0;
+            }
+        };
+        try {
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertEquals(BaselineStatus.ENABLED,
+                    manager.getBaseline(id).getStatus(),
+                    "the in-memory flip must be reverted");
+            Assertions.assertTrue(durable.contains(BaselineStatus.ENABLED),
+                    "the old-status row must stay durable");
+            Assertions.assertFalse(durable.contains(BaselineStatus.DISABLED),
+                    "the rollback must delete the freshly inserted row");
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
     }
 }

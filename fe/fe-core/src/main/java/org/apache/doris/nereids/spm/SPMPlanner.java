@@ -276,6 +276,16 @@ public class SPMPlanner {
             if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
                 return null;
             }
+            // Classify on the PARSED TREE instead of the raw text: the fallback path
+            // stores the ORIGINAL planSql when the decompiler rejects a node (e.g.
+            // PhysicalAssertNumRows), and that ordinary SQL may merely CONTAIN one of
+            // the placeholder function names inside a string literal, identifier or
+            // comment. Substituting nothing and returning such a tree would replay the
+            // CAPTURED literals - the user's values must go through the parameterized
+            // fallback tree instead.
+            if (!SPMPlanTreeSupport.containsFrozenPlaceholder((LogicalPlan) parsed)) {
+                return null;
+            }
             SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer();
             LogicalPlan rewritten = SPMPlanTreeSupport.transform(
                     (LogicalPlan) parsed, expr -> expr.accept(replacer, placeholderValues));
@@ -656,6 +666,32 @@ public class SPMPlanner {
     public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
             String bindSql, String planSql) {
         return rebuildParameterizedTrees(bindSql, planSql, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    /**
+     * Whether a STORED planSql is a FROZEN (placeholder-carrying) text. The classifier
+     * parses the text (SPM-authored text is always rendered for the default mode) and
+     * checks the tree for REAL placeholder calls: a raw substring test would misclassify
+     * an ordinary fallback text whose literal / identifier merely contains one of the
+     * names - the replay would return the CAPTURED literals and the reload would discard
+     * the parameterized fallback tree (see the caller in BaselineManager#parsePersistedRow).
+     *
+     * @param planSql the stored planSql
+     * @return true when the text re-parses into a tree carrying placeholder calls
+     */
+    public static boolean isFrozenPlanSql(String planSql) {
+        if (planSql == null
+                || (!planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
+                && !planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC))) {
+            return false;
+        }
+        try {
+            return SPMPlanTreeSupport.containsFrozenPlaceholder(parseStoredSelect(planSql));
+        } catch (Throwable t) {
+            // unparsable text is not a replayable frozen text; treat it as ordinary so
+            // the row still loads (with its parameterized fallback when it parses there)
+            return false;
+        }
     }
 
     /**
