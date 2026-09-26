@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
+#include <brpc/server.h>
 #include <bthread/bthread.h>
 #include <bthread/types.h>
 #include <butil/errno.h>
@@ -1366,6 +1367,32 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
 void PInternalService::get_info(google::protobuf::RpcController* controller,
                                 const PProxyRequest* request, PProxyResult* response,
                                 google::protobuf::Closure* done) {
+    if (request->has_kinesis_meta_request() &&
+        !request->kinesis_meta_request().shard_ids_for_latest_sequences().empty()) {
+        // Dispatch directly to the shared scan pool; do not occupy a routine load worker
+        // while waiting for a potentially unbounded initialization scan.
+        int64_t timeout_secs = request->has_timeout_secs() ? request->timeout_secs() : -1;
+        int64_t timeout_ms = timeout_secs == -1 ? -1 : timeout_secs * 1000;
+        _exec_env->routine_load_task_executor()->get_kinesis_latest_sequence_numbers(
+                request->kinesis_meta_request(), timeout_ms,
+                [controller] {
+                    auto* cntl = static_cast<brpc::Controller*>(controller);
+                    return !cntl->server()->IsRunning() || cntl->IsCanceled();
+                },
+                [response, done](const Status& st,
+                                 const std::map<std::string, std::string>& sequences) {
+                    brpc::ClosureGuard closure_guard(done);
+                    if (st.ok()) {
+                        auto* result = response->mutable_kinesis_meta_result()
+                                               ->mutable_shard_latest_sequences();
+                        for (const auto& [shard_id, sequence] : sequences) {
+                            (*result)[shard_id] = sequence;
+                        }
+                    }
+                    st.to_protobuf(response->mutable_status());
+                });
+        return;
+    }
     bool ret = _exec_env->routine_load_task_executor()->get_thread_pool().submit_func([this,
                                                                                        request,
                                                                                        response,
@@ -1444,13 +1471,13 @@ void PInternalService::get_info(google::protobuf::RpcController* controller,
             }
         }
         if (request->has_kinesis_meta_request()) {
-            std::vector<std::string> shard_ids;
+            std::vector<PShardInfo> shard_infos;
             Status st = _exec_env->routine_load_task_executor()->get_kinesis_shard_meta(
-                    request->kinesis_meta_request(), &shard_ids);
+                    request->kinesis_meta_request(), &shard_infos);
             if (st.ok()) {
                 PKinesisMetaProxyResult* kinesis_result = response->mutable_kinesis_meta_result();
-                for (const auto& shard_id : shard_ids) {
-                    kinesis_result->add_shard_ids(shard_id);
+                for (const auto& shard_info : shard_infos) {
+                    *kinesis_result->add_shard_infos() = shard_info;
                 }
             }
             st.to_protobuf(response->mutable_status());

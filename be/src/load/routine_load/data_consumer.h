@@ -26,10 +26,12 @@
 #include <stdint.h>
 
 #include <ctime>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -46,6 +48,13 @@ namespace doris {
 
 template <typename T>
 class BlockingQueue;
+
+struct KinesisQueueItem {
+    std::string shard_id;
+    std::shared_ptr<Aws::Kinesis::Model::Record> record;
+    bool end_of_shard = false;
+    std::map<std::string, std::set<std::string>> child_shard_parent_ids;
+};
 
 class DataConsumer {
 public:
@@ -91,6 +100,8 @@ protected:
     bool _cancelled;
     time_t _last_visit_time;
 };
+
+class PShardInfo;
 
 class PIntegerPair;
 
@@ -186,7 +197,7 @@ private:
 // and sequence numbers (strings) instead of offsets (integers).
 class KinesisDataConsumer : public DataConsumer {
 public:
-    KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx);
+    KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx, int scan_request_timeout_ms = 0);
     virtual ~KinesisDataConsumer();
 
     // DataConsumer interface implementation
@@ -202,14 +213,20 @@ public:
                          const std::string& stream_name, std::shared_ptr<StreamLoadContext> ctx);
 
     // Main consumption loop - pulls records from all assigned shards
-    Status group_consume(BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-                         int64_t max_running_time_ms);
+    Status group_consume(BlockingQueue<KinesisQueueItem>* queue, int64_t max_running_time_ms);
 
     // Get list of shard IDs
-    Status get_shard_list(std::vector<std::string>* shard_ids);
+    Status get_shard_list(std::vector<PShardInfo>* shard_infos);
+
+    // Resolve LATEST by scanning retained records without loading them into Doris.
+    Status get_latest_sequence_number(const std::string& shard_id,
+                                      const std::function<Status()>& check_status,
+                                      std::string* sequence_number);
 
 private:
     // Configuration - Basic AWS settings
+    // Nonzero only for dedicated metadata scan consumers.
+    const int _scan_request_timeout_ms;
     std::string _region;
     std::string _stream;
     std::string _endpoint; // Optional custom endpoint (e.g., LocalStack)
@@ -245,28 +262,11 @@ private:
     // Updated during group_consume; read by the task executor to populate ctx after consumption.
     std::map<std::string, int64_t> _millis_behind_latest;
 
-    // Tracks the last consumed sequence number per shard.
-    // Updated during group_consume via _process_records; read by the consumer group
-    // to populate ctx->kinesis_info->cmt_sequence_number after consumption.
-    std::map<std::string, std::string> _committed_sequence_numbers;
-
-    // Tracks shards that have been closed (split/merge) during consumption.
-    // FE should remove these shards from its tracking to avoid reassigning them.
-    std::set<std::string> _closed_shard_ids;
-
 public:
     // Returns the MillisBehindLatest snapshot collected during group_consume.
     const std::map<std::string, int64_t>& get_millis_behind_latest() const {
         return _millis_behind_latest;
     }
-
-    // Returns the committed sequence numbers per shard collected during group_consume.
-    const std::map<std::string, std::string>& get_committed_sequence_numbers() const {
-        return _committed_sequence_numbers;
-    }
-
-    // Returns the set of closed shard IDs detected during group_consume.
-    const std::set<std::string>& get_closed_shard_ids() const { return _closed_shard_ids; }
 
 private:
     // Helper methods
@@ -277,11 +277,13 @@ private:
     Status _get_shard_iterator(const std::string& shard_id, const std::string& sequence_number,
                                std::string* iterator);
 
-    // Process records from GetRecords result and add to queue
-    Status _process_records(const std::string& shard_id,
-                            Aws::Kinesis::Model::GetRecordsResult result,
-                            BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-                            int64_t* received_rows, int64_t* put_rows);
+    enum class EnqueueResult { COMPLETE, QUEUE_SHUTDOWN };
+
+    // Queue shutdown is normal batch completion, but the caller must stop the whole consumer.
+    EnqueueResult _process_records(const std::string& shard_id,
+                                   Aws::Kinesis::Model::GetRecordsResult result,
+                                   BlockingQueue<KinesisQueueItem>* queue, int64_t* received_rows,
+                                   int64_t* put_rows);
 
     // Check if an AWS error is retriable (throttling, network, etc.)
     bool _is_retriable_error(const Aws::Client::AWSError<Aws::Kinesis::KinesisErrors>& error);

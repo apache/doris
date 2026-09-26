@@ -121,6 +121,8 @@ public:
     std::map<std::string, int64_t> millis_behind_latest;
     // Set of shard IDs that have been closed (split/merge) during consumption
     std::set<std::string> closed_shard_ids;
+    // child shard -> parent shard IDs observed at the end of a parent shard
+    std::map<std::string, std::set<std::string>> child_shard_parent_ids;
     // AWS credentials and custom Kinesis properties
     std::map<std::string, std::string> properties;
 };
