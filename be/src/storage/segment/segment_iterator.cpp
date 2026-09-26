@@ -519,6 +519,30 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
     }
 }
 
+bool SegmentIterator::_expr_references_placeholder_column(const VExprSPtr& expr) const {
+    if (expr == nullptr) {
+        return false;
+    }
+    if (expr->is_slot_ref()) {
+        const auto ordinal =
+                cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
+        return _segment->placeholder_effective_value(ordinal, *_schema, _opts).has_value();
+    }
+    if (expr->is_virtual_slot_ref()) {
+        // A CSE virtual slot reports only its output ordinal, so follow it into the underlying
+        // expression (as _mark_common_expr_states does) to catch a placeholder source behind it.
+        const auto& virtual_expr =
+                assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
+        return _expr_references_placeholder_column(virtual_expr);
+    }
+    for (const auto& child : expr->children()) {
+        if (_expr_references_placeholder_column(child)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void SegmentIterator::_initialize_predicate_results() {
     // Initialize from _col_predicates
     for (auto pred : _col_predicates) {
@@ -1273,23 +1297,11 @@ Status SegmentIterator::_apply_index_expr() {
         }
         ++considered_conjuncts;
         // A hidden placeholder column's inverted index holds the on-disk placeholder, not the value
-        // rows come back with. Evaluating a pushed-down conjunct that references one against the
-        // index (e.g. `__DORIS_VERSION_COL__ = <real version> AND indexed_col = ...`) would drop
-        // matching rows before read-time substitution, so leave the whole conjunct to the row-level
-        // path, which sees the substituted value.
-        {
-            std::set<int> expr_column_ids;
-            expr_ctx->root()->collect_slot_column_ids(expr_column_ids);
-            bool references_placeholder = false;
-            for (const int expr_cid : expr_column_ids) {
-                if (_segment->placeholder_effective_value(expr_cid, *_schema, _opts).has_value()) {
-                    references_placeholder = true;
-                    break;
-                }
-            }
-            if (references_placeholder) {
-                continue;
-            }
+        // rows come back with, so evaluating a conjunct that references one (directly or behind a CSE
+        // virtual slot) against the index would drop rows before read-time substitution. Leave it to
+        // the row-level path, which sees the substituted value.
+        if (_expr_references_placeholder_column(expr_ctx->root())) {
+            continue;
         }
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
@@ -1322,6 +1334,12 @@ Status SegmentIterator::_apply_index_expr() {
             break;
         }
         if (expr_ctx->get_index_context() == nullptr) {
+            continue;
+        }
+        // A virtual projection wrapping a placeholder column would compute its result from the
+        // on-disk placeholder bitmap; skip it so fast_execute() materializes from the
+        // read-time-substituted values instead.
+        if (_expr_references_placeholder_column(expr_ctx->root())) {
             continue;
         }
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {

@@ -190,6 +190,9 @@ private:
     void _init_column_states();
     void _rebuild_scan_predicate_states();
     void _mark_common_expr_states(const VExprSPtr& expr);
+    // True when `expr` references a hidden placeholder column (directly or behind a CSE virtual
+    // slot) whose on-disk value is replaced at read time; such a column's index must not prune.
+    bool _expr_references_placeholder_column(const VExprSPtr& expr) const;
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
