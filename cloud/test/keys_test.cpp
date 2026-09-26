@@ -24,6 +24,9 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "common/util.h"
@@ -58,31 +61,6 @@ void encode_bytes(std::string_view bytes, std::string* b);
 int decode_bytes(std::string_view* in, std::string* out);
 } // namespace doris::cloud
 
-// clang-format off
-// Possible key encoding schemas:
-//
-// 0x01 "instance" ${instance_id} -> InstanceInfoPB
-// 
-// 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label} -> TxnLabelPB ${version_timestamp}
-// 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${version_timestamp} -> TxnInfoPB
-// 0x01 "txn" ${instance_id} "txn_index" ${version_timestamp} -> TxnIndexPB
-// 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${version_timestamp} -> TxnRunningPB // creaet at begin, delete at commit
-//
-// 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
-// 
-// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version} ${rowset_id} -> RowsetMetaCloudPB
-// 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${rowset_id} -> RowsetMetaCloudPB
-// 0x01 "meta" ${instance_id} "tablet" ${table_id} ${tablet_id} -> TabletMetaCloudPB
-// 0x01 "meta" ${instance_id} "tablet_table" ${tablet_id} -> ${table_id}
-// 0x01 "meta" ${instance_id} "tablet_tmp" ${table_id} ${tablet_id} -> TabletMetaCloudPB
-// 
-// 0x01 "trash" ${instacne_id} "table" -> TableTrashPB
-// 
-// 0x01 "node_status" ${instance_id} "compute" ${backend_id} -> ComputeNodeStatusPB
-//
-// 0x01 "job" ${instance_id} "streaming_job" ${db_id} ${job_id} -> StreamingJobPB
-// clang-format on
-
 TEST(KeysTest, InstanceKeyTest) {
     using namespace doris::cloud;
 
@@ -104,6 +82,64 @@ TEST(KeysTest, InstanceKeyTest) {
 
     EXPECT_EQ("instance", dec_instance_prefix);
     EXPECT_EQ(instance_id, dec_instance_id);
+}
+
+TEST(KeysTest, FixedEncodingGoldenTest) {
+    using namespace doris::cloud;
+
+    static_assert(!std::is_convertible_v<MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo>);
+    static_assert(std::is_constructible_v<MetaRowsetTmpKeyInfo, MetaRowsetKeyInfo>);
+
+    EXPECT_EQ(hex(txn_tso_fence_key({"gavin-instance"})),
+              "011074786e000110676176696e2d696e7374616e636500011074736f5f66656e63650001");
+    EXPECT_EQ(hex(mow_tablet_job_key({"gavin-instance", 10086, 10010})),
+              "01106d657461000110676176696e2d696e7374616e63650001106d6f775f7461626c65745f"
+              "6a6f62000112000000000000276612000000000000271a");
+    EXPECT_EQ(hex(storage_vault_key({"gavin-instance", "vault-id"})),
+              "011073746f726167655f7661756c74000110676176696e2d696e7374616e6365000110766175"
+              "6c740001107661756c742d69640001");
+    EXPECT_EQ(hex(meta_schema_pb_dictionary_key({"gavin-instance", 10086})),
+              "01106d657461000110676176696e2d696e7374616e63650001107461626c65745f736368656d"
+              "615f70625f646963740001120000000000002766");
+
+    const std::string table_stream_key =
+            table_stream_offset_key({"gavin-instance", 10000, 20000, 30000, 40000, 50000});
+    const std::string table_stream_prefix =
+            table_stream_offset_key_prefix("gavin-instance", 10000, 20000, 30000, 40000);
+    EXPECT_EQ(hex(table_stream_key),
+              "01106d657461000110676176696e2d696e7374616e63650001107461626c655f73747265616d"
+              "5f6f66667365740001120000000000002710120000000000004e201200000000000075301200"
+              "00000000009c4012000000000000c350");
+    EXPECT_EQ(hex(table_stream_prefix),
+              "01106d657461000110676176696e2d696e7374616e63650001107461626c655f73747265616d"
+              "5f6f66667365740001120000000000002710120000000000004e201200000000000075301200"
+              "00000000009c40");
+    EXPECT_TRUE(table_stream_key.starts_with(table_stream_prefix));
+
+    const std::string versioned_table_stream_key = versioned::table_stream_offset_key(
+            {"gavin-instance", 10000, 20000, 30000, 40000, 50000});
+    const std::string versioned_table_stream_prefix =
+            versioned::table_stream_offset_key_prefix("gavin-instance", 10000, 20000, 30000, 40000);
+    EXPECT_EQ(hex(versioned_table_stream_key),
+              "03106d657461000110676176696e2d696e7374616e63650001107461626c655f73747265616d"
+              "5f6f66667365740001120000000000002710120000000000004e201200000000000075301200"
+              "00000000009c4012000000000000c350");
+    EXPECT_EQ(hex(versioned_table_stream_prefix),
+              "03106d657461000110676176696e2d696e7374616e63650001107461626c655f73747265616d"
+              "5f6f66667365740001120000000000002710120000000000004e201200000000000075301200"
+              "00000000009c40");
+    EXPECT_TRUE(versioned_table_stream_key.starts_with(versioned_table_stream_prefix));
+
+    const std::string all_partitions_lock =
+            meta_delete_bitmap_update_lock_key({"gavin-instance", 10086, -1});
+    EXPECT_EQ(hex(all_partitions_lock),
+              "01106d657461000110676176696e2d696e7374616e636500011064656c6574655f6269746d61"
+              "705f6c6f636b0001120000000000002766110000000000000001");
+    EXPECT_LT(all_partitions_lock,
+              meta_delete_bitmap_update_lock_key({"gavin-instance", 10086, 0}));
+    EXPECT_LT(meta_delete_bitmap_update_lock_key({"gavin-instance", 10086, 0}),
+              meta_delete_bitmap_update_lock_key(
+                      {"gavin-instance", 10086, std::numeric_limits<int64_t>::max()}));
 }
 
 TEST(KeysTest, MetaKeysTest) {
@@ -150,18 +186,18 @@ TEST(KeysTest, MetaKeysTest) {
     }
 
     // tmp rowset meta key
-    // 0x01 "meta" ${instance_id} "rowset_tmp" ${tablet_id} ${version}
+    // 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}
     {
-        int64_t tablet_id = 10086;
-        int64_t version = 100;
-        MetaRowsetKeyInfo rowset_key {instance_id, tablet_id, version};
+        int64_t txn_id = 10086;
+        int64_t tablet_id = 100;
+        MetaRowsetTmpKeyInfo rowset_key {instance_id, txn_id, tablet_id};
         std::string encoded_rowset_key0;
         meta_rowset_tmp_key(rowset_key, &encoded_rowset_key0);
         std::cout << hex(encoded_rowset_key0) << std::endl;
 
         std::string dec_instance_id;
+        int64_t dec_txn_id = 0;
         int64_t dec_tablet_id = 0;
-        int64_t dec_version = 0;
 
         std::string_view key_sv(encoded_rowset_key0);
         std::string dec_meta_prefix;
@@ -170,17 +206,17 @@ TEST(KeysTest, MetaKeysTest) {
         ASSERT_EQ(decode_bytes(&key_sv, &dec_meta_prefix), 0);
         ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
         ASSERT_EQ(decode_bytes(&key_sv, &dec_rowset_prefix), 0);
-        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0) << hex(key_sv);
-        ASSERT_EQ(decode_int64(&key_sv, &dec_version), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_txn_id), 0) << hex(key_sv);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_tablet_id), 0);
         ASSERT_TRUE(key_sv.empty());
 
         EXPECT_EQ("meta", dec_meta_prefix);
         EXPECT_EQ("rowset_tmp", dec_rowset_prefix);
         EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(txn_id, dec_txn_id);
         EXPECT_EQ(tablet_id, dec_tablet_id);
-        EXPECT_EQ(version, dec_version);
 
-        std::get<2>(rowset_key) = version + 1;
+        std::get<2>(rowset_key) = tablet_id + 1;
         std::string encoded_rowset_key1;
         meta_rowset_tmp_key(rowset_key, &encoded_rowset_key1);
         std::cout << hex(encoded_rowset_key1) << std::endl;
@@ -227,7 +263,7 @@ TEST(KeysTest, MetaKeysTest) {
         EXPECT_EQ(partition_id, dec_partition_id);
         EXPECT_EQ(tablet_id, dec_tablet_id);
 
-        std::get<2>(tablet_key) = tablet_id + 1;
+        std::get<4>(tablet_key) = tablet_id + 1;
         std::string encoded_rowset_key1;
         meta_tablet_key(tablet_key, &encoded_rowset_key1);
         std::cout << hex(encoded_rowset_key1) << std::endl;
@@ -429,7 +465,7 @@ TEST(KeysTest, TxnKeysTest) {
         ASSERT_GT(encoded_txn_index_key1, encoded_txn_index_key0);
     }
 
-    // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${version_timestamp} -> TxnInfoPB
+    // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id} -> TxnInfoPB
     {
         int64_t db_id = 12345678;
         int64_t txn_id = 10086;
@@ -474,7 +510,7 @@ TEST(KeysTest, TxnKeysTest) {
         ASSERT_GT(encoded_txn_info_key2, encoded_txn_info_key0);
     }
 
-    // 0x01 "txn" ${instance_id} "txn_index" ${version_timestamp} -> TxnIndexPB
+    // 0x01 "txn" ${instance_id} "txn_index" ${txn_id} -> TxnIndexPB
     {
         int64_t txn_id = 12343212453;
         TxnIndexKeyInfo txn_index_key_ {instance_id, txn_id};
@@ -508,7 +544,7 @@ TEST(KeysTest, TxnKeysTest) {
         ASSERT_GT(encoded_txn_index_key1, encoded_txn_index_key0);
     }
 
-    // 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${version_timestamp} -> ${table_id_list}
+    // 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id} -> ${table_id_list}
     {
         int64_t db_id = 98712345;
         int64_t txn_id = 12343212453;
@@ -1081,7 +1117,7 @@ TEST(KeysTest, CopyKeysTest) {
         EXPECT_EQ(group_id, dec_group_id);
     }
 
-    // 0x01 "copy" ${instance_id} "loading_files" ${stage_id} ${table_id} ${obj_name} ${etag}    -> CopyFilePB
+    // 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag} -> CopyFilePB
     {
         std::string stage_id = "9482049283";
         int64_t table_id = 3745823784;
@@ -1119,20 +1155,6 @@ TEST(KeysTest, CopyKeysTest) {
         EXPECT_EQ(obj_name, dec_obj_name);
         EXPECT_EQ(etag, dec_etag);
     }
-}
-
-TEST(KeysTest, DecodeKeysTest) {
-    using namespace doris::cloud;
-    // clang-format off
-    std::string key = "011074786e000110696e7374616e63655f69645f646561646265656600011074786e5f696e646578000112000000000000271310696e736572745f336664356164313264303035346139622d386337373664333231386336616462370001";
-    // clang-format on
-    auto pretty_key = prettify_key(key);
-    ASSERT_TRUE(!pretty_key.empty()) << key;
-    std::cout << "\n" << pretty_key << std::endl;
-
-    pretty_key = prettify_key(key, true);
-    ASSERT_TRUE(!pretty_key.empty()) << key;
-    std::cout << "\n" << pretty_key << std::endl;
 }
 
 TEST(KeysTest, MetaSchemaPBDictionaryTest) {
@@ -2529,6 +2551,23 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
     SnapshotReferenceKeyInfo key_info {instance_id, timestamp, ref_instance_id};
     std::string encoded_key = snapshot_reference_key(key_info);
 
+    std::string prefix = snapshot_reference_key_prefix(instance_id);
+    EXPECT_TRUE(encoded_key.starts_with(prefix));
+    {
+        std::string_view prefix_view = prefix;
+        remove_versioned_space_prefix(&prefix_view);
+        std::string decoded_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_infix;
+        ASSERT_EQ(decode_bytes(&prefix_view, &decoded_prefix), 0);
+        ASSERT_EQ(decode_bytes(&prefix_view, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&prefix_view, &decoded_infix), 0);
+        EXPECT_TRUE(prefix_view.empty());
+        EXPECT_EQ(decoded_prefix, "snapshot");
+        EXPECT_EQ(decoded_instance_id, instance_id);
+        EXPECT_EQ(decoded_infix, "reference");
+    }
+
     // Test decode_snapshot_ref_key - decode all fields
     {
         std::string dec_instance_id;
@@ -2539,6 +2578,7 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         bool ret = decode_snapshot_ref_key(&key_view, &dec_instance_id, &dec_timestamp,
                                            &dec_ref_instance_id);
         ASSERT_TRUE(ret);
+        EXPECT_TRUE(key_view.empty());
         EXPECT_EQ(dec_instance_id, instance_id);
         EXPECT_EQ(dec_timestamp, timestamp);
         EXPECT_EQ(dec_ref_instance_id, ref_instance_id);
@@ -2550,6 +2590,7 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         std::string_view key_view = encoded_key;
         bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
         ASSERT_TRUE(ret);
+        EXPECT_TRUE(key_view.empty());
         EXPECT_EQ(dec_ref_instance_id, ref_instance_id);
     }
 
@@ -2560,6 +2601,7 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         std::string_view key_view = encoded_key;
         bool ret = decode_snapshot_ref_key(&key_view, &dec_instance_id, &dec_timestamp, nullptr);
         ASSERT_TRUE(ret);
+        EXPECT_TRUE(key_view.empty());
         EXPECT_EQ(dec_instance_id, instance_id);
         EXPECT_EQ(dec_timestamp, timestamp);
     }
@@ -2579,6 +2621,31 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         std::string_view key_view = invalid_key;
         bool ret = decode_snapshot_ref_key(&key_view, nullptr, nullptr, &dec_ref_instance_id);
         ASSERT_FALSE(ret);
+    }
+
+    // Every strict prefix of a valid key must be rejected without throwing.
+    for (size_t size = 0; size < encoded_key.size(); ++size) {
+        SCOPED_TRACE(size);
+        std::string_view key_view(encoded_key.data(), size);
+        EXPECT_FALSE(decode_snapshot_ref_key(&key_view, nullptr, nullptr, nullptr));
+    }
+
+    // A successfully decoded key may retain a caller-owned suffix.
+    {
+        std::string key_with_suffix = encoded_key;
+        key_with_suffix.push_back('\0');
+        std::string_view key_view = key_with_suffix;
+        EXPECT_TRUE(decode_snapshot_ref_key(&key_view, nullptr, nullptr, nullptr));
+        EXPECT_EQ(key_view, std::string_view("\0", 1));
+    }
+
+    // The timestamp field must carry a versionstamp tag, not merely another decodable field.
+    {
+        std::string invalid_key = prefix;
+        encode_int64(1, &invalid_key);
+        encode_bytes(ref_instance_id, &invalid_key);
+        std::string_view key_view = invalid_key;
+        EXPECT_FALSE(decode_snapshot_ref_key(&key_view, nullptr, nullptr, nullptr));
     }
 
     // Test with multiple ref_instance_ids to ensure uniqueness
@@ -2602,10 +2669,97 @@ TEST(KeysTest, DecodeSnapshotRefKeyTest) {
         ASSERT_TRUE(decode_snapshot_ref_key(&key_view1, nullptr, nullptr, &dec_ref1));
         ASSERT_TRUE(decode_snapshot_ref_key(&key_view2, nullptr, nullptr, &dec_ref2));
         ASSERT_TRUE(decode_snapshot_ref_key(&key_view3, nullptr, nullptr, &dec_ref3));
+        EXPECT_TRUE(key_view1.empty());
+        EXPECT_TRUE(key_view2.empty());
+        EXPECT_TRUE(key_view3.empty());
 
         EXPECT_EQ(dec_ref1, ref_id1);
         EXPECT_EQ(dec_ref2, ref_id2);
         EXPECT_EQ(dec_ref3, ref_id3);
+    }
+}
+
+TEST(KeysTest, VersionedDecodersRequireExactSchema) {
+    using namespace doris::cloud;
+
+    const Versionstamp timestamp(123, 4);
+    auto append_timestamp = [&](std::string key) {
+        encode_versionstamp(timestamp, &key);
+        encode_versionstamp_end(&key);
+        return key;
+    };
+    auto append_int = [](std::string key) {
+        encode_int64(123, &key);
+        return key;
+    };
+
+    {
+        std::string valid_key =
+                append_timestamp(versioned::table_version_key({"instance-id", 100}));
+        std::string_view key_view = valid_key;
+        int64_t table_id = 0;
+        Versionstamp decoded_timestamp;
+        ASSERT_TRUE(versioned::decode_table_version_key(&key_view, &table_id, &decoded_timestamp));
+        EXPECT_TRUE(key_view.empty());
+        EXPECT_EQ(table_id, 100);
+        EXPECT_EQ(decoded_timestamp, timestamp);
+
+        std::string invalid_key = append_int(versioned::table_version_key({"instance-id", 100}));
+        key_view = invalid_key;
+        EXPECT_FALSE(versioned::decode_table_version_key(&key_view, &table_id, &decoded_timestamp));
+
+        invalid_key.assign(1, static_cast<char>(CLOUD_VERSIONED_KEY_SPACE03));
+        encode_bytes("version", &invalid_key);
+        encode_int64(1, &invalid_key); // instance_id must be encoded as bytes.
+        encode_bytes("table", &invalid_key);
+        encode_int64(100, &invalid_key);
+        invalid_key = append_timestamp(std::move(invalid_key));
+        key_view = invalid_key;
+        EXPECT_FALSE(versioned::decode_table_version_key(&key_view, &table_id, &decoded_timestamp));
+    }
+
+    {
+        std::string invalid_key = append_int(versioned::meta_partition_key({"instance-id", 101}));
+        std::string_view key_view = invalid_key;
+        int64_t partition_id = 0;
+        Versionstamp decoded_timestamp;
+        EXPECT_FALSE(
+                versioned::decode_meta_partition_key(&key_view, &partition_id, &decoded_timestamp));
+    }
+
+    {
+        std::string invalid_key = append_int(versioned::meta_index_key({"instance-id", 102}));
+        std::string_view key_view = invalid_key;
+        int64_t index_id = 0;
+        Versionstamp decoded_timestamp;
+        EXPECT_FALSE(versioned::decode_meta_index_key(&key_view, &index_id, &decoded_timestamp));
+    }
+
+    {
+        std::string invalid_key = append_int(versioned::meta_tablet_key({"instance-id", 103}));
+        std::string_view key_view = invalid_key;
+        int64_t tablet_id = 0;
+        Versionstamp decoded_timestamp;
+        EXPECT_FALSE(versioned::decode_meta_tablet_key(&key_view, &tablet_id, &decoded_timestamp));
+
+        invalid_key = versioned::meta_tablet_key({"instance-id", 103});
+        encode_int64(104, &invalid_key);
+        invalid_key = append_timestamp(std::move(invalid_key));
+        key_view = invalid_key;
+        EXPECT_FALSE(versioned::decode_meta_tablet_key(&key_view, &tablet_id, &decoded_timestamp));
+    }
+
+    {
+        std::string invalid_key =
+                versioned::partition_inverted_index_key({"instance-id", 100, 101, 102});
+        ASSERT_GT(invalid_key.size(), 2);
+        invalid_key[2] = 'x'; // Corrupt the encoded "index" family prefix.
+        std::string_view key_view = invalid_key;
+        int64_t db_id = 0;
+        int64_t table_id = 0;
+        int64_t partition_id = 0;
+        EXPECT_FALSE(versioned::decode_partition_inverted_index_key(&key_view, &db_id, &table_id,
+                                                                    &partition_id));
     }
 }
 

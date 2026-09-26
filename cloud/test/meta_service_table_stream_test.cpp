@@ -399,7 +399,10 @@ protected:
             txn->put(table_stream_offset_key(key_info), value);
         }
         txn->enable_get_versionstamp();
-        versioned_put(txn.get(), versioned::table_stream_offset_key(key_info), value);
+        versioned_put(
+                txn.get(),
+                versioned::table_stream_offset_key(versioned::TableStreamOffsetKeyInfo(key_info)),
+                value);
         EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         Versionstamp version;
         EXPECT_EQ(txn->get_versionstamp(&version), TxnErrorCode::TXN_OK);
@@ -1869,8 +1872,9 @@ TEST_F(MetaServiceTableStreamTest, CommitRejectsDifferentLatestAndVersionedOffse
     txn->put(table_stream_offset_key(key_info), latest_offset.SerializeAsString());
     TableStreamOffsetPB versioned_offset = latest_offset;
     versioned_offset.set_last_consumption_time_ms(1235);
-    versioned_put(txn.get(), versioned::table_stream_offset_key(key_info), Versionstamp(43, 0),
-                  versioned_offset.SerializeAsString());
+    versioned_put(txn.get(),
+                  versioned::table_stream_offset_key(versioned::TableStreamOffsetKeyInfo(key_info)),
+                  Versionstamp(43, 0), versioned_offset.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     int64_t txn_id = begin_target_transaction("consume-inconsistent-offset-values");
@@ -2094,7 +2098,9 @@ TEST_F(MetaServiceTableStreamTest, CommitWritesOffsetsForEachMultiVersionMode) {
                                                      identity_.stream_id(),
                                                      partition_id};
             txn->put(table_stream_offset_key(key_info), latest_offset.SerializeAsString());
-            versioned_put(txn.get(), versioned::table_stream_offset_key(key_info),
+            versioned_put(txn.get(),
+                          versioned::table_stream_offset_key(
+                                  versioned::TableStreamOffsetKeyInfo(key_info)),
                           latest_offset.SerializeAsString());
             ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         } else {

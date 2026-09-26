@@ -19,6 +19,8 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
+#include <set>
+
 #include "common/defer.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -193,7 +195,7 @@ txn_id=126419752960)",
     Input {
         "TxnTsoFenceKey",
         "instance_id=gavin-instance",
-        {hex(txn_tso_fence_key({"gavin-instance"}))},
+        {"011074786e000110676176696e2d696e7374616e636500011074736f5f66656e63650001"},
         []() -> std::vector<std::string> {
             TxnTsoFencePB pb;
             pb.set_fence_tso(100);
@@ -257,7 +259,7 @@ txn_id=126419752960)",
     Input {
         "TableStreamOffsetKey",
         "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&stream_id=40000&partition_id=50000",
-        {hex(table_stream_offset_key({"gavin-instance", 10000, 20000, 30000, 40000, 50000}))},
+        {"01106d657461000110676176696e2d696e7374616e63650001107461626c655f73747265616d5f6f66667365740001120000000000002710120000000000004e20120000000000007530120000000000009c4012000000000000c350"},
         []() -> std::vector<std::string> {
             TableStreamOffsetPB pb;
             pb.set_partition_id(50000);
@@ -357,6 +359,8 @@ txn_id=126419752960)",
             "01107374617473000110676176696e2d696e7374616e63650001107461626c6574000112000000000000276612000000000000271a1200000000000027101200000000000f63d9106e756d5f726f77730001",
             "01107374617473000110676176696e2d696e7374616e63650001107461626c6574000112000000000000276612000000000000271a1200000000000027101200000000000f63d9106e756d5f726f77736574730001",
             "01107374617473000110676176696e2d696e7374616e63650001107461626c6574000112000000000000276612000000000000271a1200000000000027101200000000000f63d9106e756d5f736567730001",
+            "01107374617473000110676176696e2d696e7374616e63650001107461626c6574000112000000000000276612000000000000271a1200000000000027101200000000000f63d910696e6465785f73697a650001",
+            "01107374617473000110676176696e2d696e7374616e63650001107461626c6574000112000000000000276612000000000000271a1200000000000027101200000000000f63d9107365676d656e745f73697a650001",
         },
         []() -> std::vector<std::string> {
             TabletStatsPB pb;
@@ -371,11 +375,11 @@ txn_id=126419752960)",
             pb.set_num_segments(12);
             pb.set_index_size(1);
             pb.set_segment_size(1);
-            return {pb.SerializeAsString(), {"\x01\x00\x00\x00\x00\x00\x00\x00",8}, {"\x02\x00\x00\x00\x00\x00\x00\x00",8}, {"\x03\x00\x00\x00\x00\x00\x00\x00",8}, {"\x04\x00\x00\x00\x00\x00\x00\x00",8}};
+            return {pb.SerializeAsString(), {"\x01\x00\x00\x00\x00\x00\x00\x00",8}, {"\x02\x00\x00\x00\x00\x00\x00\x00",8}, {"\x03\x00\x00\x00\x00\x00\x00\x00",8}, {"\x04\x00\x00\x00\x00\x00\x00\x00",8}, {"\x05\x00\x00\x00\x00\x00\x00\x00",8}, {"\x06\x00\x00\x00\x00\x00\x00\x00",8}};
         },
         R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
-detached_stats: {"data_size":"1","num_rows":"2","num_rowsets":"3","num_segments":"4","index_size":"0","segment_size":"0"}
-merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"3","num_rows":"12","num_rowsets":"14","num_segments":"16","index_size":"1","segment_size":"1"}
+detached_stats: {"data_size":"1","num_rows":"2","num_rowsets":"3","num_segments":"4","index_size":"5","segment_size":"6"}
+merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008601"},"data_size":"3","num_rows":"12","num_rowsets":"14","num_segments":"16","index_size":"6","segment_size":"7"}
 )",
     },
     Input { // aggregated_stats + half detached_stats (num_segs == 0, there is num_rowsets detached stats)
@@ -417,7 +421,7 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
             idx->set_table_id(10086);
             idx->set_index_id(100010);
             idx->set_partition_id(10000);
-            idx->set_tablet_id(1008602);
+            idx->set_tablet_id(1008603);
             pb.set_data_size(2);
             pb.set_num_rows(10);
             pb.set_num_rowsets(11);
@@ -426,9 +430,9 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
             pb.set_segment_size(1);
             return {pb.SerializeAsString()};
         },
-        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
+        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008603"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
 detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"0","num_segments":"0","index_size":"0","segment_size":"0"}
-merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
+merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008603"},"data_size":"2","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"1","segment_size":"1"}
 )",
     },
     Input {
@@ -568,6 +572,30 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
         R"({"partition_to_offset":{"1000":"1234"}})",
     },
     Input {
+        "StorageVaultKey",
+        "instance_id=gavin-instance&vault_id=vault-id",
+        {"011073746f726167655f7661756c74000110676176696e2d696e7374616e63650001107661756c740001107661756c742d69640001"},
+        []() -> std::vector<std::string> {
+            StorageVaultPB pb;
+            pb.set_id("vault-id");
+            pb.set_name("vault-name");
+            return {pb.SerializeAsString()};
+        },
+        R"({"id":"vault-id","name":"vault-name"})",
+    },
+    Input {
+        "MetaSchemaPBDictionaryKey",
+        "instance_id=gavin-instance&index_id=10086",
+        {"01106d657461000110676176696e2d696e7374616e63650001107461626c65745f736368656d615f70625f646963740001120000000000002766"},
+        []() -> std::vector<std::string> {
+            doris::SchemaCloudDictionary pb;
+            pb.set_current_column_dict_id(1);
+            pb.set_current_index_dict_id(2);
+            return {pb.SerializeAsString()};
+        },
+        R"({"current_column_dict_id":"1","current_index_dict_id":"2"})",
+    },
+    Input {
         "MetaServiceRegistryKey",
         "",
         {"021073797374656d0001106d6574612d7365727669636500011072656769737472790001"},
@@ -634,7 +662,8 @@ TEST(HttpEncodeKeyTest, process_http_encode_key_test_cover_all_template) {
         EXPECT_EQ(uri.SetHttpURL(url.str()), 0); // clear and set query string
         auto http_res = process_http_encode_key(uri);
         EXPECT_EQ(http_res.status_code, 200);
-        EXPECT_NE(http_res.body.find(input.key[0]), std::string::npos)
+        const std::string encoded_key_line = "\n" + input.key[0] + "\n";
+        EXPECT_NE(http_res.body.find(encoded_key_line), std::string::npos)
                 << "real full text: " << http_res.body << "\nexpect contains: " << input.key[0];
     }
 }
@@ -896,8 +925,7 @@ static auto versioned_test_inputs = std::array {
     Input {
         "VersionedTableStreamOffsetKey",
         "instance_id=gavin-instance&base_db_id=10000&base_table_id=20000&stream_db_id=30000&stream_id=40000&partition_id=50000",
-        {hex(versioned::table_stream_offset_key(
-                {"gavin-instance", 10000, 20000, 30000, 40000, 50000}))},
+        {"03106d657461000110676176696e2d696e7374616e63650001107461626c655f73747265616d5f6f66667365740001120000000000002710120000000000004e20120000000000007530120000000000009c4012000000000000c350"},
         []() -> std::vector<std::string> {
             TableStreamOffsetPB pb;
             pb.set_partition_id(50000);
@@ -924,6 +952,27 @@ static auto versioned_test_inputs = std::array {
 };
 // clang-format on
 
+// Keep the HTTP key registries and their golden fixtures in one-to-one correspondence.
+TEST(HttpEncodeKeyTest, RegisteredKeyTypesMatchGoldenFixtures) {
+    std::set<std::string_view> fixture_key_types;
+    for (const auto& input : test_inputs) {
+        fixture_key_types.insert(input.key_type);
+    }
+    const auto supported_key_types = get_supported_http_key_types();
+    const std::set<std::string_view> registered_key_types(supported_key_types.begin(),
+                                                          supported_key_types.end());
+    EXPECT_EQ(fixture_key_types, registered_key_types);
+
+    std::set<std::string_view> versioned_fixture_key_types;
+    for (const auto& input : versioned_test_inputs) {
+        versioned_fixture_key_types.insert(input.key_type);
+    }
+    const auto supported_versioned_key_types = get_supported_http_versioned_key_types();
+    const std::set<std::string_view> registered_versioned_key_types(
+            supported_versioned_key_types.begin(), supported_versioned_key_types.end());
+    EXPECT_EQ(versioned_fixture_key_types, registered_versioned_key_types);
+}
+
 TEST(HttpEncodeKeyTest, process_http_encode_versioned_key_test) {
     static auto format_fdb_key = [](const std::string& s) {
         std::stringstream r;
@@ -944,7 +993,8 @@ TEST(HttpEncodeKeyTest, process_http_encode_versioned_key_test) {
         EXPECT_EQ(uri.SetHttpURL(url.str()), 0); // clear and set query string
         auto http_res = process_http_encode_key(uri);
         EXPECT_EQ(http_res.status_code, 200) << "Failed for key_type: " << input.key_type;
-        EXPECT_NE(http_res.body.find(input.key[0]), std::string::npos)
+        const std::string encoded_key_line = "\n" + input.key[0] + "\n";
+        EXPECT_NE(http_res.body.find(encoded_key_line), std::string::npos)
                 << "real full text: " << http_res.body << "\nexpect contains: " << input.key[0]
                 << "\n"
                 << format_fdb_key(input.key[0]) << "\nkey_type: " << input.key_type
@@ -965,10 +1015,11 @@ TEST(HttpEncodeKeyTest, process_http_encode_versioned_key_with_versionstamp) {
 
     auto http_res = process_http_encode_key(uri);
     EXPECT_EQ(http_res.status_code, 200);
-    // The encoded key should contain both the base key and the versionstamp
-    EXPECT_NE(http_res.body.find("031076657273696f6e000110676176696e2d696e7374616e63650001107061727"
-                                 "46974696f6e0001120000000000002766"),
-              std::string::npos);
+    const std::string encoded_key_line =
+            "\n031076657273696f6e000110676176696e2d696e7374616e6365000110706172746974696f6e"
+            "00011200000000000027661300000000000000010001ff\n";
+    EXPECT_NE(http_res.body.find(encoded_key_line), std::string::npos)
+            << "real full text: " << http_res.body << "\nexpect contains: " << encoded_key_line;
 }
 
 TEST(HttpGetValueTest, process_http_get_value_versioned_key_test) {
