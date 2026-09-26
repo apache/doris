@@ -25,7 +25,6 @@ import org.apache.doris.nereids.spm.BaselineScope;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.nereids.spm.SPMPlanner;
-import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.repository.ResultRow;
@@ -140,6 +139,11 @@ public class BaselineManager {
     /** Removes one baseline row by id + its previous status (status UPDATE support). */
     private static final String DELETE_BY_ID_AND_STATUS_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
             + " WHERE `id` = ${id} AND `status` = '${status}'";
+
+    /** Reconciliation read of the ambiguous status-update path: how many durable rows
+     *  currently carry (id, status). */
+    private static final String COUNT_BY_ID_AND_STATUS_SQL = "SELECT COUNT(*) FROM "
+            + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${status}'";
 
     /** DATETIME column format (internal table create_time / update_time). */
     private static final DateTimeFormatter TS_FORMAT =
@@ -472,9 +476,29 @@ public class BaselineManager {
                 persistInsert(plan);
                 persistDeleteByIdAndStatus(id, previousStatus);
             } catch (RuntimeException e) {
-                // repair: delete the freshly inserted row by its (new) status - the old row
-                // was not touched yet, so the durable state is the old row again - then
-                // revert memory so memory and the table agree
+                // The INSERT(new) / DELETE(old) pair spans two statements whose outcomes
+                // can be AMBIGUOUS: a delete may commit but report KV_TXN_MAYBE_COMMITTED.
+                // Reconcile against the durable table before compensating - blindly
+                // deleting the NEW row erases the only durable version when the old-row
+                // delete actually committed. At least one version must survive:
+                //  - the old row is gone and the new row is durable -> the delete
+                //    committed; keep the new row (and the in-memory flip) and report
+                //    success;
+                //  - the old row is still durable -> the delete did not commit; delete
+                //    the freshly inserted row again and revert memory. A rollback that
+                //    also fails leaves both rows behind, and the load path resolves the
+                //    duplicate deterministically (pickDurableWinner) - never nothing.
+                if (oldRowDeletedDurably(id, previousStatus, status)) {
+                    stateLock.writeLock().lock();
+                    try {
+                        stateVersion++;
+                    } finally {
+                        stateLock.writeLock().unlock();
+                    }
+                    LOG.warn("SPM status update of baseline {} committed despite an ambiguous"
+                            + " persist error; keeping the new-status row", id, e);
+                    return true;
+                }
                 try {
                     persistDeleteByIdAndStatus(id, status);
                 } catch (RuntimeException repairFailure) {
@@ -494,6 +518,69 @@ public class BaselineManager {
             return true;
         }
     }
+
+    /**
+     * Reconciles an ambiguous status-update failure: whether the OLD-row delete actually
+     * committed although it reported an error (e.g. KV_TXN_MAYBE_COMMITTED). Reads the
+     * durable rows back: the old row missing while the new one is present means the
+     * delete committed and the update succeeded. When the durable state cannot be read
+     * the answer is "no" and the caller keeps BOTH rows instead of a blind compensating
+     * delete - the load path resolves duplicate rows deterministically
+     * (pickDurableWinner), so at least one version survives.
+     */
+    private static boolean oldRowDeletedDurably(long id, BaselineStatus previousStatus,
+            BaselineStatus newStatus) {
+        try {
+            return durableRowCount(id, previousStatus) == 0
+                    && durableRowCount(id, newStatus) > 0;
+        } catch (Throwable t) {
+            LOG.warn("SPM cannot reconcile the status update of baseline {}, keeping both rows:"
+                    + " {}", id, t.getMessage());
+            return false;
+        }
+    }
+
+    /** Number of durable rows currently carrying (id, status). */
+    private static int durableRowCount(long id, BaselineStatus status) {
+        if (statusProtocolStoreForTest != null) {
+            return statusProtocolStoreForTest.countByIdAndStatus(id, status);
+        }
+        if (!persistenceEnabled()) {
+            return 0;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        params.put("status", status.name());
+        try {
+            List<ResultRow> rows = StatisticsUtil.executeQuery(COUNT_BY_ID_AND_STATUS_SQL, params,
+                    INTERNAL_QUERY_TIMEOUT_SECONDS);
+            if (rows == null || rows.isEmpty()) {
+                return 0;
+            }
+            String count = rows.get(0).getWithDefault(0, "0");
+            return count.isEmpty() ? 0 : Integer.parseInt(count.trim());
+        } catch (Exception e) {
+            throw new RuntimeException("SPM durable status count failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Test seam: routes the status-protocol durable I/O (INSERT / DELETE by status / the
+     * reconciliation count read) to a simulator instead of the internal table, so a unit
+     * test can inject faults such as "the old-row delete committed but reported
+     * KV_TXN_MAYBE_COMMITTED". Null in production.
+     */
+    @VisibleForTesting
+    interface StatusProtocolStoreForTest {
+        void insert(BaselinePlan plan);
+
+        void deleteByIdAndStatus(long id, BaselineStatus status);
+
+        int countByIdAndStatus(long id, BaselineStatus status);
+    }
+
+    @VisibleForTesting
+    static volatile StatusProtocolStoreForTest statusProtocolStoreForTest;
 
     // ==================== query matching (Level 1 + Level 2 + ordering) ====================
 
@@ -649,6 +736,7 @@ public class BaselineManager {
         try {
             loaded = true; // tests manage the in-memory storage directly; never touch the table
             persistToTable = false; // and never write the table from a unit test
+            statusProtocolStoreForTest = null; // and never route through a leaked test seam
             baselines.clear();
             hashIndex.clear();
             stateVersion++;
@@ -1059,9 +1147,13 @@ public class BaselineManager {
     private static BaselinePlan parsePersistedRow(ResultRow row) throws Exception {
         BaselinePlan p = fromRow(row);
         String planSql = p.getPlanSql();
-        boolean frozen = planSql != null
-                && (planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
-                        || planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC));
+        // Classify on the PARSED tree, not the raw text (SPMPlanner.isFrozenPlanSql): the
+        // fallback path stores the ORIGINAL planSql when the decompiler rejects a node,
+        // and that ordinary SQL may merely CONTAIN a placeholder function name inside a
+        // string literal / identifier / comment. A raw substring test would skip
+        // rebuilding the parameterized plan tree for such a row - after a reload the
+        // replay would return the CAPTURED literals and the fallback tree was gone.
+        boolean frozen = SPMPlanner.isFrozenPlanSql(planSql);
         // Rebuild the transient trees with ONE shared builder over both texts in
         // the CREATE order (bind first, then plan), so the placeholder ids of the
         // two trees stay aligned and a value extracted from the bind tree can
@@ -1277,6 +1369,10 @@ public class BaselineManager {
     }
 
     private static void persistInsert(BaselinePlan p) {
+        if (statusProtocolStoreForTest != null) {
+            statusProtocolStoreForTest.insert(p);
+            return;
+        }
         if (!persistenceEnabled()) {
             return;
         }
@@ -1318,6 +1414,10 @@ public class BaselineManager {
 
     /** Removes the row(s) with the given id whose status matches the previous status. */
     private static void persistDeleteByIdAndStatus(long id, BaselineStatus status) {
+        if (statusProtocolStoreForTest != null) {
+            statusProtocolStoreForTest.deleteByIdAndStatus(id, status);
+            return;
+        }
         if (!persistenceEnabled()) {
             return;
         }

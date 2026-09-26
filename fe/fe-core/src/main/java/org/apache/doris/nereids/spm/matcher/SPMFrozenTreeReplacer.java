@@ -18,10 +18,15 @@
 package org.apache.doris.nereids.spm.matcher;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
+import org.apache.doris.nereids.spm.placeholder.SPMSubquerySupport;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -154,6 +159,35 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             }
         }
         return super.visitInPredicate(inPredicate, placeholderValues);
+    }
+
+    // ==================== subquery substitution ====================
+
+    @Override
+    public Expression visitSubqueryExpr(SubqueryExpr subqueryExpr,
+            Map<Long, Expression> placeholderValues) {
+        // The generic visit() only walks Expression.children(): a SubqueryExpr's own
+        // queryPlan is out-of-band (IN / EXISTS / scalar / residual NOT IN), so its
+        // placeholders must be substituted by recursing into the plan explicitly -
+        // mirroring SPMPlaceholderReplacer / SPMPlaceholderBuilder. Without this, a
+        // residual LEFT NULL_AWARE ANTI JOIN frozen as
+        // NOT IN (SELECT ... WHERE ... _spm_const_var(...)) keeps the call inside the
+        // subquery plan, the residue scan rejects the replay and a reloaded frozen row
+        // has no usable fallback either.
+        Expression newCompare = subqueryExpr instanceof InSubquery
+                ? ((InSubquery) subqueryExpr).getCompareExpr().accept(this, placeholderValues) : null;
+        LogicalPlan newPlan = SPMPlanTreeSupport.transform(
+                subqueryExpr.getQueryPlan(), expr -> expr.accept(this, placeholderValues));
+        if (newPlan == subqueryExpr.getQueryPlan() && newCompare == null) {
+            return subqueryExpr;
+        }
+        Expression rebuilt = SPMSubquerySupport.rebuildSubquery(subqueryExpr, newPlan);
+        if (newCompare != null && rebuilt instanceof InSubquery) {
+            InSubquery in = (InSubquery) rebuilt;
+            return new InSubquery(newCompare, in.getQueryPlan(), in.getCorrelateSlots(),
+                    in.getTypeCoercionExpr(), in.isNot());
+        }
+        return rebuilt;
     }
 
     /**

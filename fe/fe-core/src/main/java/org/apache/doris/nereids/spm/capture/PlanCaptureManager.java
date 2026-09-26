@@ -20,13 +20,16 @@ package org.apache.doris.nereids.spm.capture;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -478,8 +481,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 if (candidate.getDb() != null && !candidate.getDb().isEmpty()) {
                     ctx.connectContext.setDatabase(candidate.getDb());
                 }
-                baseline = new SPMPlanner().buildBaselineFromSql(
-                        ctx.connectContext, candidate.getStmt(), candidate.getStmt());
+                baseline = buildBaselineUnderCapturedMode(ctx.connectContext, candidate);
             }
             baseline.setSource(BaselineSource.CAPTURE);
             baseline.setQueryTimeMs(candidate.getQueryTimeMs());
@@ -509,6 +511,31 @@ public class PlanCaptureManager extends MasterDaemon {
             // NOT terminal: the query id stays retryable (bounded by MAX_CAPTURE_ATTEMPTS)
             return false;
         }
+    }
+
+    /**
+     * Builds the baseline with the candidate's ORIGINATING parser mode in force for the
+     * whole build: the parser reads it (PIPES_AS_CONCAT decides whether "a || b" is a
+     * CONCAT or a boolean OR, NO_BACKSLASH_ESCAPES how a literal decodes) and SPMPlanner
+     * records it as the baseline's creatorSqlMode, which the reload path re-parses the
+     * stored bindSql with. The audit_log row carries the mode of the session that ran
+     * the captured statement; without re-applying it the build silently ran under the
+     * internal default, so a CONCAT-mode statement was captured as an OR (or failed)
+     * and could never produce a usable baseline for later CONCAT-mode executions.
+     */
+    private static BaselinePlan buildBaselineUnderCapturedMode(ConnectContext ctx,
+            CapturedQuery candidate) {
+        BaselinePlan[] holder = new BaselinePlan[1];
+        SqlModeHelper.withSqlMode(candidate.getSqlMode(), () -> {
+            try {
+                holder[0] = new SPMPlanner().buildBaselineFromSql(ctx, candidate.getStmt(),
+                        candidate.getStmt());
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        });
+        return holder[0];
     }
 
     // ==================== durable checkpoint (design doc 7.2.4) ====================
@@ -657,6 +684,7 @@ public class PlanCaptureManager extends MasterDaemon {
             row.put("sqlHash", candidate.getSqlHash() == null ? "" : candidate.getSqlHash());
             row.put("db", candidate.getDb() == null ? "" : candidate.getDb());
             row.put("catalog", candidate.getCatalog() == null ? "" : candidate.getCatalog());
+            row.put("sqlMode", String.valueOf(candidate.getSqlMode()));
             encoded.add(row);
         }
         return new Gson().toJson(encoded);
@@ -686,7 +714,9 @@ public class PlanCaptureManager extends MasterDaemon {
                         row.getOrDefault("sqlHash", ""),
                         row.getOrDefault("db", ""),
                         row.getOrDefault("catalog", ""),
-                        queryId == null ? "" : queryId);
+                        queryId == null ? "" : queryId,
+                        false,
+                        AuditLogScanner.decodeAuditSqlMode(row.get("sqlMode")));
                 queue.put(queryId == null ? "" : queryId, candidate);
             }
         } catch (RuntimeException e) {

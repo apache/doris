@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm.capture;
 
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -71,7 +72,7 @@ public class AuditLogScanner {
     /** audit_log SELECT columns (order must match rowToCapturedQuery / toBatch). */
     private static final String SELECT_COLUMNS =
             "`stmt`, `query_time`, `scan_rows`, `return_rows`, `sql_digest`, `sql_hash`, `db`, `catalog`,"
-                    + " `query_id`, `is_internal`, `time`";
+                    + " `query_id`, `is_internal`, `time`, `sql_mode`";
 
     /**
      * Result of one audit scan: the namespace-deduplicated candidates plus the resume
@@ -338,10 +339,39 @@ public class AuditLogScanner {
             String catalog = row.getWithDefault(7, "");
             String queryId = row.getWithDefault(8, "");
             boolean isInternal = Boolean.parseBoolean(row.getWithDefault(9, "false"));
+            // the ORIGINATING parser mode of the captured statement: the build must run
+            // under it and the baseline persists it as creatorSqlMode (a reload re-parses
+            // the stored bindSql the same way). Rows read before the column existed (and
+            // fabricated test rows) carry fewer values - they mean the default mode.
+            long sqlMode = row.getValues().size() > 11
+                    ? decodeAuditSqlMode(row.get(11)) : SqlModeHelper.MODE_DEFAULT;
             return new CapturedQuery(stmt, queryTime, scanRows, returnRows, sqlDigest, sqlHash, db, catalog,
-                    queryId, isInternal);
+                    queryId, isInternal, sqlMode);
         } catch (RuntimeException e) {
             return null;
+        }
+    }
+
+    /**
+     * Decodes the audit_log `sql_mode` text (the decoded names string the audit plugin
+     * captured from the originating session, e.g. "PIPES_AS_CONCAT"; a numeric mode is
+     * accepted too) back into the long parser mode the capture must build the baseline
+     * under. Empty / broken / zero text means the default mode - a literal "a || b" in
+     * a PIPES_AS_CONCAT statement must not be captured as a boolean OR. Public for tests
+     * (the decode is part of the capture contract).
+     *
+     * @param text the audit_log sql_mode text (may be null / empty)
+     * @return the decoded parser mode (never 0)
+     */
+    public static long decodeAuditSqlMode(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return SqlModeHelper.MODE_DEFAULT;
+        }
+        try {
+            long mode = SqlModeHelper.encode(text.trim());
+            return mode == 0 ? SqlModeHelper.MODE_DEFAULT : mode;
+        } catch (Exception e) {
+            return SqlModeHelper.MODE_DEFAULT;
         }
     }
 
