@@ -124,6 +124,19 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
         }
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
         slot_zone_map.data_type = data_type;
+        // A hidden placeholder column's on-disk zonemap describes the placeholder, not the value
+        // rows come back with, so synthesize its effective read-time summary instead of reading the
+        // on-disk one: min == max == effective value, non-null. Skipping the column here would also
+        // be correct but would lose pruning; the effective value is exact, so pruning stays correct.
+        if (auto effective = segment->placeholder_effective_value(ordinal, schema, read_options)) {
+            ZoneMap zone_map;
+            zone_map.min_value = *effective;
+            zone_map.max_value = *effective;
+            zone_map.has_not_null = true;
+            slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats,
                                                &read_options.io_ctx);
@@ -154,11 +167,14 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
-        // The commit-tso column is only served correctly once its reader is created with the
-        // rowset's commit_tso as a const value. Creating it here without one would cache a reader
-        // that hands every later read the on-disk placeholder instead.
-        if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
-            continue;
+        // A hidden placeholder column (version / commit-tso / binlog-tso) carries an on-disk
+        // zonemap that describes the placeholder, not the value rows come back with, so a pushed
+        // min/max/count aggregate must not answer from it. Bail the whole pushed aggregate. These
+        // columns are only in the read schema when explicitly referenced, so plain aggregates that
+        // do not touch them are unaffected.
+        if (segment->placeholder_effective_value(static_cast<int>(ordinal), schema, read_options)) {
+            *usable = false;
+            return Status::OK();
         }
         std::shared_ptr<ColumnReader> reader;
         Status st = segment->get_column_reader(*schema.column(ordinal), &reader, read_options.stats,
@@ -419,16 +435,32 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
-bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
-                                     const StorageReadOptions& read_options) const {
+std::optional<Field> Segment::placeholder_effective_value(
+        int cid, const ReadSchema& schema, const StorageReadOptions& read_options) const {
+    // Only single-version reads substitute a placeholder. A range (compaction) segment carries the
+    // real on-disk values, so leave its zone map alone.
     if (read_options.version.first != read_options.version.second) {
-        return false;
+        return std::nullopt;
     }
-    if (!read_options.read_row_binlog) {
-        return false;
+    // __DORIS_VERSION_COL__: 0 on disk, replaced with the rowset version at read time
+    // (_replace_version_col_if_needed), always non-null.
+    if (cid == schema.version_ordinal()) {
+        return Field::create_field<TYPE_BIGINT>(read_options.version.second);
     }
-    // tso_ordinal() is -1 for non-binlog schemas, so this returns false there.
-    return cid == schema.tso_ordinal();
+    // __DORIS_COMMIT_TSO_COL__: 0 on disk, replaced with the rowset commit_tso when it is known.
+    // When end_tso() == -1 (pre-publish) no substitution happens and the on-disk 0 is the effective
+    // value, so leave it on the disk path.
+    if (cid == schema.commit_tso_ordinal() && read_options.commit_tso.end_tso() != -1) {
+        return Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
+    }
+    // __DORIS_BINLOG_TSO__: all-NULL on disk, replaced with commit_tso (0 when -1) on a binlog read,
+    // always non-null (_update_tso_col_if_needed).
+    if (cid == schema.tso_ordinal() && read_options.read_row_binlog) {
+        const Int64 commit_tso =
+                read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
+        return Field::create_field<TYPE_BIGINT>(commit_tso);
+    }
+    return std::nullopt;
 }
 
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
@@ -466,27 +498,27 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         if (!reader->has_zone_map()) {
             continue;
         }
-        // Placeholder tso column on a single-version binlog segment: its zonemap reflects the
-        // NULL placeholder (replaced with commit_tso at read time), so skip pruning by
-        // zonemap (min == max == commit_tso) and reuse the predicate's own zonemap matching:
-        // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
-        // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
-        // support zonemap return true (conservative: not pruned, row-level eval handles them).
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            is_tso_placeholder_col(column_id, *schema, read_options)) {
-            const Int64 commit_tso =
-                    read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
-            ZoneMap zone_map;
-            zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-            zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-            zone_map.has_not_null = true;
-            if (!entry.second->evaluate_and(zone_map)) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
+        // A hidden placeholder column (__DORIS_VERSION_COL__ / __DORIS_BINLOG_TSO__) stores a
+        // placeholder on disk that is replaced with its effective value at read time, so its
+        // on-disk zonemap must not drive pruning. Prune against the effective value instead:
+        // evaluate_and() returns false iff no value in [v, v] can satisfy the predicates (a
+        // predicate that does not support zonemap returns true, i.e. conservatively not pruned).
+        // __DORIS_COMMIT_TSO_COL__ is served by the ConstantColumnReader built above and matched
+        // below, so it is excluded here.
+        if (column_id != schema->commit_tso_ordinal()) {
+            if (auto effective = placeholder_effective_value(column_id, *schema, read_options)) {
+                ZoneMap zone_map;
+                zone_map.min_value = *effective;
+                zone_map.max_value = *effective;
+                zone_map.has_not_null = true;
+                if (!entry.second->evaluate_and(zone_map)) {
+                    // any condition not satisfied, return.
+                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                    read_options.stats->filtered_segment_number++;
+                    return Status::OK();
+                }
+                continue;
             }
-            continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id, *schema,

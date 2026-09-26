@@ -208,13 +208,15 @@ public:
         }
     }
 
-    // The tso column (__DORIS_BINLOG_TSO__) is a NULL placeholder on disk on a
-    // single-version binlog segment, replaced with the real commit_tso at read time
-    // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
-    // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
-    // Returns false for range (compaction) segments whose on-disk value is real.
-    bool is_tso_placeholder_col(int cid, const ReadSchema& schema,
-                                const StorageReadOptions& read_options) const;
+    // Effective read-time value of a hidden placeholder column whose on-disk value is a placeholder
+    // substituted at read time: __DORIS_VERSION_COL__ (0 -> version), __DORIS_COMMIT_TSO_COL__ and
+    // __DORIS_BINLOG_TSO__ (0 / all-NULL -> commit_tso). Returns nullopt when `cid` is not such a
+    // column in this read. Only single-version reads substitute; multi-version (compaction) reads
+    // carry the real on-disk values and return nullopt. This is the one place that maps a placeholder
+    // ordinal to its effective value; every zone-map consumer routes through it so none trusts the
+    // on-disk placeholder summary.
+    std::optional<Field> placeholder_effective_value(int cid, const ReadSchema& schema,
+                                                     const StorageReadOptions& read_options) const;
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 

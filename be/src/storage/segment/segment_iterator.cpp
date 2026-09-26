@@ -1131,6 +1131,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
+            if (_segment->placeholder_effective_value(cid, *_schema, _opts).has_value()) {
+                // A hidden placeholder column's bloom filter holds the on-disk placeholder, not the
+                // value rows come back with, so it would drop matching rows. The predicate is
+                // corrected against the effective value at read time.
+                continue;
+            }
             // get row ranges by bf index of this column,
             RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
@@ -1153,10 +1159,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
-            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
-                // skip untrustworthy tso placeholder zonemap
-                // if possible already be pruned as a whole before,
-                // so just skip
+            if (_segment->placeholder_effective_value(cid, *_schema, _opts).has_value()) {
+                // A hidden placeholder column (version / commit-tso / binlog-tso) holds one
+                // effective value for the whole single-version segment, so its on-disk per-page
+                // zonemap is untrustworthy and page-level pruning would add nothing beyond the
+                // segment-level decision. Skip it; rows are corrected at read time.
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -1265,6 +1272,25 @@ Status SegmentIterator::_apply_index_expr() {
             break;
         }
         ++considered_conjuncts;
+        // A hidden placeholder column's inverted index holds the on-disk placeholder, not the value
+        // rows come back with. Evaluating a pushed-down conjunct that references one against the
+        // index (e.g. `__DORIS_VERSION_COL__ = <real version> AND indexed_col = ...`) would drop
+        // matching rows before read-time substitution, so leave the whole conjunct to the row-level
+        // path, which sees the substituted value.
+        {
+            std::set<int> expr_column_ids;
+            expr_ctx->root()->collect_slot_column_ids(expr_column_ids);
+            bool references_placeholder = false;
+            for (const int expr_cid : expr_column_ids) {
+                if (_segment->placeholder_effective_value(expr_cid, *_schema, _opts).has_value()) {
+                    references_placeholder = true;
+                    break;
+                }
+            }
+            if (references_placeholder) {
+                continue;
+            }
+        }
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
@@ -1558,6 +1584,13 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         std::shared_ptr<ColumnPredicate> pred,
         std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates, bool* continue_apply) {
+    if (_segment->placeholder_effective_value(pred->column_id(), *_schema, _opts).has_value()) {
+        // A hidden placeholder column's inverted index holds the on-disk placeholder, not the value
+        // rows come back with, so index pruning would drop matching rows. Keep the predicate for
+        // read-time evaluation against the substituted value instead.
+        remaining_predicates.emplace_back(pred);
+        return Status::OK();
+    }
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {
@@ -3419,6 +3452,12 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         const auto cid = cast_set<ColumnId>(slot_index);
         if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                   _opts.target_cast_type_for_variants, _opts)) {
+            continue;
+        }
+        if (_segment->placeholder_effective_value(cid, *_schema, _opts).has_value()) {
+            // A hidden placeholder column holds one effective value for the whole single-version
+            // segment, so its per-page on-disk zonemap is untrustworthy; page-level pruning adds
+            // nothing beyond the segment-level decision. Skip it (rows are corrected at read time).
             continue;
         }
         const auto* tablet_column = _schema->column(cid);
