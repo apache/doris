@@ -90,7 +90,7 @@ public class RowLevelDmlCommandTest {
     }
 
     @Test
-    public void successPathWiresCoordinatorWithoutRollback() {
+    public void successPathPreparesCoordinatorWithoutRollback() {
         Coordinator coordinator = Mockito.mock(Coordinator.class);
         Mockito.when(executor.getCoordinator()).thenReturn(coordinator);
         Mockito.when(executor.getTxnId()).thenReturn(42L);
@@ -98,7 +98,6 @@ public class RowLevelDmlCommandTest {
         invoke();
 
         Mockito.verify(coordinator).setTxnId(42L);
-        Mockito.verify(stmtExecutor).setCoord(coordinator);
         Mockito.verify(executor, Mockito.never()).onFail(Mockito.any());
     }
 }

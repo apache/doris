@@ -419,9 +419,8 @@ public class InsertIntoTableCommand extends Command
             }
             stmtExecutor.setProfileType(ProfileType.LOAD);
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
-            // so we need to set this here
+            // so executeSingleInsert publishes the coordinator at its common execution boundary.
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            stmtExecutor.setCoord(insertExecutor.getCoordinator());
             if (needsExternalDmlAuditBarrier(insertExecutor)) {
                 // The resolved executor is the invariant that distinguishes an external write;
                 // logical sink roots are rewritten and are not a stable audit classification.

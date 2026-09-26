@@ -272,6 +272,16 @@ public abstract class AbstractInsertExecutor {
      */
     public void executeSingleInsert(StmtExecutor executor) throws Exception {
         try {
+            // Every statement-owned insert coordinator is published at the common execution boundary.
+            // Cancellation retained during planning is replayed before any executor-specific setup or dispatch.
+            executor.setCoord(coordinator);
+            // Publication synchronously replays any cancellation retained during planning. Fence on that
+            // terminal status before executor-specific setup runs, so a later setup failure cannot mask the
+            // original timeout/cancel reason.
+            Status execStatus = coordinator.getExecStatus();
+            if (!execStatus.ok()) {
+                throw new UserException(execStatus.getErrorMsg());
+            }
             // Pre-execution work may register external resources, so it must share the transaction cleanup scope.
             beforeExec();
             executor.updateProfile(false);
@@ -284,6 +294,14 @@ public abstract class AbstractInsertExecutor {
             checkStrictModeAndFilterRatio();
             for (InsertExecutorListener listener : listeners) {
                 listener.beforeComplete(this, executor, jobId);
+            }
+            // Every transaction-owning executor commits inside onComplete(). Re-fence the first terminal
+            // status here so a cancellation/TIMEOUT that landed after execImpl()'s last status read cannot
+            // be committed by a path such as row-level UPDATE/DELETE/MERGE, which has no command-level
+            // cancellation listener of its own.
+            Status preCommitStatus = coordinator.getExecStatus();
+            if (!preCommitStatus.ok()) {
+                throw new UserException(preCommitStatus.getErrorMsg());
             }
             onComplete();
             for (InsertExecutorListener listener : listeners) {
