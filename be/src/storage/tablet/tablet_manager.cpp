@@ -228,6 +228,7 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
+    _engine.register_row_binlog_tablet(tablet);
     _add_tablet_to_partition(tablet);
     g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
@@ -775,7 +776,7 @@ std::vector<TabletCompactionContext> TabletManager::find_best_tablets_to_compact
     std::priority_queue<TabletScore, std::vector<TabletScore>, decltype(cmp)> top_tablets(cmp);
 
     auto handler = [&](const TabletSharedPtr& tablet_ptr) {
-        if (tablet_ptr->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+        if (tablet_ptr->tablet_meta()->disable_auto_compaction()) {
             LOG_EVERY_N(INFO, 500) << "Tablet " << tablet_ptr->tablet_id()
                                    << " will be ignored by automatic compaction tasks since it's "
                                    << "set to disabled automatic compaction.";

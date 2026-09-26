@@ -166,6 +166,13 @@ public class BinlogManagerTest {
         Assertions.assertEquals(c1, c2);
         Assertions.assertNotEquals(c1, c3);
         Assertions.assertNotEquals(c1, "not_binlog");
+
+        Assertions.assertTrue(c1.isRowTtlEnabled());
+        c1.setTtlSeconds(20);
+        Assertions.assertNotEquals(c1, c2);
+        Assertions.assertEquals(20L, c1.getTtlSeconds());
+        c1.setEnable(false);
+        Assertions.assertFalse(c1.isRowTtlEnabled());
     }
 
     @Test
@@ -183,6 +190,11 @@ public class BinlogManagerTest {
                 + "\" = \"33\""));
         Assertions.assertTrue(out.contains("\"" + PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT + "\" = \"ROW\""));
         Assertions.assertTrue(out.contains(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+
+        rowCfg.setTtlSeconds(12);
+        sb.setLength(0);
+        rowCfg.appendToShowCreateTable(sb);
+        Assertions.assertTrue(sb.toString().contains("\"binlog.ttl_seconds\" = \"12\""));
 
         BinlogConfig stmtCfg = new BinlogConfig(true, 11L, 22L, 33L,
                 BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, true);

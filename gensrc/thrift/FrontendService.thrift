@@ -1372,6 +1372,11 @@ struct TGetMasterTokenResult {
     3: optional Types.TNetworkAddress master_address
 }
 
+struct TGetCurrentTsoResult {
+    1: required Status.TStatus status
+    2: optional i64 tso
+}
+
 typedef TGetBinlogRequest TGetBinlogLagRequest
 
 struct TGetBinlogLagResult {
@@ -2091,6 +2096,8 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
+
+    TGetCurrentTsoResult getCurrentTso()
 
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 

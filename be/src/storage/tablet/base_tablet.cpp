@@ -40,6 +40,8 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "cpp/sync_point.h"
 #include "load/memtable/memtable.h"
+#include "runtime/cluster_info.h"
+#include "runtime/exec_env.h"
 #include "service/point_query_executor.h"
 #include "storage/binlog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -274,6 +276,37 @@ RowsetSharedPtr BaseTablet::get_stale_rowset_by_version(const Version& version) 
         return nullptr;
     }
     return iter->second;
+}
+
+bool BaseTablet::scan_expired_row_binlog_rowsets() {
+    if (!is_row_binlog_tablet()) {
+        return false;
+    }
+    // The cursor is a version key, never an iterator retained across publish or compaction.
+    // At most 256 metadata entries are visited while holding the header lock.
+    std::unique_lock lock(_meta_lock);
+    const auto reference = ExecEnv::GetInstance()->cluster_info()->row_binlog_ttl_reference_tso();
+    const auto cutoff = _tablet_meta->binlog_config().row_ttl_cutoff_tso(reference);
+    if (cutoff < 0 || _tablet_meta->disable_auto_compaction()) {
+        return false;
+    }
+    const auto& metas = _tablet_meta->all_rs_metas();
+    auto it = metas.find(_row_binlog_ttl_scan_cursor);
+    if (it == metas.end()) {
+        it = metas.begin();
+    } else {
+        ++it;
+    }
+    for (int n = 0; n < 256 && it != metas.end(); ++n, ++it) {
+        _row_binlog_ttl_scan_cursor = it->first;
+        if (row_binlog_rowset_expired(*it->second, cutoff)) {
+            return true;
+        }
+    }
+    if (it == metas.end()) {
+        _row_binlog_ttl_scan_cursor = Version(-1, -1);
+    }
+    return false;
 }
 
 // Already under _meta_lock

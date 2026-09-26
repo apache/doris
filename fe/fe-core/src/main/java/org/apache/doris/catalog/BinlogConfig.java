@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -66,6 +67,7 @@ public class BinlogConfig {
 
     @SerializedName("needHistoricalValue")
     private boolean needHistoricalValue;
+
     public static final long NO_TTL = -1L;
     public static final long TTL_SECONDS = 86400L; // 1 day
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
@@ -162,6 +164,17 @@ public class BinlogConfig {
 
     public void setTtlSeconds(long ttlSeconds) {
         this.ttlSeconds = ttlSeconds;
+    }
+
+    public void applyExplicitRowTtl(long ttlSeconds) throws AnalysisException {
+        if (isEnableForStreaming() && ttlSeconds <= 0) {
+            throw new AnalysisException("ROW binlog.ttl_seconds must be greater than 0");
+        }
+        setTtlSeconds(ttlSeconds);
+    }
+
+    public boolean isRowTtlEnabled() {
+        return isEnableForStreaming() && ttlSeconds > 0;
     }
 
     public long getMaxBytes() {
@@ -268,7 +281,8 @@ public class BinlogConfig {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE).append("\" = \"")
                 .append(enable).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS).append("\" = \"")
-                .append(ttlSeconds).append("\"");
+                .append(ttlSeconds)
+                .append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES).append("\" = \"")
                 .append(maxBytes).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS).append("\" = \"")

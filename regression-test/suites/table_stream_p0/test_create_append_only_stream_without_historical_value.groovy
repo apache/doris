@@ -16,11 +16,11 @@
 // under the License.
 
 suite("test_create_append_only_stream_without_historical_value", "nonConcurrent") {
-    sql "DROP STREAM IF EXISTS test_append_only_without_historical_value_stream"
-    sql "DROP STREAM IF EXISTS test_detail_without_historical_value_stream"
-    sql "DROP STREAM IF EXISTS test_default_without_historical_value_stream"
-    sql "DROP STREAM IF EXISTS test_min_delta_without_historical_value_stream"
-    sql "DROP STREAM IF EXISTS test_invalid_type_without_historical_value_stream"
+    sql "DROP STREAM IF EXISTS test_append_only_without_historical_value_stream FORCE"
+    sql "DROP STREAM IF EXISTS test_detail_without_historical_value_stream FORCE"
+    sql "DROP STREAM IF EXISTS test_default_without_historical_value_stream FORCE"
+    sql "DROP STREAM IF EXISTS test_min_delta_without_historical_value_stream FORCE"
+    sql "DROP STREAM IF EXISTS test_invalid_type_without_historical_value_stream FORCE"
     sql "DROP TABLE IF EXISTS test_stream_without_historical_value_base"
 
     sql """

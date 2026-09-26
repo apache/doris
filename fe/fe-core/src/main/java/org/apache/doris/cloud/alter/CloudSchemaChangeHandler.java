@@ -501,6 +501,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         } finally {
             olapTable.readUnlock();
         }
+        updateCloudTabletMeta(tableName, tabletIds, param);
+    }
+
+    private void updateCloudTabletMeta(String tableName, List<Long> tabletIds,
+            UpdatePartitionMetaParam param) throws UserException {
         for (int index = 0; index < tabletIds.size();) {
             int nextIndex = tabletIds.size() - index > Config.cloud_txn_tablet_batch_size
                     ? index + Config.cloud_txn_tablet_batch_size
@@ -598,7 +603,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         }
     }
 
-    void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
+    public static void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
         if (tabletIds.isEmpty()) {
             return;
         }

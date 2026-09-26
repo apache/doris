@@ -1539,7 +1539,11 @@ public class PropertyAnalyzer {
         if (properties.containsKey(PROPERTIES_BINLOG_TTL_SECONDS)) {
             String ttlSeconds = properties.get(PROPERTIES_BINLOG_TTL_SECONDS);
             try {
-                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(Long.parseLong(ttlSeconds)));
+                long ttl = Long.parseLong(ttlSeconds);
+                if (ttl < BinlogConfig.NO_TTL) {
+                    throw new NumberFormatException();
+                }
+                binlogConfigMap.put(PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(ttl));
                 properties.remove(PROPERTIES_BINLOG_TTL_SECONDS);
             } catch (Exception e) {
                 throw new AnalysisException("Invalid binlog ttl_seconds value: " + ttlSeconds);
