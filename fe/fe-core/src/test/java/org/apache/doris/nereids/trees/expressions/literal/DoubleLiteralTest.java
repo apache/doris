@@ -148,6 +148,16 @@ class DoubleLiteralTest {
         Assertions.assertInstanceOf(FloatLiteral.class, expression);
         Assertions.assertEquals(Float.NEGATIVE_INFINITY, ((FloatLiteral) expression).getValue());
 
+        // narrowing rounds the double once like BE: the midpoint 1 + 2^-24 ties to 1.0, while its
+        // shortest decimal string 1.0000000596046448 lies above the midpoint and would round up
+        f1 = new DoubleLiteral(1 + Math.scalb(1.0, -24));
+        expression = f1.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertEquals(0x3f800000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
+
+        f1 = new DoubleLiteral(Math.copySign(Double.NaN, -1.0));
+        expression = f1.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertEquals(0xffc00000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
+
         // To decimal
         f1 = new DoubleLiteral(234.999);
         expression = f1.uncheckedCastTo(DecimalV2Type.createDecimalV2Type(9, 3));

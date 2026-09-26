@@ -45,6 +45,7 @@ import org.apache.commons.math3.util.FastMath;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -273,31 +274,49 @@ public class NumericArithmetic {
     }
 
     /**
-     * Executable arithmetic functions divide
+     * decimalv2 divide in FE, computed like BE DecimalV2Value::operator/: both operands are
+     * integers at the DECIMALV2 scale, the quotient keeps that scale and is rounded away from
+     * zero when the remainder is at least divisor >> 1. The result type is the type Divide
+     * analyzes for DECIMALV2 operands, so the folded literal can replace the expression.
      */
     @ExecFunction(name = "divide")
     public static Expression divideDecimal(DecimalLiteral first, DecimalLiteral second) {
-        if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return new NullLiteral(first.getDataType());
+        DecimalV2Type resultType = DecimalV2Type.SYSTEM_DEFAULT;
+        if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
+            return new NullLiteral(resultType);
         }
-        BigDecimal result = first.getValue().divide(second.getValue());
-        return new DecimalLiteral(result);
+        int scale = resultType.getScale();
+        // dividend * 10^scale / divisor with all three at the DECIMALV2 scale, as BE does it
+        BigInteger dividend = first.getValue().abs().movePointRight(2 * scale).toBigIntegerExact();
+        BigInteger divisor = second.getValue().abs().movePointRight(scale).toBigIntegerExact();
+        BigInteger[] quotientAndRemainder = dividend.divideAndRemainder(divisor);
+        BigInteger quotient = quotientAndRemainder[0];
+        BigInteger remainder = quotientAndRemainder[1];
+        if (remainder.signum() != 0 && remainder.compareTo(divisor.shiftRight(1)) >= 0) {
+            quotient = quotient.add(BigInteger.ONE);
+        }
+        if (first.getValue().signum() * second.getValue().signum() < 0) {
+            quotient = quotient.negate();
+        }
+        return new DecimalLiteral(resultType, new BigDecimal(quotient, scale));
     }
 
     /**
-     * decimalv3 divide in FE
+     * decimalv3 divide in FE, computed like BE DivideDecimalImpl: type coercion already widened
+     * the dividend scale by the divisor scale, BE divides the scaled integers and truncates the
+     * quotient toward zero at the result scale.
      */
     @ExecFunction(name = "divide")
     public static Expression divideDecimalV3(DecimalV3Literal first, DecimalV3Literal second) {
         DecimalV3Type t1 = (DecimalV3Type) first.getDataType();
         DecimalV3Type t2 = (DecimalV3Type) second.getDataType();
+        DecimalV3Type resultType = DecimalV3Type.createDecimalV3TypeLooseCheck(
+                t1.getPrecision(), t1.getScale() - t2.getScale());
         if (second.getValue().compareTo(BigDecimal.ZERO) == 0) {
-            return new NullLiteral(DecimalV3Type.createDecimalV3TypeLooseCheck(
-                    t1.getPrecision(), t1.getScale() - t2.getScale()));
+            return new NullLiteral(resultType);
         }
-        BigDecimal result = first.getValue().divide(second.getValue());
-        return new DecimalV3Literal(DecimalV3Type.createDecimalV3TypeLooseCheck(
-                t1.getPrecision(), t1.getScale() - t2.getScale()), result);
+        BigDecimal result = first.getValue().divide(second.getValue(), resultType.getScale(), RoundingMode.DOWN);
+        return new DecimalV3Literal(resultType, result);
     }
 
     /**

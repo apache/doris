@@ -170,6 +170,50 @@ public class StringLikeLiteralTest {
         Assertions.assertTrue(expression instanceof DoubleLiteral);
         Assertions.assertEquals(Float.NaN, ((DoubleLiteral) expression).getValue().doubleValue());
 
+        // BE (fast_float) also parses a NaN payload and only skips ASCII whitespace around the number
+        for (String nan : new String[] {"nan(foo)", " -NaN(ind_1) ", "+nan()"}) {
+            expression = new StringLiteral(nan).uncheckedCastTo(DoubleType.INSTANCE);
+            Assertions.assertInstanceOf(DoubleLiteral.class, expression);
+            Assertions.assertTrue(Double.isNaN(((DoubleLiteral) expression).getValue()));
+            expression = new StringLiteral(nan).uncheckedCastTo(FloatType.INSTANCE);
+            Assertions.assertInstanceOf(FloatLiteral.class, expression);
+            Assertions.assertTrue(Float.isNaN(((FloatLiteral) expression).getValue()));
+        }
+        // fast_float negates the quiet NaN for a leading '-', and the sign survives widening FLOAT to DOUBLE
+        for (String nan : new String[] {"-nan", " -NaN(foo) "}) {
+            expression = new StringLiteral(nan).uncheckedCastTo(DoubleType.INSTANCE);
+            Assertions.assertEquals(0xfff8000000000000L,
+                    Double.doubleToRawLongBits(((DoubleLiteral) expression).getValue()));
+            expression = new StringLiteral(nan).uncheckedCastTo(FloatType.INSTANCE);
+            Assertions.assertEquals(0xffc00000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
+            expression = ((FloatLiteral) expression).uncheckedCastTo(DoubleType.INSTANCE);
+            Assertions.assertEquals(0xfff8000000000000L,
+                    Double.doubleToRawLongBits(((DoubleLiteral) expression).getValue()));
+        }
+        for (String nan : new String[] {"nan(foo)", "+nan"}) {
+            expression = new StringLiteral(nan).uncheckedCastTo(DoubleType.INSTANCE);
+            Assertions.assertEquals(0x7ff8000000000000L,
+                    Double.doubleToRawLongBits(((DoubleLiteral) expression).getValue()));
+            expression = new StringLiteral(nan).uncheckedCastTo(FloatType.INSTANCE);
+            Assertions.assertEquals(0x7fc00000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
+            expression = ((FloatLiteral) expression).uncheckedCastTo(DoubleType.INSTANCE);
+            Assertions.assertEquals(0x7ff8000000000000L,
+                    Double.doubleToRawLongBits(((DoubleLiteral) expression).getValue()));
+        }
+        // BE parses FLOAT into a double first: this value just above the midpoint between 1 and the next
+        // float rounds to the midpoint as a double, and the tie then narrows to the even float 1.0
+        String nearMidpoint = "1.00000005960464483090177623170427978038787841796875";
+        Assertions.assertEquals(0x3f800001, Float.floatToRawIntBits(Float.parseFloat(nearMidpoint)));
+        expression = new StringLiteral(nearMidpoint).uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertEquals(0x3f800000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
+        expression = new StringLiteral("\t\n\u000B\f\r 0.25 \r\f\u000B\n\t").uncheckedCastTo(DoubleType.INSTANCE);
+        Assertions.assertEquals(0.25, ((DoubleLiteral) expression).getValue().doubleValue());
+        for (String invalid : new String[] {"nan(foo", "nan(a-b)", "nan)", "0.25\u0001", "\u00010.25", "1.5d", "0x10"}) {
+            StringLiteral literal = new StringLiteral(invalid);
+            Assertions.assertThrows(CastException.class, () -> literal.uncheckedCastTo(DoubleType.INSTANCE));
+            Assertions.assertThrows(CastException.class, () -> literal.uncheckedCastTo(FloatType.INSTANCE));
+        }
+
         // To decimal
         s = new StringLiteral("1234.5678");
         expression = s.uncheckedCastTo(DecimalV3Type.createDecimalV3Type(10, 4));

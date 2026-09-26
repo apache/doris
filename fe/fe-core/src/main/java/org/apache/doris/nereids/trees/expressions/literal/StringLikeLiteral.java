@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -68,9 +69,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
             + "|(?i)([A-Za-z]+\\S*)))?"
             + ")?\\s*$";
+    // Same grammar as BE StringParser::string_to_float: only ASCII whitespace around the number is
+    // skipped, and fast_float also accepts a NaN payload such as nan(ind).
     public static final String toDoubleRegex
-            = "^\\s*[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|(?"
-            + "i)(?:INF|INFINITY)|(?i)NAN)\\s*$";
+            = "^\\s*(?<number>[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|(?"
+            + "i)(?:INF|INFINITY)|(?i)NAN(?:\\([0-9A-Za-z_]*\\))?))\\s*$";
     public static final String toDecimalRegex
             = "^\\s*[+-]?((\\d+\\.\\d+)|(\\d+)|(\\d+\\.)|(\\.\\d+))(?:([eE])[+-]?\\d+)?\\s*$";
     public static final String toIntStrict = "\\s*[+-]?\\d+\\s*";
@@ -198,37 +201,37 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     }
 
     protected Expression castToFloat() {
-        String trimmedValue = value.trim();
-        if (doublePattern.matcher(trimmedValue).matches()) {
-            if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Float.POSITIVE_INFINITY);
-            }
-            if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Float.NEGATIVE_INFINITY);
-            }
-            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Float.NaN);
-            }
-            return Literal.of(Float.parseFloat(value.trim()));
-        }
-        throw new CastException(String.format("%s can't cast to float in strict mode.", value));
+        // BE parses the string into a double and then narrows it to float, so round twice the same way
+        // instead of parsing directly to float, which can differ for a value next to a float midpoint.
+        return new DoubleLiteral(parseDouble("float")).uncheckedCastTo(FloatType.INSTANCE);
     }
 
     protected Expression castToDouble() {
-        String trimmedValue = value.trim();
-        if (doublePattern.matcher(trimmedValue).matches()) {
+        return Literal.of(parseDouble("double"));
+    }
+
+    private double parseDouble(String targetType) {
+        Matcher matcher = doublePattern.matcher(value);
+        if (matcher.matches()) {
+            String trimmedValue = matcher.group("number");
             if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Double.POSITIVE_INFINITY);
+                return Double.POSITIVE_INFINITY;
             }
             if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Double.NEGATIVE_INFINITY);
+                return Double.NEGATIVE_INFINITY;
             }
-            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Double.NaN);
+            if (DoubleLiteral.NAN_NAME.contains(trimNanPayload(trimmedValue).toLowerCase())) {
+                // fast_float negates the quiet NaN for a leading '-', which signbit() can observe
+                return trimmedValue.startsWith("-") ? Math.copySign(Double.NaN, -1.0) : Double.NaN;
             }
-            return Literal.of(Double.parseDouble(value.trim()));
+            return Double.parseDouble(trimmedValue);
         }
-        throw new CastException(String.format("%s can't cast to double in strict mode.", value));
+        throw new CastException(String.format("%s can't cast to %s in strict mode.", value, targetType));
+    }
+
+    private static String trimNanPayload(String number) {
+        int payloadStart = number.indexOf('(');
+        return payloadStart < 0 ? number : number.substring(0, payloadStart);
     }
 
     protected Expression castToBoolean() {

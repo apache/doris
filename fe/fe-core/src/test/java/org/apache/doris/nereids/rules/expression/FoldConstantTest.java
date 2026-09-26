@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRoundSeries;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Floor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Fmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
@@ -103,6 +105,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Tanh;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TimeFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -121,7 +124,9 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
@@ -190,6 +195,21 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("if(true, a + 1,  a + 2)", "a + 1");
         assertRewriteAfterTypeCoercion("if(false, a + 1,  a + 2)", "a + 2");
         assertRewriteAfterTypeCoercion("if(b > 0, a + 100,  a + 100)", "a + 100");
+
+        // NaNs of opposite signs are different branches, signbit() tells them apart
+        SlotReference condition = SlotReference.of("c", BooleanType.INSTANCE);
+        DoubleLiteral positiveNan = new DoubleLiteral(Double.NaN);
+        DoubleLiteral negativeNan = new DoubleLiteral(Math.copySign(Double.NaN, -1.0));
+        If ifNan = new If(condition, negativeNan, positiveNan);
+        Assertions.assertEquals(ifNan, executor.rewrite(ifNan, context));
+        CaseWhen caseWhenNan = new CaseWhen(ImmutableList.of(new WhenClause(condition, negativeNan)), positiveNan);
+        Assertions.assertEquals(caseWhenNan, executor.rewrite(caseWhenNan, context));
+        If ifFloatNan = new If(condition, new FloatLiteral(Math.copySign(Float.NaN, -1.0f)),
+                new FloatLiteral(Float.NaN));
+        Assertions.assertEquals(ifFloatNan, executor.rewrite(ifFloatNan, context));
+        If ifArrayNan = new If(condition, new ArrayLiteral(ImmutableList.<Literal>of(negativeNan)),
+                new ArrayLiteral(ImmutableList.<Literal>of(positiveNan)));
+        Assertions.assertEquals(ifArrayNan, executor.rewrite(ifArrayNan, context));
     }
 
     @Test
@@ -1160,6 +1180,58 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         divide = new Divide(new DoubleLiteral(Double.NEGATIVE_INFINITY), new DoubleLiteral(Double.NEGATIVE_INFINITY));
         rewritten = executor.rewrite(divide, context);
         Assertions.assertEquals(new DoubleLiteral(Double.NaN), rewritten);
+        // DECIMALV2 division is NULL only for a zero divisor, as BE executes it
+        DecimalV2Type decimalV2 = DecimalV2Type.SYSTEM_DEFAULT;
+        divide = new Divide(new DecimalLiteral(new BigDecimal("0")), new DecimalLiteral(new BigDecimal("2")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0")), rewritten);
+        divide = new Divide(new DecimalLiteral(new BigDecimal("1")), new DecimalLiteral(new BigDecimal("0")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new NullLiteral(decimalV2), rewritten);
+        // a DECIMALV2 quotient keeps scale 9 and rounds like BE DecimalV2Value::operator/
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0.333333333")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("1024")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("0.000976563")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("-2")),
+                new DecimalLiteral(decimalV2, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("-0.666666667")), rewritten);
+        // BE rounds up once the remainder reaches divisor >> 1, which differs from half up for an odd divisor
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("0.000000003")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("333333333.333333334")), rewritten);
+        divide = new Divide(new DecimalLiteral(decimalV2, new BigDecimal("1")),
+                new DecimalLiteral(decimalV2, new BigDecimal("0.000000001")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalLiteral(decimalV2, new BigDecimal("1000000000")), rewritten);
+
+        // a DECIMALV3 quotient is truncated toward zero at the result scale like BE DivideDecimalImpl;
+        // type coercion casts 2.0 / 3 to DECIMALV3(6, 5) / DECIMALV3(3, 0) with result DECIMALV3(6, 5)
+        DecimalV3Type dividendType = DecimalV3Type.createDecimalV3Type(6, 5);
+        DecimalV3Type divisorType = DecimalV3Type.createDecimalV3Type(3, 0);
+        DecimalV3Type quotientType = DecimalV3Type.createDecimalV3Type(6, 5);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("0.66666")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("-2.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("3")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("-0.66666")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(4, 0), new BigDecimal("1024")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new DecimalV3Literal(quotientType, new BigDecimal("0.00097")), rewritten);
+        divide = new Divide(new DecimalV3Literal(dividendType, new BigDecimal("1.00000")),
+                new DecimalV3Literal(divisorType, new BigDecimal("0")));
+        rewritten = executor.rewrite(divide, context);
+        Assertions.assertEquals(new NullLiteral(quotientType), rewritten);
 
         Fmod fmod = new Fmod(new DoubleLiteral(Double.POSITIVE_INFINITY), new DoubleLiteral(1));
         rewritten = executor.rewrite(fmod, context);
