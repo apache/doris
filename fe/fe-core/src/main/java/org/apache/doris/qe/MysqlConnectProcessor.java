@@ -131,9 +131,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         try {
             ctx.getProtocolAdapter().beforeStatement(ctx);
             StatementContext statementContext = prepCtx.getStatementContext();
+            // The raw COM_STMT_EXECUTE body starting at the null bitmap, kept for forwarding
+            // a write statement to the master FE.
+            ByteBuffer rawExecuteBuffer = null;
             if (!ctx.isProxy()) {
                 // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
-                ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+                rawExecuteBuffer = packetBuf.duplicate();
+                ctx.setPrepareExecuteBuffer(rawExecuteBuffer);
             }
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
@@ -142,7 +146,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
                 // new_params_bind_flag
-                if ((int) packetBuf.get() != 0) {
+                boolean clientSentTypes = packetBuf.get() != 0;
+                if (clientSentTypes) {
                     List<Placeholder> typedPlaceholders = new ArrayList<>();
                     // parse params's types
                     for (int i = 0; i < paramCount; ++i) {
@@ -155,6 +160,15 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     // rewrite with new prepared statment with type info in placeholders
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
                     prepareCommand = (PrepareCommand) prepCtx.command;
+                } else if (!ctx.isProxy() && rawExecuteBuffer != null) {
+                    // The client omitted the parameter types on a cached repeat execute
+                    // (new_params_bind_flag == 0). A forwarded statement is re-prepared on the
+                    // master FE, which never sees those types, so embed the types known from
+                    // the first execute into the forwarded buffer and set the flag, letting the
+                    // master decode the parameter values. The buffer keeps the standard
+                    // COM_STMT_EXECUTE layout, so older masters accept it unchanged.
+                    ctx.setPrepareExecuteBuffer(buildTypedExecuteBuffer(rawExecuteBuffer, paramCount,
+                            prepareCommand.getPlaceholders()));
                 }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
@@ -472,5 +486,33 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 break;
             }
         }
+    }
+
+    /**
+     * Rebuild a COM_STMT_EXECUTE packet body that omitted the parameter types
+     * (new_params_bind_flag == 0) into one carrying the given types, so a forwarded
+     * statement can still be decoded on the master FE which re-prepares the statement
+     * and never sees the types. The packet keeps the standard MySQL layout:
+     * null bitmap | new_params_bind_flag | parameter types | parameter values.
+     */
+    private ByteBuffer buildTypedExecuteBuffer(ByteBuffer rawExecuteBuffer, int paramCount,
+            List<Placeholder> placeholders) {
+        int nullBitmapLen = (paramCount + 7) / 8;
+        // rawExecuteBuffer is positioned at the start of the null bitmap.
+        byte[] nullBitmap = new byte[nullBitmapLen];
+        rawExecuteBuffer.duplicate().get(nullBitmap);
+        ByteBuffer values = rawExecuteBuffer.slice();
+        values.position(nullBitmapLen + 1);
+        ByteBuffer valuesOnly = values.slice();
+        ByteBuffer typed = ByteBuffer.allocate(nullBitmapLen + 1 + paramCount * 2 + valuesOnly.remaining())
+                .order(ByteOrder.LITTLE_ENDIAN);
+        typed.put(nullBitmap);
+        typed.put((byte) 1); // new_params_bind_flag = 1
+        for (Placeholder placeholder : placeholders) {
+            typed.putChar((char) placeholder.getMysqlTypeCode());
+        }
+        typed.put(valuesOnly);
+        typed.flip();
+        return typed;
     }
 }
