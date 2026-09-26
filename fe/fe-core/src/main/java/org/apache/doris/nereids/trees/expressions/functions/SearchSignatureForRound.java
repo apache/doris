@@ -18,16 +18,33 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.coercion.Int32OrLessType;
+import org.apache.doris.qe.ConnectContext;
 
+import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * if argument 0 is float or double, we should return double signature for round like function.
+ * Signature search for round-like functions (round, round_bankers, ceil, floor, truncate).
  */
 public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
+
+    // IEEE-754 binary64 (double) can faithfully represent about 15-17 significant decimal digits.
+    // 15 is the safe lower bound - every double value round-trips through 15-digit decimal without
+    // change, so we cap the decimal reroute at 15 and let larger requested scales fall back to the
+    // original DOUBLE path.
+    int DOUBLE_DECIMAL_RESULT_MAX_SCALE = 15;
+
     @Override
     default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
         List<Expression> arguments = getArguments();
@@ -35,9 +52,75 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
             if (arguments.size() == 1) {
                 return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
             } else if (arguments.size() == 2) {
+                if (isNativeDoubleForDecimalReroute(arguments.get(0))
+                        && isOptedIntoDecimalReroute()
+                        && isNonNegativeIntegerLiteralAtMost(arguments.get(1),
+                                DOUBLE_DECIMAL_RESULT_MAX_SCALE)) {
+                    return ExplicitlyCastableSignature.super.searchSignature(
+                            withoutFloatLikeReturnTypes(signatures));
+                }
                 return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE);
             }
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
+    }
+
+    /**
+     * True iff arg 0 should participate in the DECIMAL reroute.
+     */
+    static boolean isNativeDoubleForDecimalReroute(Expression arg) {
+        if (!arg.getDataType().isDoubleType()) {
+            return false;
+        }
+        // prevent case like 'select round(cast(23900/293 as float), 2);'
+        if (arg instanceof Cast) {
+            DataType inner = arg.child(0).getDataType();
+            return inner.isDoubleType() || inner.isDecimalV3Type() || inner.isDecimalV2Type();
+        }
+        return true;
+    }
+
+    static boolean isOptedIntoDecimalReroute() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.getSessionVariable().roundDoubleReturnsDecimalForConstScale;
+    }
+
+    /**
+     * True iff scale folds to an integer literal whose value lies in the closed range
+     * [0, maxValue].
+     */
+    static boolean isNonNegativeIntegerLiteralAtMost(Expression scale, int maxValue) {
+        Expression folded = scale;
+        if (!folded.isLiteral() && !folded.isSlot()) {
+            ExpressionRewriteContext ctx = new ExpressionRewriteContext(CascadesContext.initTempContext());
+            folded = FoldConstantRuleOnFE.evaluate(folded, ctx);
+        }
+        if (folded == null) {
+            return false;
+        }
+        Expression unwrapped = folded;
+        if (unwrapped instanceof Cast && unwrapped.child(0).isLiteral()
+                && unwrapped.child(0).getDataType() instanceof Int32OrLessType) {
+            unwrapped = unwrapped.child(0);
+        }
+        if (!(unwrapped instanceof IntegerLikeLiteral)) {
+            return false;
+        }
+        Number number = ((IntegerLikeLiteral) unwrapped).getNumber();
+        BigInteger value = (number instanceof BigInteger)
+                ? (BigInteger) number
+                : BigInteger.valueOf(number.longValue());
+        return value.signum() >= 0 && value.compareTo(BigInteger.valueOf(maxValue)) <= 0;
+    }
+
+    /** Drop signatures whose return type is a float-like type, so the search falls onto decimal. */
+    static List<FunctionSignature> withoutFloatLikeReturnTypes(List<FunctionSignature> signatures) {
+        List<FunctionSignature> result = new ArrayList<>(signatures.size());
+        for (FunctionSignature signature : signatures) {
+            if (!signature.returnType.isFloatLikeType()) {
+                result.add(signature);
+            }
+        }
+        return result;
     }
 }
