@@ -33,6 +33,7 @@
 #include <cstring>
 #include <format>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <random>
 #include <sstream>
@@ -1508,6 +1509,108 @@ public:
     }
 };
 
+// ATTN: for debug only
+// compute identity bucket hash as the same way in `VOlapTablePartitionParam::find_tablets()`
+// for tables whose distribution_hash_type is identity. `mod` is the bucket count; the returned
+// value is the bucket index, so callers can compare it against crc32_internal's raw hash taken
+// modulo the same bucket count.
+class FunctionIdentityHashInternal : public IFunction {
+public:
+    static constexpr auto name = "identity_hash_internal";
+    static FunctionPtr create() { return std::make_shared<FunctionIdentityHashInternal>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeInt64>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_GE(arguments.size(), 1);
+        // The trailing literal is the bucket count to take the modulus against; every leading
+        // argument is a distribution column. FE rejects non-literal / non-positive counts at
+        // analysis time; these checks keep BE safe on its own (e.g. against forged thrift).
+        if (!context->is_col_constant(arguments.back())) {
+            return Status::InvalidArgument(
+                    "the bucket count argument of {} must be a constant integer, got a variable "
+                    "column",
+                    name);
+        }
+        const auto* mod_col_wrapper = context->get_constant_col(arguments.back());
+        if (mod_col_wrapper == nullptr || !mod_col_wrapper->column_ptr) {
+            return Status::InvalidArgument(
+                    "the bucket count argument of {} must be a constant integer, but the constant "
+                    "column is missing",
+                    name);
+        }
+        auto mod_ref = mod_col_wrapper->column_ptr->get_data_at(0);
+        int64_t signed_mod = 0;
+        switch (block.get_by_position(arguments.back()).type->get_primitive_type()) {
+        case TYPE_TINYINT:
+            signed_mod = *reinterpret_cast<const int8_t*>(mod_ref.data);
+            break;
+        case TYPE_SMALLINT:
+            signed_mod = *reinterpret_cast<const int16_t*>(mod_ref.data);
+            break;
+        case TYPE_INT:
+            signed_mod = *reinterpret_cast<const int32_t*>(mod_ref.data);
+            break;
+        case TYPE_BIGINT:
+            signed_mod = *reinterpret_cast<const int64_t*>(mod_ref.data);
+            break;
+        default:
+            // The FE signature casts any integer literal family to BIGINT before it reaches BE.
+            return Status::InvalidArgument(
+                    "the bucket count argument of {} must be an integer literal, got {}", name,
+                    block.get_by_position(arguments.back()).type->get_name());
+        }
+        if (signed_mod <= 0 || signed_mod > std::numeric_limits<uint32_t>::max()) {
+            return Status::InvalidArgument(
+                    "the bucket count argument of {} must be a positive integer, got {}", name,
+                    signed_mod);
+        }
+        auto mod = static_cast<uint32_t>(signed_mod);
+
+        auto argument_size = arguments.size() - 1;
+        std::vector<ColumnPtr> argument_columns(argument_size);
+        std::vector<PrimitiveType> argument_primitive_types(argument_size);
+
+        for (size_t i = 0; i < argument_size; ++i) {
+            argument_columns[i] =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            argument_primitive_types[i] =
+                    block.get_by_position(arguments[i]).type->get_primitive_type();
+        }
+
+        auto res_col = ColumnInt64::create();
+        auto& res_data = res_col->get_data();
+        res_data.resize_fill(input_rows_count, 0);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            uint32_t hash_val = 0;
+            for (size_t j = 0; j < argument_size; ++j) {
+                const auto& column = argument_columns[j];
+                auto primitive_type = argument_primitive_types[j];
+                auto val = column->get_data_at(i);
+                if (val.data != nullptr) {
+                    hash_val = RawValue::identity_hash(val.data, val.size, primitive_type, hash_val,
+                                                       mod);
+                } else {
+                    // A null distribution value contributes four zero canonical bytes, the same
+                    // convention RawValue::identity_hash applies to a null value.
+                    hash_val = RawValue::identity_hash(nullptr, 0, primitive_type, hash_val, mod);
+                }
+            }
+            res_data[i] = hash_val;
+        }
+
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+
 class FunctionUnicodeNormalize : public IFunction {
 public:
     static constexpr auto name = "unicode_normalize";
@@ -1662,6 +1765,7 @@ void register_function_string_misc(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNgramSearch>();
     factory.register_function<FunctionXPathString>();
     factory.register_function<FunctionCrc32Internal>();
+    factory.register_function<FunctionIdentityHashInternal>();
     factory.register_function<FunctionMakeSet>();
     factory.register_function<FunctionExportSet>();
     factory.register_function<FunctionUnicodeNormalize>();

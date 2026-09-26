@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -98,6 +100,20 @@ public class PhysicalProperties {
         return orderedShuffledColumns.isEmpty()
                 ? PhysicalProperties.GATHER
                 : new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType));
+    }
+
+    /**
+     * Like {@link #createHash(List, ShuffleType)}, but keeps the storage hash type used by
+     * STORAGE_BUCKETED/NATURAL layouts. An empty column list is still normalized to GATHER:
+     * a zero-key hash spec would satisfy every hash REQUIRE demand (its empty equivalence map
+     * makes containsSatisfy() always true), wrongly suppressing the exchange a parent needs.
+     */
+    public static PhysicalProperties createHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
+            HashDistributionInfo.HashType hashType) {
+        return orderedShuffledColumns.isEmpty()
+                ? PhysicalProperties.GATHER
+                : new PhysicalProperties(new DistributionSpecHash(orderedShuffledColumns, shuffleType,
+                        -1L, -1L, Collections.emptySet(), hashType));
     }
 
     public static PhysicalProperties createHash(DistributionSpecHash distributionSpecHash) {

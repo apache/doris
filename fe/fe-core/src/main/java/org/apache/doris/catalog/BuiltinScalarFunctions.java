@@ -253,6 +253,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IdentityHashInternal;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ignore;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
@@ -924,6 +925,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Levenshtein.class, "levenshtein", "levenshtein_distance", "edit_distance"),
             scalar(Crc32.class, "crc32"),
             scalar(Crc32Internal.class, "crc32_internal"),
+            scalar(IdentityHashInternal.class, "identity_hash_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
             scalar(Locate.class, "position", "locate"),

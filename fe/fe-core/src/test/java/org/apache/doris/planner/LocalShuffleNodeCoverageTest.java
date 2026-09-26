@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -31,6 +32,8 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionName;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -40,6 +43,7 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
@@ -57,6 +61,155 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class LocalShuffleNodeCoverageTest {
     private static final AtomicInteger NEXT_ID = new AtomicInteger(1);
+
+    @Test
+    public void testIdentityHashTypeRequiresSupportedExecutionVersion() {
+        int originalVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION - 1;
+            DataPartition identityPartition = new DataPartition(
+                    TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
+                    Collections.singletonList(new IntLiteral(1)), HashDistributionInfo.HashType.IDENTITY);
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                    identityPartition::toThrift);
+            Assertions.assertTrue(exception.getMessage().contains("IDENTITY distribution requires"));
+
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION;
+            Assertions.assertEquals(TDistributionHashType.IDENTITY,
+                    identityPartition.toThrift().getDistributionHashType());
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION - 1;
+            Assertions.assertEquals(TDistributionHashType.CRC32,
+                    DataPartition.toTHashType(HashDistributionInfo.HashType.CRC32));
+        } finally {
+            Config.be_exec_version = originalVersion;
+        }
+    }
+
+    @Test
+    public void testIdentityHashTypePropagatesThroughLocalExchangeAndFragment() {
+        TrackingPlanNode identityChild = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), identityChild,
+                LocalExchangeType.PASSTHROUGH, null);
+        LocalExchangeNode bucket = new LocalExchangeNode(nextPlanNodeId(), passthrough,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                bucket.getStorageDistributionHashType());
+        Assertions.assertEquals(TDistributionHashType.IDENTITY,
+                bucket.treeToThrift().getNodes().get(0).getLocalExchangeNode().getDistributionHashType());
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), bucket, DataPartition.UNPARTITIONED);
+        Assertions.assertEquals(TDistributionHashType.IDENTITY, fragment.toThrift().getDistributionHashType());
+    }
+
+    /**
+     * A fragment whose subtree mixes IDENTITY and CRC32 bucket layouts must be rejected instead
+     * of silently serializing without a hash type: BE-native bucket local exchanges would then
+     * fall back to CRC32 and mis-bucket the identity-routed rows.
+     */
+    @Test
+    public void testFragmentRejectsMixedStorageHashTypes() {
+        TrackingPlanNode identityScan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+
+            @Override
+            protected HashDistributionInfo.HashType getOwnStorageHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        TrackingPlanNode crc32Scan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+
+            @Override
+            protected HashDistributionInfo.HashType getOwnStorageHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+        };
+        // A set operation over two layouts: getStorageDistributionHashType() is null (mixed), and
+        // the collector sees both opinions, so serialization must refuse the fragment.
+        UnionNode mixed = new UnionNode(nextPlanNodeId(), new TupleId(123));
+        mixed.addChild(identityScan);
+        mixed.addChild(crc32Scan);
+        Assertions.assertNull(mixed.getStorageDistributionHashType());
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), mixed, DataPartition.UNPARTITIONED);
+        IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class,
+                fragment::toThrift);
+        Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"),
+                rejected.getMessage());
+    }
+
+    /**
+     * A fragment without any bucketed storage (no node declares a layout) still serializes: the
+     * mixed-layout rejection must not fire for layout-less fragments, and the serialized hash
+     * type stays at the thrift default (CRC32).
+     */
+    @Test
+    public void testFragmentWithoutStorageLayoutStillSerializes() {
+        TrackingPlanNode layoutless = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP);
+        Assertions.assertNull(layoutless.getStorageDistributionHashType());
+
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), layoutless, DataPartition.UNPARTITIONED);
+        Assertions.assertEquals(TDistributionHashType.CRC32,
+                fragment.toThrift().getDistributionHashType());
+    }
+
+    /**
+     * collectStorageHashTypes de-duplicates: a unary chain of passthrough local exchanges over
+     * one identity scan contributes exactly one opinion, so a null root derivation caused by a
+     * multi-input node with one silent child is not misreported as mixed when it is not.
+     */
+    @Test
+    public void testCollectStorageHashTypesDeduplicatesUnaryChain() {
+        TrackingPlanNode identityScan = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        LocalExchangeNode passthrough = new LocalExchangeNode(nextPlanNodeId(), identityScan,
+                LocalExchangeType.PASSTHROUGH, null);
+        java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
+        passthrough.collectStorageHashTypes(collected);
+        Assertions.assertEquals(Collections.singleton(HashDistributionInfo.HashType.IDENTITY), collected);
+    }
+
+    @Test
+    public void testBroadcastJoinPreservesProbeStorageHashType() {
+        TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        TrackingPlanNode crc32Build = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+        };
+        HashJoinNode broadcastJoin = new HashJoinNode(nextPlanNodeId(), identityProbe, crc32Build,
+                JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
+                Collections.emptyList(), null, null, false);
+        broadcastJoin.setDistributionMode(DistributionMode.BROADCAST);
+
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                broadcastJoin.getStorageDistributionHashType());
+        LocalExchangeNode bucketExchange = new LocalExchangeNode(nextPlanNodeId(), broadcastJoin,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                bucketExchange.getStorageDistributionHashType());
+    }
 
     @Test
     public void testRequireSpecificAutoRequireHashPreservesSpecificHash() {
@@ -545,6 +698,31 @@ public class LocalShuffleNodeCoverageTest {
         Assertions.assertInstanceOf(LocalExchangeNode.class, parent.getChild(0),
                 "Layer 1 must NOT skip LE when fragment.useSerialSource=false, "
                         + "even if isSerialNode()=true — BE treats the node as non-serial.");
+    }
+
+    @Test
+    public void testNestedLoopJoinPreservesProbeStorageHashType() {
+        TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        TrackingPlanNode crc32Build = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+        };
+        NestedLoopJoinNode nestedLoopJoin = new NestedLoopJoinNode(nextPlanNodeId(), identityProbe, crc32Build,
+                Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement())), JoinOperator.CROSS_JOIN, false);
+
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                nestedLoopJoin.getStorageDistributionHashType());
+        LocalExchangeNode bucketExchange = new LocalExchangeNode(nextPlanNodeId(), nestedLoopJoin,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                bucketExchange.getStorageDistributionHashType());
     }
 
     @Test

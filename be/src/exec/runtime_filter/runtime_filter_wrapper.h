@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -87,10 +88,13 @@ public:
 
     bool contain_null() const;
 
-    // The shared vector includes the NULL hash whenever the exact set contains NULL, regardless
-    // of target nullability. A non-nullable target may therefore retain one conservative bucket.
+    // CRC32 returns raw hashes shared across bucket counts;
+    // IDENTITY returns distinct bucket IDs for the requested count, with no ordering guarantee.
+    // Both include the NULL bucket whenever the exact set contains NULL, regardless
+    // of target nullability, so a non-nullable target may conservatively retain that bucket.
     std::shared_ptr<const std::vector<uint32_t>> get_or_compute_bucket_prune_hashes(
-            const DataTypePtr& target_type) const;
+            const DataTypePtr& target_type, TDistributionHashType::type hash_type,
+            uint32_t bucket_num) const;
 
     bool disable_always_true_logic() const { return _disable_always_true_logic; }
 
@@ -147,6 +151,8 @@ private:
     Status _assign(const PBloomFilter& bloom_filter, butil::IOBufAsZeroCopyInputStream* data,
                    bool contain_null);
     Status _assign(const PMinMaxFilter& minmax_filter, bool contain_null);
+    std::shared_ptr<const std::vector<uint32_t>> _get_or_compute_identity_buckets(
+            PrimitiveType primitive_type, uint32_t bucket_num) const;
     Status _change_to_bloom_filter();
     // When a runtime filter received from remote and it is a bloom filter, _column_return_type will be invalid.
     const PrimitiveType _column_return_type; // column type
@@ -171,5 +177,8 @@ private:
     mutable std::once_flag _bucket_prune_hashes_once;
     mutable std::atomic_bool _bucket_prune_hashes_started = false;
     mutable std::shared_ptr<const std::vector<uint32_t>> _bucket_prune_hashes;
+    mutable std::mutex _identity_bucket_prune_hashes_mutex;
+    mutable std::unordered_map<uint32_t, std::shared_ptr<const std::vector<uint32_t>>>
+            _identity_bucket_prune_hashes;
 };
 } // namespace doris

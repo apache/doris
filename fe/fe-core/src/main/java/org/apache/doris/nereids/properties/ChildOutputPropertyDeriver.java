@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -453,6 +454,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalSetOperation(PhysicalSetOperation setOperation, PlanContext context) {
         int[] offsetsOfFirstChild = null;
         ShuffleType firstType = null;
+        HashDistributionInfo.HashType firstHashType = null;
         List<DistributionSpec> childrenDistribution = childrenOutputProperties.stream()
                 .map(PhysicalProperties::getDistributionSpec)
                 .collect(Collectors.toList());
@@ -515,8 +517,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
                 setOperationDistributeColumnIds.add(setOperation.getOutput().get(index).getExprId());
             }
-            // check whether the set operation output all distribution columns of the child
-            if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()) {
+            // check whether the set operation output all distribution columns of the child.
+            // An empty result must fall through instead of advertising a zero-key hash spec:
+            // containsSatisfy() is vacuously true on the empty equivalence map, so such a spec
+            // satisfies any hash REQUIRE demand and suppresses the parent's exchange.
+            if (setOperationDistributeColumnIds.size() == orderedShuffledColumns.size()
+                    && !setOperationDistributeColumnIds.isEmpty()) {
                 // Keep the basic child's specific storage layout as the set operation output. When
                 // the basic child is on the right (shuffleToRight) the output rows are physically
                 // placed by the right child's storage bucket function, so advertising that layout is
@@ -531,7 +537,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                                 childDistribution.getShuffleType(),
                                 childDistribution.getTableId(),
                                 childDistribution.getSelectedIndexId(),
-                                childDistribution.getPartitionIds()
+                                childDistribution.getPartitionIds(),
+                                childDistribution.getHashType()
                         )
                 );
             }
@@ -561,10 +568,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
             }
             if (offsetsOfFirstChild == null) {
-                firstType = ((DistributionSpecHash) childDistribution).getShuffleType();
+                firstType = distributionSpecHash.getShuffleType();
+                firstHashType = distributionSpecHash.getHashType();
                 offsetsOfFirstChild = offsetsOfCurrentChild;
             } else if (!Arrays.equals(offsetsOfFirstChild, offsetsOfCurrentChild)
-                    || firstType != ((DistributionSpecHash) childDistribution).getShuffleType()) {
+                    || firstType != distributionSpecHash.getShuffleType()
+                    || firstHashType != distributionSpecHash.getHashType()) {
                 // NOTICE: if come here, the first child output must be DistributionSpecHash
                 return PhysicalProperties.createAnyFromHash((DistributionSpecHash) childrenDistribution.get(0));
             }
@@ -574,7 +583,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         for (int offset : offsetsOfFirstChild) {
             request.add(setOperation.getOutput().get(offset).getExprId());
         }
-        return PhysicalProperties.createHash(request, firstType);
+        // Keep createHash's empty-key normalization: offsetsOfFirstChild is empty only when the
+        // first child has no shuffled columns, and a zero-key DistributionSpecHash would satisfy
+        // any hash REQUIRE demand (containsSatisfy() is vacuously true on an empty equivalence
+        // map), suppressing an exchange the parent actually needs.
+        return PhysicalProperties.createHash(request, firstType, firstHashType);
     }
 
     @Override
@@ -754,7 +767,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             anotherSideOrderedExprIds.add(rightExprIds.get(index));
         }
-        return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType());
+        return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType(),
+                -1L, -1L, Collections.emptySet(), oneSideSpec.getHashType());
     }
 
     private static boolean isSameHashValue(DataType originType, DataType castType) {
