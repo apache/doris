@@ -2261,6 +2261,9 @@ protected:
     TableColumnMapperOptions _mapper_options;
 
 private:
+    static std::optional<std::string> _get_int96_timezone_override(
+            const TFileScanRangeParams* params);
+
     static const ColumnDefinition* _find_column_definition(
             const std::vector<ColumnDefinition>& schema, LocalColumnId column_id) {
         for (const auto& field : schema) {

@@ -24,11 +24,13 @@ namespace doris {
 class ParquetArrowBlockConvertor : public ArrowBlockConvertor {
 public:
     ParquetArrowBlockConvertor(DataTypes types, std::vector<std::string> names,
-                               std::string timezone_name, const cctz::time_zone& timezone)
+                               std::string timezone_name, const cctz::time_zone& timezone,
+                               bool enable_int96_timestamps)
             : ArrowBlockConvertor(nullptr, timezone),
               _types(std::move(types)),
               _names(std::move(names)),
-              _timezone_name(std::move(timezone_name)) {}
+              _timezone_name(std::move(timezone_name)),
+              _enable_int96_timestamps(enable_int96_timestamps) {}
     Status init() override;
 
 protected:
@@ -41,6 +43,7 @@ private:
     DataTypes _types;
     std::vector<std::string> _names;
     std::string _timezone_name;
+    bool _enable_int96_timestamps;
 };
 
 } // namespace doris

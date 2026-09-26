@@ -37,7 +37,7 @@ public:
 protected:
     std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-            const cctz::time_zone& timezone) const override;
+            const cctz::time_zone& timezone, bool enable_int96_timestamps) const override;
 
 private:
     const iceberg::Schema& _iceberg_schema;

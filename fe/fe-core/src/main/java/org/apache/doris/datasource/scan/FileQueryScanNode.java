@@ -35,6 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -190,6 +191,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        // Distinguish explicit wall-clock semantics from old FE plans during a BE-first upgrade.
+        params.setParquetTimestampSemanticsVersion(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
         String hiveParquetTimeZone = getHiveParquetTimeZone();
         if (!hiveParquetTimeZone.isEmpty()) {
             params.setHiveParquetTimeZone(hiveParquetTimeZone);

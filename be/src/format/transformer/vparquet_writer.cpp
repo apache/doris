@@ -43,6 +43,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -219,9 +220,9 @@ Status VParquetWriter::_parse_properties() {
 
 std::unique_ptr<ArrowBlockConvertor> VParquetWriter::_create_arrow_block_convertor(
         DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-        const cctz::time_zone& timezone) const {
-    return std::make_unique<ParquetArrowBlockConvertor>(std::move(types), std::move(names),
-                                                        timezone_name, timezone);
+        const cctz::time_zone& timezone, bool enable_int96_timestamps) const {
+    return std::make_unique<ParquetArrowBlockConvertor>(
+            std::move(types), std::move(names), timezone_name, timezone, enable_int96_timestamps);
 }
 
 Status VParquetWriter::write(const Block& block) {
@@ -255,6 +256,13 @@ arrow::Status VParquetWriter::_open_file_writer() {
 Status VParquetWriter::open() {
     _timezone = _state->timezone();
     _timezone_obj = _state->timezone_obj();
+    if (_parquet_options.enable_int96_timestamps && _parquet_options.int96_timezone.has_value()) {
+        _timezone = *_parquet_options.int96_timezone;
+        // Cache the override on this writer, never mutate the shared query RuntimeState.
+        if (!TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj)) {
+            return Status::InvalidArgument("Invalid Parquet INT96 writer timezone: {}", _timezone);
+        }
+    }
     RETURN_IF_ERROR(_parse_properties());
     DataTypes types;
     types.reserve(_output_vexpr_ctxs.size());
@@ -269,8 +277,9 @@ Status VParquetWriter::open() {
             names.emplace_back(schema.schema_column_name);
         }
     }
-    _arrow_block_convertor = _create_arrow_block_convertor(std::move(types), std::move(names),
-                                                           _timezone, _timezone_obj);
+    _arrow_block_convertor =
+            _create_arrow_block_convertor(std::move(types), std::move(names), _timezone,
+                                          _timezone_obj, _parquet_options.enable_int96_timestamps);
     RETURN_IF_ERROR(_arrow_block_convertor->init());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());

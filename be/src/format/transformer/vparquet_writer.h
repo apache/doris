@@ -28,6 +28,7 @@
 #include <parquet/types.h>
 
 #include <cstdint>
+#include <optional>
 
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/transformer/vfile_format_transformer.h"
@@ -83,6 +84,8 @@ struct ParquetFileOptions {
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
     bool enable_int96_timestamps = false;
+    // Overrides only INT96 normalization; UTC preserves a wall-clock carrier.
+    std::optional<std::string> int96_timezone = std::nullopt;
 };
 
 // Writes Doris blocks as Parquet files, including schema and Arrow conversion.
@@ -112,7 +115,7 @@ protected:
     // Construct the schema and column bindings together for each writer instance.
     virtual std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-            const cctz::time_zone& timezone) const;
+            const cctz::time_zone& timezone, bool enable_int96_timestamps) const;
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:

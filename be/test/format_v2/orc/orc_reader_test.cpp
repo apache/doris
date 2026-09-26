@@ -4976,8 +4976,9 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTim
     ASSERT_EQ(scan_rows, 400);
     ASSERT_TRUE(scan_min.has_value());
     ASSERT_TRUE(scan_max.has_value());
-    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123456));
-    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123456));
+    // The fixture retains an exact 123456789ns tail, which rounds to 123457 microseconds.
+    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123457));
+    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123457));
 
     auto reader = create_reader_for_path(multi_stripe_file_path);
     ASSERT_TRUE(reader->init(&state).ok());
@@ -5082,8 +5083,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackForPreOrc135Wr
 
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesNegativeRowDecoding) {
     const auto file_path = (_test_dir / "aggregate_negative_timestamp.orc").string();
-    // The aggregate path canonicalizes negative millisecond remainders before truncation. Its
-    // statistics result must match the decoded row value.
+    // Unlike ORC SARG reconstruction, the aggregate path canonicalizes negative millisecond
+    // remainders before rounding. Its statistics result must match the decoded row value.
     write_timestamp_rounding_orc_file(file_path, 1, 3);
 
     auto reader = create_reader_for_path(file_path);
@@ -5106,7 +5107,7 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesNegativeRowDecod
     EXPECT_EQ(aggregate_result.count, 1);
     EXPECT_TRUE(aggregate_result.columns[0].has_min);
     EXPECT_TRUE(aggregate_result.columns[0].has_max);
-    const auto expected = make_datetime_v2(1969, 12, 31, 23, 59, 58, 999998);
+    const auto expected = make_datetime_v2(1969, 12, 31, 23, 59, 58, 999999);
     EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(), expected);
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), expected);
 }
@@ -5199,12 +5200,13 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzW
     EXPECT_TRUE(aggregate_result.columns[0].has_max);
     ASSERT_EQ(aggregate_result.columns[0].min_value.get_type(), TYPE_TIMESTAMPTZ);
     ASSERT_EQ(aggregate_result.columns[0].max_value.get_type(), TYPE_TIMESTAMPTZ);
+    // The fixture retains an exact 123456789ns tail, which rounds to 123457 microseconds.
     EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_TIMESTAMPTZ>().to_string(
                       state.timezone_obj(), 6),
-              "1970-01-01 08:00:00.123456+08:00");
+              "1970-01-01 08:00:00.123457+08:00");
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_TIMESTAMPTZ>().to_string(
                       state.timezone_obj(), 6),
-              "2021-01-01 08:03:19.123456+08:00");
+              "2021-01-01 08:03:19.123457+08:00");
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownCharMinMaxTrimsTrailingSpaces) {
@@ -9859,6 +9861,7 @@ TEST_F(NewOrcReaderTest, SargDecimalCastToStringDoesNotPruneStripes) {
 
     auto reader = create_reader_for_path(multi_stripe_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("+00:00");
     ASSERT_TRUE(reader->init(&state).ok());
 
     std::vector<format::ColumnDefinition> schema;
@@ -10403,7 +10406,7 @@ TEST_F(NewOrcReaderTest, ReadPrimitiveTypesWithNulls) {
     EXPECT_EQ(schema[15].type->to_string(*block.get_by_position(15).column, NULL_ROW), "NULL");
 }
 
-TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsTruncatesToMicroseconds) {
+TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsRoundsToMicroseconds) {
     const auto file_path = (_test_dir / "timestamp_rounding.orc").string();
     write_timestamp_rounding_orc_file(file_path);
     auto reader = create_reader_for_path(file_path);
@@ -10427,8 +10430,8 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsTruncatesToMicroseconds) {
     ASSERT_EQ(rows, TIMESTAMP_ROUNDING_ROW_COUNT);
 
     static constexpr std::array<std::string_view, TIMESTAMP_ROUNDING_ROW_COUNT> expected {
-            "1970-01-01 00:00:01.111001", "1970-01-01 00:00:02.345678",
-            "2020-12-31 23:59:59.999999", "1969-12-31 23:59:58.999998"};
+            "1970-01-01 00:00:01.111002", "1970-01-01 00:00:02.345678",
+            "2021-01-01 00:00:00.000000", "1969-12-31 23:59:58.999999"};
     for (size_t column_id = 0; column_id < schema.size(); ++column_id) {
         for (size_t row = 0; row < expected.size(); ++row) {
             EXPECT_EQ(schema[column_id].type->to_string(*block.get_by_position(column_id).column,
@@ -10438,11 +10441,12 @@ TEST_F(NewOrcReaderTest, ReadTimestampNanosecondsTruncatesToMicroseconds) {
     }
 }
 
-Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool use_timestamp_tz,
+Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool file_is_instant,
+                                     bool use_timestamp_tz,
                                      const cctz::time_zone& timezone = cctz::utc_time_zone(),
                                      std::string* decoded_value = nullptr) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
-            use_timestamp_tz ? "timestamp with local time zone" : "timestamp"));
+            file_is_instant ? "timestamp with local time zone" : "timestamp"));
     ::orc::TimestampVectorBatch batch(1, *::orc::getDefaultPool());
     batch.numElements = 1;
     batch.data[0] = seconds;
@@ -10471,48 +10475,48 @@ Status decode_orc_timestamp_boundary(int64_t seconds, int64_t nanoseconds, bool 
     return status;
 }
 
-TEST_F(NewOrcReaderTest, PlainTimestampTruncatesSubMicrosecondsAcrossDstTransitions) {
+TEST_F(NewOrcReaderTest, PlainTimestampRoundsCarryInCivilTimeAcrossDstTransitions) {
     TimezoneUtils::load_timezones_to_cache();
     cctz::time_zone los_angeles;
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
 
-    constexpr int64_t SUB_MICROSECOND_NANOS = 999999500;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     std::string decoded_value;
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, SUB_MICROSECOND_NANOS, false, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, false, false,
+                                              los_angeles, &decoded_value)
                         .ok());
-    EXPECT_EQ(decoded_value, "2021-11-07 01:59:59.999999");
+    EXPECT_EQ(decoded_value, "2021-11-07 02:00:00.000000");
 
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, SUB_MICROSECOND_NANOS, false, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, false, false,
+                                              los_angeles, &decoded_value)
                         .ok());
-    EXPECT_EQ(decoded_value, "2021-03-14 01:59:59.999999");
+    EXPECT_EQ(decoded_value, "2021-03-14 02:00:00.000000");
 }
 
-TEST_F(NewOrcReaderTest, TimestampInstantTruncatesSubMicrosecondsAcrossDstTransitions) {
+TEST_F(NewOrcReaderTest, TimestampInstantKeepsEpochCarryAcrossDstTransitions) {
     TimezoneUtils::load_timezones_to_cache();
     cctz::time_zone los_angeles;
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
 
-    constexpr int64_t SUB_MICROSECOND_NANOS = 999999500;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     std::string decoded_value;
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, SUB_MICROSECOND_NANOS, true, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, true,
+                                              los_angeles, &decoded_value)
                         .ok());
-    EXPECT_EQ(decoded_value, "2021-11-07 08:59:59.999999+00:00");
+    EXPECT_EQ(decoded_value, "2021-11-07 09:00:00.000000+00:00");
 
-    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, SUB_MICROSECOND_NANOS, true, los_angeles,
-                                              &decoded_value)
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1615715999, ROUNDING_CARRY_NANOS, true, true,
+                                              los_angeles, &decoded_value)
                         .ok());
-    EXPECT_EQ(decoded_value, "2021-03-14 09:59:59.999999+00:00");
+    EXPECT_EQ(decoded_value, "2021-03-14 10:00:00.000000+00:00");
 }
 
-TEST_F(NewOrcReaderTest, PlainTimestampTruncationMatchesStripeStatistics) {
+TEST_F(NewOrcReaderTest, PlainTimestampDstCarryMatchesStripeStatistics) {
     const auto file_path = (_test_dir / "timestamp_dst_carry_statistics.orc").string();
     constexpr int64_t BEFORE_DST_ROLLBACK = 1636275599;
-    constexpr int64_t SUB_MICROSECOND_NANOS = 999999500;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     write_two_stripe_constant_timestamp_file(file_path, BEFORE_DST_ROLLBACK, BEFORE_DST_ROLLBACK,
-                                             "America/Los_Angeles", SUB_MICROSECOND_NANOS);
+                                             "America/Los_Angeles", ROUNDING_CARRY_NANOS);
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("America/Los_Angeles");
@@ -10532,15 +10536,15 @@ TEST_F(NewOrcReaderTest, PlainTimestampTruncationMatchesStripeStatistics) {
     format::FileAggregateResult aggregate_result;
     ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &aggregate_result).ok());
     ASSERT_EQ(aggregate_result.columns.size(), 1);
-    const auto expected = make_datetime_v2(2021, 11, 7, 1, 59, 59, 999999);
+    const auto expected = make_datetime_v2(2021, 11, 7, 2, 0, 0);
     EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATETIMEV2>(), expected);
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), expected);
 }
 
 TEST_F(NewOrcReaderTest, TimestampAcceptsDorisYearZeroBoundary) {
     constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false).ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, false, false).ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND, 0, true, true).ok());
 }
 
 TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
@@ -10548,34 +10552,82 @@ TEST_F(NewOrcReaderTest, PlainTimestampAcceptsDorisBoundariesAcrossTimezones) {
     const auto minus_eight = cctz::fixed_time_zone(std::chrono::hours(-8));
     constexpr int64_t YEAR_ZERO_IN_PLUS_EIGHT = -62167248000LL;
     constexpr int64_t YEAR_9999_END_IN_MINUS_EIGHT = 253402329599LL;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, plus_eight).ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false,
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_ZERO_IN_PLUS_EIGHT, 0, false, false, plus_eight)
+                        .ok());
+    EXPECT_TRUE(decode_orc_timestamp_boundary(YEAR_9999_END_IN_MINUS_EIGHT, 999999000, false, false,
                                               minus_eight)
                         .ok());
 }
 
-TEST_F(NewOrcReaderTest, TimestampTruncationAcceptsUpperDorisBoundary) {
-    // 253402300799 is 9999-12-31 23:59:59 UTC. Truncation retains the representable
-    // 999999 microsecond value instead of carrying into year 10000.
+TEST_F(NewOrcReaderTest, TimestampRoundingRejectsUpperDorisBoundary) {
+    // 253402300799 is 9999-12-31 23:59:59 UTC; rounding the fractional part carries
+    // into year 10000, which neither Doris timestamp representation can store.
     constexpr int64_t MAX_DORIS_EPOCH_SECOND = 253402300799LL;
-    constexpr int64_t SUB_MICROSECOND_NANOS = 999999500;
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, SUB_MICROSECOND_NANOS, false)
-                        .ok());
-    EXPECT_TRUE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, SUB_MICROSECOND_NANOS, true)
-                        .ok());
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    EXPECT_FALSE(decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, false,
+                                               false)
+                         .ok());
+    EXPECT_FALSE(
+            decode_orc_timestamp_boundary(MAX_DORIS_EPOCH_SECOND, ROUNDING_CARRY_NANOS, true, true)
+                    .ok());
 }
 
-TEST_F(NewOrcReaderTest, TimestampTruncationRejectsOutOfRangeSecond) {
-    constexpr int64_t SUB_MICROSECOND_NANOS = 999999500;
+TEST_F(NewOrcReaderTest, TimestampRoundingRejectsSecondOverflow) {
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
     EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
-                                               SUB_MICROSECOND_NANOS, false)
+                                               ROUNDING_CARRY_NANOS, false, false)
                          .ok());
     EXPECT_FALSE(decode_orc_timestamp_boundary(std::numeric_limits<int64_t>::max(),
-                                               SUB_MICROSECOND_NANOS, true)
+                                               ROUNDING_CARRY_NANOS, true, true)
                          .ok());
 }
 
-TEST_F(NewOrcReaderTest, TimestampSargMatchesTruncatedMicroseconds) {
+TEST_F(NewOrcReaderTest, TimestampInstantMappedToDatetimeRoundsBeforeTimezoneConversion) {
+    TimezoneUtils::load_timezones_to_cache();
+    cctz::time_zone los_angeles;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/Los_Angeles", los_angeles));
+
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(1636275599, ROUNDING_CARRY_NANOS, true, false,
+                                              los_angeles, &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "2021-11-07 01:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampInstantRoundingCanEnterDorisRange) {
+    constexpr int64_t MIN_DORIS_EPOCH_SECOND = -62167219200LL;
+    constexpr int64_t ROUNDING_CARRY_NANOS = 999999500;
+    std::string decoded_value;
+    ASSERT_TRUE(decode_orc_timestamp_boundary(MIN_DORIS_EPOCH_SECOND - 1, ROUNDING_CARRY_NANOS,
+                                              true, false, cctz::utc_time_zone(), &decoded_value)
+                        .ok());
+    EXPECT_EQ(decoded_value, "0000-01-01 00:00:00.000000");
+}
+
+TEST_F(NewOrcReaderTest, TimestampRejectsYearsBeforeNarrowingToPackedStorage) {
+    const auto utc = cctz::utc_time_zone();
+    for (int year : {-65536, 65536, 65537}) {
+        const auto seconds =
+                cctz::convert(cctz::civil_second(year, 1, 1), utc).time_since_epoch().count();
+        for (bool file_is_instant : {false, true}) {
+            // These years wrap into valid packed years if checked only after from_unixtime().
+            EXPECT_EQ(decode_orc_timestamp_boundary(seconds, 0, file_is_instant, false).code(),
+                      ErrorCode::DATA_QUALITY_ERROR);
+        }
+        EXPECT_EQ(decode_orc_timestamp_boundary(seconds, 0, true, true).code(),
+                  ErrorCode::DATA_QUALITY_ERROR);
+    }
+}
+
+TEST_F(NewOrcReaderTest, TimestampRejectsInvalidNanosecondsWithoutCrashing) {
+    EXPECT_EQ(decode_orc_timestamp_boundary(0, -1, false, false).code(),
+              ErrorCode::DATA_QUALITY_ERROR);
+    EXPECT_EQ(decode_orc_timestamp_boundary(0, 1000000000, true, false).code(),
+              ErrorCode::DATA_QUALITY_ERROR);
+}
+
+TEST_F(NewOrcReaderTest, TimestampSargMatchesRoundedMicroseconds) {
     const auto file_path = (_test_dir / "timestamp_rounding_sarg.orc").string();
     write_timestamp_rounding_orc_file(file_path, 1);
     auto reader = create_reader_for_path(file_path);
@@ -10593,7 +10645,7 @@ TEST_F(NewOrcReaderTest, TimestampSargMatchesTruncatedMicroseconds) {
             VExprContext::create_shared(std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
                     0, remove_nullable(schema[0].type),
                     std::vector<Field> {Field::create_field<TYPE_DATETIMEV2>(
-                            make_datetime_v2(1970, 1, 1, 0, 0, 1, 111001))},
+                            make_datetime_v2(1970, 1, 1, 0, 0, 1, 111002))},
                     "timestamp_col")));
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -10604,14 +10656,14 @@ TEST_F(NewOrcReaderTest, TimestampSargMatchesTruncatedMicroseconds) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, 0),
-              "1970-01-01 00:00:01.111001");
+              "1970-01-01 00:00:01.111002");
 }
 
 TEST_F(NewOrcReaderTest, TimestampSargMillisecondBoundsNeverPruneMatches) {
     auto scan_rows = [&](std::string_view suffix, TExprOpcode::type comparison_op,
                          uint32_t literal_microseconds, bool not_in = false) {
         const auto file_path = (_test_dir / fmt::format("timestamp_sarg_{}.orc", suffix)).string();
-        // The first stripe truncates 1.111001900 to 1.111001, while the second truncates the same
+        // The first stripe rounds 1.111001900 to 1.111002, while the second rounds the same
         // fractional part at second 10. Millisecond statistics must never make the SARG stricter
         // than Doris's exact microsecond row comparison.
         write_two_stripe_constant_timestamp_file(file_path, 1, 10, "GMT", 111001900);
@@ -10652,19 +10704,20 @@ TEST_F(NewOrcReaderTest, TimestampSargMillisecondBoundsNeverPruneMatches) {
         return std::pair {result_rows, reader->reader_statistics().filtered_row_groups};
     };
 
-    EXPECT_EQ(scan_rows("gt", TExprOpcode::GT, 111001).first, 200);
+    EXPECT_EQ(scan_rows("gt", TExprOpcode::GT, 111001).first, 400);
     EXPECT_EQ(scan_rows("lt", TExprOpcode::LT, 111003).first, 200);
     const auto not_equal = scan_rows("ne", TExprOpcode::NE, 111001);
-    EXPECT_EQ(not_equal.first, 200);
+    EXPECT_EQ(not_equal.first, 400);
     EXPECT_EQ(not_equal.second, 0);
     const auto not_in = scan_rows("not_in", TExprOpcode::INVALID_OPCODE, 111001, true);
-    EXPECT_EQ(not_in.first, 200);
+    EXPECT_EQ(not_in.first, 400);
     EXPECT_EQ(not_in.second, 0);
 }
 
-TEST_F(NewOrcReaderTest, TimestampSargExactEpochPrunesNegativeStripe) {
+TEST_F(NewOrcReaderTest, TimestampSargExactEpochBypassesUnsafeRoundingBounds) {
     const auto file_path = (_test_dir / "timestamp_sarg_exact_epoch.orc").string();
-    write_two_stripe_constant_timestamp_file(file_path, -2, 0, "GMT", 789);
+    // Values within half a microsecond of the epoch round to zero; its lower bound is negative.
+    write_two_stripe_constant_timestamp_file(file_path, -2, 0, "GMT", 499);
     ASSERT_EQ(get_orc_stripe_count(file_path), 2);
 
     auto reader = create_reader_for_path(file_path);
@@ -10694,12 +10747,12 @@ TEST_F(NewOrcReaderTest, TimestampSargExactEpochPrunesNegativeStripe) {
         result_rows += rows;
     }
     EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 0);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
 }
 
-TEST_F(NewOrcReaderTest, NegativeTimestampTruncationBypassesUnsafeSarg) {
+TEST_F(NewOrcReaderTest, NegativeTimestampRoundingBypassesUnsafeSarg) {
     const auto file_path = (_test_dir / "negative_timestamp_rounding_sarg.orc").string();
     write_timestamp_rounding_orc_file(file_path, 1, 3);
     auto reader = create_reader_for_path(file_path);
@@ -10717,7 +10770,7 @@ TEST_F(NewOrcReaderTest, NegativeTimestampTruncationBypassesUnsafeSarg) {
             VExprContext::create_shared(std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
                     0, remove_nullable(schema[0].type),
                     std::vector<Field> {Field::create_field<TYPE_DATETIMEV2>(
-                            make_datetime_v2(1969, 12, 31, 23, 59, 58, 999998))},
+                            make_datetime_v2(1969, 12, 31, 23, 59, 58, 999999))},
                     "timestamp_col")));
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -10728,7 +10781,7 @@ TEST_F(NewOrcReaderTest, NegativeTimestampTruncationBypassesUnsafeSarg) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, 0),
-              "1969-12-31 23:59:58.999998");
+              "1969-12-31 23:59:58.999999");
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
 }
 
@@ -10761,7 +10814,7 @@ TEST_F(NewOrcReaderTest, NegativeTimestampNotInEpochBypassesUnsafeSarg) {
     EXPECT_FALSE(eof);
     ASSERT_EQ(rows, 1);
     EXPECT_EQ(schema[0].type->to_string(*block.get_by_position(0).column, 0),
-              "1969-12-31 23:59:58.999998");
+              "1969-12-31 23:59:58.999999");
     EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 0);
 }
 
