@@ -281,6 +281,25 @@ public class InternalSchema {
         // a default (a missing / NULL value means MODE_DEFAULT).
         SPM_BASELINES_SCHEMA.add(new ColumnDef("sql_mode",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // parser mode of the STORED planSql: MODE_DEFAULT for the SPM decompiled frozen
+        // rendering, the CREATOR's mode for the raw user planSql kept as the fallback when
+        // the physical plan cannot be decompiled. NULLABLE like sql_mode (NULL = default).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // explicit provenance of the stored planSql: TRUE = SPM decompiled,
+        // placeholder-carrying frozen text replayed as text; FALSE = ordinary user text
+        // (raw fallback / in-memory engine) whose parameterized tree must be rebuilt.
+        // NULLABLE so a reload of pre-column rows falls back to parsing-based
+        // classification (NULL = unknown).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_frozen",
+                ScalarType.createType(PrimitiveType.BOOLEAN), ColumnNullableType.NULLABLE));
+        // CREATE-time schema identity of the referenced base tables (sorted
+        // name|tableId|schemaHash entries): validated before every frozen replay so an
+        // ALTER TABLE ... ADD COLUMN / DROP + CREATE cannot keep matching a frozen plan
+        // that still emits the creator-time output columns. NULLABLE (NULL / empty = a
+        // pre-column row: no validation possible).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
+                ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
 
         // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
         // the (query_time, time, query_id) cursor and the retry state survive a leader

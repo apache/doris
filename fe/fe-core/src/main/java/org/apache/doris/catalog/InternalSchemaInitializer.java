@@ -56,7 +56,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -108,15 +110,16 @@ public class InternalSchemaInitializer extends Thread {
         }
         Database database = op.get();
         // Runs even when every table already exists: an upgraded cluster must gain the
-        // sql_mode column although the completion gate no longer calls createTbl().
-        // Waits until the column is OBSERVED: run() reaches this point only once and the
+        // SPM provenance columns (sql_mode / plan_sql_mode / plan_frozen /
+        // schema_fingerprint) although the completion gate no longer calls createTbl().
+        // Waits until all columns are OBSERVED: run() reaches this point only once and the
         // replica-upgrade loop below never comes back, so a transient ALTER failure was
-        // never retried in this process - the table stayed without sql_mode although
-        // BaselineManager always reads / writes that column, and baseline loading plus
-        // global DDL stayed broken until a restart. Must precede the replica-upgrade
-        // loop below: that loop WAITS for enough BEs (sleeping), so anything after it
-        // would be deferred indefinitely on a small cluster.
-        ensureSpmBaselinesSqlModeColumn();
+        // never retried in this process - the table stayed without the columns although
+        // BaselineManager always reads / writes them, and baseline loading plus global
+        // DDL stayed broken until a restart. Must precede the replica-upgrade loop below:
+        // that loop WAITS for enough BEs (sleeping), so anything after it would be
+        // deferred indefinitely on a small cluster.
+        ensureSpmBaselinesColumnsExist();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
             modifyTblReplicaCount(database, tblName);
         }
@@ -436,20 +439,50 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * Waits until the spm_baselines table carries the `sql_mode` column: a transient
-     * ALTER failure (BE / tablet not ready) must be retried HERE - run() calls this once
-     * and the replica-upgrade loop never comes back, so a one-shot call left an upgraded
-     * cluster without the column until a restart although BaselineManager always reads /
-     * writes it (baseline load and global DDL stayed broken).
+     * The provenance / schema-identity columns an UPGRADED cluster must gain on the
+     * pre-existing spm_baselines table (new clusters get them from the create SQL):
+     *
+     * - sql_mode: the parser mode of the creating session (without it a PIPES_AS_CONCAT
+     *   baseline is re-parsed under the default mode after a restart, the stored digest
+     *   still finds the row while the structural match rejects every CONCAT-mode query,
+     *   and the baseline silently stops applying);
+     * - plan_sql_mode: the parser mode of the stored planSql (the raw fallback text keeps
+     *   the creator's mode, the decompiled rendering is MODE_DEFAULT);
+     * - plan_frozen: the explicit decompiled / raw-fallback provenance, so a reload never
+     *   guesses whether the text is the frozen placeholder rendering;
+     * - schema_fingerprint: the referenced-table schema identity validated before a
+     *   replay, so an ALTER TABLE ... ADD COLUMN cannot keep matching a frozen plan that
+     *   still emits the creator-time columns.
      */
-    static void ensureSpmBaselinesSqlModeColumn() {
-        while (!spmBaselinesSqlModeColumnExists()) {
+    private static final Map<String, ScalarType> SPM_BASELINES_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_BASELINES_UPGRADE_COLUMNS.put("sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_frozen",
+                ScalarType.createType(PrimitiveType.BOOLEAN));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("schema_fingerprint",
+                ScalarType.createVarchar(4096));
+    }
+
+    /**
+     * Waits until the spm_baselines table carries every column of
+     * {@link #SPM_BASELINES_UPGRADE_COLUMNS}: a transient ALTER failure (BE / tablet not
+     * ready) must be retried HERE - run() calls this once and the replica-upgrade loop
+     * never comes back, so a one-shot call left an upgraded cluster without the columns
+     * until a restart although BaselineManager always reads / writes them (baseline load
+     * and global DDL stayed broken).
+     */
+    static void ensureSpmBaselinesColumnsExist() {
+        while (!spmBaselinesColumnsExist()) {
             try {
                 upgradeSpmBaselinesSchema();
             } catch (Throwable t) {
-                LOG.warn("SPM: failed to add the spm_baselines sql_mode column, will retry", t);
+                LOG.warn("SPM: failed to add the spm_baselines provenance columns, will retry", t);
             }
-            if (spmBaselinesSqlModeColumnExists()) {
+            if (spmBaselinesColumnsExist()) {
                 return;
             }
             try {
@@ -461,34 +494,34 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * Testable retry skeleton of {@link #ensureSpmBaselinesSqlModeColumn}: waits until the
-     * column is observed, retrying a failed alter. A first ALTER failure followed by a
+     * Testable retry skeleton of {@link #ensureSpmBaselinesColumnsExist}: waits until the
+     * columns are observed, retrying a failed alter. A first ALTER failure followed by a
      * success must converge WITHOUT a restart.
      *
-     * @param columnExists whether the sql_mode column is already observed
+     * @param columnsExist whether every upgraded column is already observed
      * @param alter        the idempotent upgrade attempt (may throw)
      * @param sleeper      the wait between attempts
      */
     @VisibleForTesting
-    static void ensureSpmBaselinesSqlModeColumn(BooleanSupplier columnExists, Runnable alter,
+    static void ensureSpmBaselinesColumnsExist(BooleanSupplier columnsExist, Runnable alter,
             Runnable sleeper) {
-        while (!columnExists.getAsBoolean()) {
+        while (!columnsExist.getAsBoolean()) {
             try {
                 alter.run();
             } catch (Throwable t) {
-                LOG.warn("SPM: failed to add the spm_baselines sql_mode column, will retry", t);
+                LOG.warn("SPM: failed to add the spm_baselines provenance columns, will retry", t);
             }
-            if (columnExists.getAsBoolean()) {
+            if (columnsExist.getAsBoolean()) {
                 return;
             }
             sleeper.run();
         }
     }
 
-    /** Whether the spm_baselines table already carries the sql_mode column (false while
-     *  the table itself is not there yet - the caller keeps retrying). */
+    /** Whether the spm_baselines table already carries every upgraded column (false
+     *  while the table itself is not there yet - the caller keeps retrying). */
     @VisibleForTesting
-    static boolean spmBaselinesSqlModeColumnExists() {
+    static boolean spmBaselinesColumnsExist() {
         Optional<Database> dbOpt =
                 Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
         if (!dbOpt.isPresent()) {
@@ -498,46 +531,65 @@ public class InternalSchemaInitializer extends Thread {
         if (table == null) {
             return false;
         }
-        return table.getBaseSchema().stream()
-                .anyMatch(column -> "sql_mode".equalsIgnoreCase(column.getName()));
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return existing.containsAll(SPM_BASELINES_UPGRADE_COLUMNS.keySet());
     }
 
     /**
-     * Adds the `sql_mode` column to a PRE-EXISTING spm_baselines table (new clusters get
-     * it from the create SQL). The column carries the parser mode of the creating session:
-     * without it a PIPES_AS_CONCAT baseline is re-parsed under the default mode after a
-     * restart, so the stored digest still finds the row while the structural match rejects
-     * every CONCAT-mode query and the baseline silently stops applying. Idempotent: a
-     * table that already carries the column is left untouched. Throws on failure - the
-     * caller's retry loop owns the retry policy.
+     * Adds every missing column of {@link #SPM_BASELINES_UPGRADE_COLUMNS} to a
+     * PRE-EXISTING spm_baselines table (one ALTER per column). Idempotent: columns that
+     * already exist are left untouched, and a partially upgraded table gains only the
+     * remainder. Throws on failure - the caller's retry loop owns the retry policy.
      */
     private static void upgradeSpmBaselinesSchema() throws UserException {
         Optional<Database> dbOpt =
                 Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
         if (!dbOpt.isPresent()) {
-            LOG.warn("SPM: internal schema db not found yet, will retry the sql_mode upgrade");
+            LOG.warn("SPM: internal schema db not found yet, will retry the provenance upgrade");
             return;
         }
         Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
         if (table == null) {
-            LOG.warn("SPM: spm_baselines table not found yet, will retry the sql_mode upgrade");
+            LOG.warn("SPM: spm_baselines table not found yet, will retry the provenance upgrade");
             return;
         }
-        if (table.getBaseSchema().stream()
-                .anyMatch(column -> "sql_mode".equalsIgnoreCase(column.getName()))) {
+        // A column that was already issued is only visible in the base schema once its
+        // schema change FINISHED; while the table is SCHEMA_CHANGE, its state also rejects
+        // any further ALTER. Wait for the state instead of re-issuing the same column every
+        // retry round (the retry loop runs every resource_not_ready_seconds and would
+        // otherwise deadlock against its own pending schema change).
+        if (!(table instanceof OlapTable)
+                || ((OlapTable) table).getState() != OlapTable.OlapTableState.NORMAL) {
+            LOG.info("SPM: spm_baselines is not in NORMAL state ({}), waiting for the pending"
+                            + " schema change before the provenance upgrade",
+                    table instanceof OlapTable ? ((OlapTable) table).getState() : "unknown");
             return;
         }
-        ColumnDefinition definition = new ColumnDefinition("sql_mode",
-                DataType.fromCatalogType(ScalarType.createType(PrimitiveType.BIGINT)),
-                true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
-                Optional.empty(), "", true, Optional.empty());
-        AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
-        addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
-        TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_BASELINES_TBL_NAME);
-        Env.getCurrentEnv().alterTable(
-                new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
-        LOG.info("SPM: added the sql_mode column to {}", InternalSchema.SPM_BASELINES_TBL_NAME);
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        for (Map.Entry<String, ScalarType> entry : SPM_BASELINES_UPGRADE_COLUMNS.entrySet()) {
+            if (existing.contains(entry.getKey())) {
+                continue;
+            }
+            ColumnDefinition definition = new ColumnDefinition(entry.getKey(),
+                    DataType.fromCatalogType(entry.getValue()),
+                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                    Optional.empty(), "", true, Optional.empty());
+            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+            addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_BASELINES_TBL_NAME);
+            Env.getCurrentEnv().alterTable(
+                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
+            LOG.info("SPM: added the {} column to {}", entry.getKey(),
+                    InternalSchema.SPM_BASELINES_TBL_NAME);
+            // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
+            // finishes, and the wait loop's next round continues with the remainder
+            return;
+        }
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {

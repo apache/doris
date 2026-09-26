@@ -317,6 +317,12 @@ class InternalSchemaInitializerTest {
                 "the SPM completion gate re-runs createTbl(): it must create the table: " + sql);
         Assertions.assertTrue(sql.contains("`sql_mode`"),
                 "a new cluster must create the creating-session sql_mode column: " + sql);
+        Assertions.assertTrue(sql.contains("`plan_sql_mode`"),
+                "a new cluster must create the planSql-mode column: " + sql);
+        Assertions.assertTrue(sql.contains("`plan_frozen`"),
+                "a new cluster must create the frozen-provenance column: " + sql);
+        Assertions.assertTrue(sql.contains("`schema_fingerprint`"),
+                "a new cluster must create the schema-fingerprint column: " + sql);
     }
 
     /**
@@ -356,15 +362,15 @@ class InternalSchemaInitializerTest {
     /**
      * A transient ALTER failure must be retried INSIDE the initializer: run() calls the
      * upgrade only once and the replica-upgrade loop never comes back, so without the
-     * retry loop an upgraded cluster stayed without the sql_mode column until a restart
-     * although BaselineManager always reads / writes it.
+     * retry loop an upgraded cluster stayed without the provenance columns until a
+     * restart although BaselineManager always reads / writes them.
      */
     @Test
     public void testSqlModeUpgradeRetriesUntilColumnObserved() {
         AtomicInteger attempts = new AtomicInteger();
         AtomicInteger sleeps = new AtomicInteger();
         AtomicBoolean exists = new AtomicBoolean(false);
-        InternalSchemaInitializer.ensureSpmBaselinesSqlModeColumn(
+        InternalSchemaInitializer.ensureSpmBaselinesColumnsExist(
                 exists::get,
                 () -> {
                     if (attempts.incrementAndGet() == 1) {
@@ -382,9 +388,25 @@ class InternalSchemaInitializerTest {
     @Test
     public void testSqlModeUpgradeSkipsAlterWhenColumnExists() {
         AtomicInteger attempts = new AtomicInteger();
-        InternalSchemaInitializer.ensureSpmBaselinesSqlModeColumn(
+        InternalSchemaInitializer.ensureSpmBaselinesColumnsExist(
                 () -> true, attempts::incrementAndGet, () -> { });
         Assertions.assertEquals(0, attempts.get(),
                 "an already upgraded table must not be altered");
+    }
+
+    /**
+     * The upgrade set must cover every provenance / schema-identity column the load path
+     * reads: forgetting one leaves an upgraded cluster reading NULL forever (mode /
+     * frozen classification) or silently disabling a guard (schema fingerprint).
+     */
+    @Test
+    public void testProvenanceUpgradeCoversEveryEvolvedColumn() {
+        for (String column : new String[] {"sql_mode", "plan_sql_mode", "plan_frozen",
+                "schema_fingerprint"}) {
+            Assertions.assertTrue(
+                    InternalSchema.SPM_BASELINES_SCHEMA.stream()
+                            .anyMatch(def -> column.equalsIgnoreCase(def.getName())),
+                    "the create schema must carry the " + column + " column");
+        }
     }
 }

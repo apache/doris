@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.spm.manager;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineScope;
@@ -48,6 +50,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -90,6 +93,64 @@ import java.util.stream.Collectors;
  */
 public class BaselineManager {
 
+    // ==================== test seams (never set in production) ====================
+
+    /**
+     * Test seam: routes the status-protocol durable I/O (INSERT / DELETE by status / the
+     * reconciliation count read) to a simulator instead of the internal table, so a unit
+     * test can inject faults such as "the old-row delete committed but reported
+     * KV_TXN_MAYBE_COMMITTED". Null in production.
+     */
+    @VisibleForTesting
+    interface StatusProtocolStoreForTest {
+        void insert(BaselinePlan plan);
+
+        void deleteByIdAndStatus(long id, BaselineStatus status);
+
+        int countByIdAndStatus(long id, BaselineStatus status);
+    }
+
+    /**
+     * Test seam for the create-time id allocator / collision protocol: routes the
+     * watermark read, the INSERT, the by-id collision probe and the identity delete to a
+     * simulator, so a unit test can inject a COMPETING master's row between the INSERT
+     * and the probe (the latch-driven handoff scenario). Null in production.
+     */
+    @VisibleForTesting
+    interface IdAllocatorStoreForTest {
+        long watermark();
+
+        void insert(BaselinePlan plan);
+
+        List<BaselinePlan> readById(long id);
+
+        void deleteByIdentity(BaselinePlan plan);
+    }
+
+    @VisibleForTesting
+    public static volatile StatusProtocolStoreForTest statusProtocolStoreForTest;
+
+    @VisibleForTesting
+    public static volatile IdAllocatorStoreForTest idAllocatorStoreForTest;
+
+    /**
+     * Test seam replacing the snapshot READ of the load path (loadFromInternalTable /
+     * the promotion reload): lets a unit test return a controlled snapshot and, together
+     * with {@link #snapshotReadStartedHookForTest}, invalidate the store WHILE a load is
+     * still inside its read - the stale snapshot must then be discarded instead of
+     * republished. Null in production.
+     */
+    @VisibleForTesting
+    public static volatile Supplier<Map<Long, BaselinePlan>> snapshotReaderForTest;
+
+    /**
+     * Test seam invoked by a load right after it captured its generation and BEFORE the
+     * snapshot read: a test blocks here, invalidates the store (the promotion window)
+     * and lets the load continue - the now-stale snapshot must be discarded.
+     */
+    @VisibleForTesting
+    public static volatile Runnable snapshotReadStartedHookForTest;
+
     private static final Logger LOG = LogManager.getLogger(BaselineManager.class);
 
     /** Singleton. */
@@ -104,11 +165,27 @@ public class BaselineManager {
     /** Column order follows InternalSchema.SPM_BASELINES_SCHEMA. */
     private static final String SELECT_ALL_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time`, `sql_mode` FROM " + SPM_BASELINES_TABLE;
+            + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
+            + " `plan_frozen`, `schema_fingerprint` FROM " + SPM_BASELINES_TABLE;
 
     /** The persistence-layer id watermark (see the class javadoc "Id source"): read
      *  before every id allocation. MAX over an aggregate is a light single-row query. */
     private static final String SELECT_MAX_ID_SQL = "SELECT MAX(`id`) FROM " + SPM_BASELINES_TABLE;
+
+    /**
+     * Reads every durable row carrying ONE id - the collision probe of a create (see
+     * {@link #createBaseline}): the table is DUPLICATE KEY(id), so an out-of-band writer
+     * or a second master that started from the same watermark can have inserted a
+     * DIFFERENT baseline under the id this create just allocated. Snapshot loading would
+     * later collapse the two rows nondeterministically (pickDurableWinner), and dropping
+     * the visible row could expose the other; the collision is therefore detected and
+     * resolved at create time.
+     */
+    private static final String SELECT_BY_ID_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
+            + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
+            + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
+            + " `plan_frozen`, `schema_fingerprint` FROM " + SPM_BASELINES_TABLE
+            + " WHERE `id` = ${id}";
 
     /**
      * Durable-key lookup used by the create-time dedup: the in-memory index can be stale
@@ -118,13 +195,15 @@ public class BaselineManager {
      */
     private static final String SELECT_BY_KEY_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time`, `sql_mode` FROM " + SPM_BASELINES_TABLE
+            + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
+            + " `plan_frozen`, `schema_fingerprint` FROM " + SPM_BASELINES_TABLE
             + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
 
     private static final String INSERT_SQL = "INSERT INTO " + SPM_BASELINES_TABLE
             + " VALUES (${id}, '${bindSql}', '${bindSqlDigest}', ${bindSqlHash},"
             + " '${planSql}', '${queryId}', ${cost}, ${queryTimeMs}, '${source}', '${status}',"
-            + " '${createTime}', '${updateTime}', ${sqlMode})";
+            + " '${createTime}', '${updateTime}', ${sqlMode}, ${planSqlMode}, ${planFrozen},"
+            + " '${schemaFingerprint}')";
 
     /**
      * Deletes one row by id AND content key (bind_sql_digest + plan_sql): a delete
@@ -159,6 +238,13 @@ public class BaselineManager {
 
     /** How long a management caller waits for an in-flight background load. */
     private static final long MANAGEMENT_LOAD_WAIT_MILLIS = 5_000L;
+
+    /**
+     * Bounded id-collision retries of one create (see createBaseline): reaching the cap
+     * means at least MAX_ID_COLLISION_RETRIES competing writes landed on every id this
+     * FE allocated - a retryable condition, never a silent success.
+     */
+    private static final int MAX_ID_COLLISION_RETRIES = 8;
 
     // ==================== priority ordering ====================
 
@@ -252,6 +338,16 @@ public class BaselineManager {
 
     /** bindSqlHash -> baseline id list (Level 1 coarse filter index). */
     private final Map<Long, List<Long>> hashIndex = new HashMap<>();
+
+    /**
+     * Bumped by every invalidation of the published store (the promotion reload). A load
+     * that STARTED before an invalidation must never republish its snapshot: that
+     * snapshot may still contain a row the concurrent DROP deleted - the DROP then finds
+     * no map entry (the maps were cleared) and skips its stateVersion bump, so the
+     * version guard alone cannot reject the stale snapshot. Bumped under writerLock (see
+     * invalidatePublishedStore), read without a lock.
+     */
+    private final AtomicLong storeGeneration = new AtomicLong();
 
     private BaselineManager() {
     }
@@ -355,18 +451,156 @@ public class BaselineManager {
                 // below a watermark any create has observed
                 idGenerator.set(watermark + 1);
             }
-            long id = idGenerator.getAndIncrement();
-            plan.setId(id);
-            long now = System.currentTimeMillis();
-            plan.setCreateTime(now);
-            plan.setUpdateTime(now);
-            // persist first so a persist failure leaves the in-memory state untouched and
-            // fails the DDL visibly; no same-key row can exist here (the durable-key check
-            // above returned any), so the INSERT cannot overwrite an existing baseline
-            persistInsert(plan);
-            // Phase 2: publish (the only state-lock section of a create).
-            publishBaseline(plan);
-            return id;
+            for (int attempt = 0; attempt < MAX_ID_COLLISION_RETRIES; attempt++) {
+                // Fence the write with the CURRENT leadership (see assertLeaderForWrite):
+                // an in-flight forwarded CREATE / capture dispatched by an OLD master can
+                // reach this point after the handoff.
+                assertLeaderForWrite();
+                long id = idGenerator.getAndIncrement();
+                plan.setId(id);
+                long now = System.currentTimeMillis();
+                plan.setCreateTime(now);
+                plan.setUpdateTime(now);
+                // persist first so a persist failure leaves the in-memory state untouched
+                // and fails the DDL visibly; no same-key row can exist here (the
+                // durable-key check above returned any), so the INSERT cannot overwrite an
+                // existing baseline
+                persistInsert(plan);
+                if (idAllocatorStoreForTest == null && !persistenceEnabled()) {
+                    // Phase 2: publish (the only state-lock section of a create).
+                    publishBaseline(plan);
+                    return id;
+                }
+                // Cluster-wide collision probe: MAX(id) only orders ids, it does not
+                // RESERVE them - a second master (or an out-of-band writer) that read the
+                // same watermark can have inserted a DIFFERENT baseline under this id,
+                // and spm_baselines is DUPLICATE KEY(id), so both rows would survive and
+                // snapshot loading would later collapse them nondeterministically.
+                BaselinePlan foreign = readForeignRowWithSameId(id, plan);
+                if (foreign == null) {
+                    publishBaseline(plan);
+                    return id;
+                }
+                if (winsIdCollision(plan, foreign)) {
+                    // deterministic winner keeps the id; repair the competing row away so
+                    // every restart / refresh converges on this baseline
+                    try {
+                        persistDeleteByIdentity(foreign);
+                        LOG.warn("SPM baseline create kept id {} on collision (digest {});"
+                                        + " removed the competing row (digest {})",
+                                id, plan.getBindSqlDigest(), foreign.getBindSqlDigest());
+                    } catch (RuntimeException e) {
+                        // best-effort repair: both sides pick the same winner, so the
+                        // leftover is warned about here and resolved on the next probe /
+                        // load
+                        LOG.warn("SPM failed to repair a colliding baseline row (id={}): {}",
+                                id, e.getMessage());
+                    }
+                    publishBaseline(plan);
+                    return id;
+                }
+                // This create lost the deterministic tie-break: take its own row back and
+                // allocate a fresh id above the (re-read) watermark; the other master's
+                // row stays untouched.
+                LOG.warn("SPM baseline create yielded a contested id {} (competing digest {});"
+                        + " re-allocating", id, foreign.getBindSqlDigest());
+                persistDeleteByIdentity(plan);
+                long freshWatermark = readPersistedWatermark();
+                if (freshWatermark >= idGenerator.get()) {
+                    idGenerator.set(freshWatermark + 1);
+                }
+            }
+            throw new IllegalStateException("SPM baseline create failed: an id collision could"
+                    + " not be resolved after " + MAX_ID_COLLISION_RETRIES
+                    + " attempts (retry the CREATE)");
+        }
+    }
+
+    /**
+     * Returns a durable row carrying the given id with a DIFFERENT identity than the row
+     * this create just inserted, or null when the id is exclusively owned. A read failure
+     * is rethrown as retryable: the retried create adopts its OWN already-inserted row
+     * through the durable-key dedup above, so the retry is idempotent and never
+     * duplicates.
+     *
+     * @param id  the just-inserted id
+     * @param own the row this create inserted
+     * @return the competing row, or null
+     */
+    private static BaselinePlan readForeignRowWithSameId(long id, BaselinePlan own) {
+        if (idAllocatorStoreForTest != null) {
+            return pickForeignRow(idAllocatorStoreForTest.readById(id), own);
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        try {
+            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_BY_ID_SQL, params,
+                    INTERNAL_QUERY_TIMEOUT_SECONDS);
+            List<BaselinePlan> parsed = new ArrayList<>();
+            for (ResultRow row : rows) {
+                try {
+                    parsed.add(parsePersistedRow(row));
+                } catch (Throwable t) {
+                    LOG.warn("SPM skip invalid persisted baseline row: {}", t.getMessage());
+                }
+            }
+            return pickForeignRow(parsed, own);
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "SPM baseline id collision probe failed (retry the CREATE): " + e.getMessage(), e);
+        }
+    }
+
+    /** Deterministic pick among the rows sharing one id that are NOT this create's own. */
+    private static BaselinePlan pickForeignRow(List<BaselinePlan> rows, BaselinePlan own) {
+        BaselinePlan foreign = null;
+        for (BaselinePlan row : rows) {
+            if (sameIdentity(row, own)) {
+                continue;
+            }
+            foreign = foreign == null ? row : pickDurableWinner(foreign, row);
+        }
+        return foreign;
+    }
+
+    /** Whether two rows describe the same baseline (the durable dedup key). */
+    private static boolean sameIdentity(BaselinePlan a, BaselinePlan b) {
+        return Objects.equals(a.getBindSqlDigest(), b.getBindSqlDigest())
+                && Objects.equals(a.getPlanSql(), b.getPlanSql());
+    }
+
+    /**
+     * Deterministic tie-break of an id collision: every observer sees the same two
+     * identities, so ordering by (digest, planSql) makes both masters yield to the SAME
+     * winner (the lexicographically smaller identity) - exactly one of the two rows
+     * survives, no matter which create runs the probe.
+     */
+    private static boolean winsIdCollision(BaselinePlan own, BaselinePlan foreign) {
+        int digestCompare = String.valueOf(own.getBindSqlDigest())
+                .compareTo(String.valueOf(foreign.getBindSqlDigest()));
+        if (digestCompare != 0) {
+            return digestCompare < 0;
+        }
+        return String.valueOf(own.getPlanSql())
+                .compareTo(String.valueOf(foreign.getPlanSql())) < 0;
+    }
+
+    /**
+     * Fences a durable write with the CURRENT leadership. An in-flight forwarded CREATE
+     * or auto-capture cycle dispatched while this FE was master can reach the write AFTER
+     * a handoff moved the master elsewhere (the capture daemon checks isMaster() only
+     * once per cycle), and the new master allocates ids from the same MAX(id) with its
+     * own process-local generator. Refusing the write from a non-master keeps the
+     * allocator single-writer at the moment of the write; the collision probe above
+     * covers the unavoidable tail where the demotion lands mid-write.
+     */
+    private static void assertLeaderForWrite() {
+        if (!persistenceEnabled() || FeConstants.runningUnitTest) {
+            return;
+        }
+        if (Env.getCurrentEnv() != null && !Env.getCurrentEnv().isMaster()) {
+            throw new IllegalStateException("SPM baseline write refused: this FE is no longer"
+                    + " the master (retry on the new leader)");
         }
     }
 
@@ -414,6 +648,7 @@ public class BaselineManager {
             // persist first so a failure keeps both the in-memory state and the table row;
             // the delete is keyed by id + content, so a stale id can never remove an
             // unrelated row that reused the id
+            assertLeaderForWrite();
             persistDeleteByIdentity(removed);
             stateLock.writeLock().lock();
             try {
@@ -473,6 +708,7 @@ public class BaselineManager {
             plan.setStatus(status);
             plan.setUpdateTime(System.currentTimeMillis());
             try {
+                assertLeaderForWrite();
                 persistInsert(plan);
                 persistDeleteByIdAndStatus(id, previousStatus);
             } catch (RuntimeException e) {
@@ -563,24 +799,6 @@ public class BaselineManager {
             throw new RuntimeException("SPM durable status count failed: " + e.getMessage(), e);
         }
     }
-
-    /**
-     * Test seam: routes the status-protocol durable I/O (INSERT / DELETE by status / the
-     * reconciliation count read) to a simulator instead of the internal table, so a unit
-     * test can inject faults such as "the old-row delete committed but reported
-     * KV_TXN_MAYBE_COMMITTED". Null in production.
-     */
-    @VisibleForTesting
-    interface StatusProtocolStoreForTest {
-        void insert(BaselinePlan plan);
-
-        void deleteByIdAndStatus(long id, BaselineStatus status);
-
-        int countByIdAndStatus(long id, BaselineStatus status);
-    }
-
-    @VisibleForTesting
-    static volatile StatusProtocolStoreForTest statusProtocolStoreForTest;
 
     // ==================== query matching (Level 1 + Level 2 + ordering) ====================
 
@@ -729,6 +947,24 @@ public class BaselineManager {
     }
 
     /**
+     * For tests: prepares the store for a LOAD-path test - unloads it and clears the
+     * published maps without enabling real table persistence, so
+     * {@link #loadFromInternalTable()} runs through {@link #snapshotReaderForTest}.
+     */
+    @VisibleForTesting
+    void prepareLoadForTest() {
+        stateLock.writeLock().lock();
+        try {
+            loaded = false;
+            baselines.clear();
+            hashIndex.clear();
+            stateVersion++;
+        } finally {
+            stateLock.writeLock().unlock();
+        }
+    }
+
+    /**
      * For tests: clears the storage.
      */
     public void clearForTest() {
@@ -737,6 +973,9 @@ public class BaselineManager {
             loaded = true; // tests manage the in-memory storage directly; never touch the table
             persistToTable = false; // and never write the table from a unit test
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
+            idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
+            snapshotReadStartedHookForTest = null; // (the load-generation seam, same reason)
+            snapshotReaderForTest = null; // (the load snapshot seam, same reason)
             baselines.clear();
             hashIndex.clear();
             stateVersion++;
@@ -760,7 +999,7 @@ public class BaselineManager {
      * the largest persisted id.
      */
     public void loadFromInternalTable() {
-        if (!persistenceEnabled()) {
+        if (!persistenceEnabled() && snapshotReaderForTest == null) {
             loaded = true;
             return;
         }
@@ -792,6 +1031,15 @@ public class BaselineManager {
      */
     private void readAndPublishPossessingLoadSlot() {
         try {
+            // Capture the generation BEFORE the read: a promotion reload / invalidation
+            // that lands while this snapshot is being read makes the snapshot stale (it
+            // may still contain rows deleted by a DROP that completed in between), so the
+            // publication below must be rejected instead of resurrecting them.
+            final long generationAtRead = storeGeneration.get();
+            Runnable hook = snapshotReadStartedHookForTest;
+            if (hook != null) {
+                hook.run();
+            }
             final Map<Long, BaselinePlan> snapshot;
             try {
                 snapshot = readPersistedSnapshot();
@@ -804,6 +1052,14 @@ public class BaselineManager {
             try {
                 if (loaded) {
                     return; // a concurrent load won the race
+                }
+                if (storeGeneration.get() != generationAtRead) {
+                    // an invalidation superseded this snapshot (e.g. a DROP committed
+                    // while the read was in flight); keep loaded=false so the next access
+                    // retries against the CURRENT table content
+                    LOG.warn("SPM baseline load discarded: the store was invalidated while the"
+                            + " snapshot was being read (will retry)");
+                    return;
                 }
                 doLoadFromTable(snapshot);
                 loaded = true;
@@ -848,8 +1104,14 @@ public class BaselineManager {
         if (loaded) {
             return;
         }
-        if (!persistenceEnabled()) {
+        if (!persistenceEnabled() && snapshotReaderForTest == null) {
             loaded = true;
+            return;
+        }
+        if (snapshotReaderForTest != null) {
+            // a unit test replaces the snapshot reader and drives the loads explicitly
+            // (loadFromInternalTable): never fast-forward loaded / schedule a background
+            // load from under it
             return;
         }
         scheduleAsyncLoad();
@@ -1082,6 +1344,9 @@ public class BaselineManager {
      * never allocate an id while the watermark is unknown.
      */
     private static long readPersistedWatermark() {
+        if (idAllocatorStoreForTest != null) {
+            return idAllocatorStoreForTest.watermark();
+        }
         if (!persistenceEnabled()) {
             return 0;
         }
@@ -1107,6 +1372,9 @@ public class BaselineManager {
      * skipped with a warning (the next cycle retries).
      */
     private static Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
+        if (snapshotReaderForTest != null) {
+            return snapshotReaderForTest.get();
+        }
         List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_ALL_SQL, Collections.emptyMap(),
                 INTERNAL_QUERY_TIMEOUT_SECONDS);
         Map<Long, BaselinePlan> snapshot = new HashMap<>();
@@ -1147,20 +1415,35 @@ public class BaselineManager {
     private static BaselinePlan parsePersistedRow(ResultRow row) throws Exception {
         BaselinePlan p = fromRow(row);
         String planSql = p.getPlanSql();
-        // Classify on the PARSED tree, not the raw text (SPMPlanner.isFrozenPlanSql): the
-        // fallback path stores the ORIGINAL planSql when the decompiler rejects a node,
-        // and that ordinary SQL may merely CONTAIN a placeholder function name inside a
-        // string literal / identifier / comment. A raw substring test would skip
-        // rebuilding the parameterized plan tree for such a row - after a reload the
-        // replay would return the CAPTURED literals and the fallback tree was gone.
-        boolean frozen = SPMPlanner.isFrozenPlanSql(planSql);
+        // Fail closed on legacy temporary-table rows: before the create-time rejection,
+        // a GLOBAL baseline over a temporary table froze the CREATOR session's internal
+        // table name into planSql (sessionId_#TEMP#_name). Replaying it from another
+        // session would read the creator's (possibly still live) temporary table, so such
+        // rows are never loaded (the log line names the row).
+        if (containsTemporaryTableSign(p.getBindSql()) || containsTemporaryTableSign(planSql)) {
+            throw new RuntimeException("SPM baseline " + p.getId()
+                    + " references a temporary table (the frozen plan carries the creator"
+                    + " session's internal name); skipping the row");
+        }
+        // Classify with the PERSISTED provenance first (plan_frozen), falling back to the
+        // parse-based classifier for pre-column rows: the fallback path stores the
+        // ORIGINAL planSql when the decompiler rejects a node, and that ordinary SQL may
+        // merely CONTAIN a placeholder function name inside a string literal / identifier
+        // / comment. A raw substring test would skip rebuilding the parameterized plan
+        // tree for such a row - after a reload the replay would return the CAPTURED
+        // literals and the fallback tree was gone.
+        boolean frozen = SPMPlanner.isFrozenPlanSql(planSql, p.getPlanFrozen());
         // Rebuild the transient trees with ONE shared builder over both texts in
         // the CREATE order (bind first, then plan), so the placeholder ids of the
         // two trees stay aligned and a value extracted from the bind tree can
         // never be substituted into a literal slot of the other tree. Frozen
-        // (placeholder-carrying) planSql is replayed as text - no plan tree.
+        // (placeholder-carrying) planSql is replayed as text - no plan tree. The
+        // non-frozen planSql is either the SPM decompiled text (MODE_DEFAULT) or the
+        // user's raw fallback text (creator mode) - plan_sql_mode carries which one.
+        long planSqlMode = p.getPlanSqlMode() == null
+                ? SqlModeHelper.MODE_DEFAULT : p.getPlanSqlMode();
         Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
-                p.getBindSql(), frozen ? null : planSql, p.getCreatorSqlMode());
+                p.getBindSql(), frozen ? null : planSql, p.getCreatorSqlMode(), planSqlMode);
         if (trees.first == null) {
             throw new RuntimeException("SPM baseline " + p.getId()
                     + " bindSql cannot be parsed");
@@ -1170,6 +1453,11 @@ public class BaselineManager {
             p.setParameterizedPlanPlan(trees.second);
         }
         return p;
+    }
+
+    /** Whether a stored text carries the creator session's temporary-table marker. */
+    private static boolean containsTemporaryTableSign(String text) {
+        return text != null && text.contains(FeNameFormat.TEMPORARY_TABLE_SIGN);
     }
 
     /**
@@ -1279,14 +1567,24 @@ public class BaselineManager {
      * EMPTY store until a fresh snapshot is atomically published.
      */
     private void invalidatePublishedStore() {
-        stateLock.writeLock().lock();
-        try {
-            loaded = false;
-            baselines.clear();
-            hashIndex.clear();
-            stateVersion++;
-        } finally {
-            stateLock.writeLock().unlock();
+        // Serialize the invalidation with the WRITERS: a DROP / status change holds
+        // writerLock across its persist + in-memory removal, and if this method cleared
+        // the maps in between, the DROP would find no map entry afterwards (skipping its
+        // stateVersion bump) while a load that read the table BEFORE the DROP committed
+        // could still republish the deleted row. Taking the writers' lock makes the
+        // invalidation impossible to interleave; the generation bump below additionally
+        // rejects every snapshot whose READ started before the invalidation.
+        synchronized (writerLock) {
+            storeGeneration.incrementAndGet();
+            stateLock.writeLock().lock();
+            try {
+                loaded = false;
+                baselines.clear();
+                hashIndex.clear();
+                stateVersion++;
+            } finally {
+                stateLock.writeLock().unlock();
+            }
         }
     }
 
@@ -1353,22 +1651,53 @@ public class BaselineManager {
         // older rows (or a hand-built test row) may not carry the column yet
         p.setCreatorSqlMode(row.getValues().size() > 12 ? parseSqlMode(row.get(12))
                 : SqlModeHelper.MODE_DEFAULT);
+        // provenance columns added later: a legacy row keeps null (no explicit
+        // classification / no schema binding), which the load path handles as "classify
+        // by parsing" / "cannot validate".
+        p.setPlanSqlMode(row.getValues().size() > 13 ? parseNullableLong(row.get(13)) : null);
+        p.setPlanFrozen(row.getValues().size() > 14 ? parseNullableBoolean(row.get(14)) : null);
+        p.setSchemaFingerprint(row.getValues().size() > 15 ? row.get(15) : null);
         return p;
     }
 
     /** A NULL / empty / unparsable sql_mode column means "created before the column". */
     private static long parseSqlMode(String text) {
+        Long value = parseNullableLong(text);
+        return value == null ? SqlModeHelper.MODE_DEFAULT : value;
+    }
+
+    /** A NULL / empty / unparsable BIGINT column decodes to null ("not persisted"). */
+    private static Long parseNullableLong(String text) {
         if (text == null || text.isEmpty()) {
-            return SqlModeHelper.MODE_DEFAULT;
+            return null;
         }
         try {
             return Long.parseLong(text.trim());
         } catch (NumberFormatException e) {
-            return SqlModeHelper.MODE_DEFAULT;
+            return null;
         }
     }
 
+    /** A NULL / empty / unparsable BOOLEAN column decodes to null ("not persisted"). */
+    private static Boolean parseNullableBoolean(String text) {
+        if (text == null || text.isEmpty()) {
+            return null;
+        }
+        String trimmed = text.trim();
+        if ("true".equalsIgnoreCase(trimmed) || "1".equals(trimmed)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equalsIgnoreCase(trimmed) || "0".equals(trimmed)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
     private static void persistInsert(BaselinePlan p) {
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.insert(p);
+            return;
+        }
         if (statusProtocolStoreForTest != null) {
             statusProtocolStoreForTest.insert(p);
             return;
@@ -1390,6 +1719,14 @@ public class BaselineManager {
         params.put("createTime", toTs(p.getCreateTime()));
         params.put("updateTime", toTs(p.getUpdateTime()));
         params.put("sqlMode", String.valueOf(p.getCreatorSqlMode()));
+        // NULL (not "MODE_DEFAULT") for a row that predates the provenance columns: the
+        // load path must keep classifying such rows by parsing / by the creator mode.
+        params.put("planSqlMode",
+                p.getPlanSqlMode() == null ? "NULL" : String.valueOf(p.getPlanSqlMode()));
+        params.put("planFrozen", p.getPlanFrozen() == null ? "NULL" : p.getPlanFrozen().toString());
+        params.put("schemaFingerprint",
+                StatisticsUtil.escapeSQL(p.getSchemaFingerprint() == null
+                        ? "" : p.getSchemaFingerprint()));
         try {
             StatisticsUtil.execUpdate(INSERT_SQL, params);
         } catch (Exception e) {
@@ -1398,6 +1735,10 @@ public class BaselineManager {
     }
 
     private static void persistDeleteByIdentity(BaselinePlan p) {
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.deleteByIdentity(p);
+            return;
+        }
         if (!persistenceEnabled()) {
             return;
         }

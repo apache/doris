@@ -374,6 +374,13 @@ public class ConnectContext {
         resetSessionVariable();
         userVars = new HashMap<>();
         preparedStatementContextMap.clear();
+        // SPM session-scope baselines belong to the SESSION that created them exactly like
+        // the temporary tables / session variables reset above: COM_RESET_CONNECTION
+        // reuses this ConnectContext, so keeping them would leak the previous borrower's
+        // SESSION baseline into the next logical session - and SPM consults the session
+        // store before the global one, so it could silently rewrite the new session's
+        // query (see SessionBaselineStore#clear).
+        sessionBaselineStore.clear();
         queryId = null;
         lastQueryId = null;
         setTraceId(null);
