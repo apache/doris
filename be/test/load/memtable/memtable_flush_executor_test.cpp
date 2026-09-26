@@ -28,6 +28,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/config.h"
 #include "exec/sink/autoinc_buffer.h"
@@ -48,10 +49,21 @@
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/utils.h"
 #include "testutil/creators.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
 namespace {
+
+class FlushOrderTask final : public Runnable {
+public:
+    explicit FlushOrderTask(std::vector<int>* order) : _order(order) {}
+    void run() override { _order->push_back(3); }
+
+private:
+    std::vector<int>* _order;
+};
 
 class MockRowsetWriter final : public RowsetWriter {
 public:
@@ -327,6 +339,43 @@ void tear_down() {
                         .ok());
 }
 
+TEST(MemTableFlushExecutorTest, FlushSharesItsTransactionTurnForEveryKeyType) {
+    using namespace std::chrono_literals;
+    for (auto keys_type : {DUP_KEYS, UNIQUE_KEYS, AGG_KEYS}) {
+        std::unique_ptr<ThreadPool> pool;
+        ASSERT_TRUE(ThreadPoolBuilder("flush_load_fifo_test").set_max_threads(1).build(&pool).ok());
+        std::atomic<int> flush_count = 0;
+        auto writer = std::make_shared<MockRowsetWriter>(&flush_count);
+        RowsetWriterContext context;
+        context.txn_id = 1;
+        context.tablet_schema = std::make_shared<TabletSchema>();
+        context.tablet_schema->_keys_type = keys_type;
+        ASSERT_TRUE(writer->init(context).ok());
+        auto flush = FlushToken::create_shared(pool.get(), nullptr);
+        flush->set_rowset_writer(writer);
+        auto own_bitmap =
+                pool->new_load_token(context.txn_id, LoadTaskPriority::MID, LoadTaskType::LEAF);
+        auto other_bitmap = pool->new_load_token(2, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
+        CountDownLatch entered(1), release(1);
+        std::vector<int> order;
+        Defer unblock = [&] { release.count_down(); };
+        EXPECT_TRUE(pool->submit_func([&] {
+                            entered.count_down();
+                            release.wait();
+                        }).ok());
+        EXPECT_TRUE(entered.wait_for(5s));
+        EXPECT_TRUE(flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order),
+                                                          std::make_shared<FlushOrderTask>(&order)})
+                            .ok());
+        EXPECT_TRUE(other_bitmap->submit_func([&] { order.push_back(2); }).ok());
+        EXPECT_TRUE(own_bitmap->submit_func([&] { order.push_back(1); }).ok());
+        release.count_down();
+        pool->wait();
+        // Our bitmap precedes our flushes, but another load gets the next turn.
+        EXPECT_EQ(order, (std::vector<int> {1, 2, 3, 3}));
+    }
+}
+
 TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
     // Setup
     set_up();
@@ -368,10 +417,11 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
         EXPECT_EQ(actual_max, expected_max);
     }
 
-    // Test 4: Update high_priority_flush_thread_num_per_store
+    // Test 4: The retired high-priority setting does not resize the shared pool.
+    int shared_max_threads = flush_executor->flush_pool()->max_threads();
     config::high_priority_flush_thread_num_per_store = 8;
     flush_executor->update_memtable_flush_threads();
-    // Note: We can't directly access _high_prio_flush_pool, but update should not crash
+    EXPECT_EQ(flush_executor->flush_pool()->max_threads(), shared_max_threads);
 
     // Test 5: Set very small values
     config::flush_thread_num_per_store = 0; // Should be adjusted to 1 by std::max

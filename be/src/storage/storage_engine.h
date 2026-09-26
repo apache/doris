@@ -147,10 +147,6 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
-    CalcDeleteBitmapExecutor* calc_delete_bitmap_executor_for_load() {
-        return _calc_delete_bitmap_executor_for_load.get();
-    }
-
     int64_t memory_limitation_bytes_per_thread_for_schema_change() const;
 
     int get_disk_num() { return _disk_num; }
@@ -178,7 +174,6 @@ protected:
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
     AdaptiveThreadPoolController _adaptive_thread_controller;
     std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor;
-    std::unique_ptr<CalcDeleteBitmapExecutor> _calc_delete_bitmap_executor_for_load;
     CountDownLatch _stop_background_threads_latch;
 
     std::shared_ptr<Thread> _id_file_map_gc_thread;

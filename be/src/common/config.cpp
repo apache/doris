@@ -857,14 +857,14 @@ DEFINE_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 DEFINE_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
 DEFINE_mInt32(flush_thread_num_per_store, "6");
-// number of thread for flushing memtable per store, for high priority load task
+// Deprecated compatibility setting; foreground load tasks share the normal flush pool.
 DEFINE_mInt32(high_priority_flush_thread_num_per_store, "6");
-// number of threads = min(flush_thread_num_per_store * num_store,
-//                         max_flush_thread_num_per_cpu * num_cpu)
-DEFINE_mInt32(max_flush_thread_num_per_cpu, "4");
+// Maximum shared foreground load threads per CPU (default 8).
+// Without adaptive flushing, also capped by flush_thread_num_per_store * num_store.
+DEFINE_mInt32(max_flush_thread_num_per_cpu, "8");
 
-// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
-DEFINE_mDouble(min_flush_thread_num_per_cpu, "0.5");
+// Minimum shared foreground load threads per CPU when adaptive flushing is enabled (default 1).
+DEFINE_mDouble(min_flush_thread_num_per_cpu, "1.0");
 
 // Whether to enable adaptive flush thread adjustment
 DEFINE_mBool(enable_adaptive_flush_threads, "true");
@@ -2438,9 +2438,7 @@ void update_config(const std::string& field, const std::string& value) {
     if ("sys_log_level" == field) {
         // update log level
         update_logging(field, value);
-    } else if ("flush_thread_num_per_store" == field ||
-               "high_priority_flush_thread_num_per_store" == field ||
-               "max_flush_thread_num_per_cpu" == field) {
+    } else if ("flush_thread_num_per_store" == field || "max_flush_thread_num_per_cpu" == field) {
         // update memtable flush thread pool size
         auto* exec_env = ExecEnv::GetInstance();
         if (exec_env != nullptr) {

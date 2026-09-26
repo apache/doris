@@ -117,7 +117,8 @@ Status CloudRowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _rowset_id = context.rowset_id;
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_load_token(
+            _req.txn_id, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",
@@ -254,7 +255,7 @@ Status CloudRowsetBuilder::set_txn_related_info() {
         // For empty rowsets when skip_writing_empty_rowset_metadata=true,
         // store only a lightweight marker instead of full rowset info.
         // This allows CalcDeleteBitmapTask to detect and skip gracefully,
-        // while using minimal memory (~16 bytes per entry).
+        // while retaining the workload group for publish routing.
         if (_skip_writing_rowset_metadata) {
             _engine.txn_delete_bitmap_cache().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
                                                                 _req.txn_expiration);
