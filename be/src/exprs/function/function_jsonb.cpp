@@ -1386,8 +1386,10 @@ struct JsonbLengthUtil {
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i) ||
-                (jsonb_data_column->get_data_at(i).size == 0)) {
+            const auto jsonb_index = index_check_const(i, jsonb_data_const);
+            if (jsonb_data_column->is_null_at(jsonb_index) ||
+                path_column->is_null_at(index_check_const(i, is_const)) ||
+                (jsonb_data_column->get_data_at(jsonb_index).size == 0)) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
@@ -1401,7 +1403,7 @@ struct JsonbLengthUtil {
                             std::string_view(path_value.data, path_value.size));
                 }
             }
-            auto jsonb_value = jsonb_data_column->get_data_at(i);
+            auto jsonb_value = jsonb_data_column->get_data_at(jsonb_index);
             // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
             const JsonbDocument* doc = nullptr;
             RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(jsonb_value.data,
@@ -1500,7 +1502,7 @@ struct JsonbContainsUtil {
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||
-                path_column->is_null_at(i)) {
+                path_column->is_null_at(index_check_const(i, is_const))) {
                 null_map->get_data()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
