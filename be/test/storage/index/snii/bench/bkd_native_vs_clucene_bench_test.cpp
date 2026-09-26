@@ -57,6 +57,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -372,7 +373,7 @@ TEST_F(BkdNativeVsCluceneBench, DISABLED_BuildAndQuery) {
     const int64_t span = 1 << 20;
 
     printf("\n=== SNII-native BKD vs CLucene BKD ===\n");
-    printf("points=%u  span=+/-%ld  iterations=%d  points_per_leaf=%u\n", point_count, span,
+    printf("points=%u  span=+/-%" PRId64 "  iterations=%d  points_per_leaf=%u\n", point_count, span,
            iterations, kDefaultPointsPerLeaf);
 
     const std::vector<EncodedPoint> points = make_points(point_count, span);
@@ -399,9 +400,10 @@ TEST_F(BkdNativeVsCluceneBench, DISABLED_BuildAndQuery) {
     const Measurement clucene_build = measure([&] { clucene.build(points); });
 
     const uint64_t native_bytes = native_index_bytes.size() + native_data.bytes().size();
-    printf("\nbuild   native  cpu=%8.3f s  bytes=%10lu  leaves=%u\n", native_build.cpu_s,
+    printf("\nbuild   native  cpu=%8.3f s  bytes=%10" PRIu64 "  leaves=%u\n", native_build.cpu_s,
            native_bytes, stats.leaf_count);
-    printf("build   clucene cpu=%8.3f s  bytes=%10lu\n", clucene_build.cpu_s, clucene.bytes());
+    printf("build   clucene cpu=%8.3f s  bytes=%10" PRIu64 "\n", clucene_build.cpu_s,
+           clucene.bytes());
     printf("build   ratio   cpu=%8.3fx  bytes=%8.3fx  (>1 means native is worse)\n",
            native_build.cpu_s / clucene_build.cpu_s,
            static_cast<double>(native_bytes) / static_cast<double>(clucene.bytes()));
@@ -479,7 +481,7 @@ TEST_F(BkdNativeVsCluceneBench, DISABLED_BuildAndQuery) {
         // the ANSWER is meaningless; assert equality before reporting.
         ASSERT_EQ(native_hits, clucene_hits) << "case " << c.label << " disagrees on the result";
 
-        printf("%s (hits=%lu)\n", c.label, native_hits);
+        printf("%s (hits=%" PRIu64 ")\n", c.label, native_hits);
         report("native", c.label, native_cpu, native_wall);
         report("clucene", c.label, clucene_cpu, clucene_wall);
         std::sort(native_cpu.begin(), native_cpu.end());
@@ -579,7 +581,7 @@ TEST_F(BkdNativeVsCluceneBench, DISABLED_InListManyValues) {
     }
 
     ASSERT_EQ(native_hits, clucene_hits) << "in_list disagrees on the result";
-    printf("in_list (values=%zu, hits=%lu)\n", encoded.size(), native_hits);
+    printf("in_list (values=%zu, hits=%" PRIu64 ")\n", encoded.size(), native_hits);
     report("native", "in_list", native_cpu, native_wall);
     report("clucene", "in_list", clucene_cpu, clucene_wall);
     std::sort(native_cpu.begin(), native_cpu.end());
@@ -704,7 +706,8 @@ TEST_F(BkdNativeVsCluceneBench, DISABLED_ResultMaterializationFloor) {
     std::sort(floor_only.begin(), floor_only.end());
     const double q = nearest_rank_percentile(full, 50) * 1e3;
     const double f = nearest_rank_percentile(floor_only, 50) * 1e3;
-    printf("\n=== result materialization floor (range_wide, %lu hits) ===\n", answer.cardinality());
+    printf("\n=== result materialization floor (range_wide, %" PRIu64 " hits) ===\n",
+           answer.cardinality());
     printf("  full query          p50 = %8.3f ms\n", q);
     printf("  bitmap build only   p50 = %8.3f ms  (%.1f%% of the query)\n", f, 100.0 * f / q);
     printf("  index work          p50 = %8.3f ms\n", q - f);
