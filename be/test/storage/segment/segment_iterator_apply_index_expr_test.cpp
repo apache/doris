@@ -119,6 +119,9 @@ protected:
         // Read schema covers all tablet columns in order, so ordinal == tablet cid.
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
         _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        // _lazy_init() starts with every row selected. Do the same, or _apply_index_expr()
+        // skips the virtual columns because no row is left.
+        _iter->_row_bitmap.addRange(0, _segment->num_rows());
 
         // Set up RuntimeState with fallback enabled so _downgrade_without_index works
         TQueryOptions query_options;

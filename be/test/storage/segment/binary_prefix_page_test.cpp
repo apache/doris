@@ -36,114 +36,6 @@ namespace segment_v2 {
 
 class BinaryPrefixPageTest : public testing::Test {
 public:
-    void test_encode_and_decode() {
-        std::vector<std::string> test_data;
-        for (int i = 1000; i < 1038; ++i) {
-            test_data.emplace_back(std::to_string(i));
-        }
-        std::vector<Slice> slices;
-        for (const auto& data : test_data) {
-            slices.emplace_back(Slice(data));
-        }
-        // encode
-        PageBuilderOptions options;
-        BinaryPrefixPageBuilder page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
-
-        size_t count = slices.size();
-        const Slice* ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
-
-        OwnedSlice dict_slice = page_builder.finish();
-        EXPECT_EQ(slices.size(), page_builder.count());
-        EXPECT_FALSE(page_builder.is_page_full());
-
-        PageDecoderOptions dict_decoder_options;
-        std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
-                new BinaryPrefixPageDecoder(dict_slice.slice(), dict_decoder_options));
-        ret = page_decoder->init();
-        EXPECT_TRUE(ret.ok());
-        // because every slice is unique
-        EXPECT_EQ(slices.size(), page_decoder->count());
-
-        //check values
-        Arena pool;
-        auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
-        size_t size = slices.size();
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
-        ColumnBlock column_block(cvb.get(), &pool);
-        ColumnBlockView block_view(&column_block);
-
-        ret = page_decoder->next_batch(&size, &block_view);
-        Slice* values = reinterpret_cast<Slice*>(column_block.data());
-        EXPECT_TRUE(ret.ok());
-        EXPECT_EQ(slices.size(), size);
-        for (int i = 1000; i < 1038; ++i) {
-            EXPECT_EQ(std::to_string(i), values[i - 1000].to_string());
-        }
-
-        ret = page_decoder->seek_to_position_in_page(0);
-        EXPECT_TRUE(ret.ok());
-        int n = 0;
-        while (true) {
-            //check values
-            Arena pool;
-            auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
-            std::unique_ptr<ColumnVectorBatch> cvb;
-            size_t size = 6;
-            ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb);
-            ColumnBlock column_block(cvb.get(), &pool);
-            ColumnBlockView block_view(&column_block);
-            ret = page_decoder->next_batch(&size, &block_view);
-            EXPECT_TRUE(ret.ok());
-            if (size == 0) {
-                break;
-            }
-            Slice* values = reinterpret_cast<Slice*>(column_block.data());
-            for (int i = 0; i < size; ++i) {
-                EXPECT_EQ(std::to_string(1000 + 6 * n + i), values[i].to_string());
-            }
-            n++;
-        }
-
-        std::unique_ptr<ColumnVectorBatch> cvb2;
-        ColumnVectorBatch::create(size, false, type_info, nullptr, &cvb2);
-        ColumnBlock column_block2(cvb2.get(), &pool);
-        ColumnBlockView block_view2(&column_block2);
-        ret = page_decoder->seek_to_position_in_page(15);
-        EXPECT_TRUE(ret.ok());
-
-        ret = page_decoder->next_batch(&size, &block_view2);
-        values = reinterpret_cast<Slice*>(column_block2.data());
-        EXPECT_TRUE(ret.ok());
-        EXPECT_EQ(23, size);
-        for (int i = 1015; i < 1038; ++i) {
-            EXPECT_EQ(std::to_string(i), values[i - 1015].to_string());
-        }
-
-        Slice v1 = Slice("1039");
-        bool exact_match;
-        ret = page_decoder->seek_at_or_after_value(&v1, &exact_match);
-        EXPECT_TRUE(ret.is<ENTRY_NOT_FOUND>());
-
-        Slice v2 = Slice("1000");
-        ret = page_decoder->seek_at_or_after_value(&v2, &exact_match);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_TRUE(exact_match);
-
-        Slice v3 = Slice("1037");
-        ret = page_decoder->seek_at_or_after_value(&v3, &exact_match);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_TRUE(exact_match);
-
-        Slice v4 = Slice("100");
-        ret = page_decoder->seek_at_or_after_value(&v4, &exact_match);
-        EXPECT_TRUE(ret.ok());
-        EXPECT_TRUE(!exact_match);
-    }
-
     void test_encode_and_decode_vec() {
         std::vector<std::string> test_data;
         for (int i = 1000; i < 1038; ++i) {
@@ -155,17 +47,18 @@ public:
         }
         // encode
         PageBuilderOptions options;
-        BinaryPrefixPageBuilder page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        PageBuilder* builder = nullptr;
+        ASSERT_TRUE(BinaryPrefixPageBuilder::create(&builder, options).ok());
+        std::unique_ptr<PageBuilder> page_builder(builder);
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
 
-        OwnedSlice dict_slice = page_builder.finish();
-        EXPECT_EQ(slices.size(), page_builder.count());
-        EXPECT_FALSE(page_builder.is_page_full());
+        OwnedSlice dict_slice;
+        EXPECT_TRUE(page_builder->finish(&dict_slice).ok());
+        EXPECT_EQ(slices.size(), page_builder->count());
+        EXPECT_FALSE(page_builder->is_page_full());
 
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
@@ -174,12 +67,12 @@ public:
         EXPECT_TRUE(ret.ok());
         // because every slice is unique
         EXPECT_EQ(slices.size(), page_decoder->count());
-        auto type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_VARCHAR);
         size_t size = slices.size();
 
         {
             //check values
-            auto data_type = DataTypeFactory::instance().create_data_type(type_info->type(), 1, 0);
+            auto data_type = DataTypeFactory::instance().create_data_type(
+                    FieldType::OLAP_FIELD_TYPE_VARCHAR, 1, 0);
             auto column = data_type->create_column();
 
             ret = page_decoder->next_batch(&size, column);
@@ -196,8 +89,8 @@ public:
             int n = 0;
             while (true) {
                 //check values
-                auto data_type =
-                        DataTypeFactory::instance().create_data_type(type_info->type(), 1, 0);
+                auto data_type = DataTypeFactory::instance().create_data_type(
+                        FieldType::OLAP_FIELD_TYPE_VARCHAR, 1, 0);
                 auto column = data_type->create_column();
                 size_t size = 6;
                 ret = page_decoder->next_batch(&size, column);
@@ -213,7 +106,8 @@ public:
         }
 
         {
-            auto data_type = DataTypeFactory::instance().create_data_type(type_info->type(), 1, 0);
+            auto data_type = DataTypeFactory::instance().create_data_type(
+                    FieldType::OLAP_FIELD_TYPE_VARCHAR, 1, 0);
             auto column = data_type->create_column();
             ret = page_decoder->seek_to_position_in_page(15);
             EXPECT_TRUE(ret.ok());
@@ -258,15 +152,16 @@ public:
         }
         // encode
         PageBuilderOptions options;
-        BinaryPrefixPageBuilder page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        PageBuilder* builder = nullptr;
+        ASSERT_TRUE(BinaryPrefixPageBuilder::create(&builder, options).ok());
+        std::unique_ptr<PageBuilder> page_builder(builder);
 
         size_t count = slices.size();
         const Slice* ptr = &slices[0];
-        Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        Status ret = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
 
-        OwnedSlice dict_slice = page_builder.finish();
+        OwnedSlice dict_slice;
+        EXPECT_TRUE(page_builder->finish(&dict_slice).ok());
 
         PageDecoderOptions dict_decoder_options;
         std::unique_ptr<BinaryPrefixPageDecoder> page_decoder(
@@ -283,7 +178,6 @@ public:
 };
 
 TEST_F(BinaryPrefixPageTest, TestEncodeAndDecode) {
-    test_encode_and_decode();
     test_encode_and_decode_vec();
 }
 

@@ -21,6 +21,7 @@
 
 #include <memory>
 
+#include "core/data_type/data_type_factory.hpp"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
@@ -38,16 +39,13 @@ public:
 
     template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-        Arena pool;
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), nullptr, &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
+        auto column = DataTypeFactory::instance().create_data_type(type, 0, 0)->create_column();
 
         size_t n = 1;
-        decoder->_copy_next_values(n, column_block_view.data());
+        EXPECT_TRUE(decoder->next_batch(&n, column).ok());
         EXPECT_EQ(1, n);
-        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
+        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(
+                column->get_raw_data().data);
     }
 
     template <FieldType Type, class PageBuilderType, class PageDecoderType>
@@ -55,12 +53,13 @@ public:
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
-        PageBuilderType page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        segment_v2::PageBuilder* builder = nullptr;
+        ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
+        std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
 
-        page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
-        OwnedSlice s = page_builder.finish();
+        EXPECT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        OwnedSlice s;
+        EXPECT_TRUE(page_builder->finish(&s).ok());
 
         segment_v2::PageDecoderOptions decoder_options;
         PageDecoderType page_decoder_(s.slice(), decoder_options);
@@ -70,25 +69,20 @@ public:
         segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
         std::unique_ptr<DataPage> decoded_page;
-        pre_decoder.decode(&decoded_page, &page_slice, 0, false, segment_v2::PageTypePB::DATA_PAGE,
-                           "");
+        EXPECT_TRUE(pre_decoder
+                            .decode(&decoded_page, &page_slice, 0, false,
+                                    segment_v2::PageTypePB::DATA_PAGE, "")
+                            .ok());
         PageDecoderType page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(0, page_decoder.current_index());
 
-        Arena pool;
-
-        std::unique_ptr<ColumnVectorBatch> cvb;
-        ColumnVectorBatch::create(size, false, get_scalar_type_info(Type), nullptr, &cvb);
-        ColumnBlock block(cvb.get(), &pool);
-        ColumnBlockView column_block_view(&block);
-
-        status = page_decoder.next_batch(&size, &column_block_view);
+        auto column = DataTypeFactory::instance().create_data_type(Type, 0, 0)->create_column();
+        status = page_decoder.next_batch(&size, column);
         EXPECT_TRUE(status.ok());
 
-        CppType* values = reinterpret_cast<CppType*>(block.data());
-        CppType* decoded = (CppType*)values;
+        const auto* decoded = reinterpret_cast<const CppType*>(column->get_raw_data().data);
         for (uint i = 0; i < size; i++) {
             if (src[i] != decoded[i]) {
                 FAIL() << "Fail at index " << i << " inserted=" << src[i] << " got=" << decoded[i];
@@ -98,7 +92,7 @@ public:
         // Test Seek within block by ordinal
         for (int i = 0; i < 100; i++) {
             int seek_off = random() % size;
-            page_decoder.seek_to_position_in_page(seek_off);
+            EXPECT_TRUE(page_decoder.seek_to_position_in_page(seek_off).ok());
             EXPECT_EQ((int32_t)(seek_off), page_decoder.current_index());
             CppType ret;
             copy_one<Type, PageDecoderType>(&page_decoder, &ret);
@@ -115,12 +109,13 @@ public:
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions options;
         options.data_page_size = 256 * 1024;
-        PageBuilderType page_builder(options);
-        Status ret0 = page_builder.init();
-        EXPECT_TRUE(ret0.ok());
+        segment_v2::PageBuilder* builder = nullptr;
+        ASSERT_TRUE(PageBuilderType::create(&builder, options).ok());
+        std::unique_ptr<segment_v2::PageBuilder> page_builder(builder);
 
-        page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
-        OwnedSlice s = page_builder.finish();
+        EXPECT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(src), &size).ok());
+        OwnedSlice s;
+        EXPECT_TRUE(page_builder->finish(&s).ok());
 
         segment_v2::PageDecoderOptions decoder_options;
         PageDecoderType page_decoder_(s.slice(), decoder_options);
@@ -130,8 +125,10 @@ public:
         segment_v2::BitShufflePagePreDecoder pre_decoder;
         Slice page_slice = s.slice();
         std::unique_ptr<DataPage> decoded_page;
-        pre_decoder.decode(&decoded_page, &page_slice, 0, false, segment_v2::PageTypePB::DATA_PAGE,
-                           "");
+        EXPECT_TRUE(pre_decoder
+                            .decode(&decoded_page, &page_slice, 0, false,
+                                    segment_v2::PageTypePB::DATA_PAGE, "")
+                            .ok());
         PageDecoderType page_decoder(page_slice, decoder_options);
         status = page_decoder.init();
         EXPECT_TRUE(status.ok());

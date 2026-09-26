@@ -19,6 +19,7 @@
 
 #include "common/status.h" // for Status
 #include "core/column/column.h"
+#include "storage/olap_define.h" // for DISALLOW_COPY_AND_ASSIGN
 
 namespace doris {
 namespace segment_v2 {
