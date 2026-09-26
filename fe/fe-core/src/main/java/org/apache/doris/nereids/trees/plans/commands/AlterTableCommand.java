@@ -275,11 +275,39 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             }
             return;
         }
+        if (table instanceof LanceExternalTable) {
+            checkLanceCompoundColumnOperations(alterTableOps);
+            for (AlterTableOp alterTableOp : alterTableOps) {
+                if (!isLanceColumnSchemaOperation(alterTableOp)) {
+                    continue;
+                }
+                if (getRollupName(alterTableOp) != null) {
+                    throw new AnalysisException("Rollup is not supported for Lance column operations");
+                }
+                Map<String, String> properties = alterTableOp.getProperties();
+                if (properties != null && !properties.isEmpty()) {
+                    throw new AnalysisException("PROPERTIES are not supported for Lance column operations");
+                }
+            }
+        }
         for (AlterTableOp alterTableOp : alterTableOps) {
             ColumnPath columnPath = getNestedColumnPath(alterTableOp);
             if (columnPath != null) {
                 throw new AnalysisException("Nested column path is only supported for Iceberg tables: "
                         + columnPath.getFullPath());
+            }
+        }
+    }
+
+    private static void checkLanceCompoundColumnOperations(List<AlterTableOp> alterTableOps)
+            throws AnalysisException {
+        if (alterTableOps.size() <= 1) {
+            return;
+        }
+        for (AlterTableOp alterTableOp : alterTableOps) {
+            if (isLanceColumnSchemaOperation(alterTableOp)) {
+                throw new AnalysisException("Multiple Lance ALTER clauses are not supported when a statement "
+                        + "contains a column operation");
             }
         }
     }
@@ -324,6 +352,16 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     }
 
     private static boolean isIcebergColumnSchemaOperation(AlterTableOp alterTableOp) {
+        return alterTableOp instanceof AddColumnOp
+                || alterTableOp instanceof AddColumnsOp
+                || alterTableOp instanceof DropColumnOp
+                || alterTableOp instanceof RenameColumnOp
+                || alterTableOp instanceof ModifyColumnOp
+                || alterTableOp instanceof ModifyColumnCommentOp
+                || alterTableOp instanceof ReorderColumnsOp;
+    }
+
+    private static boolean isLanceColumnSchemaOperation(AlterTableOp alterTableOp) {
         return alterTableOp instanceof AddColumnOp
                 || alterTableOp instanceof AddColumnsOp
                 || alterTableOp instanceof DropColumnOp

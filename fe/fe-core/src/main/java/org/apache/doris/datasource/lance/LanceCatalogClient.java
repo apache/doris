@@ -39,13 +39,20 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.lance.Dataset;
 import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.model.AddColumnsEntry;
+import org.lance.namespace.model.AlterColumnsEntry;
+import org.lance.namespace.model.DescribeTableResponse;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -120,7 +127,7 @@ final class LanceCatalogClient implements AutoCloseable {
         this.session = session;
         this.namespaceClient = new LanceNamespaceClient(
                 namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
-                tableAccessCacheTtlSeconds, Ticker.systemTicker());
+                namespaceStorageOptions, tableAccessCacheTtlSeconds, Ticker.systemTicker());
         this.namespaceStorageOptions = Collections.unmodifiableMap(new HashMap<>(namespaceStorageOptions));
     }
 
@@ -215,6 +222,71 @@ final class LanceCatalogClient implements AutoCloseable {
 
     boolean tableExists(String dbName, String tableName) {
         return namespaceClient.tableExists(dbName, tableName);
+    }
+
+    boolean isRootDatabase(String dbName) {
+        return namespaceClient.isRootDatabase(dbName);
+    }
+
+    boolean databaseExists(String dbName) {
+        return namespaceClient.databaseExists(dbName);
+    }
+
+    void createDatabase(String dbName, Map<String, String> properties) {
+        namespaceClient.createDatabase(dbName, properties);
+    }
+
+    void dropDatabase(String dbName, boolean ifExists, boolean force) {
+        namespaceClient.dropDatabase(dbName, ifExists, force);
+    }
+
+    void createTable(String dbName, String tableName, Schema schema, Map<String, String> properties) {
+        namespaceClient.createTable(dbName, tableName, properties, emptyArrowStream(schema));
+    }
+
+    void dropTable(String dbName, String tableName) {
+        namespaceClient.dropTable(dbName, tableName);
+    }
+
+    void addColumns(String dbName, String tableName, List<AddColumnsEntry> columns) {
+        namespaceClient.addColumns(dbName, tableName, columns);
+    }
+
+    void alterColumns(String dbName, String tableName, List<AlterColumnsEntry> alterations) {
+        namespaceClient.alterColumns(dbName, tableName, alterations);
+    }
+
+    void dropColumns(String dbName, String tableName, List<String> columns) {
+        namespaceClient.dropColumns(dbName, tableName, columns);
+    }
+
+    DescribeTableResponse describeTable(String dbName, String tableName) {
+        try {
+            return namespaceClient.describeTable(dbName, tableName, false);
+        } catch (RuntimeException e) {
+            throw LanceErrorMessages.failure("Failed to describe Lance table " + dbName + "." + tableName,
+                    e, null, namespaceStorageOptions, catalogSecrets);
+        }
+    }
+
+    DdlException ddlFailure(String prefix, Throwable error) {
+        RuntimeException failure = LanceErrorMessages.failure(
+                prefix, error, null, namespaceStorageOptions, catalogSecrets);
+        return new DdlException(failure.getMessage(), failure.getCause());
+    }
+
+    private byte[] emptyArrowStream(Schema schema) {
+        try (BufferAllocator allocator = namespaceAllocator.newChildAllocator(
+                "lance-create-table", 0, namespaceAllocator.getLimit());
+                VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(root, null, output)) {
+            writer.start();
+            writer.end();
+            return output.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize Lance table schema", e);
+        }
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {

@@ -327,15 +327,73 @@ public class LanceCatalogLifecycleTest {
         }
     }
 
+    @Test
+    public void testAlternateCaseReplayDropEvictsCanonicalDatabaseBeforeRecreation() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        try (AccessFixture fixture = new AccessFixture(properties)) {
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> lowerCaseToDatabaseName =
+                    (Map<String, String>) mappingField.get(fixture.catalog);
+            lowerCaseToDatabaseName.put("sales", "Sales");
+
+            LanceExternalDatabase stale =
+                    new LanceExternalDatabase(fixture.catalog, 1, "Sales", "Sales");
+            fixture.catalog.addDatabaseForTest(stale);
+            Assertions.assertSame(stale, fixture.catalog.getDbForReplay("sales").orElse(null));
+
+            new LanceMetadataOps(fixture.catalog).afterDropDb("sales");
+
+            Assertions.assertFalse(fixture.catalog.getDbForReplay("Sales").isPresent());
+            LanceExternalDatabase replacement =
+                    new LanceExternalDatabase(fixture.catalog, 2, "Sales", "Sales");
+            fixture.catalog.addDatabaseForTest(replacement);
+            Assertions.assertSame(replacement, fixture.catalog.getDbForReplay("Sales").orElse(null));
+        }
+    }
+
+    @Test
+    public void testUnresolvedReplayDropRetiresCanonicalDatabase() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        try (AccessFixture fixture = new AccessFixture(properties)) {
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> lowerCaseToDatabaseName =
+                    (Map<String, String>) mappingField.get(fixture.catalog);
+            lowerCaseToDatabaseName.put("sales", "Sales");
+
+            LanceExternalDatabase stale =
+                    new LanceExternalDatabase(fixture.catalog, 1, "Sales", "Sales");
+            fixture.catalog.addDatabaseForTest(stale);
+            Assertions.assertSame(stale, fixture.catalog.getDbForReplay("sales").orElse(null));
+
+            lowerCaseToDatabaseName.clear();
+            new LanceMetadataOps(fixture.catalog).afterDropDb("sales");
+
+            Assertions.assertFalse(fixture.catalog.getDbForReplay("Sales").isPresent());
+        }
+    }
+
     private static final class AccessFixture implements AutoCloseable {
-        private final LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
-        private final LanceCatalogClient client = new LanceCatalogClient(namespace,
-                Mockito.mock(BufferAllocator.class), Mockito.mock(Session.class), "filesystem", "default",
-                Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), Collections.emptyList());
-        private final LanceExternalCatalog catalog = catalog(client);
+        private final LanceNamespace namespace;
+        private final LanceCatalogClient client;
+        private final LanceExternalCatalog catalog;
         private final MockedStatic<Env> currentEnv;
 
         private AccessFixture() throws Exception {
+            this(Collections.emptyMap());
+        }
+
+        private AccessFixture(Map<String, String> properties) throws Exception {
+            namespace = Mockito.mock(LanceNamespace.class);
+            client = new LanceCatalogClient(namespace, Mockito.mock(BufferAllocator.class),
+                    Mockito.mock(Session.class), "filesystem", "default", Collections.emptyList(),
+                    Collections.emptyList(), Collections.emptyMap(), Collections.emptyList());
+            catalog = catalog(client, properties);
             Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(
                     new DescribeTableResponse().tableUri("file:///warehouse/items.lance"));
             ExternalMetaCacheMgr caches = Env.getCurrentEnv().getExtMetaCacheMgr();
@@ -371,9 +429,15 @@ public class LanceCatalogLifecycleTest {
     }
 
     private static LanceExternalCatalog catalog(LanceCatalogClient client) throws Exception {
+        return catalog(client, Collections.emptyMap());
+    }
+
+    private static LanceExternalCatalog catalog(
+            LanceCatalogClient client, Map<String, String> additionalProperties) throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
         properties.put(LanceExternalCatalog.WAREHOUSE, "/unused/lance-warehouse");
+        properties.putAll(additionalProperties);
         LanceExternalCatalog catalog = Mockito.spy(new LanceExternalCatalog(902, "lifecycle", null, properties, ""));
         // Isolate the resource lifecycle from external metadata-cache initialization.
         setField(ExternalCatalog.class, catalog, "objectCreated", true);
