@@ -721,7 +721,7 @@ fi
 # Apply Doris lance-c patches as one chain to the pinned release archive.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-    LANCE_C_PATCHED_MARK="${PATCHED_MARK}_community_pr83"
+    LANCE_C_PATCHED_MARK="${PATCHED_MARK}_community_pr83_prefilter"
     # Older source caches carry a different PR #73 and cannot accept this chain incrementally.
     if [[ -f "${PATCHED_MARK}" && ! -f "${LANCE_C_PATCHED_MARK}" ]]; then
         echo "The lance-c patch chain changed; remove ${TP_SOURCE_DIR}/${LANCE_C_SOURCE} and rebuild."
@@ -730,11 +730,18 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     if [[ ! -f "${LANCE_C_PATCHED_MARK}" ]]; then
         # PR #77 provides Lance v11 for the following community patches. PR #83
         # retains PR #79's scalar-segment path when adding multi-vector execution.
-        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80 pr-83; do
+        # The final patch pins the full-snapshot prefilter fix and its execution metrics.
+        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80 pr-83 prefilter; do
             patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
                 -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
         done
         touch "${PATCHED_MARK}" "${LANCE_C_PATCHED_MARK}"
+    fi
+    # Cached sources may carry the earlier prefilter pin; upgrade FTS metrics independently.
+    if [[ ! -f "${PATCHED_MARK}_prefilter_fts" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-prefilter-fts.patch"
+        touch "${PATCHED_MARK}_prefilter_fts"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
