@@ -17,10 +17,19 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Status;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.SettableFuture;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class PointQueryExecutorTest {
@@ -34,4 +43,48 @@ public class PointQueryExecutorTest {
         Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(true);
         Assertions.assertFalse(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
     }
+
+    @Test
+    public void testLocalFailuresDoNotBlacklistBackend() throws Exception {
+        Backend backend = new Backend(1, "127.0.0.1", 9060);
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        ShortCircuitQueryContext context = Mockito.mock(ShortCircuitQueryContext.class);
+        PointQueryExecutor executor = new PointQueryExecutor(context, 1024);
+        InternalService.PTabletKeyLookupRequest request = InternalService.PTabletKeyLookupRequest.newBuilder()
+                .setTabletId(1).build();
+        try (MockedStatic<BackendServiceProxy> proxies = Mockito.mockStatic(BackendServiceProxy.class);
+                MockedStatic<SimpleScheduler> scheduler = Mockito.mockStatic(SimpleScheduler.class)) {
+            proxies.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Throwable[] errors = {io.grpc.Status.DEADLINE_EXCEEDED.asRuntimeException(),
+                    io.grpc.Status.CANCELLED.asRuntimeException(),
+                    new java.util.concurrent.RejectedExecutionException("fallback pool full")};
+            TStatusCode[] codes = {TStatusCode.TIMEOUT, TStatusCode.CANCELLED, TStatusCode.INTERNAL_ERROR};
+            for (int i = 0; i < errors.length; i++) {
+                Mockito.when(proxy.fetchTabletDataAsync(Mockito.any(), Mockito.any(), Mockito.anyLong()))
+                        .thenReturn(Futures.immediateFailedFuture(errors[i]));
+                Status status = new Status();
+                Assertions.assertNull(Deencapsulation.invoke(executor, "fetchTabletData", status,
+                        backend, request, System.currentTimeMillis() + 10000));
+                Assertions.assertEquals(codes[i], status.getErrorCode());
+            }
+            scheduler.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    public void testExpiredBudgetCancelsUnfinishedFuture() throws Exception {
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        SettableFuture<InternalService.PTabletKeyLookupResponse> future = SettableFuture.create();
+        Mockito.when(proxy.fetchTabletDataAsync(Mockito.any(), Mockito.any(), Mockito.anyLong())).thenReturn(future);
+        PointQueryExecutor executor = new PointQueryExecutor(Mockito.mock(ShortCircuitQueryContext.class), 1024);
+        try (MockedStatic<BackendServiceProxy> proxies = Mockito.mockStatic(BackendServiceProxy.class)) {
+            proxies.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Status status = new Status();
+            Deencapsulation.invoke(executor, "fetchTabletData", status, new Backend(1, "127.0.0.1", 9060),
+                    InternalService.PTabletKeyLookupRequest.newBuilder().setTabletId(1).build(), 0L);
+            Assertions.assertTrue(future.isCancelled());
+            Assertions.assertFalse(status.ok());
+        }
+    }
+
 }
