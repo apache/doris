@@ -651,10 +651,21 @@ void LanceTableReader::_init_scanner_profile() {
     _index_comparisons = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIndexComparisons",
                                                       TUnit::UNIT, LANCE_READER_PROFILE, 1);
 
-    // These scan counts are emitted by Lance's FilteredRead execution node. For vector searches
-    // with an explicit fragment set, they normally describe the fragments, ranges, and rows read
-    // while applying the row-id prefilter. They are scan input counts, not ANN result counts.
+    // Prefilter counters isolate row-id materialization. The generic scan counts below come
+    // from Lance's FilteredRead execution node and are scan inputs, not ANN result counts.
     _lance_count_metrics = {
+            {"prefilter_loads",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePrefilterLoads", TUnit::UNIT,
+                                          LANCE_READER_PROFILE, 1)},
+            {"prefilter_input_rows",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePrefilterInputRows", TUnit::UNIT,
+                                          LANCE_READER_PROFILE, 1)},
+            {"prefilter_input_batches",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePrefilterInputBatches",
+                                          TUnit::UNIT, LANCE_READER_PROFILE, 1)},
+            {"prefilter_row_ids",
+             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LancePrefilterRowIds", TUnit::UNIT,
+                                          LANCE_READER_PROFILE, 1)},
             {"fragments_scanned",
              ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceFragmentsScanned", TUnit::UNIT,
                                           LANCE_READER_PROFILE, 1)},
@@ -686,6 +697,18 @@ void LanceTableReader::_init_scanner_profile() {
                                           TUnit::UNIT, LANCE_READER_PROFILE, 1)},
     };
     _lance_time_metrics = {
+            // These are wall times in the ANN row-id loader. LoadTime includes input polling
+            // and set construction; it must not be added to its component timers.
+            {"prefilter_load_time",
+             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LancePrefilterLoadTime",
+                                        LANCE_READER_PROFILE, 1)},
+            {"prefilter_input_time",
+             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LancePrefilterInputTime",
+                                        LANCE_READER_PROFILE, 1)},
+            {"prefilter_build_time",
+             ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LancePrefilterBuildTime",
+                                        LANCE_READER_PROFILE, 1)},
+
             // This is wait time reported by the same Lance scan execution node described above,
             // rather than Doris scanner scheduling wait time.
             {"task_wait_time", ADD_CHILD_TIMER_WITH_LEVEL(_scanner_profile, "LanceTaskWaitTime",

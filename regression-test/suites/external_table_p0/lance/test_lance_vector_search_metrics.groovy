@@ -220,9 +220,12 @@ suite("test_lance_vector_search_metrics", "p0,external") {
     // generator skips the "the query's own row is at distance 0" assertion whenever the metric
     // is dot. Lance reports the score as a negated inner product, so ORDER BY _distance ASC
     // still puts the best match first and every distance below is negative.
+    // Work around different candidate rankings in Lance's filtered and unfiltered 4-bit
+    // PQ paths: refine all 1024 fixture rows (5 * 256 > 1024) while probing all partitions.
+    // This golden checks dot scores; the single-probe checks above retain ANN coverage.
     qt_ivf_pq_dot """
         SELECT row_id, label, _distance
-        FROM ${search("vs_ivf_pq_f32_dot", headQuery, "5", "4", "dot", tables["vs_ivf_pq_f32_dot"].refine)}
+        FROM ${search("vs_ivf_pq_f32_dot", headQuery, "5", "4", "dot", ', "refine_factor"="256"')}
         ORDER BY _distance, row_id
     """
 
