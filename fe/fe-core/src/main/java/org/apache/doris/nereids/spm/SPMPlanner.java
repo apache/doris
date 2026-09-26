@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
@@ -312,24 +311,18 @@ public class SPMPlanner {
     }
 
     /**
-     * Removes the root LogicalSelectHint (its SET_VAR payload) from the FALLBACK
+     * Removes EVERY root LogicalSelectHint (its SET_VAR payload) from the FALLBACK
      * parameterized plan tree. The primary frozen-text path re-parses planSql including
      * its hints deliberately; the in-memory fallback must not re-apply the BASELINE's
      * captured SET_VAR on top of a user query that came with different session
      * variables (a time_zone='+08:00' baseline would override the user's -08:00
      * from_unixtime and return wrong values - the user's own SET_VAR was already applied
-     * during parsing).
+     * during parsing). Nested query blocks (subqueries / CTE bodies) are stripped too:
+     * an inner hint survives a root-only peel and a plan-side SET_VAR inside a scalar
+     * subquery would then be applied during ordinary replay analysis.
      */
     private static LogicalPlan stripSelectHints(LogicalPlan plan) {
-        LogicalPlan current = plan;
-        while (current instanceof LogicalSelectHint) {
-            Plan child = current.child(0);
-            if (!(child instanceof LogicalPlan)) {
-                break;
-            }
-            current = (LogicalPlan) child;
-        }
-        return current;
+        return SPMPlanTreeSupport.stripSelectHints(plan);
     }
 
     // ==================== baseline creation ====================
@@ -378,12 +371,48 @@ public class SPMPlanner {
     @VisibleForTesting
     BaselinePlan buildBaseline(LogicalPlan bindPlan, LogicalPlan planPlan,
             String bindSql, String planSql, double cost) {
+        try {
+            rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
+        } catch (AnalysisException e) {
+            // the checked-exception entry point is buildBaselineFromSql; this test-only
+            // overload keeps its signature and surfaces the rejection as-is
+            throw new RuntimeException(e.getMessage(), e);
+        }
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan);
         // the matching key is namespace-qualified like tryRewritePlan's user side, so the
         // in-memory (UT) create / rewrite pair stays consistent in any context
         ConnectContext ctx = ConnectContext.get();
         return assembleBaseline(bindPlan, trees.first, trees.second, bindSql, planSql, cost,
-                captureCatalogName(ctx), captureDatabaseName(ctx));
+                captureCatalogName(ctx), captureDatabaseName(ctx), creatorSqlMode());
+    }
+
+    /**
+     * The parser-relevant sql_mode bits of the CREATING session (see
+     * BaselinePlan#getCreatorSqlMode): re-parsing the stored bindSql under the default
+     * mode can change its meaning (PIPES_AS_CONCAT: {@code a || b} is concat(a, b), not
+     * a boolean Or).
+     */
+    private static long creatorSqlMode() {
+        return SqlModeHelper.currentMode();
+    }
+
+    /**
+     * Rejects statements whose frozen SQL would persist the CREATOR's session state: a
+     * session / user variable or current_user() / session_user() / database() /
+     * connection_id() survives parameterization, the creator-context optimization then
+     * resolves it to a LITERAL, and the frozen planSql persists that value - while
+     * matching still compares the original unbound bind tree, so a global baseline would
+     * serve every other user the creator's identity / variables.
+     */
+    private static void rejectReplayContextExpressions(LogicalPlan bindPlan, LogicalPlan planPlan,
+            String bindSql) throws AnalysisException {
+        if (SPMPlanTreeSupport.containsReplayContextExpression(bindPlan)
+                || SPMPlanTreeSupport.containsReplayContextExpression(planPlan)) {
+            throw new AnalysisException("SPM does not support replay-time context expressions"
+                    + " (session/user variables, current_user(), session_user(), database(),"
+                    + " connection_id()): the frozen SQL would persist the creator's value: "
+                    + bindSql);
+        }
     }
 
     /**
@@ -427,6 +456,7 @@ public class SPMPlanner {
             throw new AnalysisException(
                     "SPM does not support SELECT ... INTO OUTFILE statements: " + bindSql);
         }
+        rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
         // Parameterize both whole trees with ONE shared builder (placeholder ids aligned
         // across bind / plan), then optimize the PARAMETERIZED plan tree so the frozen
         // planSql keeps the placeholder ids for the rewrite-time value substitution.
@@ -461,7 +491,7 @@ public class SPMPlanner {
         }
         return assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
                 frozenPlanSql, optimizeResult.getCost(),
-                captureCatalogName(ctx), captureDatabaseName(ctx));
+                captureCatalogName(ctx), captureDatabaseName(ctx), creatorSqlMode());
     }
 
     /**
@@ -528,8 +558,9 @@ public class SPMPlanner {
      */
     private static BaselinePlan assembleBaseline(LogicalPlan bindPlan, LogicalPlan parameterizedBind,
             LogicalPlan parameterizedPlan, String bindSql, String planSql, double cost,
-            String catalog, String db) {
+            String catalog, String db, long creatorSqlMode) {
         BaselinePlan baseline = new BaselinePlan();
+        baseline.setCreatorSqlMode(creatorSqlMode);
         baseline.setBindSql(bindSql);
         // value-free full-query digest of the bind tree (Level 1/2 matching key). The
         // digest is computed on a namespace-qualified copy of the bind tree so unqualified
@@ -581,10 +612,15 @@ public class SPMPlanner {
      *         parsed (the caller keeps the row either way)
      */
     public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
-            String bindSql, String planSql) {
+            String bindSql, String planSql, long creatorSqlMode) {
         LogicalPlan bindPlan;
         try {
-            bindPlan = parseStoredSelect(bindSql);
+            // The bindSql is USER-authored text: re-parse it with the SAME parser mode the
+            // CREATE used. Under MODE_DEFAULT a PIPES_AS_CONCAT statement's "a || b"
+            // rebuilds as a boolean Or, so the stored digest still finds the row while
+            // Level-3 structural matching rejects every CONCAT-mode query - the baseline
+            // silently stops applying after a reload.
+            bindPlan = parseStoredSelect(bindSql, creatorSqlMode);
         } catch (Throwable t) {
             LOG.warn("SPM rebuild parameterized bind tree failed: {}", t.getMessage());
             bindPlan = null;
@@ -600,6 +636,8 @@ public class SPMPlanner {
             return Pair.of(parameterizedBind, parameterizedBind);
         }
         try {
+            // A DIFFERENT planSql is SPM-authored (decompiled) text: it is always rendered
+            // for the default mode, so it is read with that mode pinned.
             LogicalPlan planPlan = parseStoredSelect(planSql);
             LogicalPlan parameterizedPlan = SPMPlanTreeSupport.transform(
                     planPlan, expr -> expr.accept(builder, null));
@@ -612,6 +650,15 @@ public class SPMPlanner {
     }
 
     /**
+     * Rebuilds the transient parameterized trees with the default parser mode (tests /
+     * rows persisted before the sql_mode column existed).
+     */
+    public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
+            String bindSql, String planSql) {
+        return rebuildParameterizedTrees(bindSql, planSql, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    /**
      * Parses a STORED SQL text (frozen planSql, persisted bindSql / planSql). SPM renders
      * its own semantic string literals for the DEFAULT sql_mode (backslash escapes
      * active), so a stored text must be read with that mode: under NO_BACKSLASH_ESCAPES the
@@ -619,7 +666,18 @@ public class SPMPlanner {
      * inherited - the text is SPM's, not the user's (user SQL is parsed unchanged).
      */
     private static LogicalPlan parseStoredSelect(String sql) {
-        Plan parsed = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT,
+        return parseStoredSelect(sql, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    /**
+     * Parses a STORED SQL text with an explicit parser mode (see
+     * {@link #parseStoredSelect(String)}): SPM-authored texts are pinned to
+     * MODE_DEFAULT, a user-authored bindSql keeps the mode it was created with.
+     */
+    private static LogicalPlan parseStoredSelect(String sql, long sqlMode) {
+        long mode = (sqlMode & SqlModeHelper.MODE_ALLOWED_MASK) == 0
+                ? SqlModeHelper.MODE_DEFAULT : (sqlMode & SqlModeHelper.MODE_ALLOWED_MASK);
+        Plan parsed = SqlModeHelper.withSqlMode(mode,
                 () -> new NereidsParser().parseSingle(sql));
         if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
             throw new RuntimeException("SPM stored SQL is not a SELECT statement: " + sql);

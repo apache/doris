@@ -313,5 +313,41 @@ class InternalSchemaInitializerTest {
         Assertions.assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS"
                         + " `internal`.`__internal_schema`.`spm_baselines`"),
                 "the SPM completion gate re-runs createTbl(): it must create the table: " + sql);
+        Assertions.assertTrue(sql.contains("`sql_mode`"),
+                "a new cluster must create the creating-session sql_mode column: " + sql);
+    }
+
+    /**
+     * Both SPM tables carry cluster-wide state and must take part in the internal-table
+     * replica upgrade: with the default minimum replication of 1 they are created
+     * single-replica, so losing the hosting BE would make every global baseline
+     * unavailable (spm_baselines) or erase the only capture handoff cursor
+     * (spm_capture_checkpoint).
+     */
+    @Test
+    public void testSpmTablesTakePartInReplicaUpgrade() {
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_BASELINES_TBL_NAME),
+                "spm_baselines must be raised towards the statistics replica target");
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME),
+                "spm_capture_checkpoint must be raised towards the statistics replica target");
+    }
+
+    /**
+     * The checkpoint replacement must be a single-key UPSERT: the table is UNIQUE-key(id)
+     * with merge-on-write, so re-inserting the row replaces it atomically and no crash can
+     * leave the shared store without a checkpoint row.
+     */
+    @Test
+    public void testCaptureCheckpointTableIsUniqueKeyUpsert() throws Exception {
+        Method method = InternalSchemaInitializer.class.getDeclaredMethod(
+                "getSpmCaptureCheckpointCreateSql");
+        method.setAccessible(true);
+        String sql = (String) method.invoke(null);
+        Assertions.assertTrue(sql.contains("UNIQUE KEY(`id`)"),
+                "the checkpoint table must be UNIQUE-key so the INSERT upserts: " + sql);
+        Assertions.assertTrue(sql.contains("enable_unique_key_merge_on_write"),
+                "merge-on-write makes the single-row replacement atomic: " + sql);
     }
 }

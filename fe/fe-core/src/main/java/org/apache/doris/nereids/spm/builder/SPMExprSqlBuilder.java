@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
@@ -67,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -576,7 +578,29 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitLiteral(Literal literal, SQLRelation context) {
+        if (literal instanceof StringLikeLiteral) {
+            // Generator arguments (LATERAL VIEW / UNNEST) are intentionally NOT
+            // parameterized and reach this method as concrete literals. Their toSql()
+            // (StringLikeLiteral.toString()) only wraps the SEMANTIC value in quotes, so
+            // a delimiter such as a'b froze invalid split(t.s, 'a'b'): the stored
+            // baseline then had no parseable fallback tree and stopped applying after a
+            // reload. Render through the default-mode-safe quote helper (stored text is
+            // always re-parsed under MODE_DEFAULT).
+            return SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) literal).getStringValue());
+        }
         return literal.toSql();
+    }
+
+    @Override
+    public String visitSessionVarGuardExpr(SessionVarGuardExpr guard, SQLRelation context) {
+        // Alias-UDF expansion can wrap an arithmetic body in SessionVarGuardExpr (the
+        // function's creation variables differ from the caller's); MergeGuardExpr keeps
+        // the wrapper around the body. The guard only sets session variables while its
+        // child is computed, so for SQL text the CHILD must go through this mapped
+        // visitor: the guard's own computeToSql()/toSql() emits child().toSql(), which
+        // bypasses the ExprId -> column mapping and could freeze an ambiguous
+        // unqualified name (e.g. id over a join whose both inputs carry that name).
+        return guard.child().accept(this, context);
     }
 
     /**

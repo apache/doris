@@ -117,6 +117,13 @@ public class SPMOptimizer {
             "ELIMINATE_AGG_CASE_WHEN",           // aggregate CASE WHEN elimination
             "ELIMINATE_OUTER_JOIN",              // outer join elimination
             "ELIMINATE_LIMIT",                   // LIMIT elimination
+            // ELIMINATE_LIMIT is registered in the same rule class (EliminateLimit) as
+            // ELIMINATE_LIMIT_ON_ONE_ROW_RELATION; excluding only the former let
+            // "SELECT 1 LIMIT 1" freeze the one-row child WITHOUT its LIMIT, while the
+            // sibling digest of "SELECT 1 LIMIT 0" still matched it (top-level LIMIT
+            // values are deliberately ignored during matching) - the replay then
+            // returned one row instead of none.
+            "ELIMINATE_LIMIT_ON_ONE_ROW_RELATION",
             "ELIMINATE_AGGREGATE",               // aggregate elimination
 
             // ===== category 6: external sources / empty relations (data dependent) =====
