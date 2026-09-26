@@ -1130,6 +1130,11 @@ bool ParquetReader::_expr_zonemap_page_slot_index(const VExprContextSPtr& conjun
     if (column_ids.size() != 1) {
         return false;
     }
+    // The v1 reader does not take on slot-vs-slot pruning. A same-column pair like `a < a` still has
+    // one column id, so exclude any slot-vs-slot leaf explicitly rather than by column count.
+    if (expr_zonemap::contains_slot_slot_comparison(conjunct->root())) {
+        return false;
+    }
 
     const int slot_index = *column_ids.begin();
     if (slot_index < 0 || static_cast<size_t>(slot_index) >= _tuple_descriptor->slots().size()) {
@@ -1392,6 +1397,11 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
         if (!cached_page_index->get_stat_func(&stat, cid) || stat == nullptr || !stat->available) {
             continue;
         }
+        // Same domain requirement as the row-group path above.
+        if (stat->col_schema == nullptr ||
+            !expr_zonemap::data_types_compatible(stat->col_schema->data_type, slot->type())) {
+            continue;
+        }
         RowRanges expr_ranges;
         ZoneMapEvalStats page_stats;
         for (int64_t page_id = 0; page_id < stat->num_of_pages; ++page_id) {
@@ -1403,7 +1413,7 @@ Status ParquetReader::_process_expr_zonemap_page_filter(
 
             ZoneMapEvalContext ctx;
             ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-            slot_zone_map.data_type = slot->type();
+            slot_zone_map.set_data_type_from_parquet(slot->type());
             segment_v2::ZoneMap zone_map;
             zone_map.has_null = stat->has_null[page_id];
             zone_map.has_not_null = !stat->is_all_null[page_id];
@@ -1648,11 +1658,24 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         return Status::OK();
     }
 
+    // The v1 Parquet reader is being removed, so it does not take on the new slot-vs-slot pruning.
+    // Restrict this path to single-column conjuncts that carry no slot-vs-slot leaf: counting
+    // distinct columns alone is not enough, because a same-column pair like `a < a` still has one
+    // column id. A two-slot shape falls back to no pruning here. Native and v2 keep it.
     std::set<int> column_ids;
+    VExprContextSPtrs single_slot_conjuncts;
     for (const auto& conjunct : all_conjuncts) {
-        if (conjunct->root() != nullptr && conjunct->root()->can_evaluate_zonemap_filter()) {
-            conjunct->root()->collect_slot_column_ids(column_ids);
+        if (conjunct->root() == nullptr || !conjunct->root()->can_evaluate_zonemap_filter()) {
+            continue;
         }
+        std::set<int> conjunct_column_ids;
+        conjunct->root()->collect_slot_column_ids(conjunct_column_ids);
+        if (conjunct_column_ids.size() != 1 ||
+            expr_zonemap::contains_slot_slot_comparison(conjunct->root())) {
+            continue;
+        }
+        single_slot_conjuncts.emplace_back(conjunct);
+        column_ids.insert(*conjunct_column_ids.begin());
     }
     if (column_ids.empty()) {
         return Status::OK();
@@ -1665,7 +1688,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         }
         auto* slot = _tuple_descriptor->slots()[cid];
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-        slot_zone_map.data_type = slot->type();
+        slot_zone_map.set_data_type_from_parquet(slot->type());
         if (!_exists_in_file(slot->col_name()) || !_type_matches(cid)) {
             ctx.slots.emplace(cid, std::move(slot_zone_map));
             continue;
@@ -1673,6 +1696,14 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         const auto& file_col_name =
                 _table_info_node_ptr->children_file_column_name(slot->col_name());
         const FieldSchema* col_schema = _file_metadata->schema().get_column(file_col_name);
+        // parse_min_max_value decodes the bounds in the file's own logical type, while _type_matches
+        // only compares primitive types. A DECIMAL bound decoded at the file's scale would then be
+        // compared against the table's scale as if the payloads shared a domain, so leave the zone
+        // map out unless the two types agree exactly.
+        if (!expr_zonemap::data_types_compatible(col_schema->data_type, slot->type())) {
+            ctx.slots.emplace(cid, std::move(slot_zone_map));
+            continue;
+        }
         int parquet_col_id = col_schema->physical_column_index;
         if (parquet_col_id < 0) {
             // Complex parent fields do not map to a physical Parquet column.
@@ -1706,7 +1737,7 @@ Status ParquetReader::_process_expr_zonemap_filter(const tparquet::RowGroup& row
         ctx.slots.emplace(cid, std::move(slot_zone_map));
     }
 
-    const auto result = VExprContext::evaluate_zonemap_filter(all_conjuncts, ctx);
+    const auto result = VExprContext::evaluate_zonemap_filter(single_slot_conjuncts, ctx);
     ctx.stats.accumulate_to(&_reader_statistics);
     if (result == ZoneMapFilterResult::kNoMatch) {
         *filter_group = true;
