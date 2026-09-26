@@ -1027,6 +1027,13 @@ protected:
     // Pages of `path` still resident in the OS page cache. Used to prove the eviction below
     // actually worked instead of assuming it did.
     static std::pair<size_t, size_t> _resident_pages(const std::string& path) {
+        // mincore(2) takes char* on Darwin and unsigned char* on Linux; only the low bit of
+        // each entry is read, so one element type keeps a single call for both.
+#if defined(__APPLE__)
+        using mincore_vec_t = char;
+#else
+        using mincore_vec_t = unsigned char;
+#endif
         const int fd = ::open(path.c_str(), O_RDONLY);
         if (fd < 0) {
             return {0, 0};
@@ -1043,10 +1050,10 @@ protected:
         }
         const size_t page_size = static_cast<size_t>(::sysconf(_SC_PAGESIZE));
         const size_t pages = (static_cast<size_t>(st.st_size) + page_size - 1) / page_size;
-        std::vector<unsigned char> vec(pages, 0);
+        std::vector<mincore_vec_t> vec(pages, 0);
         size_t resident = 0;
         if (::mincore(addr, static_cast<size_t>(st.st_size), vec.data()) == 0) {
-            for (unsigned char v : vec) {
+            for (mincore_vec_t v : vec) {
                 resident += (v & 1u);
             }
         }
@@ -1080,7 +1087,10 @@ protected:
                 continue;
             }
             ::fsync(fd);
+            // posix_fadvise is Linux-only; elsewhere the fsync above is all this can do.
+#if defined(POSIX_FADV_DONTNEED)
             ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+#endif
             ::close(fd);
         }
     }
