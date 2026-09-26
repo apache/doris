@@ -1,0 +1,37 @@
+diff a/be/src/storage/merger.cpp b/be/src/storage/merger.cpp	(rejected hunks)
+@@ -298,10 +318,11 @@ Status Merger::vertical_compact_one_group(
+         bool is_key, const std::vector<uint32_t>& column_group, RowSourcesBuffer* row_source_buf,
+         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+         RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, Statistics* stats_output,
+-        std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
+-        CompactionSampleInfo* sample_info, VerticalCompactionContextStats* context_stats,
+-        bool enable_sparse_optimization, std::optional<std::pair<int64_t, int64_t>> segment_range,
+-        std::optional<KeyRange> key_range, RuntimeState* runtime_state) {
++        std::vector<uint32_t> key_group_cluster_key_idxes, int64_t row_ttl_gc_now_us,
++        int64_t batch_size, CompactionSampleInfo* sample_info,
++        VerticalCompactionContextStats* context_stats, bool enable_sparse_optimization,
++        std::optional<std::pair<int64_t, int64_t>> segment_range, std::optional<KeyRange> key_range,
++        RuntimeState* runtime_state) {
+     // build tablet reader
+     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
+     VerticalBlockReader reader(row_source_buf, context_stats);
+@@ -312,6 +333,7 @@ Status Merger::vertical_compact_one_group(
+     reader_params.reader_type = reader_type;
+     reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+     reader_params.runtime_state = runtime_state;
++    reader_params.row_ttl_gc_now_us = row_ttl_gc_now_us;
+     reader_params.enable_sparse_optimization = enable_sparse_optimization;
+     if (key_range.has_value()) {
+         RETURN_IF_ERROR(set_key_range(&reader_params, tablet_schema, *key_range));
+@@ -776,8 +804,9 @@ Status Merger::vertical_merge_rowsets(
+         Status st = vertical_compact_one_group(
+                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
+                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
+-                key_group_cluster_key_idxes, batch_size, &sample_info, &context_stats,
+-                enable_sparse_optimization, segment_range, key_range, runtime_state);
++                key_group_cluster_key_idxes, row_ttl_gc_now_us, batch_size, &sample_info,
++                &context_stats, enable_sparse_optimization, segment_range, key_range,
++                runtime_state);
+         {
+             std::unique_lock<std::mutex> lock(sample_info_lock);
+             sample_infos[i] = sample_info;

@@ -263,9 +263,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.isCleanTables = isCleanTables;
         this.isCleanPartitions = isCleanPartitions;
         this.isAtomicRestore = isAtomicRestore;
-        if (this.isAtomicRestore) {
-            this.isForceReplace = isForceReplace;
-        }
+        this.isForceReplace = this.isAtomicRestore && isForceReplace;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_COLOCATE, String.valueOf(reserveColocate));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
@@ -273,7 +271,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
-        properties.put(PROP_FORCE_REPLACE, String.valueOf(isForceReplace));
+        properties.put(PROP_FORCE_REPLACE, String.valueOf(this.isForceReplace));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
@@ -770,6 +768,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         + alias + " already exist but with different schema");
                                 return;
                             }
+                        }
+
+                        st = localOlapTbl.checkRowTtlPolicyCompatibleForRestore(remoteOlapTbl);
+                        if (!st.ok()) {
+                            status = st;
+                            return;
                         }
 
                         st = remoteOlapTbl.checkPropertiesForRestore();
@@ -1492,7 +1496,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getColumnSeqMapping(),
-                            localTbl.getVerticalCompactionNumColumnsPerGroup());
+                            localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                            localTbl.getRowTtlDurationMicros(),
+                            localTbl.getRowTtlTimeZoneOffsetSeconds());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -2817,7 +2823,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
-        isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
+        isForceReplace = isAtomicRestore && Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
         showState = state;
     }
 

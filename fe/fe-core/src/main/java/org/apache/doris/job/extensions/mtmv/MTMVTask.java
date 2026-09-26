@@ -63,6 +63,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
@@ -87,6 +88,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -304,6 +306,7 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getQuerySql(), ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
                     queryAnalysis.getOneLevelTables());
+            checkNoRowTtlBaseTable();
             beforeMTMVRefresh();
             List<TableIf> tableIfs = Lists.newArrayList(queryAnalysis.getAllLevelTables());
             tableIfs.sort(Comparator.comparing(TableIf::getId));
@@ -361,6 +364,20 @@ public class MTMVTask extends AbstractTask {
             }
         } finally {
             closeExecutionContext(ctx);
+        }
+    }
+
+    @VisibleForTesting
+    public void checkNoRowTtlBaseTable() throws AnalysisException {
+        try {
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
+        } catch (AnalysisException e) {
+            if (!MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                Env.getCurrentEnv().alterMTMVStatus(
+                        new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()),
+                        new MTMVStatus(MTMVState.SCHEMA_CHANGE, e.getMessage()));
+            }
+            throw e;
         }
     }
 

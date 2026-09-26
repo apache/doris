@@ -170,6 +170,55 @@ public class RecoverTest extends TestWithFeService {
     }
 
     @Test
+    public void testRecoverRowTtlPreservesMetadata() throws Exception {
+        createDatabase("test_recover_row_ttl");
+        createTable("CREATE TABLE test_recover_row_ttl.ttl_table (\n"
+                + "  k INT NOT NULL,\n"
+                + "  expire_at DATETIME\n"
+                + ") DUPLICATE KEY(k)\n"
+                + "PARTITION BY RANGE(k) (\n"
+                + "  PARTITION p1 VALUES LESS THAN ('10'),\n"
+                + "  PARTITION p2 VALUES LESS THAN ('20')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  'replication_num' = '1',\n"
+                + "  'function_column.enable_row_ttl' = 'true',\n"
+                + "  'function_column.ttl_col' = 'expire_at',\n"
+                + "  'function_column.ttl' = '1 day',\n"
+                + "  'function_column.ttl_time_zone' = '+00:00'\n"
+                + ")");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test_recover_row_ttl");
+        OlapTable table = db.getOlapTableOrDdlException("ttl_table");
+        Partition partition = table.getPartition("p1");
+        Assertions.assertTrue(table.hasRowTtl());
+        Assertions.assertNotNull(partition);
+        dropPartition("test_recover_row_ttl", "ttl_table", "p1");
+
+        recoverPartition("test_recover_row_ttl", "ttl_table", "p1", -1);
+        Assertions.assertSame(partition, table.getPartition("p1"));
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecyclePartition(
+                db.getId(), table.getId(), partition.getId()));
+
+        dropTable("test_recover_row_ttl", "ttl_table");
+        recoverTable("test_recover_row_ttl", "ttl_table", -1);
+        Assertions.assertSame(table, db.getOlapTableOrDdlException("ttl_table"));
+        Assertions.assertTrue(table.hasRowTtl());
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecycleTable(db.getId(), table.getId()));
+
+        dropDatabase("test_recover_row_ttl");
+        recoverDb("test_recover_row_ttl", -1);
+        Database recoveredDb = Env.getCurrentInternalCatalog().getDbOrDdlException("test_recover_row_ttl");
+        Assertions.assertSame(db, recoveredDb);
+        Assertions.assertSame(table, recoveredDb.getOlapTableOrDdlException("ttl_table"));
+        Assertions.assertTrue(table.hasRowTtl());
+        Assertions.assertSame(partition, table.getPartition("p1"));
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecycleDatabase(db.getId()));
+        Assertions.assertFalse(Env.getCurrentRecycleBin().isRecycleTable(db.getId(), table.getId()));
+    }
+
+    @Test
     public void testRecover() throws Exception {
         createDatabase("test");
         createTable("CREATE TABLE test.`table1` (\n"

@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlExpiration;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -183,7 +184,8 @@ public class BindSink implements AnalysisRuleFactory {
         Pair<List<Column>, Integer> bindColumnsResult =
                 bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol,
                         missingIvmHiddenColumns,
-                        sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT, isDeletePartialUpdate);
+                        sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT,
+                        sink.getDMLCommandType() == DMLCommandType.UPDATE, isDeletePartialUpdate);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
 
@@ -405,9 +407,13 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> generatedColumns = Lists.newArrayList();
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
+        List<Column> rowTtlColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : targetSchema) {
-            if (column.isGeneratedColumn()) {
+            if (column.isTtlColumn() && !((OlapTable) table).isDirectRowTtl()) {
+                rowTtlColumns.add(column);
+                continue;
+            } else if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
             } else if (column.isMaterializedViewColumn()) {
@@ -422,7 +428,8 @@ public class BindSink implements AnalysisRuleFactory {
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
-                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                        RowTtlExpiration.convertInput(column, columnToChildOutput.get(column)),
+                        DataType.fromCatalogType(column.getType())),
                         column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -521,6 +528,38 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                 }
             }
+        }
+        for (Column ttlColumn : rowTtlColumns) {
+            Preconditions.checkState(table instanceof OlapTable);
+            OlapTable olapTable = (OlapTable) table;
+            String rowTtlCol = olapTable.getRowTtlCol();
+            Preconditions.checkNotNull(rowTtlCol);
+            Column sourceColumn = olapTable.getColumn(rowTtlCol);
+            if (sourceColumn == null) {
+                throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+            }
+            if (sourceColumn.isGeneratedColumn()) {
+                throw new AnalysisException("row ttl column does not support generated columns: " + rowTtlCol);
+            }
+            if (!sourceColumn.getType().getPrimitiveType().isDateLikeType()) {
+                throw new AnalysisException("row ttl column only supports DATE/DATETIME types: " + rowTtlCol);
+            }
+            NamedExpression source = columnToOutput.get(rowTtlCol);
+            if (source == null) {
+                // Existing rows keep the stored source time. SegmentWriter fills new keys from
+                // the source column default.
+                Preconditions.checkState(isPartialUpdate);
+                continue;
+            }
+            Preconditions.checkState(source instanceof Alias);
+            // The TTL column is projected alongside the source alias, so it must use the alias
+            // child instead of referring to a sibling output slot.
+            Expression sourceExpression = ((Alias) source).child();
+            Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                    sourceExpression, DataType.fromCatalogType(ttlColumn.getType())), ttlColumn.getName());
+            columnToOutput.put(ttlColumn.getName(), output);
+            columnToReplaced.put(ttlColumn.getName(), output.toSlot());
+            replaceMap.put(output.toSlot(), output.child());
         }
         // the generated columns can use all ordinary columns,
         // if processed in upper for loop, will lead to not found slot error
@@ -1195,13 +1234,14 @@ public class BindSink implements AnalysisRuleFactory {
     // bindTargetColumns means bind sink node's target columns' names to target table's columns
     private Pair<List<Column>, Integer> bindTargetColumns(OlapTable table, List<String> colsName,
             boolean childHasSeqCol, boolean needExtraSeqCol, Set<String> missingIvmHiddenColumns,
-            boolean isGroupCommit, boolean isDeletePartialUpdate) {
+            boolean isGroupCommit, boolean isUpdate, boolean isDeletePartialUpdate) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         if (colsName.isEmpty()) {
             // ATTN: group commit without column list should return all base index column
             //   because it already prepares data for these columns.
             return Pair.of(table.getBaseSchema(true).stream()
-                    .filter(c -> isGroupCommit || validColumn(c, childHasSeqCol))
+                    .filter(c -> isGroupCommit || validColumn(c, childHasSeqCol)
+                            || (isUpdate && c.isTtlColumn() && table.isDirectRowTtl()))
                     .collect(ImmutableList.toImmutableList()), 0);
         } else {
             int extraColumnsNum = (needExtraSeqCol ? 1 : 0) + missingIvmHiddenColumns.size();

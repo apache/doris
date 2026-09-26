@@ -26,7 +26,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -45,78 +48,351 @@ extern int16_t meta_schema_value_version;
 }
 
 constexpr static const char* VARIANT_TYPE_NAME = "VARIANT";
+constexpr static const char* ROW_TTL_HIDDEN_COLUMN_NAME = "__DORIS_TTL_COL__";
 
-bool check_tablet_schema(const doris::TabletSchemaCloudPB& schema,
-                         doris::TabletSchemaCloudPB& saved_schema) {
+bool validate_row_ttl_schema(const doris::TabletSchemaCloudPB& schema, std::string* reason) {
+    int32_t hidden_index = -1;
+    for (int32_t i = 0; i < schema.column_size(); ++i) {
+        if (schema.column(i).name() != ROW_TTL_HIDDEN_COLUMN_NAME) {
+            continue;
+        }
+        if (hidden_index != -1) {
+            *reason = "tablet schema contains multiple row ttl hidden columns";
+            return false;
+        }
+        hidden_index = i;
+    }
+
+    const int32_t explicit_index = schema.ttl_col_idx();
+    if (explicit_index < -1 || explicit_index >= schema.column_size()) {
+        *reason = fmt::format("row ttl column index {} is outside schema with {} columns",
+                              explicit_index, schema.column_size());
+        return false;
+    }
+    if (explicit_index != hidden_index) {
+        *reason = fmt::format("ttl_col_idx {} does not point to row ttl hidden column at {}",
+                              explicit_index, hidden_index);
+        return false;
+    }
+
+    std::string_view ttl_type;
+    if (explicit_index != -1) {
+        const auto& ttl_column = schema.column(explicit_index);
+        if (ttl_column.unique_id() < 0) {
+            *reason = fmt::format("row ttl hidden column unique id {} is invalid",
+                                  ttl_column.unique_id());
+            return false;
+        }
+        ttl_type = ttl_column.type();
+    }
+    if (explicit_index == -1 || ttl_type == "BIGINT") {
+        if (schema.row_ttl_duration_us() != -1) {
+            *reason = "row ttl duration requires a temporal TTL column";
+            return false;
+        }
+        if (schema.row_ttl_time_zone_offset_seconds() != 0) {
+            *reason = "nonzero row ttl time zone offset requires a temporal TTL column";
+            return false;
+        }
+        return true;
+    }
+
+    if (ttl_type != "DATE" && ttl_type != "DATEV2" && ttl_type != "DATETIME" &&
+        ttl_type != "DATETIMEV2" && ttl_type != "TIMESTAMPTZ") {
+        *reason = fmt::format("unsupported row ttl hidden column type {}", ttl_type);
+        return false;
+    }
+    if (schema.row_ttl_duration_us() < 0) {
+        *reason = "temporal row ttl duration must be nonnegative";
+        return false;
+    }
+    if (ttl_type == "TIMESTAMPTZ") {
+        if (schema.row_ttl_time_zone_offset_seconds() != 0) {
+            *reason = "TIMESTAMPTZ row ttl time zone offset must be UTC";
+            return false;
+        }
+        return true;
+    }
+
+    constexpr int32_t MIN_OFFSET_SECONDS = -12 * 60 * 60;
+    constexpr int32_t MAX_OFFSET_SECONDS = 14 * 60 * 60;
+    const int32_t offset_seconds = schema.row_ttl_time_zone_offset_seconds();
+    if (offset_seconds < MIN_OFFSET_SECONDS || offset_seconds > MAX_OFFSET_SECONDS ||
+        offset_seconds % 60 != 0) {
+        *reason = fmt::format("row ttl time zone offset {} is invalid", offset_seconds);
+        return false;
+    }
+    return true;
+}
+
+bool check_row_ttl_policy_compatible(const doris::TabletSchemaCloudPB& schema,
+                                     const doris::TabletSchemaCloudPB& saved_schema,
+                                     std::string* reason) {
+    if (!validate_row_ttl_schema(schema, reason) ||
+        !validate_row_ttl_schema(saved_schema, reason)) {
+        return false;
+    }
+    const bool has_ttl = schema.ttl_col_idx() != -1;
+    const bool saved_has_ttl = saved_schema.ttl_col_idx() != -1;
+    if (has_ttl != saved_has_ttl) {
+        *reason = fmt::format("row ttl presence differs: saved={}, incoming={}", saved_has_ttl,
+                              has_ttl);
+        return false;
+    }
+    if (!has_ttl) {
+        return true;
+    }
+    const auto& ttl_column = schema.column(schema.ttl_col_idx());
+    const auto& saved_ttl_column = saved_schema.column(saved_schema.ttl_col_idx());
+    if (ttl_column.unique_id() != saved_ttl_column.unique_id()) {
+        *reason = fmt::format("row ttl hidden column unique id differs: saved={}, incoming={}",
+                              saved_ttl_column.unique_id(), ttl_column.unique_id());
+        return false;
+    }
+    const int64_t incoming_duration = schema.row_ttl_duration_us();
+    const int64_t saved_duration = saved_schema.row_ttl_duration_us();
+    if (incoming_duration != saved_duration) {
+        *reason = fmt::format("row ttl duration differs: saved={}, incoming={}", saved_duration,
+                              incoming_duration);
+        return false;
+    }
+
+    const std::string_view ttl_type = ttl_column.type();
+    const std::string_view saved_ttl_type = saved_ttl_column.type();
+    if (ttl_type != saved_ttl_type) {
+        *reason = fmt::format("row ttl hidden column type differs: saved={}, incoming={}",
+                              saved_ttl_type, ttl_type);
+        return false;
+    }
+
+    if (schema.row_ttl_time_zone_offset_seconds() !=
+        saved_schema.row_ttl_time_zone_offset_seconds()) {
+        *reason = fmt::format("row ttl time zone offset differs: saved={}, incoming={}",
+                              saved_schema.row_ttl_time_zone_offset_seconds(),
+                              schema.row_ttl_time_zone_offset_seconds());
+        return false;
+    }
+    return true;
+}
+
+bool check_tablet_schema_compatible(const doris::TabletSchemaCloudPB& schema,
+                                    const doris::TabletSchemaCloudPB& saved_schema,
+                                    std::string* reason) {
     auto transform = [](std::string_view type) -> std::string_view {
         if (type == "DECIMALV2") return "DECIMAL";
         if (type == "BITMAP") return "OBJECT";
         return type;
     };
     if (saved_schema.column_size() != schema.column_size()) {
-        LOG(WARNING) << "saved_schema.column_size()=" << saved_schema.column_size()
-                     << " schema.column_size()=" << schema.column_size();
+        *reason = fmt::format("column count differs: saved={}, incoming={}",
+                              saved_schema.column_size(), schema.column_size());
         return false;
     }
-    // Sort by column id
-    std::sort(saved_schema.mutable_column()->begin(), saved_schema.mutable_column()->end(),
-              [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
-    auto& schema_ref = const_cast<doris::TabletSchemaCloudPB&>(schema);
-    std::sort(schema_ref.mutable_column()->begin(), schema_ref.mutable_column()->end(),
-              [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
-    for (int i = 0; i < saved_schema.column_size(); ++i) {
-        auto& saved_column = saved_schema.column(i);
-        auto& column = schema.column(i);
+    if (!check_row_ttl_policy_compatible(schema, saved_schema, reason)) {
+        return false;
+    }
+
+    std::vector<const doris::ColumnPB*> saved_columns;
+    std::vector<const doris::ColumnPB*> columns;
+    saved_columns.reserve(saved_schema.column_size());
+    columns.reserve(schema.column_size());
+    for (const auto& column : saved_schema.column()) {
+        saved_columns.push_back(&column);
+    }
+    for (const auto& column : schema.column()) {
+        columns.push_back(&column);
+    }
+    auto column_less = [](const doris::ColumnPB* lhs, const doris::ColumnPB* rhs) {
+        return lhs->unique_id() < rhs->unique_id();
+    };
+    std::ranges::sort(saved_columns, column_less);
+    std::ranges::sort(columns, column_less);
+    for (size_t i = 0; i < saved_columns.size(); ++i) {
+        const auto& saved_column = *saved_columns[i];
+        const auto& column = *columns[i];
         if (saved_column.unique_id() != column.unique_id() ||
             transform(saved_column.type()) != transform(column.type())) {
-            LOG(WARNING) << "existed column: " << saved_column.DebugString()
-                         << "\nto save column: " << column.DebugString();
+            *reason = fmt::format("column differs: saved={}, incoming={}",
+                                  saved_column.ShortDebugString(), column.ShortDebugString());
             return false;
         }
     }
     if (saved_schema.index_size() != schema.index_size()) {
-        LOG(WARNING) << "saved_schema.index_size()=" << saved_schema.index_size()
-                     << " schema.index_size()=" << schema.index_size();
+        *reason = fmt::format("index count differs: saved={}, incoming={}",
+                              saved_schema.index_size(), schema.index_size());
         return false;
     }
-    // Sort by index id
-    std::sort(saved_schema.mutable_index()->begin(), saved_schema.mutable_index()->end(),
-              [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
-    std::sort(schema_ref.mutable_index()->begin(), schema_ref.mutable_index()->end(),
-              [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
-    for (int i = 0; i < saved_schema.index_size(); ++i) {
-        auto& saved_index = saved_schema.index(i);
-        auto& index = schema.index(i);
+
+    std::vector<const doris::TabletIndexPB*> saved_indexes;
+    std::vector<const doris::TabletIndexPB*> indexes;
+    saved_indexes.reserve(saved_schema.index_size());
+    indexes.reserve(schema.index_size());
+    for (const auto& index : saved_schema.index()) {
+        saved_indexes.push_back(&index);
+    }
+    for (const auto& index : schema.index()) {
+        indexes.push_back(&index);
+    }
+    auto index_less = [](const doris::TabletIndexPB* lhs, const doris::TabletIndexPB* rhs) {
+        return lhs->index_id() < rhs->index_id();
+    };
+    std::ranges::sort(saved_indexes, index_less);
+    std::ranges::sort(indexes, index_less);
+    for (size_t i = 0; i < saved_indexes.size(); ++i) {
+        const auto& saved_index = *saved_indexes[i];
+        const auto& index = *indexes[i];
         if (saved_index.index_id() != index.index_id() ||
             saved_index.index_type() != index.index_type()) {
-            LOG(WARNING) << "existed index: " << saved_index.DebugString()
-                         << "\nto save index: " << index.DebugString();
+            *reason = fmt::format("index differs: saved={}, incoming={}",
+                                  saved_index.ShortDebugString(), index.ShortDebugString());
             return false;
         }
     }
     return true;
 }
 
+doris::TabletSchemaCloudPB normalize_tablet_schema_for_schema_kv(
+        const doris::TabletSchemaCloudPB& schema) {
+    doris::TabletSchemaCloudPB normalized(schema);
+
+    google::protobuf::RepeatedPtrField<doris::ColumnPB> stable_columns;
+    stable_columns.Reserve(normalized.column_size());
+    for (const auto& column : normalized.column()) {
+        if (column.unique_id() < 0) {
+            continue;
+        }
+        auto* stable_column = stable_columns.Add();
+        stable_column->CopyFrom(column);
+        stable_column->clear_sparse_columns();
+    }
+    normalized.mutable_column()->Swap(&stable_columns);
+
+    google::protobuf::RepeatedPtrField<doris::TabletIndexPB> stable_indexes;
+    stable_indexes.Reserve(normalized.index_size());
+    for (const auto& index : normalized.index()) {
+        if (!index.index_suffix_name().empty()) {
+            continue;
+        }
+        stable_indexes.Add()->CopyFrom(index);
+    }
+    normalized.mutable_index()->Swap(&stable_indexes);
+    return normalized;
+}
+
+void normalize_tablet_schema_column_types(doris::TabletSchemaCloudPB* schema) {
+    for (auto& column : *schema->mutable_column()) {
+        if (column.type() == "DECIMAL128") {
+            column.mutable_type()->push_back('I');
+        }
+    }
+}
+
+void check_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                     std::string_view schema_key, const doris::TabletSchemaCloudPB& schema) {
+    std::string reason;
+    if (!validate_row_ttl_schema(schema, &reason)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid incoming tablet schema, key={}, reason={}", hex(schema_key),
+                          reason);
+        return;
+    }
+
+    TxnErrorCode err = cloud::key_exists(txn, schema_key);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check existing tablet schema, key={}, err={}", hex(schema_key),
+                          err);
+        return;
+    }
+
+    ValueBuf buf;
+    err = cloud::blob_get(txn, schema_key, &buf);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read existing tablet schema, key={}, err={}", hex(schema_key),
+                          err);
+        return;
+    }
+    doris::TabletSchemaCloudPB saved_schema;
+    if (!buf.to_pb(&saved_schema)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = fmt::format("failed to parse existing tablet schema, key={}", hex(schema_key));
+        return;
+    }
+    if (!check_tablet_schema_compatible(schema, saved_schema, &reason)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("existing tablet schema is incompatible, key={}, reason={}",
+                          hex(schema_key), reason);
+        LOG(WARNING) << msg;
+    }
+}
+
+void check_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                               std::string_view schema_key,
+                               const doris::TabletSchemaCloudPB& schema) {
+    std::string reason;
+    if (!validate_row_ttl_schema(schema, &reason)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid incoming versioned tablet schema, key={}, reason={}",
+                          hex(schema_key), reason);
+        return;
+    }
+
+    doris::TabletSchemaCloudPB saved_schema;
+    TxnErrorCode err = document_get(txn, schema_key, &saved_schema);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        msg = fmt::format("failed to read existing versioned tablet schema, key={}, err={}",
+                          hex(schema_key), err);
+        code = err == TxnErrorCode::TXN_INVALID_DATA ? MetaServiceCode::PROTOBUF_PARSE_ERR
+                                                     : cast_as<ErrCategory::READ>(err);
+        return;
+    }
+    if (!check_tablet_schema_compatible(schema, saved_schema, &reason)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("existing versioned tablet schema is incompatible, key={}, reason={}",
+                          hex(schema_key), reason);
+        LOG(WARNING) << msg;
+    }
+}
+
 void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                    std::string_view schema_key, const doris::TabletSchemaCloudPB& schema) {
+    std::string reason;
+    if (!validate_row_ttl_schema(schema, &reason)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid incoming tablet schema, key={}, reason={}", hex(schema_key),
+                          reason);
+        return;
+    }
     TxnErrorCode err = cloud::key_exists(txn, schema_key);
     if (err == TxnErrorCode::TXN_OK) { // schema has already been saved
         TEST_SYNC_POINT_RETURN_WITH_VOID("put_schema_kv:schema_key_exists_return");
-        DCHECK([&] {
-            ValueBuf buf;
-            auto err = cloud::blob_get(txn, schema_key, &buf);
-            if (err != TxnErrorCode::TXN_OK) {
-                LOG(WARNING) << "failed to get schema, err=" << err;
-                return false;
-            }
-            doris::TabletSchemaCloudPB saved_schema;
-            if (!buf.to_pb(&saved_schema)) {
-                LOG(WARNING) << "failed to parse schema value";
-                return false;
-            }
-            return check_tablet_schema(schema, saved_schema);
-        }()) << hex(schema_key)
-             << "\n to_save: " << schema.ShortDebugString();
+        ValueBuf buf;
+        err = cloud::blob_get(txn, schema_key, &buf);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to read existing tablet schema, key={}, err={}",
+                              hex(schema_key), err);
+            return;
+        }
+        doris::TabletSchemaCloudPB saved_schema;
+        if (!buf.to_pb(&saved_schema)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("failed to parse existing tablet schema, key={}", hex(schema_key));
+            return;
+        }
+        if (!check_tablet_schema_compatible(schema, saved_schema, &reason)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("existing tablet schema is incompatible, key={}, reason={}",
+                              hex(schema_key), reason);
+            LOG(WARNING) << msg;
+        }
         return;
     } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = fmt::format("failed to check that key exists, err={}", err);
@@ -136,16 +412,31 @@ void put_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
 void put_versioned_schema_kv(MetaServiceCode& code, std::string& msg, Transaction* txn,
                              std::string_view schema_key,
                              const doris::TabletSchemaCloudPB& schema) {
+    std::string reason;
+    if (!validate_row_ttl_schema(schema, &reason)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid incoming versioned tablet schema, key={}, reason={}",
+                          hex(schema_key), reason);
+        return;
+    }
     doris::TabletSchemaCloudPB saved_schema;
     TxnErrorCode err = document_get(txn, schema_key, &saved_schema);
     if (err == TxnErrorCode::TXN_OK) { // schema has already been saved
         TEST_SYNC_POINT_RETURN_WITH_VOID("put_schema_kv:schema_key_exists_return");
-        DCHECK([&] { return check_tablet_schema(schema, saved_schema); }())
-                << hex(schema_key) << "\n to_save: " << schema.ShortDebugString();
+        if (!check_tablet_schema_compatible(schema, saved_schema, &reason)) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format(
+                    "existing versioned tablet schema is incompatible, key={}, "
+                    "reason={}",
+                    hex(schema_key), reason);
+            LOG(WARNING) << msg;
+        }
         return;
     } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        msg = fmt::format("failed to check that key exists, err={}", err);
-        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read existing versioned tablet schema, key={}, err={}",
+                          hex(schema_key), err);
+        code = err == TxnErrorCode::TXN_INVALID_DATA ? MetaServiceCode::PROTOBUF_PARSE_ERR
+                                                     : cast_as<ErrCategory::READ>(err);
         return;
     }
     LOG_INFO("put versioned schema kv").tag("key", hex(schema_key));

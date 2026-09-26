@@ -397,6 +397,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getRowTtlDurationMicros(), tbl.getRowTtlTimeZoneOffsetSeconds(),
                         enableUniqueKeyMergeOnWrite, tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         binlogConfig, tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -436,7 +437,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
-            String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+            String tableName, long ttlSeconds, long rowTtlDurationMicros,
+            int rowTtlTimeZoneOffsetSeconds,
+            boolean enableUniqueKeyMergeOnWrite,
             boolean storeRowColumn, int schemaVersion, BinlogConfig binlogConfig, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
@@ -531,6 +534,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setCommitTsoColIdx(commitTsoCol);
         schemaBuilder.setRowLsnColIdx(rowLsnCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
+        setRowTtlSchemaFields(schemaBuilder, schemaColumns, rowTtlDurationMicros,
+                rowTtlTimeZoneOffsetSeconds);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {
             schemaBuilder.setSortType(OlapFile.SortType.LEXICAL);
@@ -663,6 +668,24 @@ public class CloudInternalCatalog extends InternalCatalog {
             builder.setEncryptionAlgorithm(encryptionAlgorithm);
         }
         return builder;
+    }
+
+    static void setRowTtlSchemaFields(OlapFile.TabletSchemaCloudPB.Builder schemaBuilder,
+            List<Column> schemaColumns, long rowTtlDurationMicros,
+            int rowTtlTimeZoneOffsetSeconds) {
+        int ttlCol = -1;
+        for (int i = 0; i < schemaColumns.size(); i++) {
+            if (schemaColumns.get(i).isTtlColumn()) {
+                Preconditions.checkState(ttlCol == -1, "multiple row TTL columns");
+                ttlCol = i;
+            }
+        }
+        if (ttlCol < 0) {
+            return;
+        }
+        schemaBuilder.setTtlColIdx(ttlCol);
+        schemaBuilder.setRowTtlDurationUs(rowTtlDurationMicros);
+        schemaBuilder.setRowTtlTimeZoneOffsetSeconds(rowTtlTimeZoneOffsetSeconds);
     }
 
     private OlapFile.RowsetMetaCloudPB.Builder createInitialRowset(Tablet tablet, long partitionId,

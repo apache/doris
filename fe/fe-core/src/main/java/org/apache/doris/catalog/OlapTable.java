@@ -1239,6 +1239,110 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
+    public boolean hasRowTtl() {
+        return getTtlColumn() != null;
+    }
+
+    public Column getTtlColumn() {
+        return getColumn(Column.TTL_COL);
+    }
+
+    public String getRowTtlCol() {
+        return tableProperty == null ? null : tableProperty.getRowTtlCol();
+    }
+
+    public long getRowTtlDurationMicros() {
+        return tableProperty == null ? -1 : tableProperty.getRowTtlDurationMicros();
+    }
+
+    public int getRowTtlTimeZoneOffsetSeconds() {
+        return tableProperty == null ? 0 : tableProperty.getRowTtlTimeZoneOffsetSeconds();
+    }
+
+    public boolean isDirectRowTtl() {
+        return hasRowTtl() && getRowTtlCol() == null;
+    }
+
+    /**
+     * Check whether this table and a restored table use the same row TTL policy.
+     *
+     * <p>The ordinary table signature covers the physical columns, but not the table properties
+     * that determine how the hidden row TTL column is interpreted. A restore into an existing
+     * table must therefore compare those properties separately before reusing its tablets.</p>
+     */
+    public Status checkRowTtlPolicyCompatibleForRestore(OlapTable restoredTable) {
+        boolean localEnabled = tableProperty != null && tableProperty.getEnableRowTtl();
+        boolean restoredEnabled = restoredTable.tableProperty != null
+                && restoredTable.tableProperty.getEnableRowTtl();
+        if (localEnabled != restoredEnabled) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "enable flag differs: local=" + localEnabled + ", restored=" + restoredEnabled);
+        }
+
+        if (hasRowTtl() != restoredTable.hasRowTtl()
+                || isDirectRowTtl() != restoredTable.isDirectRowTtl()) {
+            return rowTtlPolicyMismatch(restoredTable, "row TTL mode differs");
+        }
+        if (!hasRowTtl()) {
+            return Status.OK;
+        }
+
+        Column localTtlColumn = getTtlColumn();
+        Column restoredTtlColumn = restoredTable.getTtlColumn();
+        if (!Objects.equals(localTtlColumn.getType(), restoredTtlColumn.getType())) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "hidden column type differs: local=" + localTtlColumn.getType()
+                            + ", restored=" + restoredTtlColumn.getType());
+        }
+        if (isDirectRowTtl()) {
+            return Status.OK;
+        }
+
+        long localDurationMicros = getRowTtlDurationMicros();
+        long restoredDurationMicros = restoredTable.getRowTtlDurationMicros();
+        if (localDurationMicros != restoredDurationMicros) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "duration differs: local=" + localDurationMicros
+                            + ", restored=" + restoredDurationMicros);
+        }
+
+        Column localSourceColumn = getColumn(getRowTtlCol());
+        Column restoredSourceColumn = restoredTable.getColumn(restoredTable.getRowTtlCol());
+        if (localSourceColumn == null || restoredSourceColumn == null) {
+            return rowTtlPolicyMismatch(restoredTable, "source column is missing");
+        }
+        if (!localSourceColumn.getName().equalsIgnoreCase(restoredSourceColumn.getName())) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "source column name differs: local=" + localSourceColumn.getName()
+                            + ", restored=" + restoredSourceColumn.getName());
+        }
+        if (localSourceColumn.getUniqueId() != restoredSourceColumn.getUniqueId()) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "source column unique id differs: local=" + localSourceColumn.getUniqueId()
+                            + ", restored=" + restoredSourceColumn.getUniqueId());
+        }
+        if (!Objects.equals(localSourceColumn.getType(), restoredSourceColumn.getType())) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "source column type differs: local=" + localSourceColumn.getType()
+                            + ", restored=" + restoredSourceColumn.getType());
+        }
+
+        int localOffsetSeconds = getRowTtlTimeZoneOffsetSeconds();
+        int restoredOffsetSeconds = restoredTable.getRowTtlTimeZoneOffsetSeconds();
+        if (localOffsetSeconds != restoredOffsetSeconds) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "time zone offset differs: local=" + localOffsetSeconds
+                            + ", restored=" + restoredOffsetSeconds);
+        }
+        return Status.OK;
+    }
+
+    private Status rowTtlPolicyMismatch(OlapTable restoredTable, String reason) {
+        return new Status(ErrCode.COMMON_ERROR,
+                "Row TTL policy is incompatible between local table " + getName()
+                        + " and restored table " + restoredTable.getName() + ": " + reason);
+    }
+
     // schemaHash
     public Map<Long, Integer> getIndexIdToSchemaHash() {
         Map<Long, Integer> result = Maps.newHashMap();
@@ -3287,14 +3391,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Validate that the table supports flexible partial update.
      * Checks the following constraints:
      * 1. Must be MoW unique key table
-     * 2. Must have skip_bitmap column
-     * 3. Must have light_schema_change enabled
-     * 4. Cannot have variant columns
+     * 2. Every materialized index must have a skip_bitmap column
+     * 3. Must have skip_bitmap column
+     * 4. Must have light_schema_change enabled
+     * 5. Cannot have variant columns
      * @throws UserException if any constraint is not satisfied
      */
     public void validateForFlexiblePartialUpdate() throws UserException {
         if (!getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        boolean hasIndexWithoutSkipBitmap = getIndexIdListExceptBaseIndex().stream()
+                .map(indexId -> getSchemaByIndexId(indexId, true))
+                .anyMatch(schema -> schema.stream().noneMatch(Column::isSkipBitmapColumn));
+        if (hasIndexWithoutSkipBitmap) {
+            throw new UserException("Flexible partial update requires every materialized index"
+                    + " to contain the skip bitmap hidden column.");
         }
         if (!hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
@@ -4251,6 +4363,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        if (hasRowTtl()) {
+            throw new DdlException("CREATE STREAM is not supported on tables with row TTL. Table "
+                    + getQualifiedName() + ".");
+        }
         if (!needRowBinlog()) {
             throw new DdlException("Base Olap table " + getQualifiedName()
                     + " need to enable row binlog for table stream");

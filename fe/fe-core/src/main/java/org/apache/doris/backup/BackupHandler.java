@@ -615,7 +615,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(command.getLabel(), backupTimestamp,
                 db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
-                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
+                command.getTimeoutMs(), metaVersion, command.reserveReplica(), command.reserveColocate(),
                 command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
                 command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
                 env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);

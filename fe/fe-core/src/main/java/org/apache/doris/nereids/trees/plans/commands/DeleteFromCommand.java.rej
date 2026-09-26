@@ -1,0 +1,52 @@
+diff a/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/plans/commands/DeleteFromCommand.java b/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/plans/commands/DeleteFromCommand.java	(rejected hunks)
+@@ -181,33 +187,38 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
+                     olapTable.getDatabase().getFullName() + "." + Util.getTempTableDisplayName(olapTable.getName()));
+         }
+ 
++        Plan plan = planner.getPhysicalPlan();
++        try {
++            checkSubQuery(plan);
++        } catch (Exception e) {
++            runDeleteUsingFallback(ctx, executor, e);
++            return;
++        }
++
+         Optional<PhysicalFilter<?>> optFilter = (planner.getPhysicalPlan()
+                 .<PhysicalFilter<?>>collect(PhysicalFilter.class::isInstance)).stream()
+                 .findAny();
+         Preconditions.checkArgument(optFilter.isPresent(), "delete command must contain filter");
+         PhysicalFilter<?> filter = optFilter.get();
++        Set<Expression> userConjuncts = filter.getConjuncts().stream()
++                .filter(conjunct -> !isInjectedRowTtlVisibilityConjunct(conjunct, olapTable))
++                .collect(Collectors.toSet());
++        if (userConjuncts.isEmpty()) {
++            throw new AnalysisException("delete command must contain a user predicate");
++        }
+ 
+         // predicate check
+         Set<String> columns = olapTable.getFullSchema().stream().map(Column::getName).collect(Collectors.toSet());
+         try {
+             // treat sql as simple `delete from t where keyC = ...`
+-            Plan plan = planner.getPhysicalPlan();
+-            checkSubQuery(plan);
+-            for (Expression conjunct : filter.getConjuncts()) {
++            for (Expression conjunct : userConjuncts) {
+                 conjunct.<SlotReference>collect(SlotReference.class::isInstance)
+                         .forEach(s -> checkColumn(columns, s, olapTable));
+                 checkPredicate(conjunct);
+             }
+         } catch (Exception e) {
+-            try {
+-                new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+-                        logicalQuery, Optional.empty(), false).run(ctx, executor);
+-                return;
+-            } catch (Exception e2) {
+-                LOG.warn("delete from command failed", e2);
+-                // Preserve both failure causes so the fallback execution error is not masked.
+-                throw buildDeleteFallbackException(e, e2);
+-            }
++            runDeleteUsingFallback(ctx, executor, e);
++            return;
+         }
+ 
+         // Row binlog needs row-bearing deletes to emit DELETE events. Predicate deletes only write
