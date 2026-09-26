@@ -1688,6 +1688,22 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("explode([1, 2, 3])", "explode([1, 2, 3])");
     }
 
+    @Test
+    void testHumanReadableSecondsFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRule.INSTANCE)
+        ));
+        assertRewriteAfterTypeCoercion("human_readable_seconds(0)", "'0s'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(5)", "'5s'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(60)", "'1m'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(3661)", "'1h 1m 1s'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(86400)", "'1d'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(90061)", "'1d 1h 1m 1s'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(null)", "null");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(-1)", "null");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(9223372036854775807)", "'106751991167300d 15h 30m 7s'");
+    }
+
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
         ExpressionRewriteContext context = new ExpressionRewriteContext(
                 MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));
