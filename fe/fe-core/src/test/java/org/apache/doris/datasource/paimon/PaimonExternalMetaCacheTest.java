@@ -2217,6 +2217,7 @@ public class PaimonExternalMetaCacheTest {
             Mockito.when(dorisDatabase.getCatalog()).thenReturn(dorisCatalog);
             Mockito.when(dorisDatabase.getFullName()).thenReturn("db");
             Mockito.when(dorisDatabase.getRemoteName()).thenReturn("db");
+            Mockito.when(dorisTable.getDb()).thenReturn(dorisDatabase);
 
             // TVFs and table-existence checks can populate only Paimon's CachingCatalog. A
             // REFRESH TABLE still has the resolved ExternalTable and must invalidate that direct

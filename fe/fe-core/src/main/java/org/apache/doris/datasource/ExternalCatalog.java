@@ -187,6 +187,7 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     private ThreadLocal<Boolean> invalidateEngineCacheOnDatabaseRemoval =
             ThreadLocal.withInitial(() -> true);
+    private volatile boolean invalidatingAllMetaCache;
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
     // Map lowercase database names to actual remote database names for case-insensitive lookup
@@ -432,8 +433,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(
-                            v -> v.resetMetaToUninitialized(invalidateEngineCacheOnDatabaseRemoval.get())),
+                    (key, value, cause) -> handleDatabaseMetaCacheRemoval(value),
                     this::acquireMetadataLoadEpoch,
                     this::isMetadataLoadEpochCurrent);
         }
@@ -730,10 +730,16 @@ public abstract class ExternalCatalog
             // prevents one full SDK-cache scan per cached database without affecting concurrent
             // expiry callbacks on other threads.
             invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
+            invalidatingAllMetaCache = true;
             try {
                 metaCache.invalidateAll();
             } finally {
+                invalidatingAllMetaCache = false;
                 invalidateEngineCacheOnDatabaseRemoval.remove();
+            }
+            if (!invalidCache) {
+                // No catalog-wide engine invalidation follows, so fence the row counts once here.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(id);
             }
         }
     }
@@ -924,7 +930,7 @@ public abstract class ExternalCatalog
      * @return
      */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(long dbId) {
-        if (!isInitialized()) {
+        if (!isInitialized() || metaCache == null) {
             return Optional.empty();
         }
         return metaCache.getMetaObjById(dbId);
@@ -941,7 +947,7 @@ public abstract class ExternalCatalog
             LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
                     this.name, dbName, this.id, isInitialized());
         }
-        if (!isInitialized()) {
+        if (!isInitialized() || metaCache == null) {
             return Optional.empty();
         }
 
@@ -1247,10 +1253,36 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
-        if (isInitialized()) {
-            metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
+        if (!isInitialized()) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+            return;
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+        String localDbName = getLocalDatabaseName(dbName, true);
+        if (localDbName == null) {
+            // A mode-2 remote-to-local mapping can disappear (for example after a names refresh)
+            // while the resident database object survives. The canonical key is then unknown, so
+            // treat the scope as unknown: retire every cached database object and flush the engine
+            // caches and row counts catalog-wide instead of evicting the wrong local key.
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+            return;
+        }
+        metaCache.invalidate(localDbName, Util.genIdByName(name, localDbName));
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), localDbName);
+    }
+
+    boolean shouldInvalidateRowCountOnDatabaseRemoval() {
+        return invalidateEngineCacheOnDatabaseRemoval.get() && !invalidatingAllMetaCache;
+    }
+
+    boolean shouldInvalidateRoutedCacheOnDatabaseRemoval() {
+        return invalidateEngineCacheOnDatabaseRemoval.get();
+    }
+
+    void handleDatabaseMetaCacheRemoval(Optional<ExternalDatabase<? extends ExternalTable>> value) {
+        value.ifPresent(v -> v.resetMetaToUninitialized(
+                shouldInvalidateRoutedCacheOnDatabaseRemoval(),
+                shouldInvalidateRowCountOnDatabaseRemoval()));
     }
 
     /**
@@ -1268,6 +1300,26 @@ public abstract class ExternalCatalog
             metaCache.invalidateObjects();
         } finally {
             invalidateEngineCacheOnDatabaseRemoval.remove();
+            // The removal callbacks above suppress every per-database row-count fence, so publish
+            // one catalog-wide fence here; otherwise a recreated same-name object can reuse a stale
+            // count through its deterministic table id.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
+        }
+    }
+
+    /**
+     * Best-effort cleanup for a drop event whose canonical database object cannot be resolved
+     * (for example a mode-2 name mapping was lost). Retires the hidden database-object generation
+     * and flushes the catalog-wide engine state so a same-name recreation cannot reuse the old
+     * incarnation, engine entries, or row counts.
+     */
+    public void retireUnresolvedDatabaseGeneration() {
+        try {
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+        } catch (Exception e) {
+            LOG.warn("Failed to retire unresolved database objects for catalog {}: {}",
+                    getName(), e.getMessage(), e);
         }
     }
 
@@ -1489,7 +1541,16 @@ public abstract class ExternalCatalog
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        try {
+            CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        } finally {
+            // The committed ALTER already published the properties; the property-specific cache-group
+            // removal must still run when the reset's own client cleanup throws.
+            invalidatePropertySpecificCacheGroups(updatedProps);
+        }
+    }
+
+    private void invalidatePropertySpecificCacheGroups(Map<String, String> updatedProps) {
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         if (java.util.Objects.nonNull(schemaCacheTtl)
