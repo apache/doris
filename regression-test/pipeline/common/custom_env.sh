@@ -16,5 +16,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
+####################
+# teamcity compile pipeline will use this
+####################
+
 # shellcheck disable=SC2034
-BUILD_FS_BENCHMARK=ON
+export BUILD_FS_BENCHMARK=ON
+
+export BUILD_TYPE=release
+export DORIS_TOOLCHAIN=clang
+
+export DISABLE_BUILD_JUICEFS=OFF
+export DISABLE_BUILD_JINDOFS=OFF
