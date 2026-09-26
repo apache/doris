@@ -16,6 +16,7 @@
 // under the License.
 
 
+import groovy.json.JsonSlurper
 import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
@@ -298,5 +299,90 @@ suite("test_streaming_postgres_job_slot_dropped_during_incremental",
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${dorisTable}"""
         }
         sql """drop table if exists ${currentDb}.${dorisTable} force"""
+
+        // Third scenario: recreating a slot with the same name must not skip the lost WAL.
+        def recreatedJob = "test_streaming_pg_slot_recreated_job"
+        def recreatedTable = "slot_recreated_pg_tbl"
+        def recreatedSlot = "slot_recreated_user_slot"
+        def recreatedPub = "slot_recreated_user_pub"
+        def json = new JsonSlurper()
+        def pgUrl = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}"
+
+        sql """DROP JOB IF EXISTS where jobname = '${recreatedJob}'"""
+        sql """DROP TABLE IF EXISTS ${currentDb}.${recreatedTable} FORCE"""
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            boolean inactive
+            connect("${pgUser}", "${pgPassword}", pgUrl) {
+                def rows = sql """SELECT active FROM pg_replication_slots WHERE slot_name = '${recreatedSlot}'"""
+                inactive = rows.isEmpty() || !rows[0][0]
+            }
+            inactive
+        })
+        connect("${pgUser}", "${pgPassword}", pgUrl) {
+            sql """SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
+                   WHERE slot_name = '${recreatedSlot}'"""
+            sql """DROP PUBLICATION IF EXISTS ${recreatedPub}"""
+            sql """DROP TABLE IF EXISTS ${pgSchema}.${recreatedTable}"""
+            sql """CREATE TABLE ${pgSchema}.${recreatedTable} (id INT PRIMARY KEY, payload TEXT NOT NULL)"""
+            sql """INSERT INTO ${pgSchema}.${recreatedTable} VALUES (1, 'before_1'), (2, 'before_2')"""
+            sql """CREATE PUBLICATION ${recreatedPub} FOR TABLE ${pgSchema}.${recreatedTable}"""
+            sql """SELECT pg_create_logical_replication_slot('${recreatedSlot}', 'pgoutput')"""
+        }
+        sql """CREATE JOB ${recreatedJob}
+                PROPERTIES ("max_interval" = "2") ON STREAMING
+                FROM POSTGRES (
+                    "jdbc_url" = "${pgUrl}", "driver_url" = "${driver_url}",
+                    "driver_class" = "org.postgresql.Driver",
+                    "user" = "${pgUser}", "password" = "${pgPassword}",
+                    "database" = "${pgDB}", "schema" = "${pgSchema}",
+                    "include_tables" = "${recreatedTable}", "offset" = "initial",
+                    "slot_name" = "${recreatedSlot}", "publication_name" = "${recreatedPub}"
+                ) TO DATABASE ${currentDb} ("table.create.properties.replication_num" = "1")"""
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            def tables = sql """SHOW TABLES LIKE '${recreatedTable}'"""
+            !tables.isEmpty() && (sql """SELECT count(*) FROM ${recreatedTable}""")[0][0] == 2
+        })
+        connect("${pgUser}", "${pgPassword}", pgUrl) {
+            sql """INSERT INTO ${pgSchema}.${recreatedTable} VALUES (3, 'incremental_3')"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            def row = (sql """SELECT CurrentOffset FROM jobs("type"="insert")
+                    WHERE Name = '${recreatedJob}'""")[0]
+            def offset = json.parseText(row[0].toString())
+            offset.lsn != null && offset.splitId == "binlog-split" &&
+                    (sql """SELECT count(*) FROM ${recreatedTable}""")[0][0] == 3
+        })
+        sql """PAUSE JOB WHERE jobname = '${recreatedJob}'"""
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            boolean inactive
+            connect("${pgUser}", "${pgPassword}", pgUrl) {
+                def rows = sql """SELECT active FROM pg_replication_slots WHERE slot_name = '${recreatedSlot}'"""
+                inactive = rows.size() == 1 && !rows[0][0]
+            }
+            inactive
+        })
+        def checkpointRow = (sql """SELECT CurrentOffset FROM jobs("type"="insert")
+                WHERE Name = '${recreatedJob}'""")[0]
+        String checkpoint = json.parseText(checkpointRow[0].toString()).lsn.toString()
+        connect("${pgUser}", "${pgPassword}", pgUrl) {
+            sql """SELECT pg_drop_replication_slot('${recreatedSlot}')"""
+            sql """INSERT INTO ${pgSchema}.${recreatedTable} VALUES (4, 'gap_4'), (5, 'gap_5')"""
+            sql """SELECT pg_create_logical_replication_slot('${recreatedSlot}', 'pgoutput')"""
+            sql """INSERT INTO ${pgSchema}.${recreatedTable} VALUES (6, 'after_recreate_6')"""
+        }
+        sql """RESUME JOB WHERE jobname = '${recreatedJob}'"""
+        Awaitility.await().atMost(180, SECONDS).during(10, SECONDS).pollInterval(1, SECONDS).until({
+            def row = (sql """SELECT Status, ErrorMsg, CurrentOffset FROM jobs("type"="insert")
+                    WHERE Name = '${recreatedJob}'""")[0]
+            row[0] == "PAUSED" && row[1] != null &&
+                    row[1].toString().contains("Replication slot invalidated") &&
+                    json.parseText(row[2].toString()).lsn.toString() == checkpoint &&
+                    (sql """SELECT count(*) FROM ${recreatedTable}""")[0][0] == 3
+        })
+        sql """DROP JOB IF EXISTS where jobname = '${recreatedJob}'"""
+        connect("${pgUser}", "${pgPassword}", pgUrl) {
+            sql """SELECT pg_drop_replication_slot('${recreatedSlot}')"""
+            sql """DROP PUBLICATION ${recreatedPub}"""
+        }
     }
 }

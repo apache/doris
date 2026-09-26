@@ -526,12 +526,45 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public void validateAlterOffset(String offset) throws Exception {
-        if (!DataSourceConfigValidator.isJsonOffset(offset)) {
+    public void validateAlterOffset(String offset) throws AnalysisException {
+        JsonNode offsetNode;
+        try {
+            offsetNode = objectMapper.readTree(offset);
+        } catch (Exception e) {
+            offsetNode = null;
+        }
+        if (offsetNode == null || !offsetNode.isObject()) {
             throw new AnalysisException(
                     "ALTER JOB for CDC only supports JSON specific offset, "
                     + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
                     + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
+        }
+
+        boolean valid = switch (sourceType) {
+            case POSTGRES -> isNonNegativeLong(offsetNode.get("lsn"));
+            case MYSQL, OCEANBASE -> offsetNode.has("file") && offsetNode.has("pos")
+                    ? hasText(offsetNode.path("file")) && isNonNegativeLong(offsetNode.get("pos"))
+                    : hasText(offsetNode.path("gtids"));
+            default -> throw new AnalysisException(
+                    "Unsupported CDC source type for ALTER JOB offset: " + sourceType);
+        };
+        if (!valid) {
+            throw new AnalysisException("Invalid offset for " + sourceType);
+        }
+    }
+
+    private static boolean hasText(JsonNode value) {
+        return value.isTextual() && !value.asText().trim().isEmpty();
+    }
+
+    private static boolean isNonNegativeLong(JsonNode value) {
+        if (value == null || (!value.isTextual() && !value.isIntegralNumber())) {
+            return false;
+        }
+        try {
+            return Long.parseLong(value.asText()) >= 0;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
 
