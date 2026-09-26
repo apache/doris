@@ -46,6 +46,7 @@ import org.apache.doris.common.util.GeneratedColumnUtil.ExprAndName;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.CatalogIf;
@@ -1502,7 +1503,7 @@ public class CreateTableInfo {
         }
 
         if (!Strings.isNullOrEmpty(comment)) {
-            sb.append("\nCOMMENT \"").append(comment).append("\"");
+            sb.append("\nCOMMENT \"").append(SqlUtils.escapeQuota(comment)).append("\"");
         }
 
         if (partitionDesc != null) {
