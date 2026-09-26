@@ -2220,6 +2220,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+            // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
+            params.setContainsNativeParquet(true);
+        }
 
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }

@@ -55,7 +55,11 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
           _hadoop_conf(hadoop_conf),
           _supports_deferred_azure_multipart(
                   t_sink.hive_table_sink.__isset.supports_deferred_azure_multipart &&
-                  t_sink.hive_table_sink.supports_deferred_azure_multipart) {}
+                  t_sink.hive_table_sink.supports_deferred_azure_multipart) {
+    if (t_sink.hive_table_sink.__isset.hive_parquet_time_zone) {
+        _hive_parquet_time_zone = t_sink.hive_table_sink.hive_parquet_time_zone;
+    }
+}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
@@ -112,6 +116,12 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
         // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, true};
+        // Match the scan contract: empty means wall-clock, not the insert session zone.
+        // Keep the session fallback only for old FE requests that omit the field entirely.
+        if (_hive_parquet_time_zone.has_value()) {
+            parquet_options.int96_timezone =
+                    _hive_parquet_time_zone->empty() ? "UTC" : *_hive_parquet_time_zone;
+        }
         _file_format_transformer = std::make_unique<VHiveParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options);

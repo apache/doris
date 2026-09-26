@@ -27,49 +27,77 @@ suite("test_doris_int96_round_trip", "p0,external") {
     String defaultFs = "hdfs://${externalEnvIp}:${hdfsPort}"
     String uri = "${defaultFs}/user/doris/tmp_data/${UUID.randomUUID()}/exp_"
 
-    sql """ set enable_nereids_planner=true """
-    sql """ set enable_fallback_to_original_planner=false """
-    sql """ set time_zone='Asia/Shanghai' """
+    def originalSettings = sql """SELECT @@time_zone, @@enable_file_scanner_v2,
+        @@enable_nereids_planner, @@enable_fallback_to_original_planner"""
+    try {
+        sql """ set enable_nereids_planner=true """
+        sql """ set enable_fallback_to_original_planner=false """
+        sql """ set time_zone='Asia/Shanghai' """
 
-    sql """ DROP TABLE IF EXISTS test_doris_int96_round_trip """
-    sql """
-        CREATE TABLE test_doris_int96_round_trip (
-            id INT,
-            datetime_value DATETIME,
-            datetimev2_value DATETIMEV2(6)
-        )
-        DISTRIBUTED BY HASH(id)
-        PROPERTIES ("replication_num" = "1")
-    """
-    sql """
-        INSERT INTO test_doris_int96_round_trip VALUES
-            (1, '2023-04-20 00:00:00', '2023-04-20 00:00:00.123456'),
-            (2, '1970-01-01 08:00:00', '1970-01-01 08:00:00.654321')
-    """
+        sql """ DROP TABLE IF EXISTS test_doris_int96_round_trip """
+        sql """
+            CREATE TABLE test_doris_int96_round_trip (
+                id INT,
+                datetime_value DATETIME,
+                datetimev2_value DATETIMEV2(6)
+            )
+            DISTRIBUTED BY HASH(id)
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql """
+            INSERT INTO test_doris_int96_round_trip VALUES
+                (1, '2023-04-20 00:00:00', '2023-04-20 00:00:00.123456'),
+                (2, '1970-01-01 08:00:00', '1970-01-01 08:00:00.654321')
+        """
 
-    def result = sql """
-        SELECT * FROM test_doris_int96_round_trip ORDER BY id
-        INTO OUTFILE "${uri}"
-        FORMAT AS parquet
-        PROPERTIES (
-            "fs.defaultFS" = "${defaultFs}",
-            "hadoop.username" = "doris",
-            "enable_int96_timestamps" = "true"
-        )
-    """
-    String int96OutfileUrl = result[0][3]
+        def result = sql """
+            SELECT * FROM test_doris_int96_round_trip ORDER BY id
+            INTO OUTFILE "${uri}"
+            FORMAT AS parquet
+            PROPERTIES (
+                "fs.defaultFS" = "${defaultFs}",
+                "hadoop.username" = "doris",
+                "enable_int96_timestamps" = "true"
+            )
+        """
+        String int96OutfileUrl = result[0][3]
 
-    // Doris normalizes INT96 using the export session timezone. Use a different read session
-    // timezone to prove hive.parquet.time-zone, rather than the session, restores wall-clock time.
-    sql """ set time_zone='America/Los_Angeles' """
-    qt_session_timezone """ SELECT @@time_zone """
-    qt_int96_round_trip """
-        SELECT * FROM HDFS(
-            "uri" = "${int96OutfileUrl}0.parquet",
-            "hadoop.username" = "doris",
-            "format" = "parquet",
-            "hive.parquet.time-zone" = "Asia/Shanghai"
-        )
-        ORDER BY id
-    """
+        // Doris normalizes INT96 using the export session timezone. Use a different read session
+        // timezone to prove hive.parquet.time-zone, rather than the session, restores wall-clock time.
+        sql """ set time_zone='America/Los_Angeles' """
+        sql """ set enable_file_scanner_v2=true """
+        qt_session_timezone """ SELECT @@time_zone """
+        String roundTripQuery = """
+            SELECT * FROM HDFS(
+                "uri" = "${int96OutfileUrl}0.parquet",
+                "hadoop.username" = "doris",
+                "format" = "parquet",
+                "hive.parquet.time-zone" = "Asia/Shanghai"
+            )
+            ORDER BY id
+        """
+        qt_int96_round_trip roundTripQuery
+
+        // Phase-two row fetching must preserve the timestamp contract across scanner settings. Compare TopN against the same query with lazy materialization disabled.
+        def oldThreshold = sql "SELECT @@topn_lazy_materialization_threshold"
+        try {
+            sql "SET topn_lazy_materialization_threshold=0"
+            def expected = sql "${roundTripQuery} LIMIT 1"
+            assertEquals(1, expected.size())
+            sql "SET topn_lazy_materialization_threshold=1024"
+            for (boolean scannerV2 : [false, true]) {
+                sql "SET enable_file_scanner_v2=${scannerV2}"
+                assertEquals(expected, sql("${roundTripQuery} LIMIT 1"))
+            }
+        } finally {
+            sql "SET topn_lazy_materialization_threshold=${oldThreshold[0][0]}"
+        }
+    } finally {
+        sql "SET time_zone='${originalSettings[0][0]}'"
+        sql "SET enable_file_scanner_v2=${originalSettings[0][1]}"
+        sql "SET enable_nereids_planner=${originalSettings[0][2]}"
+        sql "SET enable_fallback_to_original_planner=${originalSettings[0][3]}"
+        sql "DROP TABLE IF EXISTS test_doris_int96_round_trip"
+    }
+
 }
