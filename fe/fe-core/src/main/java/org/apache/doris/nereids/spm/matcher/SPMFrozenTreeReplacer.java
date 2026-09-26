@@ -80,7 +80,19 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
      */
     public static boolean isUnsubstitutedPlaceholder(Expression expr) {
         if (expr instanceof UnboundFunction) {
-            String name = ((UnboundFunction) expr).getName();
+            UnboundFunction function = (UnboundFunction) expr;
+            // The marker is emitted by SPM itself, ALWAYS as an unqualified call. A
+            // QUALIFIED call such as db._spm_const_var(1) is a legal user UDF reference:
+            // classifying it as a placeholder would let the replacer replace the whole
+            // real function call by the user's literal (returning the literal instead of
+            // evaluating the UDF). Provenance (BaselinePlan#planFrozen) is the primary
+            // guard; this name + namespace check keeps the legacy parse-based fallback
+            // from forging a frozen tree out of ordinary raw-fallback text.
+            String dbName = function.getDbName();
+            if (dbName != null && !dbName.isEmpty()) {
+                return false;
+            }
+            String name = function.getName();
             return CONST_VAR_FUNC.equals(name) || CONST_LIST_FUNC.equals(name);
         }
         return false;
@@ -116,8 +128,12 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     @Override
     public Expression visitUnboundFunction(UnboundFunction function,
             Map<Long, Expression> placeholderValues) {
-        // a scalar placeholder call: _spm_const_var(id) -> the user actual value
-        if (CONST_VAR_FUNC.equals(function.getName())) {
+        // a scalar placeholder call: _spm_const_var(id) -> the user actual value.
+        // Only the UNQUALIFIED marker call is a placeholder - db._spm_const_var(1) is a
+        // real UDF reference and must be evaluated normally (see
+        // isUnsubstitutedPlaceholder).
+        if (CONST_VAR_FUNC.equals(function.getName())
+                && (function.getDbName() == null || function.getDbName().isEmpty())) {
             Long id = placeholderId(function);
             if (id != null) {
                 Expression userValue = placeholderValues.get(id);
@@ -198,6 +214,11 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     private static UnboundFunction findConstListCall(Expression option) {
         if (option instanceof UnboundFunction) {
             UnboundFunction fn = (UnboundFunction) option;
+            // same namespace rule as every other placeholder classification: a QUALIFIED
+            // call is a real user function, never SPM's marker
+            if (fn.getDbName() != null && !fn.getDbName().isEmpty()) {
+                return null;
+            }
             return CONST_LIST_FUNC.equals(fn.getName()) ? fn : null;
         }
         if (option instanceof org.apache.doris.nereids.trees.expressions.Cast

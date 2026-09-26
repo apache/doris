@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -941,6 +942,21 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPMPlan2SQLBuilder does not support relation: " + relation.getClass().getSimpleName());
         }
         PhysicalCatalogRelation catalogRelation = (PhysicalCatalogRelation) relation;
+        // A TEMPORARY table's catalog object carries the CREATOR session's internal name
+        // (<sessionId>_#TEMP#_<name>), not the text the user typed. Emitting it into the
+        // frozen planSql would persist a session-scoped identifier: another session
+        // running the same "FROM t" text matches the same bind key (catalog.db.t), and
+        // Database.getTableNullable accepts the already-marked internal name unchanged,
+        // so the replay would read the CREATOR's (possibly still live) temporary table
+        // instead of its own t. Never render it - the GLOBAL create / capture path
+        // rejects temporary relations before freezing (SPMPlanner), and a SESSION-scope
+        // freeze (where the session's own temp table is the intended target) falls back
+        // to the raw user text instead.
+        if (catalogRelation.getTable().isTemporary()) {
+            throw new UnsupportedOperationException(
+                    "SPMPlan2SQLBuilder does not support temporary tables: the physical relation"
+                    + " carries the creator session's internal name");
+        }
         SQLRelation sqlRelation = new SQLRelation();
         // Emit the fully qualified name (catalog.db.table) so the frozen planSql resolves
         // the same table when it is replayed from a session whose current database (or
@@ -2632,10 +2648,28 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * PhysicalLimit: fills in LIMIT. Wraps the child when it already has a limit,
      * otherwise reuses it.
+     *
+     * Two-phase LIMIT (SplitLimit: GLOBAL(l, o) -> LOCAL(l + o, 0)) is COLLAPSED into
+     * one semantic block: the pair encodes exactly one user LIMIT ... OFFSET, and
+     * serializing both phases as query blocks freezes an inner and an outer LIMIT. The
+     * rewrite-time LIMIT merge only reaches the node with a user-tree counterpart (the
+     * outer one), so a captured order-free LIMIT 10 kept returning 10 rows when a
+     * matching user query asked for LIMIT 20 with an offset. The local phase is a pure
+     * execution detail (it only bounds how many rows the local side must produce), so
+     * dropping it while keeping the global (limit, offset) preserves the semantics.
      */
     @Override
     public SQLRelation visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, Void context) {
-        SQLRelation child = process(limit.child(0));
+        SQLRelation child;
+        if (limit.isGlobal() && limit.child(0) instanceof PhysicalLimit
+                && ((PhysicalLimit<?>) limit.child(0)).getPhase() == LimitPhase.LOCAL
+                && ((PhysicalLimit<?>) limit.child(0)).getOffset() == 0) {
+            // collapse the pair: process the LOCAL node's child and emit ONE block with
+            // the global (limit, offset)
+            child = process(limit.child(0).child(0));
+        } else {
+            child = process(limit.child(0));
+        }
         SQLRelation limitRelation;
         if (child.getLimit().isEmpty()) {
             limitRelation = child;

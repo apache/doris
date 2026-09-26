@@ -154,6 +154,21 @@ public class SessionBaselineStore {
     }
 
     /**
+     * Discards every session baseline. Called by ConnectContext#resetConnection (and any
+     * equivalent session-reset path): COM_RESET_CONNECTION REUSES the same
+     * ConnectContext, so without this a later logical session on a pooled connection
+     * inherited the previous borrower's SESSION baselines - and because SPM consults the
+     * session store BEFORE the global manager, a leftover session baseline could
+     * silently rewrite the new session's query. The id counter is intentionally NOT
+     * reset: ids stay unique across the process and a stale id from a discarded session
+     * must never resolve to a different baseline.
+     */
+    public synchronized void clear() {
+        baselines.clear();
+        hashIndex.clear();
+    }
+
+    /**
      * Finds candidates matching the value-free digest / hash (same Level 1 hash +
      * Level 2 digest contract as BaselineManager).
      *

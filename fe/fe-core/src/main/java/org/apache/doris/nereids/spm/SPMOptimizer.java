@@ -103,6 +103,18 @@ public class SPMOptimizer {
             "ELIMINATE_JOIN_BY_FK",              // FK constraint JOIN elimination
             "ELIMINATE_GROUP_BY_KEY",            // UKFK GROUP BY key elimination
             "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM", // uniform-distribution GROUP BY key elimination
+            // PK/FK-derived aggregate push down below the (FK) join: the rewritten
+            // topology stops being correct once the constraint state changes. The rule
+            // derives its rewrite from canEliminateByFk, so dropping the constraints and
+            // adding duplicate keys on the former primary side makes the original
+            // aggregate above the multiplying join return one doubled group while the
+            // frozen pre-aggregate replay returns duplicate undoubled rows - a wrong
+            // result, not just a missed rewrite. Audit (mutable-constraint consumers in
+            // the whitelist): the remaining canEliminateByFk / canEliminateByUk consumers
+            // are EliminateJoinByFK / EliminateJoinByUK (both excluded above) and the MV
+            // comparator family (whole RuleTypeClass excluded); this rule was the only
+            // unexcluded one.
+            "PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK",
 
             // ===== category 4: equivalence derivation =====
             "INFER_PREDICATES",                  // predicate derivation
@@ -125,6 +137,16 @@ public class SPMOptimizer {
             // returned one row instead of none.
             "ELIMINATE_LIMIT_ON_ONE_ROW_RELATION",
             "ELIMINATE_AGGREGATE",               // aggregate elimination
+            // two-phase LIMIT split GLOBAL(l, o) -> LOCAL(l + o, 0): the freeze keeps
+            // only the UPPER limit topology, the decompiled SQL then carries both
+            // phases as two query blocks, and the rewrite-time LIMIT merge (which only
+            // reaches the block that has a user-tree counterpart) can never grow the
+            // inner one - a captured order-free LIMIT 10 kept returning 10 rows when a
+            // matching user query asked for LIMIT 20. The split is an execution
+            // detail; freezing the single-phase limit keeps LIMIT ... OFFSET
+            // semantics (see SPMPlan2SQLBuilder.visitPhysicalLimit for the
+            // collapse of already-frozen pairs).
+            "SPLIT_LIMIT",
 
             // ===== category 6: external sources / empty relations (data dependent) =====
             "PUSH_FILTER_INTO_SCHEMA_SCAN",      // schema table predicate push down

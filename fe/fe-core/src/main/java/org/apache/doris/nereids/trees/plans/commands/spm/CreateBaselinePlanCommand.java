@@ -152,9 +152,15 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
         }
 
         // 2. build the baseline (parse bindSql + optimize planSql + decompile +
-        //    whole-tree parameterize of both SQLs)
+        //    whole-tree parameterize of both SQLs). The storage scope is passed in:
+        //    a GLOBAL baseline must never freeze a temporary table (the frozen SQL
+        //    would carry the creator session's internal sessionId_#TEMP#_name, which a
+        //    second session's replay would resolve to the creator's temporary table),
+        //    while a SESSION-scope baseline may legitimately target this session's own
+        //    temporary table.
         SPMPlanner spmPlanner = new SPMPlanner();
-        BaselinePlan baseline = spmPlanner.buildBaselineFromSql(ctx, bindSql, planSql);
+        BaselinePlan baseline = spmPlanner.buildBaselineFromSql(ctx, bindSql, planSql,
+                scope == BaselineScope.GLOBAL);
         baseline.setSource(org.apache.doris.nereids.spm.BaselineSource.USER);
         baseline.setStatus(org.apache.doris.nereids.spm.BaselineStatus.ENABLED);
         baseline.setScope(scope);

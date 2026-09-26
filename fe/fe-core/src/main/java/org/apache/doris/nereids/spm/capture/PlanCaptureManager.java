@@ -173,6 +173,22 @@ public class PlanCaptureManager extends MasterDaemon {
     private String cursorTime = "";
     private String cursorQueryId = "";
 
+    /**
+     * The pre-page state (watermark + window bounds + cursor) the CURRENT cycle's scan
+     * started from. It is the durable fallback persisted when the retry state is
+     * truncated by {@link #MAX_PERSISTED_RETRIES} (see persistCheckpoint): the durable
+     * cursor must never move past retries the checkpoint can no longer carry, otherwise
+     * a restart / leader handoff neither replays them from the queue nor re-reads their
+     * audit rows (the keyset cursor is beyond them and they can age outside the
+     * five-minute overlap), silently losing those captures.
+     */
+    private long pageStartLastScanTimestamp = 0;
+    private long pageStartWindowStart = 0;
+    private long pageStartWindowEnd = 0;
+    private long pageStartCursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
+    private String pageStartCursorTime = "";
+    private String pageStartCursorQueryId = "";
+
     /** Whether the durable checkpoint was already consulted in this process. */
     private boolean checkpointLoaded = false;
 
@@ -298,6 +314,17 @@ public class PlanCaptureManager extends MasterDaemon {
             if (scanStart >= scanEnd) {
                 return;
             }
+
+            // Snapshot the pre-page state: when this page ends up with more retries than
+            // the durable checkpoint can carry, persistCheckpoint falls back to THIS
+            // state so the next leader re-scans the page instead of stepping over the
+            // omitted retries.
+            pageStartLastScanTimestamp = lastScanTimestamp;
+            pageStartWindowStart = scanStart;
+            pageStartWindowEnd = scanEnd;
+            pageStartCursorQueryTime = cursorQueryTime;
+            pageStartCursorTime = cursorTime;
+            pageStartCursorQueryId = cursorQueryId;
 
             AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, scanEnd,
                     batchSize, cursorQueryTime, cursorTime, cursorQueryId);
@@ -610,14 +637,39 @@ public class PlanCaptureManager extends MasterDaemon {
         if (!checkpointPersistenceEnabled()) {
             return;
         }
+        // Truncation guard: the two JSON maps below keep only the most recent
+        // MAX_PERSISTED_RETRIES entries, so persisting the CURRENT cursor / watermark while
+        // entries were omitted would step over exactly those omitted retries - after a
+        // restart or leader handoff they are neither replayed from the queue (dropped) nor
+        // reachable by keyset pagination (the cursor is past them; the five-minute overlap
+        // only reaches recent rows). Persist the PRE-PAGE state instead: the next process
+        // re-scans the whole page, re-queues / re-attempts its rows, and only then moves
+        // on. The condition is self-healing: retries leave the queue on success or after
+        // MAX_CAPTURE_ATTEMPTS, and the cursor advances again once the maps fit the budget.
+        boolean retriesTruncated = failedCaptureQueue.size() > MAX_PERSISTED_RETRIES
+                || failedCaptureAttempts.size() > MAX_PERSISTED_RETRIES;
+        long durableLastScan = retriesTruncated ? pageStartLastScanTimestamp : lastScanTimestamp;
+        long durablePendingStart = retriesTruncated ? pageStartWindowStart : pendingWindowStart;
+        long durablePendingEnd = retriesTruncated ? pageStartWindowEnd : pendingWindowEnd;
+        long durableCursorQueryTime =
+                retriesTruncated ? pageStartCursorQueryTime : cursorQueryTime;
+        String durableCursorTime = retriesTruncated ? pageStartCursorTime : cursorTime;
+        String durableCursorQueryId = retriesTruncated ? pageStartCursorQueryId : cursorQueryId;
+        if (retriesTruncated) {
+            LOG.warn("SPM capture retry state (retry queue {}, failed attempts {}) exceeds the"
+                            + " durable checkpoint budget ({} entries); persisting the pre-page"
+                            + " cursor so the page is re-scanned after a restart / handoff",
+                    failedCaptureQueue.size(), failedCaptureAttempts.size(), MAX_PERSISTED_RETRIES);
+        }
         Map<String, String> params = new HashMap<>();
-        params.put("lastScan", String.valueOf(lastScanTimestamp));
-        params.put("pendingStart", String.valueOf(pendingWindowStart));
-        params.put("pendingEnd", String.valueOf(pendingWindowEnd));
-        params.put("cursorQueryTime", String.valueOf(cursorQueryTime));
-        params.put("cursorTime", StatisticsUtil.escapeSQL(cursorTime == null ? "" : cursorTime));
+        params.put("lastScan", String.valueOf(durableLastScan));
+        params.put("pendingStart", String.valueOf(durablePendingStart));
+        params.put("pendingEnd", String.valueOf(durablePendingEnd));
+        params.put("cursorQueryTime", String.valueOf(durableCursorQueryTime));
+        params.put("cursorTime",
+                StatisticsUtil.escapeSQL(durableCursorTime == null ? "" : durableCursorTime));
         params.put("cursorQueryId",
-                StatisticsUtil.escapeSQL(cursorQueryId == null ? "" : cursorQueryId));
+                StatisticsUtil.escapeSQL(durableCursorQueryId == null ? "" : durableCursorQueryId));
         params.put("failedAttempts",
                 StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
         params.put("retryQueue",
@@ -831,6 +883,12 @@ public class PlanCaptureManager extends MasterDaemon {
         cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
         cursorTime = "";
         cursorQueryId = "";
+        pageStartLastScanTimestamp = 0;
+        pageStartWindowStart = 0;
+        pageStartWindowEnd = 0;
+        pageStartCursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
+        pageStartCursorTime = "";
+        pageStartCursorQueryId = "";
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
@@ -976,5 +1034,36 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void persistCheckpointForTest() {
         persistCheckpoint();
+    }
+
+    /**
+     * For tests: rewrites the counters used by the truncation guard in
+     * {@link #persistCheckpoint()} ({@code failedCaptureAttempts} is a map and cannot be
+     * sized through the public seams), and the retry queue, plus the PRE-PAGE state the
+     * durable fallback is taken from.
+     */
+    @VisibleForTesting
+    public void seedCheckpointStateForTest(long windowStart, long windowEnd,
+            long pageStartCursorQueryTime, String pageStartCursorTime,
+            String pageStartCursorQueryId, int failedQueueEntries, long lastScanTimestamp,
+            long cursorQueryTime, String cursorTime, String cursorQueryId) {
+        for (int i = 0; i < failedQueueEntries; i++) {
+            failedCaptureAttempts.put("seed-failed-" + i, 1);
+            failedCaptureQueue.put("seed-failed-" + i,
+                    new CapturedQuery("select " + i, 1, 1, 1, "d", "h", "db", "cat",
+                            "q:" + i, false, SqlModeHelper.MODE_DEFAULT));
+        }
+        this.pageStartLastScanTimestamp = lastScanTimestamp - 1;
+        this.pageStartWindowStart = windowStart;
+        this.pageStartWindowEnd = windowEnd;
+        this.pageStartCursorQueryTime = pageStartCursorQueryTime;
+        this.pageStartCursorTime = pageStartCursorTime;
+        this.pageStartCursorQueryId = pageStartCursorQueryId;
+        this.pendingWindowStart = windowStart;
+        this.pendingWindowEnd = windowEnd;
+        this.lastScanTimestamp = lastScanTimestamp;
+        this.cursorQueryTime = cursorQueryTime;
+        this.cursorTime = cursorTime;
+        this.cursorQueryId = cursorQueryId;
     }
 }
