@@ -129,16 +129,17 @@ suite("test_expr_zonemap_hidden_placeholder") {
     """
 
     // With CSE virtual-slot pushdown on (experimental, default off), a repeated
-    // `__DORIS_VERSION_COL__ = <v>` subexpression is extracted into a virtual column pushed into the
-    // scan (PushDownVirtualColumnsIntoOlapScan). That virtual column carries the version column's
-    // inverted index; if its projection materialized from the physical placeholder (0) bitmap the
-    // predicate would be false for every row. Every row carries the version and both `v >= 0` and
-    // `k >= 0` hold, so this must return all rows.
+    // `__DORIS_VERSION_COL__ + 1` subexpression is materialized once as a virtual column pushed into
+    // the scan (PushDownVirtualColumnsIntoOlapScan; EXPLAIN VERBOSE shows
+    // `virtualColumn=(__DORIS_VERSION_COL__ + 1)`). That virtual column must be computed from the
+    // read-time-substituted version, not the on-disk placeholder (0); otherwise the row would read
+    // `1` instead of `version + 1`. Every row carries the version, so the distinct value is
+    // `${indexedVersion + 1}`.
     sql " set enable_virtual_slot_for_cse = true "
     order_qt_version_col_indexed_cse """
-        SELECT COUNT(*) FROM test_zonemap_version_col_indexed
-        WHERE (__DORIS_VERSION_COL__ = ${indexedVersion} AND v >= 0)
-           OR (__DORIS_VERSION_COL__ = ${indexedVersion} AND k >= 0)
+        SELECT DISTINCT (__DORIS_VERSION_COL__ + 1) AS vp1, (__DORIS_VERSION_COL__ + 1) AS vp2
+        FROM test_zonemap_version_col_indexed
+        WHERE (__DORIS_VERSION_COL__ + 1) > 0
     """
     sql " set enable_virtual_slot_for_cse = false "
 }
