@@ -214,6 +214,10 @@ suite("test_array_functions_by_literal") {
         qt_sql "select array_sort(array_union([], [1,2,3]))"
         qt_sql "select array_except([], [1,2,3])"
         qt_sql "select array_intersect([], [1,2,3])"
+        test {
+            sql "select array_union([], [[1], [2]])"
+            exception "array_union does not support types: ARRAY<ARRAY<INT>>"
+        }
         qt_sql "select array_sort(array_union([null], [1,2,3]))"
         qt_sql "select array_except([null], [1,2,3])"
         qt_sql "select array_intersect([null], [1,2,3])"
