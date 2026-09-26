@@ -509,6 +509,17 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
         _fill_missing_cols.clear();
         _fill_missing_defaults.clear();
         for (const auto& col_name : _table_column_names) {
+            // A projected column that is not present at all in the table-side schema tree means
+            // the schema info from FE is inconsistent with the scan projection. Fail this query
+            // loudly instead of aborting the whole BE process via children_column_exists's
+            // std::out_of_range (release) or DCHECK (debug). A column that IS known but missing
+            // from the data file is correctly classified as fill-missing below. See #61225.
+            if (!_table_info_node_ptr->has_children_column(col_name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is inconsistent with the scan projection (file: {})",
+                        col_name, _scan_range.path);
+            }
             if (!_table_info_node_ptr->children_column_exists(col_name)) {
                 _fill_missing_cols.insert(col_name);
             }
@@ -868,7 +879,12 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::pair<bool, orc::PredicateDataType> OrcReader::_get_orc_predicate_type(
         const VSlotRef* slot_ref) {
-    DCHECK(_table_info_node_ptr->children_column_exists(slot_ref->expr_name()));
+    // Refuse pushdown for columns the table-side schema tree does not know instead of crashing
+    // on children.at() (release) / DCHECK (debug). See #61225.
+    if (!_table_info_node_ptr->has_children_column(slot_ref->expr_name()) ||
+        !_table_info_node_ptr->children_column_exists(slot_ref->expr_name())) {
+        return {false, orc::PredicateDataType::LONG};
+    }
     auto file_col_name = _table_info_node_ptr->children_file_column_name(slot_ref->expr_name());
     if (!_type_map.contains(file_col_name)) {
         LOG(WARNING) << "Column " << slot_ref->expr_name() << "in file name" << file_col_name
@@ -958,7 +974,8 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in orc file and not partition column
     if (_lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name()) ||
-        (!_table_info_node_ptr->children_column_exists(slot_ref->expr_name()))) {
+        !_table_info_node_ptr->has_children_column(slot_ref->expr_name()) ||
+        !_table_info_node_ptr->children_column_exists(slot_ref->expr_name())) {
         return false;
     }
 
@@ -2123,6 +2140,16 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             const auto& table_column_name = doris_struct_type->get_name_by_position(i);
+            // A projected nested field absent from the table-side schema tree means the schema
+            // info from FE is inconsistent with the table column type. Fail the query instead
+            // of aborting the whole BE process via children.at()'s std::out_of_range (release)
+            // or DCHECK (debug). See #61225.
+            if (!root_node->has_children_column(table_column_name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected nested field '{}' of column '{}'; "
+                        "the schema info from FE is inconsistent with the scan projection",
+                        table_column_name, col_name);
+            }
             if (!root_node->children_column_exists(table_column_name)) {
                 schema_missing_fields.insert(i);
                 continue;

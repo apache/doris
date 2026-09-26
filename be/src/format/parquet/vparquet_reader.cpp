@@ -599,7 +599,8 @@ bool ParquetReader::_exists_in_file(const std::string& expr_name) const {
     // in `_table_info_node_ptr` is that Iceberg、Hudi has inconsistent requirements for this node;
     // Iceberg partition evolution need read partition columns from a file.
     // hudi set `hoodie.datasource.write.drop.partition.columns=false` not need read partition columns from a file.
-    return _table_info_node_ptr->children_column_exists(expr_name) &&
+    return _table_info_node_ptr->has_children_column(expr_name) &&
+           _table_info_node_ptr->children_column_exists(expr_name) &&
            _read_table_columns_set.contains(expr_name);
 }
 
@@ -1271,8 +1272,11 @@ Status ParquetReader::_process_page_index_filter(
         auto& sig_stat = cached_page_index.stats[cid];
 
         auto* slot = _tuple_descriptor->slots()[cid];
-        if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
-            // table column not exist in file, may be schema change.
+        if (!_table_info_node_ptr->has_children_column(slot->col_name()) ||
+            !_table_info_node_ptr->children_column_exists(slot->col_name())) {
+            // table column not exist in file, may be schema change; a slot the schema tree
+            // does not know at all is an FE/BE contract mismatch — skip page-index filtering
+            // instead of crashing on children.at(). See #61225.
             return false;
         }
 
@@ -1522,7 +1526,10 @@ Status ParquetReader::_process_column_stat_filter(
                         return false;
                     }
                     auto* slot = _tuple_descriptor->slots()[cid];
-                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                    if (!_table_info_node_ptr->has_children_column(slot->col_name()) ||
+                        !_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        // Unknown (contract mismatch) or file-missing column: skip this
+                        // filter instead of crashing on children.at(). See #61225.
                         return false;
                     }
                     const auto& file_col_name =
@@ -1540,7 +1547,10 @@ Status ParquetReader::_process_column_stat_filter(
         std::function<bool(ParquetPredicate::ColumnStat*, int)> get_bloom_filter_func =
                 [&](ParquetPredicate::ColumnStat* stat, const int cid) {
                     auto* slot = _tuple_descriptor->slots()[cid];
-                    if (!_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                    if (!_table_info_node_ptr->has_children_column(slot->col_name()) ||
+                        !_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                        // Unknown (contract mismatch) or file-missing column: skip this
+                        // filter instead of crashing on children.at(). See #61225.
                         return false;
                     }
                     const auto& file_col_name =
@@ -1618,7 +1628,8 @@ Status ParquetReader::_process_column_stat_filter(
             }
             // Find the column id for caching
             for (auto* slot : _tuple_descriptor->slots()) {
-                if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
+                if (_table_info_node_ptr->has_children_column(slot->col_name()) &&
+                    _table_info_node_ptr->children_column_exists(slot->col_name())) {
                     const auto& file_col_name =
                             _table_info_node_ptr->children_file_column_name(slot->col_name());
                     const FieldSchema* col_schema =

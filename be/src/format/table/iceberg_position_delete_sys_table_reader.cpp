@@ -248,6 +248,14 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
                                             table_schema->root_field, *schema, mapped_file_schema,
                                             supports_iceberg_scan_semantics_v1(_range_params)));
         }
+        if (row_requested && !mapped_file_schema->has_children_column(kRowColumn)) {
+            // The delete-file schema tree does not know the row column at all (FE/BE contract
+            // mismatch); fail the query instead of crashing on children.at(). See #61225.
+            return Status::InternalError(
+                    "Iceberg position delete system table schema is missing the '{}' column; the "
+                    "schema info from FE is inconsistent with the delete file schema",
+                    kRowColumn);
+        }
         const bool read_row =
                 row_requested && mapped_file_schema->children_column_exists(kRowColumn);
         _init_read_columns(read_row);
@@ -297,6 +305,14 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
                     TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
                             table_schema->root_field, root_type, kIcebergOrcAttribute,
                             mapped_file_schema, supports_iceberg_scan_semantics_v1(_range_params)));
+        }
+        if (row_requested && !mapped_file_schema->has_children_column(kRowColumn)) {
+            // The delete-file schema tree does not know the row column at all (FE/BE contract
+            // mismatch); fail the query instead of crashing on children.at(). See #61225.
+            return Status::InternalError(
+                    "Iceberg position delete system table schema is missing the '{}' column; the "
+                    "schema info from FE is inconsistent with the delete file schema",
+                    kRowColumn);
         }
         const bool read_row =
                 row_requested && mapped_file_schema->children_column_exists(kRowColumn);
