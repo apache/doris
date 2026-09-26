@@ -39,6 +39,7 @@ import org.lance.namespace.errors.NamespaceNotFoundException;
 import org.lance.namespace.errors.TableAlreadyExistsException;
 import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.model.AlterTableAddColumnsRequest;
+import org.lance.namespace.model.AlterTableAlterColumnsRequest;
 import org.lance.namespace.model.CreateTableRequest;
 import org.lance.namespace.model.DropNamespaceRequest;
 import org.mockito.ArgumentCaptor;
@@ -123,6 +124,29 @@ public class LanceMetadataOpsTest {
         Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
         Mockito.verify(namespace, Mockito.never()).createNamespace(Mockito.any());
         Mockito.verify(catalog, Mockito.never()).resetMetaCacheNames();
+    }
+
+    @Test
+    public void testCreateDatabaseRejectsMappedLocalNameConflict() throws DdlException {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(catalog).getDbNullable("sales_db");
+        Mockito.when(database.getRemoteName()).thenReturn("Sales");
+        LanceMetadataOps ops = new LanceMetadataOps(catalog);
+
+        try {
+            Assertions.assertTrue(ops.createDb("sales_db", true, Collections.emptyMap()));
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> ops.createDb("sales_db", false, Collections.emptyMap()));
+            Assertions.assertTrue(exception.getMessage().contains("exist"));
+        } finally {
+            client.close();
+        }
+
+        Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
+        Mockito.verify(namespace, Mockito.never()).createNamespace(Mockito.any());
     }
 
     @Test
@@ -286,7 +310,8 @@ public class LanceMetadataOpsTest {
             client.close();
         }
 
-        Mockito.verify(catalog).unregisterDatabase("analytics");
+        Mockito.verify(catalog, Mockito.never()).unregisterDatabase(Mockito.anyString());
+        Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
         Mockito.verify(database).unregisterTable("local_table");
     }
 
@@ -307,7 +332,8 @@ public class LanceMetadataOpsTest {
 
         Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
         Mockito.verify(namespace, Mockito.never()).dropNamespace(Mockito.any());
-        Mockito.verify(catalog).unregisterDatabase("missing_db");
+        Mockito.verify(catalog, Mockito.never()).unregisterDatabase(Mockito.anyString());
+        Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Test
@@ -317,6 +343,8 @@ public class LanceMetadataOpsTest {
         LanceExternalCatalog catalog = catalogWithClient(client);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
         Mockito.doReturn(database).when(catalog).getDbNullable("sales_db");
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDbForReplay("sales_db");
+        Mockito.when(database.getFullName()).thenReturn("sales_db");
         Mockito.when(database.getRemoteName()).thenReturn("Sales");
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
@@ -330,6 +358,30 @@ public class LanceMetadataOpsTest {
         Mockito.verify(namespace).dropNamespace(request.capture());
         Assertions.assertEquals(Arrays.asList("tenant", "Sales"), request.getValue().getId());
         Mockito.verify(catalog).unregisterDatabase("sales_db");
+    }
+
+    @Test
+    public void testAfterDropDatabaseUsesCanonicalLocalName() {
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDbForReplay("sales");
+        Mockito.when(database.getFullName()).thenReturn("Sales");
+
+        new LanceMetadataOps(catalog).afterDropDb("sales");
+
+        Mockito.verify(catalog).unregisterDatabase("Sales");
+        Mockito.verify(catalog, Mockito.never()).retireAllDatabaseObjectsWithoutEngineInvalidation();
+    }
+
+    @Test
+    public void testAfterDropDatabaseRetiresAllObjectsWhenCanonicalNameIsUnavailable() {
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        Mockito.doReturn(Optional.empty()).when(catalog).getDbForReplay("sales");
+
+        new LanceMetadataOps(catalog).afterDropDb("sales");
+
+        Mockito.verify(catalog).unregisterDatabase("sales");
+        Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Test
@@ -354,7 +406,7 @@ public class LanceMetadataOpsTest {
     @Test
     public void testSuccessfulNamespaceAndTableMutationsRefreshLocalNames() throws UserException {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
-        Mockito.doThrow(new NamespaceNotFoundException("missing")).doNothing()
+        Mockito.doThrow(new NamespaceNotFoundException("missing")).doReturn(null)
                 .when(namespace).namespaceExists(Mockito.any());
         Mockito.doThrow(new TableNotFoundException("missing"))
                 .when(namespace).tableExists(Mockito.any());
@@ -362,9 +414,13 @@ public class LanceMetadataOpsTest {
         LanceExternalCatalog catalog = catalogWithClient(client);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
         Mockito.doReturn(database).when(catalog).getDbNullable("local_db");
+        Mockito.doReturn(null, database).when(catalog).getDbNullable("analytics");
         Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
+        Mockito.when(catalog.getDbForReplay("analytics")).thenReturn(Optional.of(database));
+        Mockito.when(database.getFullName()).thenReturn("analytics");
         Mockito.when(database.getRemoteName()).thenReturn("analytics");
         Mockito.when(database.getTableNullable("events")).thenReturn(null);
+        Mockito.when(database.unregisterTableForReplay("events")).thenReturn(true);
         ExternalTable table = table("local_db", "events", "analytics", "events");
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
@@ -379,8 +435,8 @@ public class LanceMetadataOpsTest {
 
         Mockito.verify(catalog).resetMetaCacheNames();
         Mockito.verify(catalog).unregisterDatabase("analytics");
-        Mockito.verify(database, Mockito.times(2)).resetMetaCacheNames();
-        Mockito.verify(database).unregisterTable("events");
+        Mockito.verify(database).resetMetaCacheNames();
+        Mockito.verify(database).unregisterTableForReplay("events");
     }
 
     @Test
@@ -420,6 +476,88 @@ public class LanceMetadataOpsTest {
         }
 
         Mockito.verify(catalog, Mockito.never()).getDbForReplay(Mockito.anyString());
+    }
+
+    @Test
+    public void testModifyColumnSplitsTypeAndNullabilityChanges() throws UserException {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        ExternalTable table = table("local_db", "local_table", "analytics", "events");
+        Column currentColumn = new Column("score", Type.INT, true);
+        Mockito.when(table.getColumn("score")).thenReturn(currentColumn);
+
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
+        Mockito.doReturn(Optional.of(table)).when(database).getTableForReplay("local_table");
+        RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
+
+        Column modifiedColumn = new Column("score", Type.BIGINT, false);
+        modifiedColumn.setNullableSpecified(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            new LanceMetadataOps(catalog).modifyColumn(table, modifiedColumn, null, 123L);
+        } finally {
+            client.close();
+        }
+
+        ArgumentCaptor<AlterTableAlterColumnsRequest> requests =
+                ArgumentCaptor.forClass(AlterTableAlterColumnsRequest.class);
+        Mockito.verify(namespace, Mockito.times(2)).alterTableAlterColumns(requests.capture());
+        AlterTableAlterColumnsRequest typeRequest = requests.getAllValues().get(0);
+        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"), typeRequest.getId());
+        Assertions.assertEquals(1, typeRequest.getAlterations().size());
+        Assertions.assertEquals("score", typeRequest.getAlterations().get(0).getPath());
+        Assertions.assertEquals("int64", typeRequest.getAlterations().get(0).getDataType());
+        Assertions.assertNull(typeRequest.getAlterations().get(0).getNullable());
+
+        AlterTableAlterColumnsRequest nullableRequest = requests.getAllValues().get(1);
+        Assertions.assertEquals(1, nullableRequest.getAlterations().size());
+        Assertions.assertEquals("score", nullableRequest.getAlterations().get(0).getPath());
+        Assertions.assertNull(nullableRequest.getAlterations().get(0).getDataType());
+        Assertions.assertFalse(nullableRequest.getAlterations().get(0).getNullable());
+        Mockito.verify(refreshManager).refreshTableInternal(database, table, 123L);
+    }
+
+    @Test
+    public void testModifyColumnRefreshesCacheWhenNullabilityChangeFails() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.doReturn(null)
+                .doThrow(new IllegalStateException("nullability change failed"))
+                .when(namespace).alterTableAlterColumns(Mockito.any());
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        ExternalTable table = table("local_db", "local_table", "analytics", "events");
+        Column currentColumn = new Column("score", Type.INT, true);
+        Mockito.when(table.getColumn("score")).thenReturn(currentColumn);
+
+        ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
+        Mockito.doReturn(Optional.of(table)).when(database).getTableForReplay("local_table");
+        RefreshManager refreshManager = Mockito.mock(RefreshManager.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
+
+        Column modifiedColumn = new Column("score", Type.BIGINT, false);
+        modifiedColumn.setNullableSpecified(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(DdlException.class,
+                    () -> new LanceMetadataOps(catalog).modifyColumn(table, modifiedColumn, null, 456L));
+        } finally {
+            client.close();
+        }
+
+        ArgumentCaptor<AlterTableAlterColumnsRequest> requests =
+                ArgumentCaptor.forClass(AlterTableAlterColumnsRequest.class);
+        Mockito.verify(namespace, Mockito.times(2)).alterTableAlterColumns(requests.capture());
+        Assertions.assertEquals("int64",
+                requests.getAllValues().get(0).getAlterations().get(0).getDataType());
+        Assertions.assertFalse(
+                requests.getAllValues().get(1).getAlterations().get(0).getNullable());
+        Mockito.verify(refreshManager).refreshTableInternal(database, table, 456L);
     }
 
     @Test

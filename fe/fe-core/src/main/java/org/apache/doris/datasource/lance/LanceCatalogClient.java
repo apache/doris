@@ -295,6 +295,8 @@ final class LanceCatalogClient implements AutoCloseable {
                 ByteArrayOutputStream output = new ByteArrayOutputStream();
                 ArrowStreamWriter writer = new ArrowStreamWriter(root, null, output)) {
             writer.start();
+            root.setRowCount(0);
+            writer.writeBatch();
             writer.end();
             return output.toByteArray();
         } catch (IOException e) {

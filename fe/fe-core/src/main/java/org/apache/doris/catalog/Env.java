@@ -4913,7 +4913,17 @@ public class Env {
             }
             if (!properties.isEmpty()) {
                 sb.append("\nPROPERTIES (\n");
-                sb.append(new PrintableMap<>(properties, " = ", true, true, hidePassword));
+                Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
+                while (iterator.hasNext()) {
+                    Entry<String, String> property = iterator.next();
+                    String value = hidePassword && PrintableMap.SENSITIVE_KEY.contains(property.getKey())
+                            ? PrintableMap.PASSWORD_MASK : String.valueOf(property.getValue());
+                    sb.append("  ").append(SqlLiteralUtils.quoteStringLiteral(property.getKey()))
+                            .append(" = ").append(SqlLiteralUtils.quoteStringLiteral(value));
+                    if (iterator.hasNext()) {
+                        sb.append(",\n");
+                    }
+                }
                 sb.append("\n)");
             }
         }

@@ -218,6 +218,8 @@ public class LanceCatalogClientTest {
             try (ArrowStreamReader reader = new ArrowStreamReader(
                     new ByteArrayInputStream(payload.getValue()), allocator)) {
                 Assertions.assertEquals(schema, reader.getVectorSchemaRoot().getSchema());
+                Assertions.assertTrue(reader.loadNextBatch());
+                Assertions.assertEquals(0, reader.getVectorSchemaRoot().getRowCount());
                 Assertions.assertFalse(reader.loadNextBatch());
             }
         } finally {
