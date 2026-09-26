@@ -85,10 +85,7 @@ public class JniPluginSurfaceTest {
      */
     @Test
     public void jniPluginApiMajorTracksTheRecordedSurfaceChange() {
-        // getTableSchema/parseTableSchema removed (never implemented by any plugin and never
-        // called by BE), and JniWriter no longer parses required_fields/columns_types into two
-        // fields no writer read.
-        Assertions.assertEquals("3.0", SpiVersion.version());
+        Assertions.assertEquals("4.0", SpiVersion.version());
     }
 
     /** The package the frozen surface is, entirely: everything shipped in doris-jni-spi.jar. */

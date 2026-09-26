@@ -67,6 +67,42 @@
 
 namespace doris {
 
+static Status annotate_orc_uuid(const DataTypePtr& data_type, orc::Type* orc_type) {
+    const auto nested_type = remove_nullable(data_type);
+    DataTypes children;
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_UUID:
+        if (orc_type->getKind() != orc::BINARY) {
+            return Status::InvalidArgument("ORC UUID requires BINARY, got {}",
+                                           orc_type->toString());
+        }
+        orc_type->setAttribute("doris.logical_type", "uuid");
+        return Status::OK();
+    case TYPE_ARRAY:
+        children = {assert_cast<const DataTypeArray&>(*nested_type).get_nested_type()};
+        break;
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        children = {map_type.get_key_type(), map_type.get_value_type()};
+        break;
+    }
+    case TYPE_STRUCT:
+        children = assert_cast<const DataTypeStruct&>(*nested_type).get_elements();
+        break;
+    default:
+        return Status::OK();
+    }
+    if (orc_type->getSubtypeCount() != children.size()) {
+        return Status::InvalidArgument("ORC schema {} does not match {}", orc_type->toString(),
+                                       data_type->get_name());
+    }
+    for (size_t index = 0; index < children.size(); ++index) {
+        RETURN_IF_ERROR(annotate_orc_uuid(children[index],
+                                          const_cast<orc::Type*>(orc_type->getSubtype(index))));
+    }
+    return Status::OK();
+}
+
 static Status normalize_iceberg_binary_column(const ColumnPtr& column, const DataTypePtr& type,
                                               const iceberg::NestedField& nested_field,
                                               ColumnPtr* normalized_column,
@@ -169,6 +205,12 @@ Status VOrcTransformer::open() {
     if (!_schema_str.empty()) {
         try {
             _schema = orc::Type::buildTypeFromString(_schema_str);
+            DORIS_CHECK_EQ(_schema->getSubtypeCount(), _output_vexpr_ctxs.size());
+            for (size_t index = 0; index < _output_vexpr_ctxs.size(); ++index) {
+                RETURN_IF_ERROR(
+                        annotate_orc_uuid(_output_vexpr_ctxs[index]->root()->data_type(),
+                                          const_cast<orc::Type*>(_schema->getSubtype(index))));
+            }
         } catch (const std::exception& e) {
             return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
@@ -284,6 +326,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     case TYPE_IPV6:
     case TYPE_BINARY: {
         type = orc::createPrimitiveType(orc::STRING);
+        break;
+    }
+    case TYPE_UUID: {
+        type = orc::createPrimitiveType(orc::BINARY);
+        type->setAttribute("doris.logical_type", "uuid");
         break;
     }
     case TYPE_DATEV2: {

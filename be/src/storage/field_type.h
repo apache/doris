@@ -67,6 +67,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_IPV6 = 39,
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
     OLAP_FIELD_TYPE_TIMESTAMP_NS = 41,
+    OLAP_FIELD_TYPE_UUID = 42,
 };
 
 constexpr bool field_is_slice_type(const FieldType& field_type) {
@@ -107,7 +108,8 @@ constexpr bool field_is_numeric_type(const FieldType& field_type) {
            field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
            field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
            field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
+           field_type == FieldType::OLAP_FIELD_TYPE_IPV6 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_UUID;
 }
 
 } // namespace doris

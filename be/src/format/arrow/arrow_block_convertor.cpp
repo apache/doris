@@ -22,6 +22,8 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/array/util.h>
+#include <arrow/extension_type.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -59,6 +61,49 @@ class Array;
 namespace doris {
 
 namespace {
+
+std::shared_ptr<arrow::DataType> arrow_storage_type(const std::shared_ptr<arrow::DataType>& type) {
+    switch (type->id()) {
+    case arrow::Type::EXTENSION:
+        return arrow_storage_type(static_cast<const arrow::ExtensionType&>(*type).storage_type());
+    case arrow::Type::LIST: {
+        const auto& list = assert_cast<const arrow::ListType&>(*type);
+        return arrow::list(list.value_field()->WithType(arrow_storage_type(list.value_type())));
+    }
+    case arrow::Type::MAP: {
+        const auto& map = assert_cast<const arrow::MapType&>(*type);
+        return std::make_shared<arrow::MapType>(
+                map.key_field()->WithType(arrow_storage_type(map.key_type())),
+                map.item_field()->WithType(arrow_storage_type(map.item_type())), map.keys_sorted());
+    }
+    case arrow::Type::STRUCT: {
+        arrow::FieldVector fields;
+        fields.reserve(type->num_fields());
+        for (const auto& field : type->fields()) {
+            fields.push_back(field->WithType(arrow_storage_type(field->type())));
+        }
+        return arrow::struct_(fields);
+    }
+    default:
+        return type;
+    }
+}
+
+std::shared_ptr<arrow::ArrayData> restore_arrow_logical_type(
+        const std::shared_ptr<arrow::ArrayData>& storage,
+        const std::shared_ptr<arrow::DataType>& logical_type) {
+    if (storage->type->Equals(logical_type)) {
+        return storage;
+    }
+    auto result = storage->Copy();
+    result->type = logical_type;
+    DORIS_CHECK_EQ(result->child_data.size(), logical_type->num_fields());
+    for (int index = 0; index < logical_type->num_fields(); ++index) {
+        result->child_data[index] = restore_arrow_logical_type(result->child_data[index],
+                                                               logical_type->field(index)->type());
+    }
+    return result;
+}
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') {
@@ -297,7 +342,7 @@ Status ArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPo
             builder_arrow_type = arrow::large_binary();
         }
         std::unique_ptr<arrow::ArrayBuilder> builder;
-        auto arrow_st = arrow::MakeBuilder(pool, builder_arrow_type, &builder);
+        auto arrow_st = arrow::MakeBuilder(pool, arrow_storage_type(builder_arrow_type), &builder);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
@@ -315,7 +360,8 @@ Status ArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPo
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
-        arrays[idx] = std::move(storage_array);
+        arrays[idx] = arrow::MakeArray(
+                restore_arrow_logical_type(storage_array->data(), builder_arrow_type));
     }
     *out = arrow::RecordBatch::Make(schema, actual_rows, std::move(arrays));
     return Status::OK();

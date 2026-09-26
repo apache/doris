@@ -29,6 +29,7 @@ import logging
 import time
 import threading
 import pickle
+import uuid
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any, Callable, Optional, Tuple, get_origin, Dict
@@ -345,12 +346,76 @@ def convert_arrow_value_to_python(value, arrow_type):
     return value
 
 
+def is_uuid_type(arrow_type):
+    return (
+        isinstance(arrow_type, pa.BaseExtensionType)
+        and arrow_type.extension_name == "arrow.uuid"
+    )
+
+
+def validate_uuid_field(field):
+    metadata = field.metadata or {}
+    if metadata.get(b"ARROW:extension:name") == b"arrow.uuid" and not is_uuid_type(field.type):
+        raise RuntimeError("Python UUID requires PyArrow arrow.uuid extension support")
+    for index in range(field.type.num_fields):
+        validate_uuid_field(field.type.field(index))
+
+
+def uuid_storage_type(arrow_type):
+    if is_uuid_type(arrow_type):
+        return arrow_type.storage_type
+    if pa.types.is_list(arrow_type):
+        return pa.list_(arrow_type.value_field.with_type(uuid_storage_type(arrow_type.value_type)))
+    if pa.types.is_map(arrow_type):
+        return pa.map_(
+            arrow_type.key_field.with_type(uuid_storage_type(arrow_type.key_type)),
+            arrow_type.item_field.with_type(uuid_storage_type(arrow_type.item_type)),
+            keys_sorted=arrow_type.keys_sorted,
+        )
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([
+            field.with_type(uuid_storage_type(field.type)) for field in arrow_type
+        ])
+    return arrow_type
+
+
+def restore_uuid_array(storage, arrow_type):
+    if storage.type == arrow_type:
+        return storage
+    if is_uuid_type(arrow_type):
+        return pa.ExtensionArray.from_storage(arrow_type, storage)
+    if pa.types.is_list(arrow_type):
+        return pa.ListArray.from_arrays(
+            storage.offsets, restore_uuid_array(storage.values, arrow_type.value_type),
+            type=arrow_type, mask=storage.is_null(),
+        )
+    if pa.types.is_map(arrow_type):
+        return pa.MapArray.from_arrays(
+            storage.offsets,
+            restore_uuid_array(storage.keys, arrow_type.key_type),
+            restore_uuid_array(storage.items, arrow_type.item_type),
+            type=arrow_type, mask=storage.is_null(),
+        )
+    if pa.types.is_struct(arrow_type):
+        return pa.StructArray.from_arrays(
+            [restore_uuid_array(storage.field(index), field.type)
+             for index, field in enumerate(arrow_type)],
+            fields=list(arrow_type), mask=storage.is_null(),
+        )
+    raise TypeError(f"Cannot restore UUID array type {arrow_type} from {storage.type}")
+
+
+def build_output_array(values, arrow_type):
+    storage = pa.array(values, type=uuid_storage_type(arrow_type))
+    return restore_uuid_array(storage, arrow_type)
+
+
 def needs_nested_python_normalization(arrow_type):
     """
-    Return True when Arrow default Python conversion can leak nested MAP values as
-    list-of-tuples and therefore needs recursive normalization.
+    Return True when MAP containers or UUID objects need explicit Python normalization
+    rather than the default pandas conversion.
     """
-    if pa.types.is_map(arrow_type):
+    if is_uuid_type(arrow_type) or pa.types.is_map(arrow_type):
         return True
 
     if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
@@ -386,6 +451,11 @@ def convert_python_to_arrow_value(value, output_type=None):
     """
     if value is None:
         return None
+
+    if is_uuid_type(output_type):
+        if not isinstance(value, uuid.UUID):
+            raise TypeError(f"UUID return value must be uuid.UUID, got {type(value).__name__}")
+        return value.bytes
 
     if output_type and pa.types.is_string(output_type) and isinstance(value, int):
         # If output type is string but value is int, convert to string (for LARGEINT)
@@ -428,6 +498,11 @@ def convert_python_to_arrow_value(value, output_type=None):
             return tuple(convert_python_to_arrow_value(v, None) for v in value)
     
     if isinstance(value, dict):
+        if output_type and pa.types.is_struct(output_type):
+            return {
+                field.name: convert_python_to_arrow_value(value.get(field.name), field.type)
+                for field in output_type
+            }
         # For map types, convert keys and values recursively
         if output_type and pa.types.is_map(output_type):
             key_type = output_type.key_type
@@ -611,7 +686,7 @@ class AdaptivePythonUDF:
         :return: Output array of length num_rows
         """
         if record_batch.num_rows == 0:
-            return pa.array([], type=self._get_output_type())
+            return build_output_array([], self._get_output_type())
 
         if self._should_use_vectorized():
             return self._vectorized_call(record_batch)
@@ -712,7 +787,7 @@ class AdaptivePythonUDF:
                     f"Error in scalar UDF execution at row {i}: {e}"
                 ) from e
 
-        return pa.array(result, type=self._get_output_type())
+        return build_output_array(result, self._get_output_type())
 
     def _vectorized_call(self, record_batch: pa.RecordBatch) -> pa.Array:
         """
@@ -767,14 +842,17 @@ class AdaptivePythonUDF:
             )
             raise RuntimeError(f"Error in vectorized UDF: {e}") from e
 
-        result = convert_python_to_arrow_value(result, self.python_udf_meta.output_type)
-
         # Convert result to PyArrow Array
         result_array = None
         if isinstance(result, pd.Series):
-            result_array = pa.array(result, type=self._get_output_type())
+            values = result.apply(
+                lambda value: convert_python_to_arrow_value(value, self._get_output_type())
+            )
+            result_array = build_output_array(values, self._get_output_type())
         elif isinstance(result, list):
-            result_array = pa.array(result, type=self._get_output_type())
+            values = [convert_python_to_arrow_value(value, self._get_output_type())
+                      for value in result]
+            result_array = build_output_array(values, self._get_output_type())
         else:
             # Scalar result - broadcast to all rows
             out_type = self._get_output_type()
@@ -782,7 +860,8 @@ class AdaptivePythonUDF:
                 "UDF returned scalar value, broadcasting to %s rows",
                 record_batch.num_rows,
             )
-            result_array = pa.array([result] * record_batch.num_rows, type=out_type)
+            value = convert_python_to_arrow_value(result, out_type)
+            result_array = build_output_array([value] * record_batch.num_rows, out_type)
 
         # Check for None values when always_nullable is False
         if not self.python_udf_meta.always_nullable:
@@ -889,7 +968,7 @@ class ModuleUDFLoader(UDFLoader):
     _FORBIDDEN_MODULE_NAMES: frozenset = frozenset({
         "argparse", "base64", "gc", "importlib", "inspect", "ipaddress",
         "json", "sys", "os", "traceback", "logging", "time", "threading",
-        "pickle", "abc", "contextlib", "typing", "datetime", "enum",
+        "pickle", "uuid", "abc", "contextlib", "typing", "datetime", "enum",
         "pathlib", "pandas", "pd", "pyarrow", "pa", "flight",
         "logging.handlers",
     })
@@ -1749,6 +1828,8 @@ class FlightServer(flight.FlightServerBase):
 
         input_schema = pa.ipc.read_schema(pa.BufferReader(input_binary))
         output_schema = pa.ipc.read_schema(pa.BufferReader(output_binary))
+        for field in list(input_schema) + list(output_schema):
+            validate_uuid_field(field)
 
         if len(output_schema) != 1:
             logging.error(
@@ -2047,7 +2128,7 @@ class FlightServer(flight.FlightServerBase):
             raise RuntimeError(str(e)) from e
 
         return pa.RecordBatch.from_arrays(
-            [pa.array([result], type=output_type)], ["result"]
+            [build_output_array([result], output_type)], ["result"]
         )
 
     def _handle_udaf_reset(
@@ -2576,10 +2657,13 @@ class FlightServer(flight.FlightServerBase):
 
             all_results.append(row_outputs)
 
-        all_results = convert_python_to_arrow_value(all_results, expected_output_type)
+        all_results = [
+            [convert_python_to_arrow_value(value, expected_output_type) for value in row]
+            for row in all_results
+        ]
 
         try:
-            list_array = pa.array(all_results, type=pa.list_(expected_output_type))
+            list_array = build_output_array(all_results, pa.list_(expected_output_type))
         except Exception as e:
             logging.error(
                 "Failed to create ListArray: %s, element_type: %s",

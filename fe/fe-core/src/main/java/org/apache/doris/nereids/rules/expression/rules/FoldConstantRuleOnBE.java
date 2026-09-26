@@ -234,6 +234,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     // Some expressions should not do constant folding
     private static boolean shouldSkipFold(Expression expr) {
+        // getResultExpression cannot decode UUID PValues, including UUID inside complex types.
+        if (containsUuid(expr.getDataType())) {
+            return true;
+        }
+
         // Frontend can not represent those types
         if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
                 || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
@@ -302,6 +307,21 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         }
 
         return false;
+    }
+
+    private static boolean containsUuid(DataType type) {
+        if (type instanceof ArrayType) {
+            return containsUuid(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            MapType mapType = (MapType) type;
+            return containsUuid(mapType.getKeyType()) || containsUuid(mapType.getValueType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsUuid(field.getDataType()));
+        }
+        return type.isUuidType();
     }
 
     private static Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,

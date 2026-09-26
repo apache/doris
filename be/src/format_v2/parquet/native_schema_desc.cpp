@@ -880,12 +880,15 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.UUID) {
+        // Keep binary UUID carriers consistent with table defaults and other physical formats.
+        // Ordinary Parquet scans still expose the native UUID unless VARBINARY was requested.
+        auto uuid_type = TYPE_UUID;
         if (_enable_mapping_varbinary) {
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1,
-                                                                     -1, 16);
-        } else {
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
+            uuid_type = TYPE_VARBINARY;
+        } else if (_preserve_binary_uuid) {
+            uuid_type = TYPE_STRING;
         }
+        ans.first = DataTypeFactory::instance().create_data_type(uuid_type, nullable, -1, -1, 16);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {

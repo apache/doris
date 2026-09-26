@@ -4587,14 +4587,16 @@ protected:
 
     std::unique_ptr<format::orc::OrcReader> create_reader(
             RuntimeProfile* profile = nullptr,
-            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt) const {
+            std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
+            bool enable_mapping_varbinary = false) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
         file_description->path = _file_path;
         file_description->file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
         return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                        nullptr, profile, global_rowid_context);
+                                                        nullptr, profile, global_rowid_context,
+                                                        false, enable_mapping_varbinary);
     }
 
     std::unique_ptr<format::orc::OrcReader> create_reader_for_path(
@@ -4714,6 +4716,59 @@ protected:
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(NewOrcReaderTest, UuidBinaryRequiresLogicalTypeAttribute) {
+    auto reader = create_reader();
+    auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_STRING);
+    binary->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_UUID);
+    auto list = ::orc::createListType(std::move(binary));
+    const auto array = remove_nullable(reader->_convert_to_doris_type(*list));
+    const auto& array_type = assert_cast<const DataTypeArray&>(*array);
+    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_UUID);
+}
+
+TEST_F(NewOrcReaderTest, BinaryMappingOverridesUuidAnnotation) {
+    auto reader = create_reader(nullptr, std::nullopt, true);
+    auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_VARBINARY);
+    binary->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*binary))->get_primitive_type(),
+              TYPE_VARBINARY);
+    auto string = ::orc::createPrimitiveType(::orc::STRING);
+    string->setAttribute("doris.logical_type", "uuid");
+    EXPECT_EQ(remove_nullable(reader->_convert_to_doris_type(*string))->get_primitive_type(),
+              TYPE_STRING);
+}
+
+TEST_F(NewOrcReaderTest, BinaryMappingOverridesNestedUuidAnnotations) {
+    auto reader = create_reader(nullptr, std::nullopt, true);
+    const auto uuid_type = [] {
+        auto binary = ::orc::createPrimitiveType(::orc::BINARY);
+        binary->setAttribute("doris.logical_type", "uuid");
+        return binary;
+    };
+    auto list = ::orc::createListType(uuid_type());
+    const auto array = remove_nullable(reader->_convert_to_doris_type(*list));
+    const auto& array_type = assert_cast<const DataTypeArray&>(*array);
+    EXPECT_EQ(remove_nullable(array_type.get_nested_type())->get_primitive_type(), TYPE_VARBINARY);
+
+    auto map = ::orc::createMapType(uuid_type(), uuid_type());
+    const auto mapped = remove_nullable(reader->_convert_to_doris_type(*map));
+    const auto& map_type = assert_cast<const DataTypeMap&>(*mapped);
+    EXPECT_EQ(remove_nullable(map_type.get_key_type())->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(remove_nullable(map_type.get_value_type())->get_primitive_type(), TYPE_VARBINARY);
+
+    auto structure = ::orc::createStructType();
+    structure->addStructField("uuid", uuid_type());
+    const auto converted = remove_nullable(reader->_convert_to_doris_type(*structure));
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*converted);
+    EXPECT_EQ(remove_nullable(struct_type.get_elements()[0])->get_primitive_type(), TYPE_VARBINARY);
+}
 
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsCountFromFileMetadata) {
     auto reader = create_reader();

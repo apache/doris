@@ -108,6 +108,7 @@ private:
     // useful for parse_node_field to decide whether to convert byte_array to VARBINARY type
     bool _enable_mapping_varbinary = false;
     bool _enable_mapping_timestamp_tz = false;
+    bool _preserve_binary_uuid = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -190,6 +191,7 @@ public:
     const NativeFieldSchema* find_column_by_id(uint64_t column_id) const;
     void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
     void set_enable_mapping_timestamp_tz(bool enable) { _enable_mapping_timestamp_tz = enable; }
+    void set_preserve_binary_uuid(bool preserve) { _preserve_binary_uuid = preserve; }
 };
 
 } // namespace doris::format::parquet

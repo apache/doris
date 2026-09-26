@@ -33,16 +33,19 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/value/uuid_value.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/sink/sink_test_utils.h"
 #include "exec/sink/vtablet_finder.h"
+#include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
@@ -145,6 +148,18 @@ std::unique_ptr<TabletSinkHashPartitioner> _create_partitioner(
     auto st = partitioner->open(&ctx.state);
     EXPECT_TRUE(st.ok()) << st.to_string();
     return partitioner;
+}
+
+TExprNode _make_uuid_literal(const std::string& value) {
+    UUIDValueType parsed;
+    DORIS_CHECK(UUIDValue::from_string(parsed, value)) << value;
+    TExprNode node;
+    node.__set_num_children(0);
+    node.__set_output_scale(0);
+    EXPECT_TRUE(create_texpr_literal_node<TYPE_UUID>(&parsed, &node).ok());
+    node.type.__set_is_nullable(false);
+    node.__set_is_nullable(false);
+    return node;
 }
 
 TEST(TabletSinkHashPartitionerTest, DoPartitioningSkipsImmutablePartitionAndHashesOthers) {
@@ -383,6 +398,76 @@ TEST(TabletSinkHashPartitionerTest, TimeStampNsRangePartitionKey) {
     EXPECT_TRUE(partitions.find_partition(&block, 0, result));
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->id, before_epoch.id);
+}
+
+TEST(TabletSinkHashPartitionerTest, UuidRangePartitionRejected) {
+    OperatorContext ctx;
+
+    TDescriptorTableBuilder dtb;
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_UUID)
+                                   .nullable(false)
+                                   .column_name("u")
+                                   .column_pos(1)
+                                   .build());
+    tuple_builder.build(&dtb);
+    auto thrift_desc_tbl = dtb.desc_tbl();
+    DescriptorTbl* desc_tbl = nullptr;
+    auto st = DescriptorTbl::create(ctx.state.obj_pool(), thrift_desc_tbl, &desc_tbl);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ctx.state.set_desc_tbl(desc_tbl);
+
+    TOlapTableSchemaParam tschema;
+    tschema.db_id = 1;
+    tschema.table_id = 2;
+    tschema.version = 0;
+    tschema.slot_descs = thrift_desc_tbl.slotDescriptors;
+    tschema.tuple_desc = thrift_desc_tbl.tupleDescriptors[0];
+    TOlapTableIndexSchema index_schema;
+    index_schema.id = 10;
+    index_schema.columns = {"u"};
+    index_schema.schema_hash = 123;
+    tschema.indexes = {index_schema};
+
+    TOlapTablePartitionParam tpartition;
+    tpartition.db_id = 1;
+    tpartition.table_id = 2;
+    tpartition.version = 0;
+    tpartition.__set_partition_type(TPartitionType::RANGE_PARTITIONED);
+    tpartition.__set_partition_columns({"u"});
+    tpartition.__set_distributed_columns({"u"});
+
+    auto make_partition = [&](int64_t id, int64_t tablet_id, const std::string& start,
+                              const std::string* end) {
+        TOlapTablePartition partition;
+        partition.id = id;
+        partition.num_buckets = 1;
+        partition.__set_is_mutable(true);
+        TOlapTableIndexTablets index_tablets;
+        index_tablets.index_id = index_schema.id;
+        index_tablets.tablets = {tablet_id};
+        partition.indexes = {index_tablets};
+        partition.__set_start_keys({_make_uuid_literal(start)});
+        if (end != nullptr) {
+            partition.__set_end_keys({_make_uuid_literal(*end)});
+        }
+        return partition;
+    };
+
+    const std::string split = "80000000-0000-0000-0000-000000000000";
+    tpartition.partitions = {
+            make_partition(1, 100, "00000000-0000-0000-0000-000000000000", &split),
+            make_partition(2, 200, split, nullptr),
+    };
+
+    auto schema = std::make_shared<OlapTableSchemaParam>();
+    st = schema->init(tschema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    auto vpartition = std::make_unique<VOlapTablePartitionParam>(schema, tpartition);
+    st = vpartition->init();
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("unsupported partition column node type"), std::string::npos);
 }
 } // anonymous namespace
 } // namespace doris

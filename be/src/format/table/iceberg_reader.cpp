@@ -435,6 +435,7 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
     _file_format = Fileformat::PARQUET;
+    set_preserve_binary_uuid(true);
 
     // Get file metadata schema first (available because _open_file() already ran)
     const FieldDescriptor* field_desc = nullptr;

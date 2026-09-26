@@ -202,6 +202,7 @@ public class ColumnToProtobuf {
             case IPV4:
                 return 4;
             case IPV6:
+            case UUID:
                 return 16;
             case VARIANT:
                 return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
