@@ -36,6 +36,7 @@
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
@@ -136,8 +137,9 @@ VExprContextSPtr make_bitmap_ctx(const std::shared_ptr<BitmapEvalExpr>& expr) {
     std::vector<IndexFieldNameAndTypePair> storage_types;
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
     ColumnIteratorOptions column_iter_opts;
-    auto index_ctx = std::make_shared<IndexExecContext>(index_iters, storage_types, status_map,
-                                                        nullptr, nullptr, column_iter_opts);
+    auto index_ctx = std::make_shared<IndexExecContext>(
+            index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+            std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
     ctx->set_index_context(index_ctx);
     return ctx;
 }
@@ -150,14 +152,14 @@ protected:
         _tablet_schema = make_tablet_schema();
         _segment = make_stub_segment(100, _tablet_schema);
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
-        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        StorageReadOptions opts(_stats);
+        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema, opts);
 
         TQueryOptions query_options;
         query_options.__set_enable_fallback_on_missing_inverted_index(true);
         _runtime_state.set_query_options(query_options);
 
         _iter->_opts.runtime_state = &_runtime_state;
-        _iter->_opts.stats = &_stats;
     }
 
     std::shared_ptr<Segment> _segment;

@@ -81,7 +81,7 @@ private:
             uint32_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, ReadSchemaSPtr read_schema,
-                                     OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
+                                     OlapReaderStatistics& stat, RowSourcesBuffer& row_sources_buf,
                                      bool is_key,
                                      std::vector<uint32_t>& key_group_cluster_key_idxes,
                                      std::unique_ptr<VerticalBlockReader>* reader);

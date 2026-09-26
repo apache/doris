@@ -96,7 +96,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp

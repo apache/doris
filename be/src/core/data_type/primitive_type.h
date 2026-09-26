@@ -60,6 +60,8 @@ using ColumnHLL = ColumnComplexType<TYPE_HLL>;
 using ColumnQuantileState = ColumnComplexType<TYPE_QUANTILE_STATE>;
 template <PrimitiveType T>
 class DataTypeNumber;
+template <PrimitiveType T>
+class DataTypeUInt;
 using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
 using DataTypeInt16 = DataTypeNumber<TYPE_SMALLINT>;
 using DataTypeInt32 = DataTypeNumber<TYPE_INT>;
@@ -69,6 +71,8 @@ using DataTypeFloat32 = DataTypeNumber<TYPE_FLOAT>;
 using DataTypeFloat64 = DataTypeNumber<TYPE_DOUBLE>;
 using DataTypeUInt8 = DataTypeNumber<TYPE_BOOLEAN>;
 using DataTypeBool = DataTypeNumber<TYPE_BOOLEAN>;
+using DataTypeUInt32 = DataTypeUInt<TYPE_UINT32>;
+using DataTypeUInt64 = DataTypeUInt<TYPE_UINT64>;
 
 class DataTypeNothing;
 class DataTypeTimeV2;
@@ -534,14 +538,14 @@ template <>
 struct PrimitiveTypeTraits<TYPE_UINT32> {
     using CppType = UInt32;
     using StorageFieldType = CppType;
-    using DataType = DataTypeNothing;
+    using DataType = DataTypeUInt32;
     using ColumnType = ColumnOffset32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT64> {
     using CppType = UInt64;
     using StorageFieldType = CppType;
-    using DataType = DataTypeNothing;
+    using DataType = DataTypeUInt64;
     using ColumnType = ColumnOffset64;
 };
 

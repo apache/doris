@@ -25,6 +25,7 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
+#include "storage/schema.h"
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -101,8 +102,9 @@ VExprContextSPtr make_mock_ctx(Status eval_status, bool with_index_context = tru
         std::vector<IndexFieldNameAndTypePair> storage_types;
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> status_map;
         ColumnIteratorOptions column_iter_opts;
-        auto index_ctx = std::make_shared<IndexExecContext>(index_iters, storage_types, status_map,
-                                                            nullptr, nullptr, column_iter_opts);
+        auto index_ctx = std::make_shared<IndexExecContext>(
+                index_iters, storage_types, status_map, nullptr, nullptr, column_iter_opts,
+                std::make_shared<ReadSchema>(std::vector<TabletColumnPtr> {}));
         ctx->set_index_context(index_ctx);
     }
     return ctx;
@@ -118,7 +120,8 @@ protected:
 
         // Read schema covers all tablet columns in order, so ordinal == tablet cid.
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
-        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        StorageReadOptions opts(_stats);
+        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema, opts);
 
         // Set up RuntimeState with fallback enabled so _downgrade_without_index works
         TQueryOptions query_options;
@@ -126,7 +129,6 @@ protected:
         _runtime_state.set_query_options(query_options);
 
         _iter->_opts.runtime_state = &_runtime_state;
-        _iter->_opts.stats = &_stats;
     }
 
     std::shared_ptr<Segment> _segment;

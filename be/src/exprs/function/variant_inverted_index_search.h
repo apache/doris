@@ -54,6 +54,7 @@ class VariantColumnReader;
 } // namespace doris::segment_v2
 
 namespace doris {
+class TabletColumn;
 
 using namespace doris::segment_v2;
 
@@ -223,8 +224,7 @@ public:
     Status evaluate(const TSearchParam& search_param, const TSearchClause& nested_clause,
                     const std::shared_ptr<segment_v2::IndexQueryContext>& context,
                     FieldReaderResolver& resolver, uint32_t num_rows,
-                    const IndexExecContext* index_exec_ctx,
-                    const std::unordered_map<std::string, int>& field_name_to_column_id,
+                    const IndexExecContext* index_exec_ctx, const TabletColumn* nested_column,
                     std::shared_ptr<roaring::Roaring>& result_bitmap) const;
 
 private:

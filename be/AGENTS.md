@@ -29,6 +29,20 @@ past a gate is never to bypass it, but one of:
 
 ## Rules while writing BE code
 
+- **Make non-obvious comments concrete.** Comments should explain why the
+  code works this way, including the underlying invariant, algorithm, or
+  trade-off. When that explanation is abstract or requires careful reasoning,
+  also include a small representative example (such as sample inputs, a state
+  transition, or an edge case) that shows the principle in action. The example
+  should clarify the reasoning rather than merely restate the code, and it must
+  be updated when the behavior changes.
+- **Document conditional branches introduced by bug fixes.** Whenever a bug
+  fix adds or changes an `if`/`else` condition, add a nearby comment that
+  describes the concrete failure scenario and explains why the condition is
+  required. If the boundary is not immediately obvious, include a concise
+  example showing which path the affected input or state must take. The
+  comment does not replace the requirement that every error check have a known,
+  inevitable failure path.
 - **Adding an `#include` to a widely-included (hub) header is a design
   decision, not a convenience.** Everything a hub includes is reparsed by
   every TU behind it (~1000 TUs for `exec_env.h`, `thread_context.h`,
@@ -56,6 +70,11 @@ past a gate is never to bypass it, but one of:
 
 ## Review checkpoints (AI review and self-review)
 
+- [ ] Non-obvious comments explain the reasoning, and abstract principles are
+      backed by a concise, representative example that still matches the code.
+- [ ] An `if`/`else` condition added or changed by a bug fix has a nearby
+      comment describing the concrete failure scenario and why the branch is
+      required.
 - [ ] New includes in hub headers: could a forward declaration or `*_fwd.h`
       carry this instead? Does the PR pay a closure/reach budget bump — and
       if so, does the commit message justify it?

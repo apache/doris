@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "core/data_type/get_least_supertype.h"
+#include "storage/iterators.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
@@ -144,25 +145,30 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
         return Status::InvalidArgument("rowset reader returned null rowset");
     }
 
+    const auto& tablet_schema = rowset->tablet_schema();
+    // A rowset written before ADD VARIANT v(uid=7) has no definition or physical paths for uid=7.
+    // Skip its metadata before column_by_uid(), which requires the UID to exist.
+    if (!tablet_schema->has_column_unique_id(variant_uid)) {
+        return Status::OK();
+    }
+    const auto& variant_column = tablet_schema->column_by_uid(variant_uid);
+
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rowset), &segment_cache));
 
     for (const auto& segment : segment_cache.get_segments()) {
-        std::shared_ptr<ColumnReader> column_reader;
+        std::shared_ptr<VariantColumnReader> variant_reader;
         OlapReaderStatistics stats;
-        Status st = segment->get_column_reader(variant_uid, &column_reader, &stats);
+        StorageReadOptions read_options(stats);
+        Status st = segment->get_variant_root_reader(variant_column, read_options, &variant_reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
+            // A nullable/defaulted VARIANT added after this segment has no physical NestedGroup
+            // paths. Its logical default is produced later by normal value reading.
             continue;
         }
         RETURN_IF_ERROR(st);
-        if (column_reader == nullptr) {
-            continue;
-        }
-        auto* variant_reader = dynamic_cast<VariantColumnReader*>(column_reader.get());
-        if (variant_reader == nullptr) {
-            return Status::InternalError("column uid {} is not a VariantColumnReader", variant_uid);
-        }
+        DORIS_CHECK(variant_reader != nullptr);
         RETURN_IF_ERROR(variant_reader->load_external_meta_once());
         append_types_from_segment_reader(*variant_reader, regular_path_types, groups,
                                          ng_owned_paths);

@@ -76,8 +76,8 @@ protected:
     // Build a SegmentIterator with minimal opts for _can_opt_limit_reads() testing.
     // The segment pointer is null — only _opts and internal maps are accessed.
     std::unique_ptr<SegmentIterator> make_iter() {
-        auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema);
-        iter->_opts.stats = &_stats;
+        StorageReadOptions opts(_stats);
+        auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema, opts);
         // delete_condition_predicates is default-constructed (empty)
         return iter;
     }

@@ -30,6 +30,7 @@ suite("test_time_travel_dup", "nonConcurrent") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
+            "disable_auto_compaction" = "true",
             "binlog.enable" = "true",
             "binlog.format" = "ROW"
         )
@@ -46,6 +47,7 @@ suite("test_time_travel_dup", "nonConcurrent") {
     // batch 3
     sql "INSERT INTO test_time_travel_dup VALUES (4, 40)"
     def tso3 = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_time_travel_dup")[0][0] as Long
+    def hiddenBeforeCompaction = sql("SELECT k, __DORIS_COMMIT_TSO_COL__ FROM test_time_travel_dup ORDER BY k")
 
     sql "SET show_hidden_columns = false"
 
@@ -63,11 +65,38 @@ suite("test_time_travel_dup", "nonConcurrent") {
     // zero => empty (all tso > 0)
     order_qt_zero "SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF 0"
 
-    // ---- after compaction the materialized tso keeps the result stable ----
-    trigger_and_wait_compaction("test_time_travel_dup", "cumulative")
+    // Include the initial empty [0-1] rowset, whose TSO is [-1, -1]. The full-compaction
+    // output inherits that lower bound but must read the materialized per-row TSOs.
+    def checkRowsetCount = { int expected ->
+        for (def tablet : sql_return_maparray("SHOW TABLETS FROM test_time_travel_dup")) {
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
+            assertEquals(0, code)
+            assertEquals(expected, parseJson(out.trim()).rowsets.size())
+        }
+    }
+    checkRowsetCount(4)
+    trigger_and_wait_compaction("test_time_travel_dup", "full")
+    checkRowsetCount(1)
+    sql "SET show_hidden_columns = true"
+    assertEquals(hiddenBeforeCompaction,
+            sql("SELECT k, __DORIS_COMMIT_TSO_COL__ FROM test_time_travel_dup ORDER BY k"))
+    sql "SET show_hidden_columns = false"
     def r1c = sql("SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF ${tso1} ORDER BY k")
-    assertEquals([[1, 10], [2, 20]], r1c)
+    assertEquals(r1, r1c)
     order_qt_future_after_compaction "SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF 9223372036854775807"
+
+    // A subsequent compaction must also be able to read the range rowset carrying -1.
+    sql "INSERT INTO test_time_travel_dup VALUES (5, 50)"
+    sql "SET show_hidden_columns = true"
+    def hiddenBeforeSecondCompaction = sql("SELECT k, __DORIS_COMMIT_TSO_COL__ FROM test_time_travel_dup ORDER BY k")
+    checkRowsetCount(2)
+    trigger_and_wait_compaction("test_time_travel_dup", "full")
+    checkRowsetCount(1)
+    assertEquals(hiddenBeforeSecondCompaction,
+            sql("SELECT k, __DORIS_COMMIT_TSO_COL__ FROM test_time_travel_dup ORDER BY k"))
+    sql "SET show_hidden_columns = false"
+    assertEquals(r1, sql("SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF ${tso1} ORDER BY k"))
+    assertEquals(r3, sql("SELECT k, v FROM test_time_travel_dup FOR VERSION AS OF ${tso3} ORDER BY k"))
 
     // ---- error path: AS OF on a table without row binlog ----
     sql "DROP TABLE IF EXISTS test_time_travel_dup_nobinlog FORCE"

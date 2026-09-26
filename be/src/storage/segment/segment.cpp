@@ -125,14 +125,16 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
         slot_zone_map.data_type = data_type;
         std::shared_ptr<ColumnReader> reader;
-        Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats,
-                                               &read_options.io_ctx);
+        Status st = segment->get_column_reader_for_pruning(*tablet_column, read_options, &reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
+            // A sparse-only VARIANT path has no physical leaf zonemap. Keep the slot without a
+            // zonemap so expression evaluation conservatively keeps this segment.
             ctx->slots.emplace(slot_index, std::move(slot_zone_map));
             continue;
         }
         RETURN_IF_ERROR(st);
-        if (reader != nullptr && reader->has_zone_map()) {
+        DORIS_CHECK(reader != nullptr);
+        if (reader->has_zone_map()) {
             ZoneMap zone_map;
             RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
             slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(zone_map));
@@ -154,23 +156,24 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
-        // The commit-tso column is only served correctly once its reader is created with the
-        // rowset's commit_tso as a const value. Creating it here without one would cache a reader
-        // that hands every later read the on-disk placeholder instead.
-        if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
-            continue;
-        }
         std::shared_ptr<ColumnReader> reader;
-        Status st = segment->get_column_reader(*schema.column(ordinal), &reader, read_options.stats,
-                                               &read_options.io_ctx);
+        Status st = segment->get_column_reader_for_pruning(*schema.column(ordinal), read_options,
+                                                           &reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
-            continue;
+            // A sparse-only VARIANT path has no physical leaf zone map. The statistics iterator
+            // cannot extract min/max from its hierarchical/binary iterator, so read the rows with
+            // the regular segment iterator instead.
+            *usable = false;
+            return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        // Columns without a zone map keep the existing behaviour: the statistics iterator reports
-        // the missing zone map itself.
-        if (reader == nullptr || !reader->has_zone_map()) {
-            continue;
+        DORIS_CHECK(reader != nullptr);
+        if (!reader->has_zone_map()) {
+            // For example, a VARIANT root is deliberately written without a zone map. Selecting
+            // the statistics iterator would make next_batch_of_zone_map() fail instead of scanning
+            // the column normally.
+            *usable = false;
+            return Status::OK();
         }
         ZoneMap zone_map;
         RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
@@ -419,18 +422,6 @@ Status Segment::_open_index_file_reader() {
     return Status::OK();
 }
 
-bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
-                                     const StorageReadOptions& read_options) const {
-    if (read_options.version.first != read_options.version.second) {
-        return false;
-    }
-    if (!read_options.read_row_binlog) {
-        return false;
-    }
-    // tso_ordinal() is -1 for non-binlog schemas, so this returns false there.
-    return cid == schema.tso_ordinal();
-}
-
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
@@ -445,47 +436,15 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         int32_t column_id = entry.first;
         const TabletColumn& col = *schema->column(column_id);
         std::shared_ptr<ColumnReader> reader;
-        // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk
-        // (replaced with the rowset's real commit_tso at read time). Its on-disk zonemap [0,0]
-        // must not drive segment-level pruning, so build a ConstantColumnReader carrying the real
-        // commit_tso to prune against the real value instead.
-        std::optional<Field> const_value;
-        if (read_options.version.first == read_options.version.second &&
-            column_id == schema->commit_tso_ordinal() && read_options.commit_tso.end_tso() != -1) {
-            const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
-        }
-        Status st = get_column_reader(col, &reader, read_options.stats, &read_options.io_ctx,
-                                      std::move(const_value));
-        // not found in this segment, skip
+        Status st = get_column_reader_for_pruning(col, read_options, &reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
+            // A VARIANT path stored only in sparse/doc data has no standalone zonemap. For example,
+            // `v.user.id = 7` must be evaluated after extraction, so keep the segment.
             continue;
         }
         RETURN_IF_ERROR(st);
-        // should be OK
-        DCHECK(reader != nullptr);
+        DORIS_CHECK(reader != nullptr);
         if (!reader->has_zone_map()) {
-            continue;
-        }
-        // Placeholder tso column on a single-version binlog segment: its zonemap reflects the
-        // NULL placeholder (replaced with commit_tso at read time), so skip pruning by
-        // zonemap (min == max == commit_tso) and reuse the predicate's own zonemap matching:
-        // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
-        // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
-        // support zonemap return true (conservative: not pruned, row-level eval handles them).
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            is_tso_placeholder_col(column_id, *schema, read_options)) {
-            const Int64 commit_tso =
-                    read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
-            ZoneMap zone_map;
-            zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-            zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-            zone_map.has_not_null = true;
-            if (!entry.second->evaluate_and(zone_map)) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
-            }
             continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
@@ -539,7 +498,7 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
     if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
-        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
+        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema, read_options);
     }
 
     // TODO: Valid the opt not only in ReaderType::READER_QUERY
@@ -843,34 +802,31 @@ DataTypePtr Segment::get_data_type_of(const TabletColumn& read_column, const Dat
                                       const StorageReadOptions& read_options) {
     const PathInDataPtr path = read_column.path_info_ptr();
 
-    // none variant column
+    // Ordinary columns do not have a variant path to resolve.
     if (path == nullptr || path->empty()) {
         return read_type;
     }
 
-    // Path exists, proceed with variant logic.
-    PathInData relative_path = path->copy_pop_front();
-    int32_t unique_id =
-            read_column.unique_id() >= 0 ? read_column.unique_id() : read_column.parent_unique_id();
+    DORIS_CHECK(read_options.stats != nullptr);
 
-    // If this uid does not exist in segment meta, fallback to schema type.
-    if (!_column_meta_accessor->has_column_uid(unique_id)) {
+    std::shared_ptr<VariantColumnReader> variant_reader;
+    Status st = get_variant_root_reader(read_column, read_options, &variant_reader);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // An ALTER-added VARIANT root has no physical metadata in an old segment, so its paths use
+        // their declared schema types when materializing the root's NULL/default value.
         return DataTypeFactory::instance().create_data_type(read_column);
     }
+    THROW_IF_ERROR(st);
+    DORIS_CHECK(variant_reader != nullptr);
 
-    std::shared_ptr<ColumnReader> v_reader;
-    OlapReaderStatistics tmp_stats;
-    auto* stats = read_options.stats == nullptr ? &tmp_stats : read_options.stats;
-
-    // Get the parent variant column reader
-    // If status is not ok, it will throw exception(data corruption)
-    THROW_IF_ERROR(get_column_reader(unique_id, &v_reader, stats, &read_options.io_ctx));
-    DCHECK(v_reader != nullptr);
-    auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
-    // Delegate type inference for variant paths to VariantColumnReader.
+    // Use the same plan as data reads. For example, a typed `v.age` returns INT, while `v.extra`
+    // stored in the sparse binary column returns VARIANT so the caller allocates the right column.
     DataTypePtr type;
     THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, read_column, read_options,
                                                             _column_reader_cache.get()));
+    DORIS_CHECK(type != nullptr) << "variant read plan did not set a type for path "
+                                 << path->get_path()
+                                 << ", parent_uid=" << read_column.parent_unique_id();
     return type;
 }
 
@@ -918,8 +874,7 @@ Status Segment::_create_column_meta(const SegmentFooterPB& footer, OlapReaderSta
     return Status::OK();
 }
 
-Status Segment::new_default_iterator(const TabletColumn& tablet_column,
-                                     std::unique_ptr<ColumnIterator>* iter) {
+Status Segment::get_default_value_field(const TabletColumn& tablet_column, Field* field) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
                 "invalid nonexistent column without default value. column_uid={}, "
@@ -927,14 +882,49 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
                 "column_type={}",
                 tablet_column.unique_id(), tablet_column.name(), tablet_column.type());
     }
-    std::unique_ptr<DefaultValueColumnIterator> default_value_iter(new DefaultValueColumnIterator(
-            tablet_column.has_default_value(), tablet_column.default_value(),
-            tablet_column.is_nullable(), tablet_column.type(), tablet_column.precision(),
-            tablet_column.frac(), tablet_column.length()));
-    ColumnIteratorOptions iter_opts;
 
-    RETURN_IF_ERROR(default_value_iter->init(iter_opts));
-    *iter = std::move(default_value_iter);
+    if (!tablet_column.has_default_value()) {
+        *field = Field::create_field<TYPE_NULL>(Null {});
+        return Status::OK();
+    }
+
+    const auto& default_value = tablet_column.default_value();
+    if (default_value == "NULL") {
+        *field = Field::create_field<TYPE_NULL>(Null {});
+        return Status::OK();
+    }
+
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        if (default_value != "[]") {
+            return Status::NotSupported("Array default {} is unsupported", default_value);
+        }
+        *field = Field::create_field<TYPE_ARRAY>(Array {});
+        return Status::OK();
+    }
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+        return Status::NotSupported("STRUCT default type is unsupported");
+    }
+    if (tablet_column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
+        if (default_value != "{}") {
+            return Status::NotSupported("Map default {} is unsupported", default_value);
+        }
+        *field = Field::create_field<TYPE_MAP>(Map {Field::create_field<TYPE_ARRAY>(Array {}),
+                                                    Field::create_field<TYPE_ARRAY>(Array {})});
+        return Status::OK();
+    }
+
+    const auto serde = DataTypeFactory::instance()
+                               .create_data_type(tablet_column.type(), tablet_column.precision(),
+                                                 tablet_column.frac(), tablet_column.length())
+                               ->get_serde();
+    return serde->from_fe_string(default_value, *field);
+}
+
+Status Segment::new_constant_iterator(const TabletColumn& tablet_column,
+                                      std::unique_ptr<ColumnIterator>* iter) {
+    Field field;
+    RETURN_IF_ERROR(get_default_value_field(tablet_column, &field));
+    *iter = std::make_unique<ConstantColumnIterator>(std::move(field));
     return Status::OK();
 }
 
@@ -955,39 +945,24 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     RETURN_IF_ERROR(_create_column_meta_once(opt->stats, &opt->io_ctx));
 
-    // For compability reason unique_id may less than 0 for variant extracted column
-    int32_t unique_id = tablet_column.unique_id() >= 0 ? tablet_column.unique_id()
-                                                       : tablet_column.parent_unique_id();
+    // A persisted column, including a VARIANT root, uses its own uid. Only BE-generated VARIANT
+    // paths may have uid=-1; those paths use the parent uid to reach the root reader. For example,
+    // root `v` uses uid=7, while a dynamic `v.user.id` with uid=-1 also resolves through uid=7.
+    const int32_t unique_id = tablet_column.unique_id() >= 0 ? tablet_column.unique_id()
+                                                             : tablet_column.parent_unique_id();
+    DORIS_CHECK_GE(unique_id, 0) << "column does not have a resolvable uid: "
+                                 << tablet_column.debug_string();
 
-    // If column meta for this uid is not found in this segment, use default iterator.
-    if (!_column_meta_accessor->has_column_uid(unique_id)) {
-        RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
-        return Status::OK();
-    }
-
-    // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk (its
-    // real value is the rowset's commit_tso, filled at read time). Pass the real commit_tso as a
-    // const value so the cache returns a ConstantColumnReader, whose iterator yields the real value
-    // on every read path (projection / predicate / MIN-MAX zone-map) instead of the placeholder 0.
-    // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
-    // The value is constant per segment (a segment belongs to a single rowset), so caching the
-    // ConstantColumnReader does not cross-pollute other queries.
-    std::optional<Field> const_value;
-    if (opt->version.first == opt->version.second && opt->commit_tso.end_tso() != -1) {
-        int32_t tso_idx = _tablet_schema->commit_tso_col_idx();
-        if (tso_idx != -1 && _tablet_schema->column(tso_idx).unique_id() == unique_id) {
-            const_value = Field::create_field<TYPE_BIGINT>(opt->commit_tso.end_tso());
-        }
-    }
-
-    // init iterator by unique id
+    // Initialize the reader through the read-semantic entry. A physically missing column still
+    // uses its schema default, including hidden columns added by a later schema change.
     std::shared_ptr<ColumnReader> reader;
-    RETURN_IF_ERROR(get_column_reader(unique_id, &reader, opt->stats, &opt->io_ctx,
-                                      std::move(const_value)));
-    if (reader == nullptr) {
-        return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
-    }
-    if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+    RETURN_IF_ERROR(_get_column_reader_for_read(tablet_column, *opt, &reader));
+    DCHECK(reader != nullptr);
+    // The concrete reader matters here, not only its meta type. For example, an old segment
+    // predating `ADD COLUMN v VARIANT` gets a VARIANT-typed ConstantColumnReader and must emit
+    // NULL instead of being cast to VariantColumnReader.
+    if (auto* variant_reader = dynamic_cast<VariantColumnReader*>(reader.get());
+        variant_reader != nullptr) {
         // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
         PathToBinaryColumnCache* sparse_column_cache_ptr = nullptr;
         if (variant_sparse_column_cache) {
@@ -998,11 +973,8 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                 DCHECK(false) << "sparse column cache is not found, unique_id=" << unique_id;
             }
         }
-        // use _column_reader_cache to get variant subcolumn(path column) reader
-        RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
-                                ->new_iterator(iter, &tablet_column, opt,
-                                               _column_reader_cache.get(),
-                                               sparse_column_cache_ptr));
+        RETURN_IF_ERROR(variant_reader->new_iterator(
+                iter, &tablet_column, opt, _column_reader_cache.get(), sparse_column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
         if (opt->all_access_paths.contains(unique_id) ||
@@ -1032,21 +1004,6 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     return Status::OK();
 }
 
-Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                                  OlapReaderStatistics* stats, const io::IOContext* source_io_ctx,
-                                  std::optional<Field> const_value) {
-    RETURN_IF_ERROR(_create_column_meta_once(stats, source_io_ctx));
-    SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
-    // The column is not in this segment, return nullptr
-    if (!_tablet_schema->has_column_unique_id(col_uid)) {
-        *column_reader = nullptr;
-        return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
-                                                          col_uid);
-    }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats, source_io_ctx,
-                                                   std::move(const_value));
-}
-
 Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor) {
     // Ensure column meta accessor and reader cache are initialized once.
     OlapReaderStatistics dummy_stats;
@@ -1056,26 +1013,181 @@ Status Segment::traverse_column_meta_pbs(const std::function<void(const ColumnMe
     return _column_meta_accessor->traverse_metas(*footer_pb_shared, visitor, &dummy_stats);
 }
 
-Status Segment::get_column_reader(const TabletColumn& col,
-                                  std::shared_ptr<ColumnReader>* column_reader,
-                                  OlapReaderStatistics* stats, const io::IOContext* source_io_ctx,
-                                  std::optional<Field> const_value) {
-    RETURN_IF_ERROR(_create_column_meta_once(stats, source_io_ctx));
-    SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
-    int col_uid = col.unique_id() >= 0 ? col.unique_id() : col.parent_unique_id();
-    // The column is not in this segment, return nullptr
-    if (!_tablet_schema->has_column_unique_id(col_uid)) {
-        *column_reader = nullptr;
-        return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
-                                                          col_uid);
+Status Segment::_get_column_reader_for_read(const TabletColumn& col,
+                                            const StorageReadOptions& read_options,
+                                            std::shared_ptr<ColumnReader>* column_reader) {
+    DORIS_CHECK(read_options.stats != nullptr);
+    const int32_t col_uid = col.unique_id() >= 0 ? col.unique_id() : col.parent_unique_id();
+    DORIS_CHECK_GE(col_uid, 0) << "column does not have a resolvable uid: " << col.debug_string();
+    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
+    SCOPED_RAW_TIMER(&read_options.stats->segment_create_column_readers_timer_ns);
+
+    if (col.name() == VERSION_COL) {
+        // A singleton rowset exposes its rowset version for every row. Segment writers store a
+        // placeholder because the publish version is not known when the segment is written.
+        if (read_options.version.first == read_options.version.second) {
+            *column_reader = std::make_shared<ConstantColumnReader>(
+                    Field::create_field<TYPE_BIGINT>(read_options.version.second), col.type());
+            return Status::OK();
+        }
+        if (!_column_meta_accessor->has_column_uid(col_uid)) {
+            return Status::InternalError("could not find version column read version is {}-{}",
+                                         read_options.version.first, read_options.version.second);
+        }
+        return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
+                                                       &read_options.io_ctx);
     }
-    if (col.has_path_info()) {
-        PathInData relative_path = col.path_info_ptr()->copy_pop_front();
-        return _column_reader_cache->get_path_column_reader(col_uid, relative_path, column_reader,
-                                                            stats, nullptr, source_io_ctx);
+
+    if (col.name() == BINLOG_TSO_COL || col.name() == COMMIT_TSO_COL) {
+        const int64_t start_tso = read_options.commit_tso.start_tso();
+        const int64_t end_tso = read_options.commit_tso.end_tso();
+        // Version [0-0] identifies a pre-publish physical read, such as segment compaction while a
+        // RowsetWriter is still open. Its TSO is intentionally [-1--1], so preserve the on-disk
+        // COMMIT_TSO_COL=0 or BINLOG_TSO_COL=NULL placeholder instead of synthesizing a value.
+        if (read_options.version == Version(0, 0) && start_tso == -1 && end_tso == -1) {
+            if (!_column_meta_accessor->has_column_uid(col_uid)) {
+                return Status::InternalError("could not find {} column", col.name());
+            }
+            return _column_reader_cache->get_column_reader(
+                    col_uid, column_reader, read_options.stats, &read_options.io_ctx);
+        }
+        if (read_options.version.first == read_options.version.second) {
+            // A singleton needs its publish TSO to replace the on-disk NULL/0 placeholder.
+            // Range rowsets already contain materialized TSOs: compacting the initial empty
+            // [0-1] rowset with [2-2] and [3-3] can leave a valid output with TSO range [-1, T3].
+            if (start_tso < 0 || end_tso < start_tso) {
+                return Status::InternalError(
+                        "reading {} requires a valid commit tso, rowset version={}, commit tso={}",
+                        col.name(), read_options.version.to_string(),
+                        read_options.commit_tso.to_string());
+            }
+            if (start_tso != end_tso) {
+                return Status::InternalError(
+                        "singleton rowset {} requires a singleton commit tso when reading {}, "
+                        "got {}",
+                        read_options.version.to_string(), col.name(),
+                        read_options.commit_tso.to_string());
+            }
+            *column_reader = std::make_shared<ConstantColumnReader>(
+                    Field::create_field<TYPE_BIGINT>(end_tso), col.type());
+            return Status::OK();
+        }
+        if (!_column_meta_accessor->has_column_uid(col_uid)) {
+            return Status::InternalError("could not find {} column", col.name());
+        }
+        return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
+                                                       &read_options.io_ctx);
     }
-    return _column_reader_cache->get_column_reader(col_uid, column_reader, stats, source_io_ctx,
-                                                   std::move(const_value));
+
+    // A column added after this segment was written uses its schema default. For example, after
+    // `ADD COLUMN city STRING DEFAULT 'Paris'`, old segments produce "Paris" without a data page.
+    // For a BE-generated path such as `v.city` whose uid is -1, col_uid is the VARIANT parent uid,
+    // so sparse/doc data in the existing root is considered before falling back to the path
+    // default.
+    if (!_column_meta_accessor->has_column_uid(col_uid)) {
+        Field field;
+        RETURN_IF_ERROR(get_default_value_field(col, &field));
+        *column_reader = std::make_shared<ConstantColumnReader>(std::move(field), col.type());
+        return Status::OK();
+    }
+
+    // Preserve the established value-read contract: a VARIANT root or a BE-generated path
+    // (uid=-1, resolved to its parent) returns the root reader, and new_column_iterator() delegates
+    // typed/sparse/default selection to VariantColumnReader. A schema path with its own uid keeps
+    // using that physical reader, exactly like an ordinary persisted column.
+    return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
+                                                   &read_options.io_ctx);
+}
+
+Status Segment::get_variant_root_reader(const TabletColumn& col,
+                                        const StorageReadOptions& read_options,
+                                        std::shared_ptr<VariantColumnReader>* column_reader) {
+    DORIS_CHECK(read_options.stats != nullptr);
+
+    // A root VARIANT has parent_uid=-1 and therefore uses its own uid. An extracted path may have
+    // its own schema uid, but its physical path metadata is owned by the root identified by
+    // parent_uid. For example, root `v` uses uid=7 and `v.user.id` also resolves to root uid=7.
+    const int32_t root_uid = col.parent_unique_id() >= 0 ? col.parent_unique_id() : col.unique_id();
+    DORIS_CHECK_GE(root_uid, 0) << "VARIANT column does not have a resolvable root uid: "
+                                << col.debug_string();
+
+    // A scan column can belong to a VARIANT root added after this segment was written.
+    // For example, an old segment with v(uid=1) cannot supply a re-added v(uid=2).
+    if (!_tablet_schema->has_column_unique_id(root_uid)) {
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "VARIANT root column not found in segment schema, column_uid={}", root_uid);
+    }
+    const auto& root_column = _tablet_schema->column_by_uid(root_uid);
+    if (!root_column.is_variant_type()) {
+        return Status::InvalidArgument("column {} does not resolve to a VARIANT root", col.name());
+    }
+
+    RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
+    SCOPED_RAW_TIMER(&read_options.stats->segment_create_column_readers_timer_ns);
+
+    if (!_column_meta_accessor->has_column_uid(root_uid)) {
+        // Missing nullable/defaulted roots are valid after schema evolution and have no physical
+        // metadata. A required root without a default cannot be reconstructed; for example, an old
+        // segment cannot supply values for a newly injected non-nullable `v`.
+        if (!root_column.has_default_value() && !root_column.is_nullable()) {
+            return Status::InternalError(
+                    "column not found in segment and has no default value, column_uid={}, "
+                    "column_name={}",
+                    root_uid, root_column.name());
+        }
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "VARIANT root column not found in segment, column_uid={}, column_name={}", root_uid,
+                root_column.name());
+    }
+
+    std::shared_ptr<ColumnReader> physical_reader;
+    RETURN_IF_ERROR(_column_reader_cache->get_column_reader(
+            root_uid, &physical_reader, read_options.stats, &read_options.io_ctx));
+    auto variant_reader = std::dynamic_pointer_cast<VariantColumnReader>(physical_reader);
+    if (variant_reader == nullptr) {
+        return Status::InternalError(
+                "column {} resolves to uid={} whose physical reader is not VARIANT", col.name(),
+                root_uid);
+    }
+    *column_reader = std::move(variant_reader);
+    return Status::OK();
+}
+
+Status Segment::get_column_reader_for_pruning(const TabletColumn& col,
+                                              const StorageReadOptions& read_options,
+                                              std::shared_ptr<ColumnReader>* column_reader) {
+    Status st = _get_column_reader_for_read(col, read_options, column_reader);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // Logical resolution either finds a physical reader or synthesizes a constant reader for
+        // a schema-evolution absence. NOT_FOUND here therefore indicates inconsistent segment
+        // metadata; do not let pruning callers mistake it for an absent VARIANT path below.
+        return Status::InternalError(
+                "logical column reader unexpectedly not found for pruning, column_uid={}, "
+                "column_name={}, error={}",
+                col.unique_id(), col.name(), st.to_string());
+    }
+    RETURN_IF_ERROR(st);
+    // Successful logical resolution always produces a reader. NOT_FOUND is reserved for the
+    // physical path lookup below, so callers never need nullptr as a second status channel.
+    DORIS_CHECK(*column_reader != nullptr);
+    if (!col.has_path_info() ||
+        dynamic_cast<ConstantColumnReader*>(column_reader->get()) != nullptr) {
+        return Status::OK();
+    }
+
+    // Pruning needs the physical leaf, not the logical VARIANT root. For example, a typed
+    // `v.user.id` leaf can use its own zonemap, while a sparse-only `v.user.id` has no leaf reader
+    // and must conservatively keep the segment for row-level extraction.
+    // Physical path lookup follows the original column-resolution rule. A persisted path uses its
+    // own uid; only a BE-generated path with uid=-1 falls back to the VARIANT parent uid.
+    const int32_t path_uid = col.unique_id() >= 0 ? col.unique_id() : col.parent_unique_id();
+    const PathInData relative_path = col.path_info_ptr()->copy_pop_front();
+    // Keep NOT_FOUND in the Status channel. For example, a sparse-only `v.user.id` has no physical
+    // leaf reader; callers must skip pruning conservatively instead of interpreting nullptr as a
+    // successful reader lookup.
+    return _column_reader_cache->get_path_column_reader(path_uid, relative_path, column_reader,
+                                                        read_options.stats, nullptr,
+                                                        &read_options.io_ctx);
 }
 
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
@@ -1086,12 +1198,15 @@ Status Segment::new_index_iterator(const TabletColumn& tablet_column, const Tabl
     }
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
     std::shared_ptr<ColumnReader> reader;
-    auto st = get_column_reader(tablet_column, &reader, read_options.stats, &read_options.io_ctx);
+    Status st = get_column_reader_for_pruning(tablet_column, read_options, &reader);
     if (st.is<ErrorCode::NOT_FOUND>()) {
+        // new_index_iterator uses an empty optional iterator to mean that no physical index can be
+        // opened. The lower-level reader lookup still reports the cause explicitly as NOT_FOUND.
+        *iter = nullptr;
         return Status::OK();
     }
     RETURN_IF_ERROR(st);
-    DCHECK(reader != nullptr);
+    DORIS_CHECK(reader != nullptr);
     if (index_meta) {
         // call DorisCallOnce.call without check if _index_file_reader is nullptr
         // to avoid data race during parallel method calls
