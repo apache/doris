@@ -158,6 +158,17 @@ suite("correlated_scalar_subquery") {
         exception "access outer query's column before lateral view is not supported"
     }
 
+    // a generator of a lateral view which reads the outer column: the generator of the lateral view of
+    // an outer row explodes the arrays of the rows of the domain of that row, while the rewrite of the
+    // subquery moves the predicate of the outer row into the join and evaluates the nodes below it
+    // once, where the outer column has no row to read
+    test {
+        sql """
+              select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select e1 from correlated_scalar_t2 lateral view explode(array(correlated_scalar_t1.c1)) tmp1 as e1);
+        """
+        exception "access outer query's column in lateral view is not supported"
+    }
+
     test {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1 where correlated_scalar_t1.c1 = e1 having correlated_scalar_t1.c2 = e1 order by e1);
@@ -225,15 +236,12 @@ suite("correlated_scalar_subquery") {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 group by c2);
         """
-        exception "access outer query's column before agg with group by is not supported"
+        exception "correlate scalar subquery must return only 1 row"
     }
 
-    test {
-        sql """
+    qt_select_having_over_count """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 having count(c1) > 10);
-        """
-        exception "only project, sort and subquery alias node is allowed after agg node"
-    }
+    """
 
     test {
         sql """
@@ -547,5 +555,19 @@ suite("correlated_scalar_subquery") {
               and o.x = (select u.x from correlated_scalar_mark_src u where u.g = o.g);
         """
         exception "correlate scalar subquery must return only 1 row"
+    }
+
+    // The grouping sets of the subquery are computed by a repeat node above the aggregation of the
+    // domain, and the rewrite which unnests the subquery reads the aggregation of that domain from
+    // below the repeat: the grouping sets of a repeat above the correlated predicate would be
+    // computed for the rows of every correlation key together, so the subquery is reported instead
+    // of building a plan whose correlation predicate no aggregation below it can carry
+    test {
+        sql """
+            select c1 from correlated_scalar_t1 where c1 = (select count(*)
+                from correlated_scalar_t2 where correlated_scalar_t2.c1 = correlated_scalar_t1.c1
+                group by grouping sets ((correlated_scalar_t2.c2), ()));
+        """
+        exception "access outer query's column before grouping sets is not supported"
     }
 }

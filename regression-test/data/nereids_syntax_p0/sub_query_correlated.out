@@ -256,11 +256,6 @@
 22	3
 24	4
 
--- !scalar_subquery_with_order_and_limit --
-20	2
-22	3
-24	4
-
 -- !scalar_subquery_with_disjunctions --
 1
 20
@@ -485,6 +480,9 @@ true
 
 -- !cir_5218_exists_ok_6 --
 0
+
+-- !cir_5218_in_grouped_agg --
+2
 
 -- !doris_7643 --
 3	3
