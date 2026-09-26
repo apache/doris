@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 /**
  * PlanCaptureManager - SPM auto capture scheduler (Phase 2, design doc 7.2.1 / 7.2.4).
@@ -109,9 +110,13 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " `failed_attempts`, `retry_queue` FROM " + CHECKPOINT_TABLE
                     + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
 
-    private static final String CHECKPOINT_DELETE_SQL =
-            "DELETE FROM " + CHECKPOINT_TABLE + " WHERE `id` = " + CHECKPOINT_ID;
-
+    /**
+     * One UPSERT statement: the table is UNIQUE-key(id) with merge-on-write, so inserting
+     * the row again REPLACES it atomically. The previous delete-then-insert pair was two
+     * separately committed statements: a crash / leadership loss / timeout / failed
+     * INSERT after the DELETE left NO row for the next leader, which then derived a fresh
+     * window and permanently skipped the deleted pending window's unconsumed tail.
+     */
     private static final String CHECKPOINT_INSERT_SQL =
             "INSERT INTO " + CHECKPOINT_TABLE
                     + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
@@ -167,6 +172,22 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /** Whether the durable checkpoint was already consulted in this process. */
     private boolean checkpointLoaded = false;
+
+    /**
+     * Checkpoint read / write seams. Production talks to the internal table through
+     * StatisticsUtil; tests replace them to simulate a failing first read and to observe
+     * the exact statements a persist issues.
+     */
+    private Supplier<List<ResultRow>> checkpointReader =
+            () -> StatisticsUtil.executeQuery(CHECKPOINT_SELECT_SQL, Collections.emptyMap());
+
+    /** One checkpoint write statement. */
+    @VisibleForTesting
+    public interface CheckpointWriter {
+        void write(String sql, Map<String, String> params) throws Exception;
+    }
+
+    private CheckpointWriter checkpointWriter = StatisticsUtil::execUpdate;
 
     /** Whether the cloud-mode warning was already logged (the gate fires every cycle). */
     private boolean cloudModeWarned = false;
@@ -508,18 +529,19 @@ public class PlanCaptureManager extends MasterDaemon {
         if (checkpointLoaded || !checkpointPersistenceEnabled()) {
             return;
         }
-        checkpointLoaded = true;
         if (lastScanTimestamp != 0 || pendingWindowEnd > 0
                 || cursorQueryTime != AuditLogScanner.CURSOR_ABSENT) {
-            return; // progress already exists (e.g. a unit test): never override it
+            checkpointLoaded = true; // progress already exists (e.g. a unit test): never override it
+            return;
         }
         try {
-            List<ResultRow> rows = StatisticsUtil.executeQuery(
-                    CHECKPOINT_SELECT_SQL, Collections.emptyMap());
+            List<ResultRow> rows = checkpointReader.get();
             if (rows == null || rows.isEmpty()) {
+                checkpointLoaded = true; // a successful read with no row yet
                 return;
             }
             applyCheckpointRow(rows.get(0));
+            checkpointLoaded = true; // only a SUCCESSFUL read consumes the checkpoint
             if (lastScanTimestamp != 0 || pendingWindowEnd > 0
                     || cursorQueryTime != AuditLogScanner.CURSOR_ABSENT) {
                 LOG.info("SPM capture resumed from the durable checkpoint: lastScan={},"
@@ -527,7 +549,12 @@ public class PlanCaptureManager extends MasterDaemon {
                         lastScanTimestamp, pendingWindowStart, pendingWindowEnd, cursorQueryTime);
             }
         } catch (Exception e) {
-            LOG.warn("SPM capture checkpoint read failed (starting from the default window): {}",
+            // Keep checkpointLoaded FALSE: the internal-schema initializer is asynchronous
+            // (and a BE / tablet may not be ready yet), so this read can fail before the
+            // table exists. Marking the checkpoint consumed on failure made the process
+            // start from the default window and later OVERWRITE the only record of the
+            // previous leader's unconsumed tail. The next cycle retries.
+            LOG.warn("SPM capture checkpoint read failed (will retry next cycle): {}",
                     e.getMessage());
         }
     }
@@ -556,23 +583,23 @@ public class PlanCaptureManager extends MasterDaemon {
         if (!checkpointPersistenceEnabled()) {
             return;
         }
+        Map<String, String> params = new HashMap<>();
+        params.put("lastScan", String.valueOf(lastScanTimestamp));
+        params.put("pendingStart", String.valueOf(pendingWindowStart));
+        params.put("pendingEnd", String.valueOf(pendingWindowEnd));
+        params.put("cursorQueryTime", String.valueOf(cursorQueryTime));
+        params.put("cursorTime", StatisticsUtil.escapeSQL(cursorTime == null ? "" : cursorTime));
+        params.put("cursorQueryId",
+                StatisticsUtil.escapeSQL(cursorQueryId == null ? "" : cursorQueryId));
+        params.put("failedAttempts",
+                StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
+        params.put("retryQueue",
+                StatisticsUtil.escapeSQL(encodeRetryQueue(failedCaptureQueue)));
         try {
-            Map<String, String> params = new HashMap<>();
-            params.put("lastScan", String.valueOf(lastScanTimestamp));
-            params.put("pendingStart", String.valueOf(pendingWindowStart));
-            params.put("pendingEnd", String.valueOf(pendingWindowEnd));
-            params.put("cursorQueryTime", String.valueOf(cursorQueryTime));
-            params.put("cursorTime", StatisticsUtil.escapeSQL(cursorTime == null ? "" : cursorTime));
-            params.put("cursorQueryId",
-                    StatisticsUtil.escapeSQL(cursorQueryId == null ? "" : cursorQueryId));
-            params.put("failedAttempts",
-                    StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
-            params.put("retryQueue",
-                    StatisticsUtil.escapeSQL(encodeRetryQueue(failedCaptureQueue)));
-            // delete-then-insert: the table is DUPLICATE-key, and this daemon is the only
-            // writer, so a single full-row replacement keeps the read side trivial
-            StatisticsUtil.execUpdate(CHECKPOINT_DELETE_SQL, Collections.emptyMap());
-            StatisticsUtil.execUpdate(CHECKPOINT_INSERT_SQL, params);
+            // Single UPSERT: the new row is durable BEFORE the old one stops being read
+            // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
+            // leave the shared store without a checkpoint row.
+            checkpointWriter.write(CHECKPOINT_INSERT_SQL, params);
         } catch (Exception e) {
             LOG.warn("SPM capture checkpoint write failed (will retry next cycle): {}",
                     e.getMessage());
@@ -778,6 +805,10 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
         checkpointLoaded = false;
+        // restore the production read / write seams (tests replace them)
+        checkpointReader = () -> StatisticsUtil.executeQuery(
+                CHECKPOINT_SELECT_SQL, Collections.emptyMap());
+        checkpointWriter = StatisticsUtil::execUpdate;
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
@@ -890,5 +921,30 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     public PlanCaptureFilter getFilter() {
         return filter;
+    }
+
+    @VisibleForTesting
+    public boolean isCheckpointLoadedForTest() {
+        return checkpointLoaded;
+    }
+
+    @VisibleForTesting
+    public void setCheckpointReaderForTest(Supplier<List<ResultRow>> reader) {
+        this.checkpointReader = reader;
+    }
+
+    @VisibleForTesting
+    public void setCheckpointWriterForTest(CheckpointWriter writer) {
+        this.checkpointWriter = writer;
+    }
+
+    @VisibleForTesting
+    public void loadCheckpointForTest() {
+        loadCheckpointIfNeeded();
+    }
+
+    @VisibleForTesting
+    public void persistCheckpointForTest() {
+        persistCheckpoint();
     }
 }

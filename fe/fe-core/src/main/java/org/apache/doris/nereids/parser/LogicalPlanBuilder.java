@@ -4759,16 +4759,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 joinType = JoinType.CROSS_JOIN;
             }
             Expression matchCondition = null;
+            List<Expression> inlineMarkConjuncts = null;
             if (join.matchCondition() != null) {
-                if (!isAsofJoin) {
+                if (isAsofJoin) {
+                    matchCondition = typedVisit(join.matchCondition().valueExpression());
+                    if (!(matchCondition instanceof LessThan
+                            || matchCondition instanceof LessThanEqual
+                            || matchCondition instanceof GreaterThan
+                            || matchCondition instanceof GreaterThanEqual)) {
+                        throw new ParseException("ASOF JOIN's MATCH_CONDITION must be <, <=, >, >=", join);
+                    }
+                } else if (isMarkJoin) {
+                    // The grammar's optional matchCondition appears BEFORE markJoinSpec*, and
+                    // both productions match the same MATCH_CONDITION ( valueExpression )
+                    // text, so the FIRST MARK_CONDITION of a MARK join is parsed as
+                    // matchCondition. Route it by the parsed join type: a MARK join binds it
+                    // as its mark conjuncts, every other join keeps rejecting it.
+                    inlineMarkConjuncts = ExpressionUtils.extractConjunction(
+                            typedVisit(join.matchCondition().valueExpression()));
+                    for (Expression conjunct : inlineMarkConjuncts) {
+                        if (!(conjunct instanceof EqualTo)) {
+                            throw new ParseException(
+                                    "MARK_CONDITION of a MARK join must be equality conjunct(s)", join);
+                        }
+                    }
+                } else {
                     throw new ParseException("only ASOF JOIN support MATCH_CONDITION", join);
-                }
-                matchCondition = typedVisit(join.matchCondition().valueExpression());
-                if (!(matchCondition instanceof LessThan
-                        || matchCondition instanceof LessThanEqual
-                        || matchCondition instanceof GreaterThan
-                        || matchCondition instanceof GreaterThanEqual)) {
-                    throw new ParseException("ASOF JOIN's MATCH_CONDITION must be <, <=, >, >=", join);
                 }
             } else {
                 if (isAsofJoin) {
@@ -4790,7 +4806,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException(
                         "MARK join must be a LEFT/RIGHT SEMI/ANTI or CROSS join", join);
             }
-            List<Expression> markJoinConjuncts = ExpressionUtils.EMPTY_CONDITION;
+            List<Expression> markJoinConjuncts = inlineMarkConjuncts == null
+                    ? ExpressionUtils.EMPTY_CONDITION : inlineMarkConjuncts;
+            boolean markConditionSeen = inlineMarkConjuncts != null;
             Optional<MarkJoinSlotReference> markJoinSlotReference = Optional.empty();
             if (!join.markJoinSpec().isEmpty()) {
                 if (!isMarkJoin) {
@@ -4800,6 +4818,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 String markSlotName = null;
                 for (MarkJoinSpecContext spec : join.markJoinSpec()) {
                     if (spec.markJoinCondition() != null) {
+                        // Two MARK_CONDITIONs (one routed through matchCondition, one here,
+                        // or two specs) are ambiguous: keep the first and reject the rest
+                        // instead of silently overwriting the requested condition.
+                        if (markConditionSeen) {
+                            throw new ParseException(
+                                    "MARK join must specify at most one MARK_CONDITION", join);
+                        }
+                        markConditionSeen = true;
                         Expression markExpr = typedVisit(spec.markJoinCondition().valueExpression());
                         markJoinConjuncts = ExpressionUtils.extractConjunction(markExpr);
                         for (Expression conjunct : markJoinConjuncts) {
@@ -4809,6 +4835,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             }
                         }
                     } else {
+                        // Second MARK_SLOT would silently overwrite the explicitly requested
+                        // first output name; no later stage can recover the discarded AST.
+                        if (markSlotName != null) {
+                            throw new ParseException(
+                                    "MARK join must specify at most one MARK_SLOT", join);
+                        }
                         markSlotName = spec.markJoinSlot().identifier().getText();
                     }
                 }

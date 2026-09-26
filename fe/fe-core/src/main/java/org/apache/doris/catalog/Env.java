@@ -2078,10 +2078,13 @@ public class Env {
         getRefreshManager().start();
 
         // SPM baselines are persisted in __internal_schema.spm_baselines: trigger the
-        // startup load. When the internal table / BE is not ready yet (the initializer
-        // above creates the table asynchronously), BaselineManager retries lazily on the
-        // first access (ensureLoaded), so persisted baselines survive an FE restart.
-        BaselineManager.getInstance().loadFromInternalTable();
+        // startup load. NEVER read the table synchronously here - this runs before
+        // canRead/isReady settle and the internal query inherits StatisticsUtil's
+        // analyze timeout, so an unavailable tablet / BE would stall master startup far
+        // beyond the advertised SPM budget. ensureLoaded() schedules the (coalesced,
+        // bounded-timeout) background load; queries served before it completes simply
+        // run without SPM, and the refresh daemon retries a failed read.
+        BaselineManager.getInstance().ensureLoaded();
 
         // binlog gcer
         binlogGcer.start();

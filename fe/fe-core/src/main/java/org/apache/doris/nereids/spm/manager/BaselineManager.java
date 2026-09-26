@@ -27,6 +27,7 @@ import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -45,6 +46,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -103,7 +105,7 @@ public class BaselineManager {
     /** Column order follows InternalSchema.SPM_BASELINES_SCHEMA. */
     private static final String SELECT_ALL_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time` FROM " + SPM_BASELINES_TABLE;
+            + " `status`, `create_time`, `update_time`, `sql_mode` FROM " + SPM_BASELINES_TABLE;
 
     /** The persistence-layer id watermark (see the class javadoc "Id source"): read
      *  before every id allocation. MAX over an aggregate is a light single-row query. */
@@ -117,13 +119,13 @@ public class BaselineManager {
      */
     private static final String SELECT_BY_KEY_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
-            + " `status`, `create_time`, `update_time` FROM " + SPM_BASELINES_TABLE
+            + " `status`, `create_time`, `update_time`, `sql_mode` FROM " + SPM_BASELINES_TABLE
             + " WHERE `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
 
     private static final String INSERT_SQL = "INSERT INTO " + SPM_BASELINES_TABLE
             + " VALUES (${id}, '${bindSql}', '${bindSqlDigest}', ${bindSqlHash},"
             + " '${planSql}', '${queryId}', ${cost}, ${queryTimeMs}, '${source}', '${status}',"
-            + " '${createTime}', '${updateTime}')";
+            + " '${createTime}', '${updateTime}', ${sqlMode})";
 
     /**
      * Deletes one row by id AND content key (bind_sql_digest + plan_sql): a delete
@@ -142,6 +144,17 @@ public class BaselineManager {
     /** DATETIME column format (internal table create_time / update_time). */
     private static final DateTimeFormatter TS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * Statement timeout (seconds) of the SPM internal-table reads. The temporary context
+     * StatisticsUtil builds otherwise inherits the analyze timeout (12h by default): an
+     * unavailable tablet / BE would stall the caller (master readiness, background load)
+     * far beyond the advertised SPM budget.
+     */
+    private static final int INTERNAL_QUERY_TIMEOUT_SECONDS = 10;
+
+    /** How long a management caller waits for an in-flight background load. */
+    private static final long MANAGEMENT_LOAD_WAIT_MILLIS = 5_000L;
 
     // ==================== priority ordering ====================
 
@@ -183,6 +196,18 @@ public class BaselineManager {
      *  internal schema db is disabled). Set by loadFromInternalTable() and
      *  clearForTest(). */
     private volatile boolean loaded = false;
+
+    /**
+     * Coalesces the internal-table loads: at most ONE read may be in flight. The query
+     * path (ensureLoaded) never blocks on the table - an unavailable tablet / BE used to
+     * stall every rewrite attempt for the temporary context's full analyze timeout - it
+     * just requests a background load; a failed read keeps {@code loaded=false} and is
+     * retried by the next access / refresh cycle.
+     */
+    private final AtomicBoolean loadInProgress = new AtomicBoolean(false);
+
+    /** Notified when an in-flight load finishes (management callers wait on it). */
+    private final Object loadMonitor = new Object();
 
     /** Whether CRUD writes to the internal table (disabled by clearForTest for tests). */
     private volatile boolean persistToTable = true;
@@ -654,42 +679,92 @@ public class BaselineManager {
         if (loaded) {
             return;
         }
-        // Read the table OUTSIDE the lock: an internal query can be slow and must not
-        // block rewrite lookups. Until the load completes no local mutation can run
-        // (every mutator calls ensureLoaded first), so a concurrent second load simply
-        // reads again and loses the write section's re-check below.
-        final Map<Long, BaselinePlan> snapshot;
-        try {
-            snapshot = readPersistedSnapshot();
-        } catch (Throwable t) {
-            // keep loaded=false so the next access retries lazily (e.g. BE / tablet not
-            // ready yet right after an FE restart)
-            LOG.warn("SPM load baselines from internal table failed (will retry lazily): {}",
-                    t.getMessage());
-            return;
+        tryLoadNow();
+    }
+
+    /**
+     * Reads the table and publishes the snapshot when the caller OWNS the load slot
+     * ({@link #loadInProgress}). The read runs OUTSIDE the state lock: an internal query
+     * can be slow and must not block rewrite lookups. Until the load completes no local
+     * mutation can run (every mutator calls ensureLoaded first), so a concurrent second
+     * load simply reads again and loses the write section's re-check.
+     */
+    private void tryLoadNow() {
+        if (loaded || !loadInProgress.compareAndSet(false, true)) {
+            return; // already loaded, or another thread is reading right now
         }
-        stateLock.writeLock().lock();
+        readAndPublishPossessingLoadSlot();
+    }
+
+    /**
+     * Performs the (bounded-timeout) read and atomically publishes the result; the caller
+     * must own the load slot. Keeps {@code loaded=false} on any failure so the caller can
+     * retry (a retry is NOT a permanent "no baselines" decision: DROP ... IF EXISTS would
+     * otherwise report success without deleting the durable row).
+     */
+    private void readAndPublishPossessingLoadSlot() {
         try {
-            if (loaded) {
-                return; // a concurrent load won the race
+            final Map<Long, BaselinePlan> snapshot;
+            try {
+                snapshot = readPersistedSnapshot();
+            } catch (Throwable t) {
+                LOG.warn("SPM load baselines from internal table failed (will retry lazily): {}",
+                        t.getMessage());
+                return;
             }
-            doLoadFromTable(snapshot);
-            loaded = true;
+            stateLock.writeLock().lock();
+            try {
+                if (loaded) {
+                    return; // a concurrent load won the race
+                }
+                doLoadFromTable(snapshot);
+                loaded = true;
+            } finally {
+                stateLock.writeLock().unlock();
+            }
         } finally {
-            stateLock.writeLock().unlock();
+            loadInProgress.set(false);
+            synchronized (loadMonitor) {
+                loadMonitor.notifyAll();
+            }
         }
     }
 
     /**
+     * Schedules the first load on a background thread (coalesced): the query path must
+     * never read the shared table synchronously, and a failed read is simply retried by
+     * the next query / refresh cycle instead of blocking the current one.
+     */
+    private void scheduleAsyncLoad() {
+        if (loaded || loadInProgress.get()) {
+            return;
+        }
+        Thread loader = new Thread(() -> {
+            try {
+                tryLoadNow();
+            } catch (Throwable t) {
+                LOG.warn("SPM baseline background load failed (will retry): {}", t.getMessage());
+            }
+        }, "spm-baseline-async-load");
+        loader.setDaemon(true);
+        loader.start();
+    }
+
+    /**
      * Loads the persisted baselines on first use (called at the head of every public
-     * CRUD / query entry point). Cheap once loaded (a volatile read); retries while the
-     * internal table is not ready yet.
+     * CRUD / query entry point). Cheap once loaded (a volatile read); a query-path caller
+     * never blocks on the internal table - while the (background, coalesced) load runs the
+     * store simply stays empty and the query runs without SPM.
      */
     public void ensureLoaded() {
         if (loaded) {
             return;
         }
-        loadFromInternalTable();
+        if (!persistenceEnabled()) {
+            loaded = true;
+            return;
+        }
+        scheduleAsyncLoad();
     }
 
     /**
@@ -701,7 +776,32 @@ public class BaselineManager {
      * while the store is unavailable).
      */
     private void ensureLoadedOrThrow() {
-        ensureLoaded();
+        if (!persistenceEnabled()) {
+            loaded = true;
+            return;
+        }
+        if (!loaded) {
+            // A management operation needs a REAL answer: wait for the in-flight
+            // background load (bounded), or perform one inline with the short,
+            // purpose-built timeout. Every other management caller coalesces on the same
+            // load slot, so an unavailable BE costs ONE bounded attempt, not one per
+            // concurrent DDL.
+            long deadline = System.currentTimeMillis() + MANAGEMENT_LOAD_WAIT_MILLIS;
+            while (!loaded && System.currentTimeMillis() < deadline) {
+                if (loadInProgress.compareAndSet(false, true)) {
+                    readAndPublishPossessingLoadSlot();
+                    break;
+                }
+                synchronized (loadMonitor) {
+                    try {
+                        loadMonitor.wait(50L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
         if (!loaded) {
             throw new IllegalStateException("SPM baseline store is not ready yet"
                     + " (the baseline table has not been loaded); please retry later");
@@ -899,7 +999,8 @@ public class BaselineManager {
         }
         try {
             List<ResultRow> rows =
-                    StatisticsUtil.executeQuery(SELECT_MAX_ID_SQL, Collections.emptyMap());
+                    StatisticsUtil.executeQuery(SELECT_MAX_ID_SQL, Collections.emptyMap(),
+                            INTERNAL_QUERY_TIMEOUT_SECONDS);
             if (rows == null || rows.isEmpty()) {
                 return 0;
             }
@@ -918,7 +1019,8 @@ public class BaselineManager {
      * skipped with a warning (the next cycle retries).
      */
     private static Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
-        List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_ALL_SQL, Collections.emptyMap());
+        List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_ALL_SQL, Collections.emptyMap(),
+                INTERNAL_QUERY_TIMEOUT_SECONDS);
         Map<Long, BaselinePlan> snapshot = new HashMap<>();
         for (ResultRow row : rows) {
             try {
@@ -966,7 +1068,7 @@ public class BaselineManager {
         // never be substituted into a literal slot of the other tree. Frozen
         // (placeholder-carrying) planSql is replayed as text - no plan tree.
         Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
-                p.getBindSql(), frozen ? null : planSql);
+                p.getBindSql(), frozen ? null : planSql, p.getCreatorSqlMode());
         if (trees.first == null) {
             throw new RuntimeException("SPM baseline " + p.getId()
                     + " bindSql cannot be parsed");
@@ -1006,7 +1108,8 @@ public class BaselineManager {
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
         params.put("planSql", StatisticsUtil.escapeSQL(planSql));
         try {
-            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_BY_KEY_SQL, params);
+            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_BY_KEY_SQL, params,
+                    INTERNAL_QUERY_TIMEOUT_SECONDS);
             List<BaselinePlan> result = new ArrayList<>();
             for (ResultRow row : rows) {
                 try {
@@ -1066,7 +1169,13 @@ public class BaselineManager {
             return;
         }
         invalidatePublishedStore();
-        loadFromInternalTable();
+        // NEVER read the shared table synchronously here: Env calls this on the
+        // master-transfer path, and the read (which inherits StatisticsUtil's temporary
+        // context) used to stall master readiness / ordinary queries far beyond the
+        // advertised SPM budget when the table's tablet / BE was unavailable. The
+        // background load - retried by the refresh daemon as well - publishes the fresh
+        // snapshot when it arrives.
+        scheduleAsyncLoad();
     }
 
     /**
@@ -1113,6 +1222,7 @@ public class BaselineManager {
                 || Double.compare(memory.getCost(), row.getCost()) != 0
                 || memory.getQueryTimeMs() != row.getQueryTimeMs()
                 || memory.getSource() != row.getSource()
+                || memory.getCreatorSqlMode() != row.getCreatorSqlMode()
                 || memory.getStatus() != row.getStatus();
     }
 
@@ -1148,7 +1258,22 @@ public class BaselineManager {
         p.setStatus(BaselineStatus.fromString(row.get(9)));
         p.setCreateTime(fromTs(row.get(10)));
         p.setUpdateTime(fromTs(row.get(11)));
+        // older rows (or a hand-built test row) may not carry the column yet
+        p.setCreatorSqlMode(row.getValues().size() > 12 ? parseSqlMode(row.get(12))
+                : SqlModeHelper.MODE_DEFAULT);
         return p;
+    }
+
+    /** A NULL / empty / unparsable sql_mode column means "created before the column". */
+    private static long parseSqlMode(String text) {
+        if (text == null || text.isEmpty()) {
+            return SqlModeHelper.MODE_DEFAULT;
+        }
+        try {
+            return Long.parseLong(text.trim());
+        } catch (NumberFormatException e) {
+            return SqlModeHelper.MODE_DEFAULT;
+        }
     }
 
     private static void persistInsert(BaselinePlan p) {
@@ -1168,6 +1293,7 @@ public class BaselineManager {
         params.put("status", p.getStatus().name());
         params.put("createTime", toTs(p.getCreateTime()));
         params.put("updateTime", toTs(p.getUpdateTime()));
+        params.put("sqlMode", String.valueOf(p.getCreatorSqlMode()));
         try {
             StatisticsUtil.execUpdate(INSERT_SQL, params);
         } catch (Exception e) {

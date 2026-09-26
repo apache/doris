@@ -35,10 +35,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Phase 2 tests: SPM auto capture.
@@ -427,5 +429,62 @@ public class PlanCaptureTest {
         Assertions.assertEquals(7L, fields[3]);
         Assertions.assertEquals("2026-01-01 00:00:00", fields[4]);
         Assertions.assertEquals("qid-cursor", fields[5]);
+    }
+
+    /**
+     * The checkpoint may be read BEFORE the asynchronous internal-schema initializer has
+     * created the table / while the BE is not ready. A failed first read must NOT consume
+     * the checkpoint: with the flag already set this process would start from the default
+     * window and later OVERWRITE the only record of the previous leader's unconsumed tail.
+     */
+    @Test
+    public void testFailedFirstCheckpointReadIsRetried() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        AtomicInteger reads = new AtomicInteger();
+        manager.setCheckpointReaderForTest(() -> {
+            if (reads.incrementAndGet() == 1) {
+                throw new RuntimeException("internal table not created yet");
+            }
+            return List.of(new ResultRow(List.of(
+                    "123456", "100", "200", "7", "2026-01-01 00:00:00", "qid-cursor",
+                    "{}", "{}")));
+        });
+
+        manager.loadCheckpointForTest();
+        Assertions.assertFalse(manager.isCheckpointLoadedForTest(),
+                "a failed read must keep the checkpoint retryable");
+
+        manager.loadCheckpointForTest();
+        Assertions.assertTrue(manager.isCheckpointLoadedForTest(),
+                "the successful retry must load the checkpoint");
+        Object[] fields = manager.checkpointFieldsForTest();
+        Assertions.assertEquals(123456L, fields[0],
+                "the retry must apply the previous leader's pending window");
+        Assertions.assertEquals(200L, fields[2]);
+        manager.resetForTest();
+    }
+
+    /**
+     * The checkpoint replacement used to be two separately committed statements
+     * (DELETE, then INSERT): a crash / leadership loss / timeout / failed INSERT after the
+     * DELETE left NO row and the next leader permanently skipped the deleted pending
+     * window's tail. It must be ONE upserted statement on the UNIQUE-key table now.
+     */
+    @Test
+    public void testCheckpointReplacementIsOneUpsertStatement() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        List<String> statements = new ArrayList<>();
+        manager.setCheckpointWriterForTest((sql, params) -> statements.add(sql));
+
+        manager.persistCheckpointForTest();
+        Assertions.assertEquals(1, statements.size(),
+                "the checkpoint must be replaced by exactly one statement: " + statements);
+        Assertions.assertTrue(statements.get(0).startsWith("INSERT INTO"), statements.get(0));
+        Assertions.assertFalse(statements.get(0).contains("DELETE"),
+                "the only checkpoint row must never be deleted before its replacement is durable: "
+                        + statements.get(0));
+        manager.resetForTest();
     }
 }

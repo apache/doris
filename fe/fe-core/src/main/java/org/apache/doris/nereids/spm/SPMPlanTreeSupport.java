@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -36,7 +37,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -52,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
@@ -118,6 +125,18 @@ public final class SPMPlanTreeSupport {
         /** The transform to use for the body of alias #aliasIndex (sees the earlier ones). */
         ExprTransform enterCteAlias(LogicalCTE<? extends Plan> cte, int aliasIndex);
     }
+
+    /** Re-descends into expression subquery plans so their hints are stripped as well. */
+    private static final ExprTransform HINT_STRIP_EXPR = expr -> {
+        if (expr instanceof SubqueryExpr) {
+            LogicalPlan subPlan = ((SubqueryExpr) expr).getQueryPlan();
+            LogicalPlan stripped = stripSelectHints(subPlan);
+            if (stripped != subPlan) {
+                return ((SubqueryExpr) expr).withSubquery(stripped);
+            }
+        }
+        return expr;
+    };
 
     private SPMPlanTreeSupport() {
     }
@@ -583,7 +602,15 @@ public final class SPMPlanTreeSupport {
      * @return the qualified tree (a rebuilt copy; the argument is not modified)
      */
     public static LogicalPlan namespaceQualified(LogicalPlan plan, String catalog, String db) {
-        if (plan == null || db == null || db.isEmpty()) {
+        boolean hasCatalog = catalog != null && !catalog.isEmpty();
+        boolean hasDb = db != null && !db.isEmpty();
+        // A TWO-part name (db.t) is relative to the current CATALOG, not to the current
+        // database, so it must be prefixed whenever the catalog is known - a session can
+        // switch to cat1 WITHOUT a USE db, and an unprefixed db.t would key the same text
+        // under cat2 to the same digest while the frozen SQL still reads cat1.db.t. Only
+        // when NEITHER the catalog nor the db is known can nothing be made
+        // namespace-independent.
+        if (plan == null || (!hasCatalog && !hasDb)) {
             return plan;
         }
         Plan result = plan.accept(new TreeTransformer(), new QualifyTransform(catalog, db));
@@ -657,11 +684,22 @@ public final class SPMPlanTreeSupport {
             // same text executed in cat2, after which the frozen fully-qualified replay
             // keeps reading cat1.db.t. Only three-part names are complete.
             List<String> qualified = new ArrayList<>(3);
-            if (catalog != null && !catalog.isEmpty()) {
-                qualified.add(catalog);
-            }
             if (parts.size() == 1) {
+                if (db == null || db.isEmpty()) {
+                    // A one-part name needs the DATABASE to become absolute; prefixing only
+                    // the catalog would turn the table name into a database name.
+                    return relation;
+                }
+                if (catalog != null && !catalog.isEmpty()) {
+                    qualified.add(catalog);
+                }
                 qualified.add(db);
+            } else {
+                // two-part name: the catalog completes it
+                if (catalog == null || catalog.isEmpty()) {
+                    return relation;
+                }
+                qualified.add(catalog);
             }
             qualified.addAll(parts);
             try {
@@ -731,6 +769,136 @@ public final class SPMPlanTreeSupport {
         return changed ? expr.withChildren(newChildren) : expr;
     }
 
+    // ==================== hint stripping (in-memory fallback tree) ====================
+
+    /**
+     * Removes EVERY LogicalSelectHint from a plan tree: the root block, nested query
+     * blocks, CTE bodies and expression subqueries. The frozen-text replay path re-parses
+     * its planSql INCLUDING the hints deliberately; the in-memory fallback tree must not
+     * re-apply the BASELINE's captured SET_VAR on top of a user query that came with
+     * different session variables. A root-only peel let an INNER hint survive (e.g. a
+     * plan-side SET_VAR(time_zone='+08:00') inside a scalar subquery) and the hint was
+     * then applied during ordinary replay analysis, although the matching user query is
+     * hint-free and runs under -08:00 - from_unixtime returned different values.
+     *
+     * @param plan the parameterized fallback tree
+     * @return the tree without any hint wrapper (the original instance when there was none)
+     */
+    public static LogicalPlan stripSelectHints(LogicalPlan plan) {
+        if (plan == null) {
+            return null;
+        }
+        Plan result = plan.accept(new HintStripper(), HINT_STRIP_EXPR);
+        return result instanceof LogicalPlan ? (LogicalPlan) result : plan;
+    }
+
+    /** TreeTransformer that DROPS the LogicalSelectHint wrapper instead of rebuilding it. */
+    private static class HintStripper extends TreeTransformer {
+        @Override
+        public Plan visit(Plan plan, ExprTransform transform) {
+            if (plan instanceof LogicalSelectHint) {
+                Plan child = plan.child(0);
+                return child == null ? plan : child.accept(this, transform);
+            }
+            return super.visit(plan, transform);
+        }
+    }
+
+    // ==================== replay-time context expression detection ====================
+
+    /**
+     * Whether the tree contains an expression whose value belongs to the CREATOR's
+     * replay-time context: a session / user variable (@v) or current_user(),
+     * session_user(), database(), connection_id(). Such leaves survive
+     * parameterization, the creator-context optimization then resolves them to LITERALS,
+     * and the frozen SQL persists the CREATOR's value - while matching still compares the
+     * ORIGINAL unbound bind tree, so a global baseline (e.g.
+     * {@code SELECT current_user(), k FROM t WHERE k = 1}) could match another user's
+     * query and return the creator's identity.
+     *
+     * @param plan the parsed (unbound) tree
+     * @return true when such an expression is found anywhere (including subqueries and an
+     *         ASOF join's out-of-band MATCH_CONDITION)
+     */
+    public static boolean containsReplayContextExpression(LogicalPlan plan) {
+        return plan.accept(new ReplayContextScanVisitor(), null);
+    }
+
+    /** Whether an expression tree contains a replay-time context expression. */
+    public static boolean containsReplayContextExpression(Expression expr) {
+        if (expr instanceof Variable || expr instanceof CurrentUser || expr instanceof SessionUser
+                || expr instanceof Database || expr instanceof ConnectionId) {
+            return true;
+        }
+        if (expr instanceof UnboundFunction) {
+            // the same functions can reach the unbound tree as a plain function call
+            // (e.g. "current_user()" with parentheses parses as UnboundFunction)
+            String name = ((UnboundFunction) expr).getName();
+            if (name != null) {
+                switch (name.toLowerCase(Locale.ROOT)) {
+                    case "current_user":
+                    case "session_user":
+                    case "database":
+                    case "connection_id":
+                        return true;
+                    default:
+                        break;
+                }
+            }
+        }
+        if (expr instanceof SubqueryExpr) {
+            if (containsReplayContextExpression(((SubqueryExpr) expr).getQueryPlan())) {
+                return true;
+            }
+        }
+        for (Expression child : expr.children()) {
+            if (containsReplayContextExpression(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Plan visitor that scans every node's expressions (and subquery plans). */
+    private static class ReplayContextScanVisitor extends PlanVisitor<Boolean, Void> {
+        @Override
+        public Boolean visit(Plan plan, Void context) {
+            if (plan instanceof LogicalUsingJoin) {
+                // matchCondition lives outside children() and getExpressions()
+                Optional<Expression> matchCondition =
+                        ((LogicalUsingJoin<?, ?>) plan).getMatchCondition();
+                if (matchCondition.isPresent()
+                        && containsReplayContextExpression(matchCondition.get())) {
+                    return true;
+                }
+            }
+            for (Expression expr : plan.getExpressions()) {
+                if (containsReplayContextExpression(expr)) {
+                    return true;
+                }
+            }
+            for (Plan child : plan.children()) {
+                if (child.accept(this, context)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public Boolean visitLogicalCTE(LogicalCTE<? extends Plan> cte, Void context) {
+            if (cte.child(0) != null && cte.child(0).accept(this, context)) {
+                return true;
+            }
+            for (LogicalSubQueryAlias<Plan> aliasQuery : cte.getAliasQueries()) {
+                if (aliasQuery.accept(this, context)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     // ==================== whole-tree placeholder detection ====================
 
     /**
@@ -748,6 +916,19 @@ public final class SPMPlanTreeSupport {
     private static class PlaceholderScanVisitor extends PlanVisitor<Boolean, Void> {
         @Override
         public Boolean visit(Plan plan, Void context) {
+            if (plan instanceof LogicalUsingJoin) {
+                // The USING join's matchCondition is OUT OF BAND: it is neither a child
+                // nor in getExpressions(). A bind/plan pair whose ASOF boundary differs
+                // only in an interval literal leaves a plan-only id in this field; the
+                // in-memory fallback substitutes the original LogicalUsingJoin, so a
+                // visitor that only walks USING slots + children would return an invalid
+                // tree (an unresolved placeholder id) to analysis.
+                Optional<Expression> matchCondition =
+                        ((LogicalUsingJoin<?, ?>) plan).getMatchCondition();
+                if (matchCondition.isPresent() && containsPlaceholder(matchCondition.get())) {
+                    return true;
+                }
+            }
             for (Expression expr : plan.getExpressions()) {
                 if (containsPlaceholder(expr)) {
                     return true;
@@ -815,6 +996,15 @@ public final class SPMPlanTreeSupport {
     private static class FrozenPlaceholderScanVisitor extends PlanVisitor<Boolean, Void> {
         @Override
         public Boolean visit(Plan plan, Void context) {
+            if (plan instanceof LogicalUsingJoin) {
+                // Same out-of-band field as PlaceholderScanVisitor: an unresolved
+                // placeholder id inside the ASOF boundary must reject the fallback tree.
+                Optional<Expression> matchCondition =
+                        ((LogicalUsingJoin<?, ?>) plan).getMatchCondition();
+                if (matchCondition.isPresent() && containsFrozenPlaceholder(matchCondition.get())) {
+                    return true;
+                }
+            }
             for (Expression expr : plan.getExpressions()) {
                 if (containsFrozenPlaceholder(expr)) {
                     return true;

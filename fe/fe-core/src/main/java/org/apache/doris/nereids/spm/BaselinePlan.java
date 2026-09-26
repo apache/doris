@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.SqlModeHelper;
 
 /**
  * BaselinePlan - SPM baseline data model.
@@ -89,6 +90,17 @@ public class BaselinePlan {
 
     /** Creation time (epoch millis). */
     private long createTime;
+
+    /**
+     * The parser-relevant sql_mode bits of the CREATING session (persisted in the
+     * `sql_mode` column). The stored bindSql is USER-authored text: re-parsing it under
+     * MODE_DEFAULT could change its meaning - under PIPES_AS_CONCAT {@code a || b} is
+     * concat(a, b), while a default-mode parse produces a boolean Or - so the reloaded
+     * bind tree would still be found by the stored digest but fail Level-3 structural
+     * matching against every CONCAT-mode query. 0 / missing (pre-column rows) means
+     * MODE_DEFAULT.
+     */
+    private long creatorSqlMode = SqlModeHelper.MODE_DEFAULT;
 
     /** Last update time (epoch millis). */
     private volatile long updateTime;
@@ -227,6 +239,20 @@ public class BaselinePlan {
 
     public void setUpdateTime(long updateTime) {
         this.updateTime = updateTime;
+    }
+
+    /**
+     * Returns the parser-relevant sql_mode bits of the creating session (see the field
+     * javadoc); {@link SqlModeHelper#MODE_DEFAULT} when unknown.
+     *
+     * @return the creation sql_mode bits
+     */
+    public long getCreatorSqlMode() {
+        return creatorSqlMode;
+    }
+
+    public void setCreatorSqlMode(long creatorSqlMode) {
+        this.creatorSqlMode = creatorSqlMode;
     }
 
     /**

@@ -275,6 +275,12 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        // parser-relevant sql_mode bits of the CREATING session (PIPES_AS_CONCAT / ...):
+        // the stored bindSql is user-authored text and must be re-parsed with the mode it
+        // was created under. NULLABLE so an upgraded cluster can add the column without
+        // a default (a missing / NULL value means MODE_DEFAULT).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
         // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
         // the (query_time, time, query_id) cursor and the retry state survive a leader

@@ -82,6 +82,23 @@ public class SPMOptimizerTest {
         Assertions.assertTrue(all.contains("MATERIALIZED_VIEW_PROJECT_JOIN"));
     }
 
+    /**
+     * ELIMINATE_LIMIT is registered in the same rule class as
+     * ELIMINATE_LIMIT_ON_ONE_ROW_RELATION; excluding only the former let a baseline for
+     * "SELECT 1 LIMIT 1" freeze the one-row child WITHOUT its limit, while
+     * "SELECT 1 LIMIT 0" shares its digest (top-level limit values are deliberately
+     * ignored during matching) and the replay returned one row instead of none.
+     */
+    @Test
+    public void testOneRowRelationLimitSiblingRuleIsExcluded() throws Exception {
+        Assertions.assertTrue(SPMOptimizer.getSpmExcludedRuleNames()
+                        .contains("ELIMINATE_LIMIT_ON_ONE_ROW_RELATION"),
+                "the one-row-relation LIMIT sibling must be excluded together with ELIMINATE_LIMIT");
+        Set<String> names = new HashSet<>(List.of(SPMOptimizer.buildSpmEnabledRules("").split(",")));
+        Assertions.assertFalse(names.contains("ELIMINATE_LIMIT_ON_ONE_ROW_RELATION"),
+                "the sibling rule must not be whitelisted for baseline creation");
+    }
+
     @Test
     public void testBuildSpmEnabledRulesIsWhitelist() throws Exception {
         String enabled = SPMOptimizer.buildSpmEnabledRules("");

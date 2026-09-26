@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.TableSample;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -103,6 +105,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -881,19 +884,22 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Quotes an identifier for use as executable SQL text whenever it is not a plain
-     * {@code [A-Za-z_][A-Za-z0-9_]*} identifier: a column named {@code a-b} must be
-     * emitted as {@code `a-b`}, otherwise the frozen projection re-parses as the
-     * subtraction a - b. Embedded backticks are doubled. Plain names stay verbatim, so
-     * ordinary schemas keep byte-identical frozen SQL. Also used for result-column
-     * labels (the expression text of an un-aliased output column such as
+     * unquotable identifier: a column named {@code a-b} must be emitted as {@code `a-b`},
+     * otherwise the frozen projection re-parses as the subtraction a - b. A name that
+     * looks plain can still be a RESERVED keyword (a legal quoted column named
+     * {@code from} must not be emitted bare - the parser tokenizes that as the FROM
+     * keyword rather than an identifier), so the keyword check decides as well.
+     * Embedded backticks are doubled. Unquotable names stay verbatim, so ordinary
+     * schemas keep byte-identical frozen SQL. Also used for result-column labels (the
+     * expression text of an un-aliased output column such as
      * {@code round((sun_sales1 / sun_sales2), 2)} is wrapped so the frozen planSql can
      * carry the original column header verbatim).
      */
-    static String quoteIdentifier(String name) {
+    public static String quoteIdentifier(String name) {
         if (name == null) {
             return null;
         }
-        if (name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+        if (name.matches("[A-Za-z_][A-Za-z0-9_]*") && NereidsParser.isValidUnquotedIdentifier(name)) {
             return name;
         }
         return "`" + name.replace("`", "``") + "`";
@@ -974,11 +980,28 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     @Override
     public SQLRelation visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, Void context) {
         SQLRelation relation = new SQLRelation();
-        relation.setFrom(tvfRelation.getFunction().toSql());
+        relation.setFrom(renderTableValuedFunction(tvfRelation.getFunction()));
         for (Slot slot : tvfRelation.getOutput()) {
             relation.registerRef(slot.getExprId(), quoteIdentifier(slot.getName()));
         }
         return relation;
+    }
+
+    /**
+     * Renders one TVF call safely. TableValuedFunction.computeToSql() concatenates each
+     * concrete key/value between apostrophes WITHOUT escaping, so a valid property such
+     * as an S3 object key containing an apostrophe or backslash would freeze malformed
+     * SQL: with a placeholder-bearing predicate the row is classified as frozen, no
+     * fallback tree is rebuilt, and after refresh/restart the baseline silently stops
+     * applying. The property map is serialized in a deterministic key order with the
+     * same default-mode-safe quoting as every other SPM-emitted string literal (the
+     * stored text is always re-parsed under MODE_DEFAULT).
+     */
+    private static String renderTableValuedFunction(TableValuedFunction function) {
+        String args = new TreeMap<>(function.getTVFProperties().getMap()).entrySet().stream()
+                .map(kv -> quoteSqlString(kv.getKey()) + " = " + quoteSqlString(kv.getValue()))
+                .collect(Collectors.joining(", "));
+        return quoteIdentifier(function.getName()) + "(" + args + ")";
     }
 
     /** PhysicalLazyMaterializeTVFScan: a TVF scan wrapped by lazy materialization. */
@@ -1180,7 +1203,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * SPMPlanner.parseStoredSelect), which makes the round trip exact under default AND
      * NO_BACKSLASH_ESCAPES sessions alike.
      */
-    private static String quoteSqlString(String value) {
+    static String quoteSqlString(String value) {
         return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'";
     }
 
