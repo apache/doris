@@ -181,7 +181,7 @@ private:
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
     bool handle_already_loaded_block(BlockFileCache* mgr, const UInt128Wrapper& hash, size_t offset,
-                                     size_t new_size, int64_t tablet_id,
+                                     size_t new_size, const CacheContext& ctx,
                                      std::lock_guard<std::mutex>& cache_lock) const;
 
     [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(

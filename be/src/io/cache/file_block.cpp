@@ -260,6 +260,24 @@ Status FileBlock::change_cache_type_lock(FileCacheType new_type,
     return Status::OK();
 }
 
+bool FileBlock::converge_meta_to_storage(FileCacheType new_type, uint64_t new_expiration_time,
+                                         std::lock_guard<std::mutex>& cache_lock) {
+    std::lock_guard block_lock(_mutex);
+
+    bool changed = false;
+    if (_key.meta.expiration_time != new_expiration_time) {
+        _key.meta.expiration_time = new_expiration_time;
+        changed = true;
+    }
+    if (_key.meta.type != new_type) {
+        _mgr->change_cache_type(_key.hash, _block_range.left, new_type, cache_lock);
+        _key.meta.type = new_type;
+        changed = true;
+    }
+    _meta_from_lru_dump = false;
+    return changed;
+}
+
 FileBlock::State FileBlock::wait() {
     std::unique_lock block_lock(_mutex);
 
