@@ -64,6 +64,7 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.FileIO;
@@ -2590,6 +2591,68 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustReaderSelectionRejectsRestTokenTables() throws Exception {
+        // doInitialize snapshots RESTTokenFileIO.validToken().token() into
+        // the backend storage properties, discarding expireAtMillis and the
+        // REST refresh context, so the shipped credentials look static — but
+        // the pinned rust table reuses one option map with no refresh
+        // callback, while paimon 1.4.2's JNI RESTTokenFileIO checks expiry
+        // before each file operation and obtains a replacement token. A scan
+        // crossing the token TTL would start on rust and later fail
+        // authentication; only the table's FileIO type reveals the token is
+        // renewable.
+        for (boolean restToken : new boolean[] {true, false}) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            CoreOptions options = Mockito.mock(CoreOptions.class);
+            Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+            Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+            // S3-location static credentials, an ordinary shape the
+            // REST-token snapshot also produces.
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
+                    "AWS_ACCESS_KEY", "ak",
+                    "AWS_SECRET_KEY", "sk",
+                    "AWS_TOKEN", "expiring-or-static-token",
+                    "AWS_ENDPOINT", "http://127.0.0.1:19001",
+                    "AWS_REGION", "us-east-1"));
+            if (restToken) {
+                Mockito.when(paimonTable.fileIO())
+                        .thenReturn(Mockito.mock(RESTTokenFileIO.class));
+                // The JNI branch never serializes the schema.
+            } else {
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                // A plain (or unresolved) FileIO shape stays rust-eligible.
+                Mockito.when(paimonTable.fileIO()).thenReturn(null);
+            }
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("rest_token.parquet")));
+            Assert.assertEquals("RESTTokenFileIO=" + restToken,
+                    restToken ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
     public void testRustReaderSelectionRejectsRustUnsupportedMergeOptions() throws Exception {
         // Java supports partial-update.remove-record-on-delete /
         // aggregation.remove-record-on-delete and the wider per-field option
@@ -2971,7 +3034,17 @@ public class PaimonScanNodeTest {
                 {new String[] {"dfs.nameservices", "ns1"},
                         new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"},
                         new String[] {"PAIMON_JNI"}},
-                {new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"}, new String[] {"PAIMON_JNI"}}}) {
+                {new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"}, new String[] {"PAIMON_JNI"}},
+                // Simple-auth client options: valid without Kerberos, but the
+                // rust storage_hdfs parser drops every dfs./hadoop./fs. key
+                // beyond its two, and hdfs-native defaults
+                // dfs.client.use.datanode.hostname to false — behind
+                // containers/NAT it connects to the advertised IP instead of
+                // the hostname and fails while JNI succeeds.
+                {new String[] {"dfs.client.use.datanode.hostname", "true"},
+                        new String[] {"PAIMON_JNI"}},
+                {new String[] {"hadoop.proxyuser.kerberos", "x"},
+                        new String[] {"PAIMON_JNI"}}}) {
             Map<String, String> backendProperties = new HashMap<>();
             for (int i = 0; i < shape.length - 1; i++) {
                 backendProperties.put(shape[i][0], shape[i][1]);
@@ -3041,6 +3114,26 @@ public class PaimonScanNodeTest {
         // credential-free catalog).
         Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
                 "hadoop.username", " ")));
+        // The always-shipped inert keys stay rust-eligible together.
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "fs.defaultFS", "hdfs://nn:8020",
+                "hadoop.security.authentication", "simple",
+                "hdfs.security.authentication", "simple",
+                "ipc.client.fallback-to-simple-auth-allowed", "true")));
+        // Any other dfs./hadoop./fs. client option is dropped by the rust
+        // parser and would diverge from JNI -> JNI (the canonical simple-auth
+        // case is dfs.client.use.datanode.hostname).
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.client.use.datanode.hostname", "true")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.client.socket-timeout", "60000")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem")));
+        // Keys outside the hadoop/dfs/fs namespaces cannot change what the
+        // rust HDFS parser does (the BE bridge passes them through untouched
+        // and the parser ignores them).
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "warehouse", "hdfs://nn/wh", "unrelated.key", "value")));
     }
 
     @Test

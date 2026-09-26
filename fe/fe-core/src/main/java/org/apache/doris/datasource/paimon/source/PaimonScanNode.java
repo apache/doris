@@ -74,6 +74,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -152,6 +153,20 @@ public class PaimonScanNode extends FileQueryScanNode {
     // nameservice config, none of which the rust HDFS parser can honor.
     private static final Set<String> RUST_VERIFIED_LOCATION_SCHEMES =
             new HashSet<>(Arrays.asList("s3", "s3a", "oss", "hdfs", "file"));
+
+    // The dfs./hadoop./fs. keys a credential-free HDFS catalog may transport
+    // without changing what the pinned rust reader does: the warehouse path
+    // identity (fs.defaultFS, always shipped from the location), the
+    // authentication-type markers HdfsProperties always writes (validated to
+    // simple above), and the always-written fallback flag whose semantics only
+    // matter under Kerberos (already rejected above). Every other client
+    // setting is dropped by the rust parser and would diverge from JNI.
+    private static final Set<String> RUST_VERIFIED_HDFS_OPTION_KEYS =
+            new HashSet<>(Arrays.asList(
+                    "fs.defaultFS",
+                    "hadoop.security.authentication",
+                    "hdfs.security.authentication",
+                    "ipc.client.fallback-to-simple-auth-allowed"));
 
     private enum SplitReadType {
         JNI,
@@ -530,17 +545,23 @@ public class PaimonScanNode extends FileQueryScanNode {
     }
 
     /**
-     * Whether an HDFS catalog's shipped backend properties carry no identity the
-     * pinned paimon-rust HDFS parser would silently drop. The parser reads only
-     * the hdfs.name-node / hdfs.enable-append keys: no kerberos, no proxy user,
-     * no hadoop HA resolution. A Kerberized catalog (or one with hadoop.username,
-     * or with HA nameservice config) would pass the location scheme gate, open
-     * as the BE process's ambient identity and fail — or silently miss — the
-     * catalog's configured access, while the same query works through JNI. Only
-     * the open-tested credential-free shape stays rust-eligible: simple (or
-     * unset) authentication, no principal / keytab / proxy user, no HA
-     * nameservice resolution. Generic fs.* / dfs.* tunables still pass through
-     * untouched — fs.defaultFS always ships and carries no identity.
+     * Whether an HDFS catalog's shipped backend properties describe a shape the
+     * pinned paimon-rust HDFS reader can serve identically to JNI. The rust
+     * storage_hdfs parser reads only the hdfs.name-node / hdfs.enable-append
+     * keys — no kerberos, no proxy user, no HA resolution, and no Hadoop client
+     * option map (HdfsNativeConfig.options stays empty) — so a catalog whose
+     * settings need any of those would open as the BE process's ambient
+     * identity, resolve the wrong DataNode, or miss the catalog's configured
+     * access while the same query works through JNI. Only the open-tested
+     * credential-free shape stays rust-eligible: simple (or unset)
+     * authentication, no principal / keytab / proxy user, no HA nameservice
+     * resolution, and no client option beyond the always-shipped inert keys of
+     * {@link #RUST_VERIFIED_HDFS_OPTION_KEYS} — everything else in the
+     * dfs./hadoop./fs. namespaces is dropped by the rust parser and keeps the
+     * catalog on JNI (dfs.client.use.datanode.hostname=true is the canonical
+     * simple-auth example: hdfs-native defaults to false and connects to the
+     * DataNode's advertised IP instead of its hostname, which commonly fails
+     * behind containers/NAT).
      */
     @VisibleForTesting
     static boolean isRustVerifiedHdfsBackend(Map<String, String> backendStorageProperties) {
@@ -576,6 +597,30 @@ public class PaimonScanNode extends FileQueryScanNode {
         for (Map.Entry<String, String> entry : backendStorageProperties.entrySet()) {
             if (entry.getKey() != null && entry.getKey().startsWith("dfs.ha.")
                     && entry.getValue() != null && !entry.getValue().trim().isEmpty()) {
+                return false;
+            }
+        }
+        // Client options: the pinned rust storage_hdfs parser reads only the
+        // hdfs.name-node / hdfs.enable-append keys and leaves
+        // HdfsNativeConfig.options empty, so any other transported dfs./hadoop./fs.
+        // setting is silently dropped and hdfs-native runs with its own
+        // defaults. dfs.client.use.datanode.hostname=true is the canonical
+        // simple-auth example: valid without Kerberos, but hdfs-native
+        // defaults to false and connects to the DataNode's advertised IP
+        // instead of its hostname, which commonly fails behind containers/NAT
+        // while JNI succeeds. Only the keys HdfsProperties always writes for a
+        // credential-free catalog (or already validated above) are proven
+        // inert; anything else in these namespaces keeps the catalog on JNI.
+        for (Map.Entry<String, String> entry : backendStorageProperties.entrySet()) {
+            String key = entry.getKey();
+            // A blank value is the unset case (the producer null-filters; a
+            // blank site-config entry is inert), matching the identity and HA
+            // checks above.
+            if (key == null || entry.getValue() == null || entry.getValue().trim().isEmpty()) {
+                continue;
+            }
+            if ((key.startsWith("dfs.") || key.startsWith("hadoop.") || key.startsWith("fs."))
+                    && !RUST_VERIFIED_HDFS_OPTION_KEYS.contains(key)) {
                 return false;
             }
         }
@@ -722,6 +767,17 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Until the authorization result can be transported and enforced by
             // the rust ABI, these tables route to JNI.
             boolean queryAuthTable = false;
+            // REST-token tables stay on JNI: doInitialize snapshots
+            // RESTTokenFileIO.validToken().token() into the backend storage
+            // properties, discarding expireAtMillis and the REST refresh
+            // context, so the shipped credentials look static — but the
+            // pinned rust table reuses one option map with no refresh
+            // callback, while paimon 1.4.2's JNI RESTTokenFileIO checks
+            // expiry before each file operation and obtains a replacement
+            // token. A queued or long scan that crosses the token TTL would
+            // start on rust and later fail authentication. Gate until the
+            // rust ABI can refresh and atomically update credentials.
+            boolean restTokenTable = false;
             // Partial-update / aggregation tables with deletion vectors only pass
             // the rust reader in the fully materialized shape: the pinned rust
             // read_pk rejects merge-engine=partial-update/aggregation with
@@ -739,6 +795,11 @@ public class PaimonScanNode extends FileQueryScanNode {
             boolean deduplicateIgnoreDelete = false;
             boolean rustUnsupportedMergeOption = false;
             if (paimonFileStoreTable != null) {
+                // A renewable REST token reached the shipped properties as a
+                // plain value; only the table's FileIO type reveals it expires.
+                // Null-safe: a table handle whose FileIO is not resolved stays
+                // rust-eligible, mirroring the CoreOptions null-safety below.
+                restTokenTable = paimonFileStoreTable.fileIO() instanceof RESTTokenFileIO;
                 CoreOptions resolvedCoreOptions = paimonFileStoreTable.coreOptions();
                 // Null-safe: a table handle whose CoreOptions is not resolved
                 // (e.g. some wrapper shapes) stays rust-eligible rather than
@@ -927,6 +988,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
                     && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
+                    && !restTokenTable
                     && !dvMergeOnRead && !splitDvNotMaterialized
                     && !orcLtzSchema && !projectedVariant && !externalFileSplit
                     && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
