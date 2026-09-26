@@ -128,6 +128,31 @@ ReadSchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
     return std::make_shared<ReadSchema>(tablet_schema->columns());
 }
 
+// A non-null BIGINT hidden column keyed by name; ReadSchema derives version/tso/commit_tso
+// ordinals from these names (see ReadSchema::_init_descriptors and storage/utils.h).
+TabletColumnPtr create_hidden_bigint_column(int32_t id, const std::string& name) {
+    auto column = std::make_shared<TabletColumn>();
+    column->set_unique_id(id);
+    column->set_name(name);
+    column->set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    column->set_is_key(false);
+    column->set_is_nullable(false);
+    column->set_length(8);
+    column->set_index_length(8);
+    column->set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    return column;
+}
+
+// int key + a single hidden BIGINT column named `hidden_col_name`, so the read schema exposes
+// exactly one of version_ordinal()/tso_ordinal()/commit_tso_ordinal() at ordinal 1.
+TabletSchemaSPtr make_hidden_column_tablet_schema(const std::string& hidden_col_name) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    tablet_schema->append_column(*create_hidden_bigint_column(1, hidden_col_name));
+    tablet_schema->set_storage_page_size(4096);
+    return tablet_schema;
+}
+
 } // namespace
 
 class SegmentIteratorExprZonemapTest : public testing::Test {
@@ -367,6 +392,128 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     EXPECT_TRUE(iter->empty());
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(1, _stats.filtered_segment_number);
+}
+
+// placeholder_effective_value only reads schema ordinals + read_options, so it can run against any
+// built segment. The tests below pair a hidden-column read schema with crafted read_options.
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectiveVersionColSingleVersion) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(make_hidden_column_tablet_schema(VERSION_COL));
+    ASSERT_EQ(1, read_schema->version_ordinal());
+
+    StorageReadOptions read_options;
+    read_options.version = Version(7, 7);
+
+    auto effective = segment->placeholder_effective_value(read_schema->version_ordinal(),
+                                                          *read_schema, read_options);
+    ASSERT_TRUE(effective.has_value());
+    EXPECT_EQ(7, effective->get<TYPE_BIGINT>());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectiveVersionColMultiVersion) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(make_hidden_column_tablet_schema(VERSION_COL));
+
+    StorageReadOptions read_options;
+    read_options.version = Version(2, 7);
+
+    // A range (compaction) segment carries real on-disk values, so no placeholder substitution.
+    auto effective = segment->placeholder_effective_value(read_schema->version_ordinal(),
+                                                          *read_schema, read_options);
+    EXPECT_FALSE(effective.has_value());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectiveCommitTsoSingleVersion) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(make_hidden_column_tablet_schema(COMMIT_TSO_COL));
+    ASSERT_EQ(1, read_schema->commit_tso_ordinal());
+
+    StorageReadOptions read_options;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+
+    auto effective = segment->placeholder_effective_value(read_schema->commit_tso_ordinal(),
+                                                          *read_schema, read_options);
+    ASSERT_TRUE(effective.has_value());
+    EXPECT_EQ(kCommitTso, effective->get<TYPE_BIGINT>());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectiveCommitTsoUnpublished) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(make_hidden_column_tablet_schema(COMMIT_TSO_COL));
+
+    StorageReadOptions read_options;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso =
+            TsoRange(); // end_tso() == -1: pre-publish, on-disk 0 stays effective.
+
+    auto effective = segment->placeholder_effective_value(read_schema->commit_tso_ordinal(),
+                                                          *read_schema, read_options);
+    EXPECT_FALSE(effective.has_value());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectiveBinlogTso) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(make_hidden_column_tablet_schema(BINLOG_TSO_COL));
+    ASSERT_EQ(1, read_schema->tso_ordinal());
+
+    StorageReadOptions read_options;
+    read_options.version = Version(7, 7);
+    read_options.read_row_binlog = true;
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+
+    auto effective = segment->placeholder_effective_value(read_schema->tso_ordinal(), *read_schema,
+                                                          read_options);
+    ASSERT_TRUE(effective.has_value());
+    EXPECT_EQ(kCommitTso, effective->get<TYPE_BIGINT>());
+
+    // Pre-publish (end_tso() == -1) resolves the binlog tso placeholder to 0 rather than skipping.
+    read_options.commit_tso = TsoRange();
+    effective = segment->placeholder_effective_value(read_schema->tso_ordinal(), *read_schema,
+                                                     read_options);
+    ASSERT_TRUE(effective.has_value());
+    EXPECT_EQ(0, effective->get<TYPE_BIGINT>());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectiveBinlogTsoWithoutRowBinlog) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    auto read_schema = make_read_schema(make_hidden_column_tablet_schema(BINLOG_TSO_COL));
+
+    StorageReadOptions read_options;
+    read_options.version = Version(7, 7);
+    read_options.read_row_binlog = false; // binlog tso is substituted only for row-binlog reads.
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+
+    auto effective = segment->placeholder_effective_value(read_schema->tso_ordinal(), *read_schema,
+                                                          read_options);
+    EXPECT_FALSE(effective.has_value());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, PlaceholderEffectivePlainColumnHasNoSubstitution) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    // Plain schema: no hidden columns, so every hidden-column ordinal is -1.
+    auto read_schema = make_read_schema(make_tablet_schema());
+    ASSERT_EQ(-1, read_schema->version_ordinal());
+    ASSERT_EQ(-1, read_schema->commit_tso_ordinal());
+    ASSERT_EQ(-1, read_schema->tso_ordinal());
+
+    StorageReadOptions read_options;
+    read_options.version = Version(7, 7);
+    read_options.read_row_binlog = true;
+    read_options.commit_tso = TsoRange(466872251335573505L, 466872251335573505L);
+
+    auto effective = segment->placeholder_effective_value(/*cid=*/0, *read_schema, read_options);
+    EXPECT_FALSE(effective.has_value());
 }
 
 } // namespace doris::segment_v2
