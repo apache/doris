@@ -2825,4 +2825,40 @@ TEST(VTimestampFunctionsTest, add_union_functions_cover_all) {
     }
 }
 
+TEST(VTimestampFunctionsTest, test_human_readable_seconds_bigint) {
+    std::string func_name = "human_readable_seconds";
+    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+    DataSet data_set = {
+            {{int64_t(0)}, std::string("0s")},
+            {{int64_t(1)}, std::string("1s")},
+            {{int64_t(60)}, std::string("1m")},
+            {{int64_t(3661)}, std::string("1h 1m 1s")},
+            {{int64_t(86400)}, std::string("1d")},
+            {{int64_t(90061)}, std::string("1d 1h 1m 1s")},
+            {{int64_t(999999)}, std::string("11d 13h 46m 39s")},
+            {{Null()}, Null()},
+            {{std::numeric_limits<int64_t>::max()}, std::string("106751991167300d 15h 30m 7s")},
+            {{std::numeric_limits<int64_t>::min()}, Null()},
+            {{int64_t(-1)}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(VTimestampFunctionsTest, test_human_readable_seconds_int) {
+    std::string func_name = "human_readable_seconds";
+    InputTypeSet input_types = {PrimitiveType::TYPE_INT};
+    DataSet data_set = {{{int32_t(0)}, std::string("0s")},
+                        {{int32_t(1)}, std::string("1s")},
+                        {{int32_t(5)}, std::string("5s")},
+                        {{int32_t(60)}, std::string("1m")},
+                        {{int32_t(3661)}, std::string("1h 1m 1s")},
+                        {{int32_t(86400)}, std::string("1d")},
+                        {{int32_t(90061)}, std::string("1d 1h 1m 1s")},
+                        {{int32_t(999999)}, std::string("11d 13h 46m 39s")},
+                        {{Null()}, Null()},
+                        {{std::numeric_limits<int32_t>::max()}, std::string("24855d 3h 14m 7s")},
+                        {{std::numeric_limits<int32_t>::min()}, Null()},
+                        {{int32_t(-1)}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris

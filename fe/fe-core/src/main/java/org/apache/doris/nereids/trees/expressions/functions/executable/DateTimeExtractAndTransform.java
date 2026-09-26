@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -2057,5 +2058,76 @@ public class DateTimeExtractAndTransform {
             fraction *= (long) Math.pow(10, 6 - scale);
         }
         return new IntegerLiteral((int) fraction);
+    }
+
+    /**
+     * Constant folding for human_readable_seconds(BigIntLiteral)
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(BigIntLiteral seconds) {
+        return formatHumanReadableSeconds(seconds.getValue());
+    }
+
+    /**
+     * Constant folding for human_readable_seconds(IntegerLiteral)
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(IntegerLiteral seconds) {
+        return formatHumanReadableSeconds(seconds.getValue());
+    }
+
+    /**
+     * Constant folding for human_readable_seconds(SmallIntLiteral)
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(SmallIntLiteral seconds) {
+        return formatHumanReadableSeconds(seconds.getValue());
+    }
+
+    /**
+     * Constant folding for human_readable_seconds(TinyIntLiteral)
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(TinyIntLiteral seconds) {
+        return formatHumanReadableSeconds(seconds.getValue());
+    }
+
+    private static Expression formatHumanReadableSeconds(long seconds) {
+        if (seconds < 0) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        if (seconds == 0) {
+            return new VarcharLiteral("0s");
+        }
+        long days = seconds / 86400L;
+        long rem = seconds % 86400L;
+        long hours = rem / 3600L;
+        rem %= 3600L;
+        long minutes = rem / 60L;
+        long secs = rem % 60L;
+
+        StringBuilder sb = new StringBuilder();
+        if (days > 0) {
+            sb.append(days).append('d');
+        }
+        if (hours > 0) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(hours).append('h');
+        }
+        if (minutes > 0) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(minutes).append('m');
+        }
+        if (secs > 0) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(secs).append('s');
+        }
+        return new VarcharLiteral(sb.toString());
     }
 }
