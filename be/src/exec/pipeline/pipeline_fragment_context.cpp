@@ -338,6 +338,7 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
                                              _params.bucket_seq_to_instance_idx,
                                              _params.shuffle_idx_to_instance_idx));
     }
+    RETURN_IF_ERROR(validate_paired_pipeline_task_count(_pipelines));
 
     // 5. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {

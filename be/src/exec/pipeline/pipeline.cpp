@@ -19,14 +19,61 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
+#include "exec/exchange/local_exchange_sink_operator.h"
 #include "exec/exchange/local_exchange_source_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
 
 namespace doris {
+
+Status validate_paired_pipeline_task_count(const Pipelines& pipelines) {
+    struct OperatorLocation {
+        const Pipeline* pipeline;
+        const OperatorXBase* op;
+    };
+
+    std::unordered_map<int, OperatorLocation> operator_locations;
+    for (const auto& pipeline : pipelines) {
+        for (const auto& op : pipeline->operators()) {
+            const bool inserted =
+                    operator_locations
+                            .emplace(op->operator_id(), OperatorLocation {pipeline.get(), op.get()})
+                            .second;
+            DORIS_CHECK(inserted) << "duplicate operator id " << op->operator_id();
+        }
+    }
+
+    for (const auto& pipeline : pipelines) {
+        const auto* sink = pipeline->sink();
+        DORIS_CHECK(sink != nullptr) << pipeline->debug_string();
+        if (dynamic_cast<const LocalExchangeSinkOperatorX*>(sink) != nullptr) {
+            continue;
+        }
+        for (const auto dest_id : sink->dests_id()) {
+            const auto destination = operator_locations.find(dest_id);
+            // Final data sinks target operators outside this fragment and have no local pair.
+            if (destination == operator_locations.end()) {
+                continue;
+            }
+            const auto* destination_pipeline = destination->second.pipeline;
+            if (pipeline->num_tasks() != destination_pipeline->num_tasks()) {
+                return Status::InternalError(
+                        "Non-local-exchange pipeline task count mismatch: sink {} (operator id {}, "
+                        "pipeline id {}, task count {}) targets {} (operator id {}, pipeline id "
+                        "{}, "
+                        "task count {})",
+                        sink->get_name(), sink->operator_id(), pipeline->id(),
+                        pipeline->num_tasks(), destination->second.op->get_name(), dest_id,
+                        destination_pipeline->id(), destination_pipeline->num_tasks());
+            }
+        }
+    }
+    return Status::OK();
+}
 
 void Pipeline::_init_profile() {
     auto s = fmt::format("Pipeline (pipeline id={})", _pipeline_id);
