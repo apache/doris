@@ -1131,6 +1131,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
+            if (_segment->placeholder_effective_value(cid, *_schema, _opts).has_value()) {
+                // A hidden placeholder column's bloom filter holds the on-disk placeholder, not the
+                // value rows come back with, so it would drop matching rows. The predicate is
+                // corrected against the effective value at read time.
+                continue;
+            }
             // get row ranges by bf index of this column,
             RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
@@ -1561,6 +1567,13 @@ inline bool SegmentIterator::_inverted_index_not_support_pred_type(const Predica
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         std::shared_ptr<ColumnPredicate> pred,
         std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates, bool* continue_apply) {
+    if (_segment->placeholder_effective_value(pred->column_id(), *_schema, _opts).has_value()) {
+        // A hidden placeholder column's inverted index holds the on-disk placeholder, not the value
+        // rows come back with, so index pruning would drop matching rows. Keep the predicate for
+        // read-time evaluation against the substituted value instead.
+        remaining_predicates.emplace_back(pred);
+        return Status::OK();
+    }
     if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {

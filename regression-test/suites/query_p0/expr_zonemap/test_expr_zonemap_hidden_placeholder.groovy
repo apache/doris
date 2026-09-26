@@ -83,4 +83,36 @@ suite("test_expr_zonemap_hidden_placeholder") {
     order_qt_version_col_mor_match """
         SELECT COUNT(*) FROM test_zonemap_version_col_mor WHERE __DORIS_VERSION_COL__ = ${morVersion}
     """
+
+    // An inverted index and a bloom filter are both accepted on the hidden version column. Each
+    // stores the on-disk placeholder (0), so physical index pruning runs before the read-time
+    // substitution and would reduce `= <real version>` to an empty result. Placeholder columns must
+    // be skipped by inverted-index and bloom-filter pruning; this keeps every row.
+    sql " DROP TABLE IF EXISTS test_zonemap_version_col_indexed "
+    sql """
+        CREATE TABLE test_zonemap_version_col_indexed (
+            k INT,
+            v INT
+        ) UNIQUE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    def indexTimeout = 60000
+    sql """ ALTER TABLE test_zonemap_version_col_indexed ADD INDEX idx_ver (__DORIS_VERSION_COL__) USING INVERTED """
+    wait_for_last_schema_change_finish("test_zonemap_version_col_indexed", indexTimeout)
+    sql """ ALTER TABLE test_zonemap_version_col_indexed SET ("bloom_filter_columns" = "__DORIS_VERSION_COL__") """
+    wait_for_last_schema_change_finish("test_zonemap_version_col_indexed", indexTimeout)
+    sql """ INSERT INTO test_zonemap_version_col_indexed SELECT number, number FROM numbers("number" = "2048") """
+    sql " sync "
+    def indexedVersionRows = sql " SELECT DISTINCT __DORIS_VERSION_COL__ FROM test_zonemap_version_col_indexed "
+    assertEquals(1, indexedVersionRows.size())
+    long indexedVersion = indexedVersionRows[0][0] as long
+    assertTrue(indexedVersion > 0)
+    order_qt_version_col_indexed_match """
+        SELECT COUNT(*) FROM test_zonemap_version_col_indexed WHERE __DORIS_VERSION_COL__ = ${indexedVersion}
+    """
 }
