@@ -195,4 +195,40 @@ TEST_F(StreamLoadTest, HttpStreamBodySizeLimitPlusOneErrorIncludesExactBytes) {
               "this load is reasonable");
     evhttp_request_free(evhttp_req);
 }
+
+// A malformed Content-Length used to escape as an exception from the libevent header
+// callback and take the whole BE process down.
+TEST_F(StreamLoadTest, HttpStreamMalformedContentLengthIsRejected) {
+    for (const auto* content_length : {"not_a_number", "9223372036854775808"}) {
+        auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+        HttpRequest req(evhttp_req);
+        req.set_header(HTTP_GROUP_COMMIT, "async_mode");
+        req.set_header(HttpHeaders::CONTENT_LENGTH, content_length);
+
+        HttpStreamAction action(nullptr);
+        auto ctx = std::make_shared<StreamLoadContext>(nullptr);
+        auto status = action._handle_group_commit(&req, ctx);
+
+        EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << content_length;
+        evhttp_request_free(evhttp_req);
+    }
+}
+
+TEST_F(StreamLoadTest, HttpStreamMalformedWalIdIsRejected) {
+    auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
+    HttpRequest req(evhttp_req);
+    req.set_header(HTTP_WAL_ID_KY, "not_a_number");
+
+    HttpStreamAction action(nullptr);
+    auto ctx = std::make_shared<StreamLoadContext>(nullptr);
+    req.set_handler(&action);
+    req.set_handler_ctx(ctx);
+
+    action.on_chunk_data(&req);
+
+    EXPECT_TRUE(ctx->status.is<ErrorCode::INVALID_ARGUMENT>());
+    // ctx carries no ExecEnv, so detach it before ~HttpRequest calls free_handler_ctx()
+    req.set_handler_ctx(nullptr);
+    evhttp_request_free(evhttp_req);
+}
 } // namespace doris
