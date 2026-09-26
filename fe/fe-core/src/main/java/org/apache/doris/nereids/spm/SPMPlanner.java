@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
@@ -142,7 +143,7 @@ public class SPMPlanner {
         // therefore namespace-independent.
         LogicalPlan matchPlan = SPMPlanTreeSupport.namespaceQualified(userPlan,
                 captureCatalogName(ctx), captureDatabaseName(ctx));
-        String queryDigest = matchPlan.toSpmDigest();
+        String queryDigest = SPMPlanTreeSupport.canonicalSpmDigest(matchPlan.toSpmDigest());
         long queryHash = SPMUtils.hashOf(queryDigest);
         // SESSION-scope baselines of the current connection are consulted BEFORE the
         // global ones, so a session baseline can override a global baseline for this
@@ -164,6 +165,10 @@ public class SPMPlanner {
         // view query without any view check. View queries keep the original plan.
         boolean viewChecked = false;
         boolean viewReferenced = false;
+        // Schema-identity guard state (computed lazily, once per query, only after the
+        // first structural match): see the check inside the loop.
+        boolean schemaChecked = false;
+        String currentSchemaFingerprint = null;
         for (BaselinePlan candidate : candidates) {
             if (System.currentTimeMillis() > deadline) {
                 LOG.info("SPM tryRewritePlan: timeout before matching baseline {}, "
@@ -189,6 +194,28 @@ public class SPMPlanner {
                 LOG.info("SPM tryRewritePlan: the query references a view; keeping the original"
                         + " plan so view authorization is preserved");
                 return null;
+            }
+            // Schema-identity guard (see BaselinePlan#schemaFingerprint): the bind key is
+            // built from the STILL-UNBOUND query, so `SELECT * FROM t WHERE k = 1` keeps
+            // the same digest and Level-3 tree after `ALTER TABLE t ADD COLUMN extra`
+            // (or a DROP + CREATE of t), while the frozen plan still emits the
+            // creator-time output columns - the matched replay would silently return the
+            // old column set. A baseline whose referenced-table fingerprint no longer
+            // matches fails closed (the user query keeps its own plan); pre-column rows
+            // without a fingerprint skip the check. The current fingerprint is computed
+            // once per query, and only after a structural match (hot path pays nothing).
+            String bindFingerprint = candidate.getSchemaFingerprint();
+            if (bindFingerprint != null && !bindFingerprint.isEmpty()) {
+                if (!schemaChecked) {
+                    schemaChecked = true;
+                    currentSchemaFingerprint =
+                            SPMPlanTreeSupport.schemaFingerprint(ctx, userPlan);
+                }
+                if (!bindFingerprint.equals(currentSchemaFingerprint)) {
+                    LOG.info("SPM tryRewritePlan: baseline {} skipped: the referenced table"
+                            + " schema changed since the baseline was created", candidate.getId());
+                    continue;
+                }
             }
             // The expensive part (value-free digest, candidate lookup, whole-tree check) is
             // already done and a baseline has matched: finish the (cheap) value substitution
@@ -253,11 +280,23 @@ public class SPMPlanner {
      */
     private LogicalPlan rewriteFromFrozenTree(BaselinePlan candidate,
             Map<Long, Expression> placeholderValues) {
+        // Persisted provenance first (see BaselinePlan#planFrozen): a row explicitly
+        // marked as NOT decompiled (raw user fallback text) must never be replayed as
+        // frozen SQL just because its text contains a call shaped like a placeholder -
+        // a real db._spm_const_var(1) UDF would otherwise be replaced by the user's
+        // literal and return the literal instead of evaluating the function.
+        Boolean persistedFrozen = candidate.getPlanFrozen();
+        if (persistedFrozen != null && !persistedFrozen) {
+            return null;
+        }
         String planSql = candidate.getPlanSql();
-        if (planSql == null
-                || (!planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
-                && !planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC))) {
-            return null; // not a frozen (placeholder-carrying) plan text
+        if (planSql == null) {
+            return null;
+        }
+        if (persistedFrozen == null
+                && !planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
+                && !planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC)) {
+            return null; // legacy row, not a frozen (placeholder-carrying) plan text
         }
         // re-parsing the frozen text needs the session context (join-hint / statement
         // context handling); when absent (pure in-memory callers) fall back
@@ -392,8 +431,14 @@ public class SPMPlanner {
         // the matching key is namespace-qualified like tryRewritePlan's user side, so the
         // in-memory (UT) create / rewrite pair stays consistent in any context
         ConnectContext ctx = ConnectContext.get();
-        return assembleBaseline(bindPlan, trees.first, trees.second, bindSql, planSql, cost,
-                captureCatalogName(ctx), captureDatabaseName(ctx), creatorSqlMode());
+        BaselinePlan baseline = assembleBaseline(bindPlan, trees.first, trees.second, bindSql, planSql,
+                cost, captureCatalogName(ctx), captureDatabaseName(ctx), creatorSqlMode());
+        // no decompile happens on this in-memory path: the planSql is ordinary user text
+        // (never a frozen rendering), and it is re-parsed with the creator's own mode
+        baseline.setPlanFrozen(false);
+        baseline.setPlanSqlMode(baseline.getCreatorSqlMode());
+        baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprint(ctx, bindPlan));
+        return baseline;
     }
 
     /**
@@ -455,6 +500,37 @@ public class SPMPlanner {
      */
     public BaselinePlan buildBaselineFromSql(ConnectContext ctx, String bindSql, String planSql)
             throws UserException {
+        // The 3-arg entry is the GLOBAL create / capture path; temporary tables are
+        // rejected there (the frozen planSql would carry the creator session's internal
+        // temp name). The CREATE command uses the 4-arg overload to allow a SESSION-scope
+        // baseline over the session's own temporary table.
+        return buildBaselineFromSql(ctx, bindSql, planSql, true);
+    }
+
+    /**
+     * Builds a baseline from SQL texts with a SPM-mode optimized planSql, with an explicit
+     * storage scope for the mutable-constraint / temporary-table guards.
+     *
+     * @param ctx        the connect context (catalog + session variables)
+     * @param bindSql    the binding SQL (SELECT)
+     * @param planSql    the plan SQL (SELECT, may contain SET_VAR hints)
+     * @param globalScope whether the baseline is stored in the shared GLOBAL store
+     * @return the constructed BaselinePlan (not yet stored)
+     * @throws UserException when the SQLs cannot be parsed / planned
+     */
+    public BaselinePlan buildBaselineFromSql(ConnectContext ctx, String bindSql, String planSql,
+            boolean globalScope) throws UserException {
+        // Capture the parser-relevant mode of the creating session BEFORE anything is
+        // parsed (the hint application below happens during optimization and must never
+        // decide what the persisted creatorSqlMode is): the parsers build expressions
+        // (including `a || b`) while this mode is in force, and the persisted value must
+        // describe exactly that parse. A statement that changes sql_mode through a
+        // /*+ SET_VAR(sql_mode=...) */ hint is parsed with the AMBIENT mode; reading the
+        // live session after parsing would persist the hint's mode, and after a
+        // refresh / restart the stored bindSql would rebuild under that mode while the
+        // frozen key was produced under the ambient one - no query could ever match both
+        // again and the durable baseline stayed dead.
+        final long creatorMode = SqlModeHelper.currentMode();
         LogicalPlan bindPlan = parseSelect(bindSql, "SPM bindSql must be a SELECT statement: " + bindSql);
         LogicalPlan planPlan = bindSql.equals(planSql)
                 ? bindPlan : parseSelect(planSql, "SPM planSql must be a SELECT statement: " + planSql);
@@ -481,12 +557,12 @@ public class SPMPlanner {
                 || SPMPlanTreeSupport.referencesView(ctx, planPlan);
 
         SPMOptimizer.OptimizeResult optimizeResult;
-        String frozenPlanSql;
+        DecompiledPlan frozen;
         try {
             // optimize the parameterized plan tree in SPM mode: placeholders travel
             // through analyze / rewrite / CBO and survive into the physical plan
             optimizeResult = SPMOptimizer.optimize(ctx, parameterizedPlan, planSql);
-            frozenPlanSql = decompileFrozenPlan(referencesView, optimizeResult, planSql);
+            frozen = decompileFrozenPlan(referencesView, optimizeResult, planSql);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
             // survive some analyzer path yet), fall back to optimizing the raw planSql -
@@ -497,11 +573,74 @@ public class SPMPlanner {
             LOG.warn("SPM parameterized plan optimization failed, falling back to raw planSql",
                     e);
             optimizeResult = SPMOptimizer.optimize(ctx, planSql);
-            frozenPlanSql = decompileFrozenPlan(referencesView, optimizeResult, planSql);
+            frozen = decompileFrozenPlan(referencesView, optimizeResult, planSql);
         }
-        return assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
-                frozenPlanSql, optimizeResult.getCost(),
-                captureCatalogName(ctx), captureDatabaseName(ctx), creatorSqlMode());
+        if (globalScope) {
+            // A GLOBAL baseline must never be frozen over a temporary table: the physical
+            // relation's catalog object carries the CREATOR session's internal name
+            // (<sessionId>_#TEMP#_<name>). The bind key for "FROM t" is only
+            // catalog.db.t, so a second session running the same text matched the same
+            // digest, and the frozen SQL (emitting the internal name) resolved the
+            // creator's still-live temporary table instead of the second session's t.
+            rejectTemporaryRelations(optimizeResult, bindSql);
+        }
+        // Explicit provenance of the stored planSql, persisted so a reload never has to
+        // GUESS whether the text is SPM's decompiled frozen rendering or the user's raw
+        // fallback (see BaselinePlan#planFrozen / #planSqlMode).
+        Boolean planFrozen = frozen.decompiled
+                ? SPMPlanTreeSupport.containsFrozenPlaceholder(optimizeResult.getPhysicalPlan())
+                : Boolean.FALSE;
+        long planSqlMode = frozen.decompiled ? SqlModeHelper.MODE_DEFAULT : creatorMode;
+        BaselinePlan baseline = assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
+                frozen.sql, optimizeResult.getCost(),
+                captureCatalogName(ctx), captureDatabaseName(ctx), creatorMode);
+        baseline.setPlanFrozen(planFrozen);
+        baseline.setPlanSqlMode(planSqlMode);
+        // Schema identity of the referenced base tables, validated again before every
+        // replay (see SPMPlanTreeSupport#schemaFingerprint).
+        baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprint(ctx, bindPlan));
+        return baseline;
+    }
+
+    /**
+     * Rejects statements that reference a temporary table. Only the GLOBAL create /
+     * capture path calls this: the frozen SQL (or the decompiled text) would carry the
+     * creator session's internal sessionId_#TEMP#_name, which Database.getTableNullable
+     * accepts unchanged - the replay would read the creator's temporary table from a
+     * DIFFERENT session. A SESSION-scope baseline may legitimately target the session's
+     * own temporary table: it never leaves the connection, and the decompiler refuses
+     * the internal name anyway (raw-text fallback resolves per session).
+     */
+    private static void rejectTemporaryRelations(SPMOptimizer.OptimizeResult optimizeResult,
+            String bindSql) throws AnalysisException {
+        final boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(optimizeResult.getPhysicalPlan(), node -> {
+            if (!found[0] && node instanceof PhysicalCatalogRelation
+                    && ((PhysicalCatalogRelation) node).getTable().isTemporary()) {
+                found[0] = true;
+            }
+        });
+        if (found[0]) {
+            throw new AnalysisException("SPM does not support GLOBAL baselines over temporary tables: "
+                    + bindSql);
+        }
+    }
+
+    /**
+     * The freeze step's result: the planSql text plus its provenance. {@code decompiled}
+     * is false when the user-supplied planSql text was kept (decompiler rejected the
+     * physical plan, or the plan references a view) - such text is user-authored and
+     * reloads with the CREATOR's parser mode, and it must never be replayed as frozen
+     * placeholder SQL.
+     */
+    private static final class DecompiledPlan {
+        private final String sql;
+        private final boolean decompiled;
+
+        private DecompiledPlan(String sql, boolean decompiled) {
+            this.sql = sql;
+            this.decompiled = decompiled;
+        }
     }
 
     /**
@@ -511,20 +650,21 @@ public class SPMPlanner {
      * replayed ahead of authorization, and replaying a view's base-table expansion would
      * authorize those base tables instead of the view.
      */
-    private static String decompileFrozenPlan(boolean referencesView,
+    private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
             SPMOptimizer.OptimizeResult optimizeResult, String planSql) {
         if (referencesView) {
             LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
                     + " so the rewrite replays the parameterized tree (view authorization"
                     + " preserved)");
-            return planSql;
+            return new DecompiledPlan(planSql, false);
         }
         try {
-            return new SPMPlan2SQLBuilder().toSQL(optimizeResult.getPhysicalPlan());
+            return new DecompiledPlan(
+                    new SPMPlan2SQLBuilder().toSQL(optimizeResult.getPhysicalPlan()), true);
         } catch (UnsupportedOperationException e) {
             LOG.info("SPM decompile unsupported ({}):\n{}", e.getMessage(),
                     optimizeResult.getPhysicalPlan().treeString());
-            return planSql;
+            return new DecompiledPlan(planSql, false);
         }
     }
 
@@ -585,7 +725,12 @@ public class SPMPlanner {
         // so even a future divergence between the two mechanisms (e.g. a node whose
         // toDigest leaks a literal value) can only cause a missed rewrite (safe), never
         // a wrong rewrite.
-        String digest = SPMPlanTreeSupport.namespaceQualified(bindPlan, catalog, db).toSpmDigest();
+        // The digest is canonicalized (see SPMPlanTreeSupport#canonicalSpmDigest): the
+        // top-level LIMIT / OFFSET values are adopted from the user query at rewrite time
+        // and must not split the matching key (an OFFSET query has to reach the
+        // structural match that merges its offset).
+        String digest = SPMPlanTreeSupport.canonicalSpmDigest(
+                SPMPlanTreeSupport.namespaceQualified(bindPlan, catalog, db).toSpmDigest());
         baseline.setBindSqlDigest(digest);
         baseline.setBindSqlHash(SPMUtils.hashOf(digest));
         baseline.setPlanSql(planSql);
@@ -623,6 +768,30 @@ public class SPMPlanner {
      */
     public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
             String bindSql, String planSql, long creatorSqlMode) {
+        return rebuildParameterizedTrees(bindSql, planSql, creatorSqlMode, SqlModeHelper.MODE_DEFAULT);
+    }
+
+    /**
+     * Rebuilds the transient parameterized trees with an explicit mode for the plan text
+     * (see {@link BaselinePlan#getPlanSqlMode()}): the planSql is SPM's decompiled
+     * rendering when the freeze succeeded (MODE_DEFAULT) or the user's raw fallback text
+     * (the CREATOR's mode) when the physical plan could not be decompiled - re-parsing
+     * that fallback under the default mode would turn a PIPES_AS_CONCAT clause into a
+     * boolean Or, so the bind tree still matches while the replayed plan computes
+     * different projection semantics.
+     *
+     * @param bindSql        the stored bindSql (a parse failure skips the row)
+     * @param planSql        the stored planSql, or null when the baseline replays a
+     *                       frozen (placeholder-carrying) text and needs no plan tree
+     * @param creatorSqlMode the parser mode of the creating session (bind text)
+     * @param planSqlMode    the parser mode of the stored planSql (fallback text);
+     *                       MODE_DEFAULT / 0 when unknown
+     * @return (parameterized bind tree, parameterized plan tree); first is null when the
+     *         bindSql cannot be parsed, second is null when planSql is null / cannot be
+     *         parsed (the caller keeps the row either way)
+     */
+    public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
+            String bindSql, String planSql, long creatorSqlMode, long planSqlMode) {
         LogicalPlan bindPlan;
         try {
             // The bindSql is USER-authored text: re-parse it with the SAME parser mode the
@@ -646,9 +815,10 @@ public class SPMPlanner {
             return Pair.of(parameterizedBind, parameterizedBind);
         }
         try {
-            // A DIFFERENT planSql is SPM-authored (decompiled) text: it is always rendered
-            // for the default mode, so it is read with that mode pinned.
-            LogicalPlan planPlan = parseStoredSelect(planSql);
+            // A DIFFERENT planSql is either SPM's decompiled rendering (always emitted for
+            // the default mode) or the user's raw fallback text: the persisted
+            // planSqlMode distinguishes them (legacy rows default to MODE_DEFAULT).
+            LogicalPlan planPlan = parseStoredSelect(planSql, planSqlMode);
             LogicalPlan parameterizedPlan = SPMPlanTreeSupport.transform(
                     planPlan, expr -> expr.accept(builder, null));
             return Pair.of(parameterizedBind, parameterizedPlan);
@@ -680,6 +850,26 @@ public class SPMPlanner {
      * @return true when the text re-parses into a tree carrying placeholder calls
      */
     public static boolean isFrozenPlanSql(String planSql) {
+        return isFrozenPlanSql(planSql, null);
+    }
+
+    /**
+     * Whether a STORED planSql is a FROZEN (placeholder-carrying) text, honouring the
+     * PERSISTED provenance when the row carries it (see
+     * {@link BaselinePlan#getPlanFrozen()}): an explicit flag removes every
+     * classification guess, so a raw-fallback text that merely CONTAINS a placeholder
+     * name (e.g. a real {@code db._spm_const_var(1)} UDF call) keeps its parameterized
+     * fallback tree instead of being replayed as frozen SQL. Pre-column rows fall back
+     * to the parse-based classifier.
+     *
+     * @param planSql          the stored planSql
+     * @param persistedFrozen  the persisted provenance, or null when absent
+     * @return true when the text is the SPM decompiled placeholder rendering
+     */
+    public static boolean isFrozenPlanSql(String planSql, Boolean persistedFrozen) {
+        if (persistedFrozen != null) {
+            return persistedFrozen;
+        }
         if (planSql == null
                 || (!planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
                 && !planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC))) {

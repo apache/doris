@@ -183,6 +183,61 @@ public class SessionBaselineStoreTest {
         Assertions.assertEquals(BaselineScope.SESSION, BaselineScope.ofId(Long.MAX_VALUE));
     }
 
+    /**
+     * COM_RESET_CONNECTION reuses the same ConnectContext (and a pooled connection can
+     * serve a later logical session), so the reset must DISCARD every session baseline:
+     * SPM consults the session store BEFORE the global one, and a leftover baseline would
+     * silently rewrite the next borrower's query. Ids keep incrementing (a stale id must
+     * never resolve to a different baseline).
+     */
+    @Test
+    public void testClearDiscardsEverySessionBaseline() throws Exception {
+        SessionBaselineStore store = new SessionBaselineStore();
+        String bindSql = "SELECT * FROM t1 WHERE a = 100";
+        long id = store.createBaseline(frozenBaseline(bindSql,
+                "SELECT * FROM t1 WHERE (a = CAST(_spm_const_var(1) AS INT))"));
+        Assertions.assertFalse(store.isEmpty());
+        LogicalPlan userPlan = parse("SELECT * FROM t1 WHERE a = 42");
+        Assertions.assertEquals(1, store.findCandidateBaselines(
+                userPlan.toSpmDigest(), SPMUtils.hashOf(userPlan.toSpmDigest())).size());
+
+        store.clear();
+        Assertions.assertTrue(store.isEmpty(), "clear() must empty the store");
+        Assertions.assertTrue(store.getAllBaselines().isEmpty());
+        Assertions.assertNull(store.getBaseline(id), "the discarded id must resolve to nothing");
+        Assertions.assertTrue(store.findCandidateBaselines(
+                userPlan.toSpmDigest(), SPMUtils.hashOf(userPlan.toSpmDigest())).isEmpty(),
+                "the hash index must be cleared together with the map");
+        // idempotent: a second clear on the empty store is a no-op
+        store.clear();
+        Assertions.assertTrue(store.isEmpty());
+
+        // a baseline created after the reset works normally again
+        long nextId = store.createBaseline(frozenBaseline(bindSql,
+                "SELECT * FROM t1 WHERE (a = CAST(_spm_const_var(1) AS INT))"));
+        Assertions.assertTrue(nextId > id,
+                "the id counter must not rewind (a stale id must never alias a new one)");
+        Assertions.assertEquals(1, store.getAllBaselines().size());
+    }
+
+    /**
+     * The connection reset path itself must clear the store: a bare ConnectContext with a
+     * session baseline must end up empty after resetConnection().
+     */
+    @Test
+    public void testResetConnectionClearsTheSessionStore() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setSessionVariable(new SessionVariable());
+        ctx.getSessionBaselineStore().createBaseline(frozenBaseline(
+                "SELECT * FROM t1 WHERE a = 100",
+                "SELECT * FROM t1 WHERE (a = CAST(_spm_const_var(1) AS INT))"));
+        Assertions.assertFalse(ctx.getSessionBaselineStore().isEmpty());
+
+        ctx.resetConnection();
+        Assertions.assertTrue(ctx.getSessionBaselineStore().isEmpty(),
+                "COM_RESET_CONNECTION must not leak the prior session's baselines");
+    }
+
     // ==================== helpers ====================
 
     /**

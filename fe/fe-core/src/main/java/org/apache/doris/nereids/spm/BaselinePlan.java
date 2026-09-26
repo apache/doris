@@ -102,6 +102,39 @@ public class BaselinePlan {
      */
     private long creatorSqlMode = SqlModeHelper.MODE_DEFAULT;
 
+    /**
+     * The parser mode for the STORED planSql (Null for pre-column rows = mode default).
+     * The planSql can be one of two kinds: the SPM decompiled rendering of the frozen
+     * physical plan (always emitted for MODE_DEFAULT) or the user's raw planSql kept as
+     * the fallback when the physical plan cannot be decompiled (e.g.
+     * PhysicalAssertNumRows). The fallback text is USER-authored and must be re-parsed
+     * with the CREATOR's mode - under MODE_DEFAULT a PIPES_AS_CONCAT clause reloads as a
+     * boolean Or, so the bind tree still matches while the plan tree replays different
+     * projection semantics.
+     */
+    private Long planSqlMode;
+
+    /**
+     * Whether the stored planSql is the SPM decompiled, placeholder-carrying text that
+     * is replayed as FROZEN SQL. Null for pre-column rows = classify by parsing.
+     * Persisting the provenance explicitly keeps a raw-fallback text that merely
+     * CONTAINS a placeholder-like call (e.g. a real UDF named {@code db._spm_const_var})
+     * from being misclassified as frozen after a reload: such a row keeps its
+     * parameterized fallback tree, and the replacer would otherwise substitute the
+     * caller's literal for the real function call.
+     */
+    private Boolean planFrozen;
+
+    /**
+     * Fingerprint of the schema identity of the base tables referenced by the bind
+     * query at CREATE time (empty / null = pre-column rows). Matching validates it
+     * against the current session's tables before replaying the frozen plan: the bind
+     * key is built from the still-unbound query, so without the fingerprint an ALTER
+     * TABLE ... ADD COLUMN keeps matching while the frozen result sink still emits the
+     * creator-time output columns.
+     */
+    private String schemaFingerprint;
+
     /** Last update time (epoch millis). */
     private volatile long updateTime;
 
@@ -253,6 +286,50 @@ public class BaselinePlan {
 
     public void setCreatorSqlMode(long creatorSqlMode) {
         this.creatorSqlMode = creatorSqlMode;
+    }
+
+    /**
+     * Returns the parser mode the stored planSql must be re-parsed with (see the field
+     * javadoc); null for pre-column rows / when unknown (callers pin MODE_DEFAULT).
+     *
+     * @return the stored planSql parse mode, or null
+     */
+    public Long getPlanSqlMode() {
+        return planSqlMode;
+    }
+
+    public void setPlanSqlMode(Long planSqlMode) {
+        this.planSqlMode = planSqlMode;
+    }
+
+    /**
+     * Returns whether the stored planSql is SPM's decompiled, placeholder-carrying
+     * frozen text (see the field javadoc); null for pre-column rows (classify by
+     * parsing) or when unknown.
+     *
+     * @return the persisted frozen provenance, or null
+     */
+    public Boolean getPlanFrozen() {
+        return planFrozen;
+    }
+
+    public void setPlanFrozen(Boolean planFrozen) {
+        this.planFrozen = planFrozen;
+    }
+
+    /**
+     * Returns the CREATE-time schema fingerprint of the referenced base tables (see the
+     * field javadoc); null / empty for pre-column rows and table-less queries (no
+     * validation possible / needed).
+     *
+     * @return the schema fingerprint, or null
+     */
+    public String getSchemaFingerprint() {
+        return schemaFingerprint;
+    }
+
+    public void setSchemaFingerprint(String schemaFingerprint) {
+        this.schemaFingerprint = schemaFingerprint;
     }
 
     /**

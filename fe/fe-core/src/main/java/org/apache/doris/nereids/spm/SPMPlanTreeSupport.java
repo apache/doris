@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.StatementContext;
@@ -80,6 +81,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * SPMPlanTreeSupport - whole-query plan-tree SPM engine.
@@ -987,7 +989,7 @@ public final class SPMPlanTreeSupport {
      * @param plan the frozen (re-parsed) plan tree to scan
      * @return true when an unsubstituted placeholder call is found anywhere
      */
-    public static boolean containsFrozenPlaceholder(LogicalPlan plan) {
+    public static boolean containsFrozenPlaceholder(Plan plan) {
         return plan.accept(new FrozenPlaceholderScanVisitor(), null);
     }
 
@@ -1526,6 +1528,95 @@ public final class SPMPlanTreeSupport {
             // the normal analysis pass reports the error
             return false;
         }
+    }
+
+    // ==================== LIMIT / OFFSET canonical digest ====================
+
+    /**
+     * Canonicalizes an SPM digest for the Level 1/2 matching key: the TOP-LEVEL LIMIT /
+     * OFFSET values are adopted from the user query at rewrite time
+     * (SPMPlanTreeSupport#mergeLimits) and must therefore not be part of the key - but
+     * LogicalLimit.toDigest() renders " OFFSET ?" only for a NON-ZERO offset, so a
+     * baseline captured as "LIMIT 10" and a matching "LIMIT 20 OFFSET 5" query produced
+     * different digests, the candidate list came back empty and the OFFSET query could
+     * never reach the structural match that adopts its values. Dropping every
+     * " OFFSET ?" suffix makes the key offset-independent exactly like it already is
+     * limit-independent.
+     *
+     * A LIMIT / OFFSET inside a subquery plan is NOT reachable by the positional merge:
+     * those values stay exact-compared at Level 3 (checkPlan insideSubquery), so removing
+     * them from the digest can only skip/accept a candidate, never replay a wrong slice.
+     *
+     * @param digest the raw toSpmDigest() text
+     * @return the offset-independent matching key
+     */
+    public static String canonicalSpmDigest(String digest) {
+        return digest == null ? null : digest.replace(" OFFSET ?", "");
+    }
+
+    // ==================== schema identity (frozen-baseline binding) ====================
+
+    /**
+     * Fingerprint of the base tables referenced by a (still unbound) statement: one
+     * deterministic entry per resolvable catalog relation,
+     * {@code tableName|tableId|schemaHash}, sorted and joined with ';'. CREATE persists
+     * it with the baseline and the rewrite validates it BEFORE replaying a frozen plan:
+     * the bind key is built from the unbound query, so {@code SELECT * FROM t WHERE k=1}
+     * keeps the same digest and Level-3 tree after {@code ALTER TABLE t ADD COLUMN extra}
+     * (or after a DROP + CREATE), while the frozen result sink still emits the
+     * creator-time output columns - the matched replay would silently return the old
+     * column set instead of the current star expansion. The table id also catches
+     * drop / recreate (a new id), and the schema hash catches column add / drop / type
+     * changes in place.
+     *
+     * Resolution mirrors {@link #isViewRelation}: unresolvable relations are skipped
+     * (the normal analysis pass reports the error). A statement without a resolvable
+     * relation (SELECT 1, TVF-only, ...) yields an EMPTY fingerprint, which disables
+     * the check - there is no schema identity to bind to.
+     *
+     * @param ctx  the session context (null yields an empty fingerprint)
+     * @param plan the unbound plan (null yields an empty fingerprint)
+     * @return the fingerprint (possibly empty, never null)
+     */
+    public static String schemaFingerprint(ConnectContext ctx, Plan plan) {
+        if (plan == null || ctx == null || ctx.getStatementContext() == null) {
+            return "";
+        }
+        TreeSet<String> entries = new TreeSet<>();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof UnboundRelation) {
+                UnboundRelation relation = (UnboundRelation) node;
+                try {
+                    TableIf table = ctx.getStatementContext().getAndCacheTable(
+                            RelationUtil.getQualifierName(ctx, relation.getNameParts()),
+                            StatementContext.TableFrom.QUERY, Optional.of(relation));
+                    entries.add(describeTableForFingerprint(table));
+                } catch (RuntimeException e) {
+                    // unresolvable: not part of the fingerprint, the analysis pass reports
+                }
+            }
+        });
+        if (entries.isEmpty()) {
+            return "";
+        }
+        StringBuilder fingerprint = new StringBuilder();
+        for (String entry : entries) {
+            if (fingerprint.length() > 0) {
+                fingerprint.append(';');
+            }
+            fingerprint.append(entry);
+        }
+        return fingerprint.toString();
+    }
+
+    /** One fingerprint entry of one resolved table: name + id + base-schema hash. */
+    private static String describeTableForFingerprint(TableIf table) {
+        StringBuilder schema = new StringBuilder();
+        for (Column column : table.getBaseSchema()) {
+            schema.append(column.getName()).append(':')
+                    .append(column.getType().toString()).append(',');
+        }
+        return table.getName() + "|" + table.getId() + "|" + SPMUtils.hashOf(schema.toString());
     }
 
     /** Optional value equality with a textual fallback for value types without equals. */
