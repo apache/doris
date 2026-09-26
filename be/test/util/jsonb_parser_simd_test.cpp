@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <string>
+#include <vector>
+
 #include "common/status.h"
 #include "core/value/jsonb_value.h"
 #include "gtest/gtest.h"
@@ -435,6 +438,143 @@ TEST_F(JsonbParserTest, ParseJsonWithEscapedNulInKey) {
     std::string_view json_with_nul = R"({"a\u0000b":1})";
     std::string_view expected_json_with_nul = R"({"a\u0000b":1})";
     EXPECT_EQ(parse_json_and_check(json_with_nul, expected_json_with_nul), Status::OK());
+}
+
+static void expect_parse_rejected(std::string_view json_str) {
+    JsonBinaryValue jsonb_val;
+    EXPECT_FALSE(jsonb_val.from_json_string(json_str.data(), json_str.length()).ok()) << json_str;
+}
+
+TEST_F(JsonbParserTest, ParseJsonRejectsLeadingZeros) {
+    for (std::string_view json :
+         {"01", "00", "-01", "01.5", "01e5", "[01]", "[1,01]", R"({"k":01})", R"({"k":-00})"}) {
+        expect_parse_rejected(json);
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonRejectsIncompleteFraction) {
+    for (std::string_view json : {"1.", "-1.", "1.e5", "[1.]", R"({"k":1.})", ".5", "-.5"}) {
+        expect_parse_rejected(json);
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonRejectsIncompleteExponent) {
+    for (std::string_view json : {"1e", "1e+", "1E-", "1.5e", "[1e]", R"({"k":1e+})"}) {
+        expect_parse_rejected(json);
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonRejectsGarbageAfterNumber) {
+    for (std::string_view json : {"1x", "1.5x", "1.5.5", "1e5e5", "--1", "[1x]", "[1.5x]",
+                                  R"({"k":1x})", "18446744073709551616x"}) {
+        expect_parse_rejected(json);
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonRejectsInfiniteNumber) {
+    for (std::string_view json : {"1e400", "-1e400", "[1e400]", R"({"k":1e400})"}) {
+        expect_parse_rejected(json);
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonNumbersBeyondUint64) {
+    // one above uint64 max: simdjson reports NUMBER_ERROR, parsed as int128
+    EXPECT_EQ(parse_json_and_check("18446744073709551616", "18446744073709551616"), Status::OK());
+    EXPECT_EQ(parse_json_and_check("20000000000000000000", "20000000000000000000"), Status::OK());
+    // one below int64 min: simdjson reports BIGINT_ERROR, parsed as int128
+    EXPECT_EQ(parse_json_and_check("-9223372036854775809", "-9223372036854775809"), Status::OK());
+    EXPECT_EQ(parse_json_and_check(R"([18446744073709551615,-9223372036854775808])",
+                                   R"([18446744073709551615,-9223372036854775808])"),
+              Status::OK());
+    // beyond int128: falls back to double
+    EXPECT_EQ(parse_json_and_check("170141183460469231731687303715884105728",
+                                   "1.7014118346046923e+38"),
+              Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonNumberWithTrailingWhitespace) {
+    EXPECT_EQ(parse_json_and_check("[1 , 18446744073709551616 \t\n]", "[1,18446744073709551616]"),
+              Status::OK());
+    EXPECT_EQ(parse_json_and_check(R"({"k" : -9223372036854775809 })",
+                                   R"({"k":-9223372036854775809})"),
+              Status::OK());
+    EXPECT_EQ(parse_json_and_check("18446744073709551616 \n", "18446744073709551616"),
+              Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonRejectsRootNumberWithTrailingContent) {
+    for (std::string_view json : {"1 2", "1,2", "1]", "1}", "1 x", "1 true", "1.5 2",
+                                  "18446744073709551616 0", "-9223372036854775809 1"}) {
+        expect_parse_rejected(json);
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonInt128Boundaries) {
+    EXPECT_EQ(parse_json_and_check("170141183460469231731687303715884105727",
+                                   "170141183460469231731687303715884105727"),
+              Status::OK());
+    EXPECT_EQ(parse_json_and_check("[-170141183460469231731687303715884105728]",
+                                   "[-170141183460469231731687303715884105728]"),
+              Status::OK());
+    // one beyond int128 in either direction falls back to double
+    EXPECT_EQ(parse_json_and_check("170141183460469231731687303715884105728",
+                                   "1.7014118346046923e+38"),
+              Status::OK());
+    EXPECT_EQ(parse_json_and_check("-170141183460469231731687303715884105729",
+                                   "-1.7014118346046923e+38"),
+              Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonLongRootNumber) {
+    // longer than simdjson's root scalar buffer: falls back to the raw token
+    std::string long_float = "1." + std::string(1100, '0');
+    EXPECT_EQ(parse_json_and_check(long_float, "1"), Status::OK());
+    // must stay a double: the fraction is not truncated by the integer path
+    std::string long_fraction = "1.5" + std::string(1100, '0');
+    EXPECT_EQ(parse_json_and_check(long_fraction, "1.5"), Status::OK());
+    std::string long_float_with_exponent = "1." + std::string(1100, '0') + "e2";
+    EXPECT_EQ(parse_json_and_check(long_float_with_exponent, "100"), Status::OK());
+    // an integer beyond the double range is rejected instead of becoming inf
+    std::string long_int = "1" + std::string(400, '0');
+    expect_parse_rejected(long_int);
+    expect_parse_rejected("[" + long_int + "]");
+}
+
+TEST_F(JsonbParserTest, ParseJsonMalformedNumberErrorMessageIsBounded) {
+    // A malformed number token may be as long as the input; the error message must quote
+    // only a bounded prefix of it so that rejecting bad data does not allocate another
+    // input-sized string.
+    const std::string digits(1 << 20, '0');
+    struct Case {
+        std::string json;
+        // the number token quoted by the error message
+        std::string token;
+    };
+    const std::vector<Case> cases = {
+            // grammar failure
+            {"1." + digits + "x", "1." + digits + "x"},
+            // trailing content after a root number: the token ends at the next token
+            {"1" + digits + " x", "1" + digits},
+            // integer beyond the double range
+            {"1" + digits, "1" + digits},
+            // grammar failure inside an array
+            {"[1." + digits + "x]", "1." + digits + "x"},
+    };
+    for (const auto& c : cases) {
+        JsonBinaryValue jsonb_val;
+        Status st = jsonb_val.from_json_string(c.json.data(), c.json.length());
+        EXPECT_FALSE(st.ok()) << c.json.substr(0, 16);
+        EXPECT_LT(st.msg().size(), 256) << st.msg().substr(0, 256);
+        EXPECT_NE(st.msg().find(fmt::format("{}... (truncated, {} bytes)", c.token.substr(0, 64),
+                                            c.token.size())),
+                  std::string::npos)
+                << st.msg();
+    }
+}
+
+TEST_F(JsonbParserTest, ParseJsonNumberUnderflowToZero) {
+    EXPECT_EQ(parse_json_and_check("1e-400", "0"), Status::OK());
+    EXPECT_EQ(parse_json_and_check(R"({"k":-1e-400})", R"({"k":-0})"), Status::OK());
 }
 
 } // namespace doris
