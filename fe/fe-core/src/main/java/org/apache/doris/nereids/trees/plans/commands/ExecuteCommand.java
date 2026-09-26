@@ -185,15 +185,20 @@ public class ExecuteCommand extends Command {
         // Drop the previously cached short-circuit context: either it was reusable and returned
         // early above, has just been refreshed here, or is stale and we are about to re-plan.
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
+        // The inherited flag is only for deciding direct reuse above. Recompute it from the
+        // current plan so a newly added policy or another eligibility change cannot stay cached.
+        statementContext.setShortCircuitQuery(false);
         executor.execute();
         StatementContext executedStatementContext = executor.getContext().getStatementContext();
         ShortCircuitQueryContext shortCircuitQueryContext =
                 executedStatementContext.getShortCircuitQueryContext();
         if (shortCircuitQueryContext != null) {
             Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
-            // Publish the exact context used by this execution so its topology generation stays
-            // bound to the cached partition pruner in the same planner scan node.
-            preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
+            // Publish the exact context used by this execution only if the security and namespace
+            // snapshot still matches after planning and execution.
+            if (shortCircuitQueryContext.isReusable(ctx)) {
+                preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
+            }
         }
     }
 

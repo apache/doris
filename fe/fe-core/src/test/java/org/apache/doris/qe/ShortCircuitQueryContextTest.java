@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.nereids.SecurityDependencyContext;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.thrift.TQueryOptions;
@@ -56,10 +57,17 @@ public class ShortCircuitQueryContextTest {
         return ctx;
     }
 
+    private SecurityDependencyContext validSecurityDependencies() {
+        SecurityDependencyContext dependencies = Mockito.mock(SecurityDependencyContext.class);
+        Mockito.when(dependencies.isValid(Mockito.any())).thenReturn(true);
+        return dependencies;
+    }
+
     @Test
     public void testReusableRequiresSameFileCacheQueryLimitBytes() {
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(table("tbl", 10), "tbl", 10, -1);
+                new ShortCircuitQueryContext(table("tbl", 10), "tbl", 10, -1,
+                        validSecurityDependencies());
 
         Assertions.assertTrue(context.isReusable(connectContext(-1)));
         Assertions.assertFalse(context.isReusable(connectContext(0)));
@@ -68,7 +76,8 @@ public class ShortCircuitQueryContextTest {
     @Test
     public void testReusableStillChecksTableMetadata() {
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(table("tbl", 11), "tbl", 10, 0);
+                new ShortCircuitQueryContext(table("tbl", 11), "tbl", 10, 0,
+                        validSecurityDependencies());
 
         Assertions.assertFalse(context.isReusable(connectContext(0)));
     }
@@ -84,12 +93,33 @@ public class ShortCircuitQueryContextTest {
         table.setIndexMeta(baseIndexId, "tbl", baseSchema, 10, 0, (short) 1,
                 TStorageType.COLUMN, KeysType.DUP_KEYS);
         table.setBaseIndexId(baseIndexId);
-        ShortCircuitQueryContext context = new ShortCircuitQueryContext(table, "tbl", 10, -1);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(
+                table, "tbl", 10, -1, validSecurityDependencies());
 
         Assertions.assertTrue(context.isReusable(connectContext(-1)));
         table.addPartition(new Partition(3L, "p1",
                 new MaterializedIndex(baseIndexId, MaterializedIndex.IndexState.NORMAL),
                 new RandomDistributionInfo(1)));
+        Assertions.assertFalse(context.isReusable(connectContext(-1)));
+    }
+
+    @Test
+    public void testReusableRequiresCurrentSecurityDependencies() {
+        ConnectContext connectContext = connectContext(-1);
+        SecurityDependencyContext securityDependencyContext = Mockito.mock(SecurityDependencyContext.class);
+        Mockito.when(securityDependencyContext.isValid(connectContext)).thenReturn(false);
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(
+                table("tbl", 10), "tbl", 10, -1, securityDependencyContext);
+
+        Assertions.assertFalse(context.isReusable(connectContext));
+        Mockito.verify(securityDependencyContext).isValid(connectContext);
+    }
+
+    @Test
+    public void testMissingSecurityDependenciesFailClosed() {
+        ShortCircuitQueryContext context = new ShortCircuitQueryContext(
+                table("tbl", 10), "tbl", 10, -1, null);
+
         Assertions.assertFalse(context.isReusable(connectContext(-1)));
     }
 
@@ -110,7 +140,8 @@ public class ShortCircuitQueryContextTest {
         Mockito.when(planner.getScanNodes()).thenReturn(Collections.singletonList(scanNode));
 
         ShortCircuitQueryContext context =
-                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class));
+                new ShortCircuitQueryContext(planner, Mockito.mock(Queriable.class),
+                        new SecurityDependencyContext());
         TQueryOptions serializedQueryOptions = new TQueryOptions();
         new TDeserializer().deserialize(serializedQueryOptions, context.serializedQueryOptions.toByteArray());
 

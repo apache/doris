@@ -144,6 +144,7 @@ public class CheckPrivileges extends ColumnPruning {
             throw new AnalysisException(e.getMessage(), e);
         }
         StatementContext statementContext = cascadesContext.getStatementContext();
+        statementContext.getSecurityDependencyContext().addCheckedPrivilege(table, usedColumns);
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().addCheckPrivilegeTablesOrViews(table, usedColumns);
