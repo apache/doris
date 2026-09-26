@@ -37,6 +37,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * show grants command
@@ -45,6 +46,7 @@ public class ShowGrantsCommand extends ShowCommand {
     private static final ShowResultSetMetaData META_DATA;
     private final boolean isAll;
     private UserIdentity userIdent; // if not given will update with self.
+    private String roleName;
 
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
@@ -54,13 +56,18 @@ public class ShowGrantsCommand extends ShowCommand {
         META_DATA = builder.build();
     }
 
-    /**
-     * constructor
-     */
     public ShowGrantsCommand(UserIdentity userIdent, boolean isAll) {
         super(PlanType.SHOW_GRANTS_COMMAND);
         this.userIdent = userIdent;
         this.isAll = isAll;
+        this.roleName = null;
+    }
+
+    public ShowGrantsCommand(String roleName) {
+        super(PlanType.SHOW_GRANTS_COMMAND);
+        this.roleName = roleName;
+        this.isAll = false;
+        this.userIdent = null;
     }
 
     @Override
@@ -82,12 +89,30 @@ public class ShowGrantsCommand extends ShowCommand {
             }
         }
         boolean isSelf = userIdent != null && ConnectContext.get().getCurrentUserIdentity().equals(userIdent);
-        Preconditions.checkState(isAll || userIdent != null);
-        // if show all grants, or show other user's grants, need global GRANT priv.
+        boolean hasGlobalGrantPriv = Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT);
+        Preconditions.checkState(isAll || userIdent != null || roleName != null);
+        // if show all grants, or show other user's grants, or show role's grants, need global GRANT priv.
         if (isAll || !isSelf) {
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!hasGlobalGrantPriv) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
+        }
+        if (roleName != null) {
+            // check role if exists
+            if (!Env.getCurrentEnv().getAccessManager().getAuth().doesRoleExist(roleName)) {
+                throw new AnalysisException(String.format("Role: %s does not exist", roleName));
+            }
+
+            // check current user if belongs to this role
+            Set<UserIdentity> roleUsers = Env.getCurrentEnv().getAccessManager().getAuth().getRoleUsers(roleName);
+            boolean hasRole = roleUsers.contains(ConnectContext.get().getCurrentUserIdentity());
+
+            // only users has admin priv or users belong to this role, that have show priv
+            if (!hasGlobalGrantPriv && !hasRole) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+            }
+            return getRoleGrants(ctx, roleName, hasGlobalGrantPriv);
         }
         // ldap user not exist in userManager, so should not check
         if (userIdent != null && !isSelf && !Env.getCurrentEnv().getAccessManager().getAuth()
@@ -104,6 +129,21 @@ public class ShowGrantsCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowGrantsCommand(this, context);
+    }
+
+    private ShowResultSet getRoleGrants(ConnectContext ctx, String roleName, boolean hasGlobalGrantPriv)
+            throws Exception {
+        List<List<String>> roleAuthInfo;
+        if (hasGlobalGrantPriv) {
+            // only users have admin priv can show all grants for this role
+            roleAuthInfo = Env.getCurrentEnv().getAccessManager().getAuth().getRoleAuthInfo(roleName);
+        } else {
+            // normal user can only show grant of themselves
+            UserIdentity currentUser = ConnectContext.get().getCurrentUserIdentity();
+            roleAuthInfo = Env.getCurrentEnv().getAccessManager().getAuth().getRoleAuthInfo(roleName, currentUser);
+        }
+        roleAuthInfo.sort(Comparator.comparing(list -> list.isEmpty() ? "" : list.get(0)));
+        return new ShowResultSet(getMetaData(), roleAuthInfo);
     }
 
 }
