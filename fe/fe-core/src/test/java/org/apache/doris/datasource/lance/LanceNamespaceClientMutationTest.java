@@ -20,6 +20,8 @@ package org.apache.doris.datasource.lance;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.errors.TableAlreadyExistsException;
+import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.model.AddColumnsEntry;
 import org.lance.namespace.model.AlterColumnsEntry;
 import org.lance.namespace.model.AlterTableAddColumnsRequest;
@@ -31,7 +33,14 @@ import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.DropNamespaceRequest;
 import org.lance.namespace.model.DropTableRequest;
+import org.lance.namespace.model.ListNamespacesRequest;
+import org.lance.namespace.model.ListNamespacesResponse;
+import org.lance.namespace.model.ListTablesRequest;
+import org.lance.namespace.model.ListTablesResponse;
+import org.lance.namespace.model.RegisterTableRequest;
+import org.lance.namespace.model.TableExistsRequest;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -46,7 +55,6 @@ public class LanceNamespaceClientMutationTest {
 
         client.createDatabase("analytics", Collections.singletonMap("owner", "doris"));
         client.dropDatabase("analytics", true, false);
-        client.dropDatabase("analytics", false, true);
 
         ArgumentCaptor<CreateNamespaceRequest> create =
                 ArgumentCaptor.forClass(CreateNamespaceRequest.class);
@@ -57,11 +65,45 @@ public class LanceNamespaceClientMutationTest {
 
         ArgumentCaptor<DropNamespaceRequest> drop =
                 ArgumentCaptor.forClass(DropNamespaceRequest.class);
-        Mockito.verify(namespace, Mockito.times(2)).dropNamespace(drop.capture());
-        Assertions.assertEquals("Skip", drop.getAllValues().get(0).getMode());
-        Assertions.assertEquals("Restrict", drop.getAllValues().get(0).getBehavior());
-        Assertions.assertEquals("Fail", drop.getAllValues().get(1).getMode());
-        Assertions.assertEquals("Cascade", drop.getAllValues().get(1).getBehavior());
+        Mockito.verify(namespace).dropNamespace(drop.capture());
+        Assertions.assertEquals("Skip", drop.getValue().getMode());
+        Assertions.assertEquals("Restrict", drop.getValue().getBehavior());
+    }
+
+    @Test
+    public void testForceDropDatabaseDeletesNestedContentsBeforeNamespaces() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.when(namespace.listNamespaces(Mockito.any())).thenAnswer(invocation -> {
+            ListNamespacesRequest request = invocation.getArgument(0);
+            if (request.getId().equals(Arrays.asList("tenant", "analytics"))) {
+                return new ListNamespacesResponse().namespaces(Collections.singleton("archive"));
+            }
+            return new ListNamespacesResponse().namespaces(Collections.emptySet());
+        });
+        Mockito.when(namespace.listTables(Mockito.any())).thenAnswer(invocation -> {
+            ListTablesRequest request = invocation.getArgument(0);
+            if (request.getId().equals(Arrays.asList("tenant", "analytics", "archive"))) {
+                return new ListTablesResponse().tables(Collections.singleton("old_events"));
+            }
+            return new ListTablesResponse().tables(Collections.singleton("events"));
+        });
+        LanceNamespaceClient client = client(namespace);
+
+        client.dropDatabase("analytics", true, true);
+
+        InOrder order = Mockito.inOrder(namespace);
+        order.verify(namespace).dropTable(Mockito.argThat(request ->
+                request.getId().equals(Arrays.asList("tenant", "analytics", "archive", "old_events"))));
+        order.verify(namespace).dropNamespace(Mockito.argThat(request ->
+                request.getId().equals(Arrays.asList("tenant", "analytics", "archive"))
+                        && "Fail".equals(request.getMode())
+                        && "Restrict".equals(request.getBehavior())));
+        order.verify(namespace).dropTable(Mockito.argThat(request ->
+                request.getId().equals(Arrays.asList("tenant", "analytics", "events"))));
+        order.verify(namespace).dropNamespace(Mockito.argThat(request ->
+                request.getId().equals(Arrays.asList("tenant", "analytics"))
+                        && "Skip".equals(request.getMode())
+                        && "Restrict".equals(request.getBehavior())));
     }
 
     @Test
@@ -163,9 +205,116 @@ public class LanceNamespaceClientMutationTest {
                 drop.getValue().getColumns());
     }
 
+    @Test
+    public void testRootFilesystemDropRegistersExternalTableAndRetries() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        TableNotFoundException notFound = new TableNotFoundException("not registered");
+        Mockito.doThrow(notFound).doReturn(null).when(namespace).dropTable(Mockito.any());
+        LanceNamespaceClient client = rootFilesystemClient(namespace);
+
+        client.dropTable("default", "events");
+
+        InOrder order = Mockito.inOrder(namespace);
+        order.verify(namespace).dropTable(Mockito.any());
+        order.verify(namespace).tableExists(Mockito.argThat(request ->
+                request.getId().equals(Collections.singletonList("events"))));
+        order.verify(namespace).registerTable(Mockito.argThat(request ->
+                request.getId().equals(Collections.singletonList("events"))
+                        && "events.lance".equals(request.getLocation())
+                        && "Create".equals(request.getMode())));
+        order.verify(namespace).dropTable(Mockito.any());
+    }
+
+    @Test
+    public void testRootFilesystemColumnMutationRegistersExternalTableAndRetries() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.doThrow(new TableNotFoundException("not registered"))
+                .doReturn(null)
+                .when(namespace).alterTableAlterColumns(Mockito.any());
+        LanceNamespaceClient client = rootFilesystemClient(namespace);
+
+        client.alterColumns("default", "events", Collections.singletonList(
+                new AlterColumnsEntry().path("score").nullable(false)));
+
+        InOrder order = Mockito.inOrder(namespace);
+        order.verify(namespace).alterTableAlterColumns(Mockito.any());
+        order.verify(namespace).tableExists(Mockito.any(TableExistsRequest.class));
+        order.verify(namespace).registerTable(Mockito.any(RegisterTableRequest.class));
+        order.verify(namespace).alterTableAlterColumns(Mockito.any());
+    }
+
+    @Test
+    public void testConcurrentExternalTableRegistrationStillRetriesMutation() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.doThrow(new TableNotFoundException("not registered"))
+                .doReturn(null)
+                .when(namespace).alterTableAddColumns(Mockito.any());
+        Mockito.doThrow(new TableAlreadyExistsException("registered concurrently"))
+                .when(namespace).registerTable(Mockito.any());
+        LanceNamespaceClient client = rootFilesystemClient(namespace);
+
+        client.addColumns("default", "events", Collections.singletonList(
+                new AddColumnsEntry().name("score").expression("CAST(NULL AS BIGINT)")));
+
+        Mockito.verify(namespace, Mockito.times(2)).alterTableAddColumns(Mockito.any());
+    }
+
+    @Test
+    public void testMissingRootFilesystemTablePreservesMutationFailure() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        TableNotFoundException mutationFailure = new TableNotFoundException("not registered");
+        Mockito.doThrow(mutationFailure).when(namespace).dropTable(Mockito.any());
+        Mockito.doThrow(new TableNotFoundException("dataset does not exist"))
+                .when(namespace).tableExists(Mockito.any());
+        LanceNamespaceClient client = rootFilesystemClient(namespace);
+
+        TableNotFoundException thrown = Assertions.assertThrows(TableNotFoundException.class,
+                () -> client.dropTable("default", "events"));
+
+        Assertions.assertSame(mutationFailure, thrown);
+        Mockito.verify(namespace, Mockito.never()).registerTable(Mockito.any());
+    }
+
+    @Test
+    public void testFilesystemChildNamespaceDoesNotRegisterMissingTable() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        TableNotFoundException notFound = new TableNotFoundException("not registered");
+        Mockito.doThrow(notFound).when(namespace).alterTableDropColumns(Mockito.any());
+        LanceNamespaceClient client = new LanceNamespaceClient(namespace, "filesystem", "default",
+                Collections.singletonList("tenant"), Collections.emptyList());
+
+        TableNotFoundException thrown = Assertions.assertThrows(TableNotFoundException.class,
+                () -> client.dropColumns("default", "events", Collections.singletonList("score")));
+
+        Assertions.assertSame(notFound, thrown);
+        Mockito.verify(namespace, Mockito.never()).tableExists(Mockito.any());
+        Mockito.verify(namespace, Mockito.never()).registerTable(Mockito.any());
+    }
+
+    @Test
+    public void testRestRootNamespaceDoesNotRegisterMissingTable() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        TableNotFoundException notFound = new TableNotFoundException("not registered");
+        Mockito.doThrow(notFound).when(namespace).dropTable(Mockito.any());
+        LanceNamespaceClient client = new LanceNamespaceClient(namespace, "rest", "default",
+                Collections.emptyList(), Collections.emptyList());
+
+        TableNotFoundException thrown = Assertions.assertThrows(TableNotFoundException.class,
+                () -> client.dropTable("default", "events"));
+
+        Assertions.assertSame(notFound, thrown);
+        Mockito.verify(namespace, Mockito.never()).tableExists(Mockito.any());
+        Mockito.verify(namespace, Mockito.never()).registerTable(Mockito.any());
+    }
+
     private static LanceNamespaceClient client(LanceNamespace namespace) {
         return new LanceNamespaceClient(namespace, "rest", "default",
                 Collections.singletonList("tenant"), Collections.emptyList(),
                 Collections.singletonMap("aws_secret_access_key", "secret"));
+    }
+
+    private static LanceNamespaceClient rootFilesystemClient(LanceNamespace namespace) {
+        return new LanceNamespaceClient(namespace, "filesystem", "default",
+                Collections.emptyList(), Collections.emptyList());
     }
 }

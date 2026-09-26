@@ -30,6 +30,7 @@ import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.commons.lang3.StringUtils;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
+import org.lance.namespace.errors.TableAlreadyExistsException;
 import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.errors.TableVersionNotFoundException;
 import org.lance.namespace.model.AddColumnsEntry;
@@ -52,6 +53,7 @@ import org.lance.namespace.model.ListTableVersionsResponse;
 import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.NamespaceExistsRequest;
+import org.lance.namespace.model.RegisterTableRequest;
 import org.lance.namespace.model.TableExistsRequest;
 import org.lance.namespace.model.TableVersion;
 
@@ -77,6 +79,7 @@ import java.util.concurrent.TimeUnit;
 final class LanceNamespaceClient {
     private static final String DATABASE_NAMESPACE_DELIMITER = ".";
     private static final int PAGE_SIZE = 1000;
+    private static final String LANCE_FILESYSTEM = AbstractLanceProperties.LANCE_FILESYSTEM;
     private static final String LANCE_REST = AbstractLanceProperties.LANCE_REST;
 
     private final LanceNamespace namespace;
@@ -204,16 +207,43 @@ final class LanceNamespaceClient {
 
     void dropDatabase(String dbName, boolean ifExists, boolean force) {
         try {
-            DropNamespaceRequest request = new DropNamespaceRequest()
-                    .id(buildNamespaceId(dbName))
-                    .mode(ifExists ? "Skip" : "Fail")
-                    .behavior(force ? "Cascade" : "Restrict");
+            List<String> namespaceId = buildNamespaceId(dbName);
             synchronized (namespaceLock) {
-                namespace.dropNamespace(request);
+                if (force) {
+                    try {
+                        dropNamespaceCascade(namespaceId, ifExists ? "Skip" : "Fail");
+                    } catch (NamespaceNotFoundException e) {
+                        if (!ifExists) {
+                            throw e;
+                        }
+                    }
+                    return;
+                }
+                namespace.dropNamespace(new DropNamespaceRequest()
+                        .id(namespaceId)
+                        .mode(ifExists ? "Skip" : "Fail")
+                        .behavior("Restrict"));
             }
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private void dropNamespaceCascade(List<String> namespaceId, String mode) {
+        for (String child : listChildNamespaces(namespaceId)) {
+            List<String> childId = new ArrayList<>(namespaceId);
+            childId.add(child);
+            dropNamespaceCascade(childId, "Fail");
+        }
+        for (String table : listTableNames(namespaceId)) {
+            List<String> tableId = new ArrayList<>(namespaceId);
+            tableId.add(table);
+            namespace.dropTable(new DropTableRequest().id(tableId));
+        }
+        namespace.dropNamespace(new DropNamespaceRequest()
+                .id(namespaceId)
+                .mode(mode)
+                .behavior("Restrict"));
     }
 
     /**
@@ -248,31 +278,34 @@ final class LanceNamespaceClient {
 
     List<String> listTableNames(String dbName) {
         try {
-            List<String> namespaceId = buildNamespaceId(dbName);
-            List<String> result = new ArrayList<>();
-            String pageToken = null;
-            Set<String> consumedTokens = new HashSet<>();
-            do {
-                ListTablesRequest request = new ListTablesRequest().id(namespaceId).limit(PAGE_SIZE);
-                if (pageToken != null) {
-                    request.pageToken(pageToken);
-                }
-                ListTablesResponse response;
-                synchronized (namespaceLock) {
-                    response = namespace.listTables(request);
-                }
-                if (response.getTables() != null) {
-                    result.addAll(response.getTables());
-                }
-                pageToken = response.getPageToken();
-                if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
-                    throw new IllegalStateException("Lance namespace repeated a pagination token");
-                }
-            } while (StringUtils.isNotEmpty(pageToken));
-            return result;
+            return listTableNames(buildNamespaceId(dbName));
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private List<String> listTableNames(List<String> namespaceId) {
+        List<String> result = new ArrayList<>();
+        String pageToken = null;
+        Set<String> consumedTokens = new HashSet<>();
+        do {
+            ListTablesRequest request = new ListTablesRequest().id(namespaceId).limit(PAGE_SIZE);
+            if (pageToken != null) {
+                request.pageToken(pageToken);
+            }
+            ListTablesResponse response;
+            synchronized (namespaceLock) {
+                response = namespace.listTables(request);
+            }
+            if (response.getTables() != null) {
+                result.addAll(response.getTables());
+            }
+            pageToken = response.getPageToken();
+            if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
+                throw new IllegalStateException("Lance namespace repeated a pagination token");
+            }
+        } while (StringUtils.isNotEmpty(pageToken));
+        return result;
     }
 
     boolean tableExists(String dbName, String tblName) {
@@ -309,9 +342,7 @@ final class LanceNamespaceClient {
     void dropTable(String dbName, String tableName) {
         try {
             DropTableRequest request = new DropTableRequest().id(buildTableId(dbName, tableName));
-            synchronized (namespaceLock) {
-                namespace.dropTable(request);
-            }
+            executeTableMutation(dbName, tableName, () -> namespace.dropTable(request));
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
@@ -322,9 +353,7 @@ final class LanceNamespaceClient {
             AlterTableAddColumnsRequest request = new AlterTableAddColumnsRequest()
                     .id(buildTableId(dbName, tableName))
                     .newColumns(columns);
-            synchronized (namespaceLock) {
-                namespace.alterTableAddColumns(request);
-            }
+            executeTableMutation(dbName, tableName, () -> namespace.alterTableAddColumns(request));
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
@@ -335,9 +364,7 @@ final class LanceNamespaceClient {
             AlterTableAlterColumnsRequest request = new AlterTableAlterColumnsRequest()
                     .id(buildTableId(dbName, tableName))
                     .alterations(alterations);
-            synchronized (namespaceLock) {
-                namespace.alterTableAlterColumns(request);
-            }
+            executeTableMutation(dbName, tableName, () -> namespace.alterTableAlterColumns(request));
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
@@ -348,11 +375,41 @@ final class LanceNamespaceClient {
             AlterTableDropColumnsRequest request = new AlterTableDropColumnsRequest()
                     .id(buildTableId(dbName, tableName))
                     .columns(columns);
-            synchronized (namespaceLock) {
-                namespace.alterTableDropColumns(request);
-            }
+            executeTableMutation(dbName, tableName, () -> namespace.alterTableDropColumns(request));
         } catch (DdlException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private void executeTableMutation(String dbName, String tableName, Runnable mutation)
+            throws DdlException {
+        List<String> namespaceId = buildNamespaceId(dbName);
+        List<String> tableId = new ArrayList<>(namespaceId);
+        tableId.add(tableName);
+        synchronized (namespaceLock) {
+            try {
+                mutation.run();
+                return;
+            } catch (TableNotFoundException originalException) {
+                if (!LANCE_FILESYSTEM.equals(catalogType) || !namespaceId.isEmpty()) {
+                    throw originalException;
+                }
+                try {
+                    namespace.tableExists(new TableExistsRequest().id(tableId));
+                } catch (TableNotFoundException | NamespaceNotFoundException e) {
+                    throw originalException;
+                }
+                try {
+                    // DirectoryNamespace only accepts locations relative to its warehouse root.
+                    namespace.registerTable(new RegisterTableRequest()
+                            .id(tableId)
+                            .location(tableName + ".lance")
+                            .mode("Create"));
+                } catch (TableAlreadyExistsException e) {
+                    // Another mutation registered the external dataset first.
+                }
+                mutation.run();
+            }
         }
     }
 

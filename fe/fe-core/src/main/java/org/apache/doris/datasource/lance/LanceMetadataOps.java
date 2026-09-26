@@ -72,6 +72,12 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             if (client.isRootDatabase(dbName)) {
                 throw new DdlException("Cannot create the configured Lance root database: " + dbName);
             }
+            if (catalog.getDbNullable(dbName) != null) {
+                if (ifNotExists) {
+                    return true;
+                }
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+            }
             if (client.databaseExists(dbName)) {
                 if (ifNotExists) {
                     catalog.resetMetaCacheNames();
@@ -137,7 +143,18 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
+        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(dbName);
+        if (db.isPresent()) {
+            catalog.unregisterDatabase(db.get().getFullName());
+            return;
+        }
         catalog.unregisterDatabase(dbName);
+        catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+    }
+
+    @Override
+    public void afterDropDbNoOp(String dbName) {
+        catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
     }
 
     @Override
@@ -233,7 +250,12 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     public void afterDropTable(String dbName, String tblName) {
         catalog.invalidateTableAccessCache();
         Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
-        db.ifPresent(externalDatabase -> externalDatabase.unregisterTable(tblName));
+        if (db.isPresent()) {
+            boolean invalidated = db.get().unregisterTableForReplay(tblName);
+            if (!invalidated && !db.get().hasLocalTableName(tblName)) {
+                db.get().retireAllTableObjectsWithoutEngineInvalidation();
+            }
+        }
     }
 
     @Override
@@ -334,29 +356,55 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             throws UserException {
         validateModifyColumn(column, position);
         Column currentColumn = requireColumn(dorisTable, column.getName());
-        AlterColumnsEntry alteration = new AlterColumnsEntry().path(currentColumn.getName());
-        boolean changed = false;
-        if (!currentColumn.getType().equals(column.getType())) {
-            alteration.dataType(LanceTypeConverter.toAlterColumnType(column.getType()));
-            changed = true;
+        List<AlterColumnsEntry> alterations = new ArrayList<>();
+        boolean typeChanged = !currentColumn.getType().equals(column.getType());
+        if (typeChanged && StringUtils.isNotEmpty(currentColumn.getComment())) {
+            throw new UserException("Lance MODIFY COLUMN does not support changing the type "
+                    + "of a column with a comment");
+        }
+        if (typeChanged) {
+            alterations.add(new AlterColumnsEntry()
+                    .path(currentColumn.getName())
+                    .dataType(LanceTypeConverter.toAlterColumnType(column.getType())));
         }
         if (column.isNullableSpecified()
                 && currentColumn.isAllowNull() != column.isAllowNull()) {
-            alteration.nullable(column.isAllowNull());
-            changed = true;
+            alterations.add(new AlterColumnsEntry()
+                    .path(currentColumn.getName())
+                    .nullable(column.isAllowNull()));
         }
-        if (!changed) {
+        if (alterations.isEmpty()) {
             return;
         }
 
-        execute("Failed to modify column " + currentColumn.getName() + " in Lance table "
-                        + tableName(dorisTable),
-                client -> {
-                    client.alterColumns(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(),
-                            Collections.singletonList(alteration));
-                    return null;
-                });
-        refreshTable(dorisTable, updateTime);
+        boolean modified = false;
+        DdlException mutationFailure = null;
+        try {
+            for (AlterColumnsEntry alteration : alterations) {
+                execute("Failed to modify column " + currentColumn.getName() + " in Lance table "
+                                + tableName(dorisTable),
+                        client -> {
+                            client.alterColumns(dorisTable.getRemoteDbName(), dorisTable.getRemoteName(),
+                                    Collections.singletonList(alteration));
+                            return null;
+                        });
+                modified = true;
+            }
+        } catch (DdlException e) {
+            mutationFailure = e;
+            throw e;
+        } finally {
+            if (modified) {
+                try {
+                    refreshTable(dorisTable, updateTime);
+                } catch (RuntimeException refreshFailure) {
+                    if (mutationFailure == null) {
+                        throw refreshFailure;
+                    }
+                    mutationFailure.addSuppressed(refreshFailure);
+                }
+            }
+        }
     }
 
     static void validateAddColumn(Column column, ColumnPosition position) throws UserException {
