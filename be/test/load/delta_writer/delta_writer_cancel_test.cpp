@@ -49,7 +49,8 @@
 
 namespace doris {
 
-// Exercise both local/cloud writers, with and without row binlog, without tablet I/O.
+// Exercise local/cloud writers and row binlog with ordinary and shared load tokens,
+// without tablet I/O.
 class DeltaWriterCancelTest : public testing::TestWithParam<int> {
 protected:
     void SetUp() override {
@@ -147,9 +148,11 @@ protected:
     }
 
     std::unique_ptr<CalcDeleteBitmapToken> make_token() {
-        return std::make_unique<CalcDeleteBitmapToken>(
-                _pool->new_token(ThreadPool::ExecutionMode::CONCURRENT),
-                _load_channel->_delete_bitmap_cancellation);
+        auto thread_token =
+                GetParam() & 4 ? _pool->new_load_token(1, LoadTaskPriority::MID, LoadTaskType::LEAF)
+                               : _pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
+        return std::make_unique<CalcDeleteBitmapToken>(std::move(thread_token), nullptr, false,
+                                                       _load_channel->_delete_bitmap_cancellation);
     }
 
     FragmentMgr* _previous_fragment_mgr = nullptr;
@@ -565,9 +568,10 @@ TEST_P(DeltaWriterCancelTest, FailedSubmitWithoutCancellationPreservesPoolError)
     EXPECT_TRUE(pool_error.is<ErrorCode::SERVICE_UNAVAILABLE>());
     EXPECT_EQ(token->submit_func([] { return Status::OK(); }), pool_error);
     EXPECT_TRUE(_load_channel->_delete_bitmap_cancellation->ok());
-    EXPECT_TRUE(token->wait().ok());
+    EXPECT_EQ(token->wait(), pool_error);
 }
 
-INSTANTIATE_TEST_SUITE_P(LocalAndCloud, DeltaWriterCancelTest, testing::Values(0, 1, 2, 3));
+INSTANTIATE_TEST_SUITE_P(LocalAndCloud, DeltaWriterCancelTest,
+                         testing::Values(0, 1, 2, 3, 4, 5, 6, 7));
 
 } // namespace doris

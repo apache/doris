@@ -944,10 +944,10 @@ DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 DECLARE_mInt32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
 DECLARE_mInt32(high_priority_flush_thread_num_per_store);
-// number of threads = min(flush_thread_num_per_store * num_store,
-//                         max_flush_thread_num_per_cpu * num_cpu)
+// Maximum shared foreground load threads per CPU (default 8).
+// Without adaptive flushing, also capped by flush_thread_num_per_store * num_store.
 DECLARE_mInt32(max_flush_thread_num_per_cpu);
-// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+// Minimum shared foreground load threads per CPU when adaptive flushing is enabled (default 1).
 DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
 // Whether to enable adaptive flush thread adjustment

@@ -519,7 +519,11 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_load_token(
+                _context.txn_id,
+                _context.is_transient_rowset_writer ? LoadTaskPriority::HIGHEST
+                                                    : LoadTaskPriority::MID,
+                LoadTaskType::LEAF, thread_context()->resource_ctx()->workload_group(),
                 _context.delete_bitmap_cancellation);
     }
     return Status::OK();
