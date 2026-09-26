@@ -1272,6 +1272,25 @@ Status SegmentIterator::_apply_index_expr() {
             break;
         }
         ++considered_conjuncts;
+        // A hidden placeholder column's inverted index holds the on-disk placeholder, not the value
+        // rows come back with. Evaluating a pushed-down conjunct that references one against the
+        // index (e.g. `__DORIS_VERSION_COL__ = <real version> AND indexed_col = ...`) would drop
+        // matching rows before read-time substitution, so leave the whole conjunct to the row-level
+        // path, which sees the substituted value.
+        {
+            std::set<int> expr_column_ids;
+            expr_ctx->root()->collect_slot_column_ids(expr_column_ids);
+            bool references_placeholder = false;
+            for (const int expr_cid : expr_column_ids) {
+                if (_segment->placeholder_effective_value(expr_cid, *_schema, _opts).has_value()) {
+                    references_placeholder = true;
+                    break;
+                }
+            }
+            if (references_placeholder) {
+                continue;
+            }
+        }
         if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;

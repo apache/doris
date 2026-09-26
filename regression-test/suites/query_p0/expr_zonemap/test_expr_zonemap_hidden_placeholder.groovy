@@ -106,6 +106,10 @@ suite("test_expr_zonemap_hidden_placeholder") {
     wait_for_last_schema_change_finish("test_zonemap_version_col_indexed", indexTimeout)
     sql """ ALTER TABLE test_zonemap_version_col_indexed SET ("bloom_filter_columns" = "__DORIS_VERSION_COL__") """
     wait_for_last_schema_change_finish("test_zonemap_version_col_indexed", indexTimeout)
+    // Index the user column too, so a compound `version OR v` predicate is a candidate for the
+    // common-expression inverted-index path (_apply_index_expr), not just per-column predicates.
+    sql """ ALTER TABLE test_zonemap_version_col_indexed ADD INDEX idx_v (v) USING INVERTED """
+    wait_for_last_schema_change_finish("test_zonemap_version_col_indexed", indexTimeout)
     sql """ INSERT INTO test_zonemap_version_col_indexed SELECT number, number FROM numbers("number" = "2048") """
     sql " sync "
     def indexedVersionRows = sql " SELECT DISTINCT __DORIS_VERSION_COL__ FROM test_zonemap_version_col_indexed "
@@ -114,5 +118,13 @@ suite("test_expr_zonemap_hidden_placeholder") {
     assertTrue(indexedVersion > 0)
     order_qt_version_col_indexed_match """
         SELECT COUNT(*) FROM test_zonemap_version_col_indexed WHERE __DORIS_VERSION_COL__ = ${indexedVersion}
+    """
+    // A compound `OR` stays a common expression (VCompoundPred) rather than splitting into per-column
+    // predicates, so it reaches the common-expression inverted-index path. `v = -1` matches no row
+    // and every row carries the version, so this must return all rows; the version column's index
+    // must not prune it against the physical placeholder first.
+    order_qt_version_col_indexed_compound """
+        SELECT COUNT(*) FROM test_zonemap_version_col_indexed
+        WHERE __DORIS_VERSION_COL__ = ${indexedVersion} OR v = -1
     """
 }
