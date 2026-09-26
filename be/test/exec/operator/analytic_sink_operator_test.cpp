@@ -22,12 +22,16 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "exec/operator/analytic_source_operator.h"
 #include "exec/operator/repeat_operator.h"
 #include "exec/operator/sort_source_operator.h"
+#include "exec/spill/spill_file_manager.h"
+#include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 #include "testutil/mock/mock_descriptors.h"
@@ -82,6 +86,27 @@ public:
 private:
     mutable int64_t _check_count = 0;
     int64_t _cancel_after = -1;
+};
+
+class ScopedSpillFileManager {
+public:
+    Status init() {
+        auto spill_data_dir =
+                std::make_unique<SpillDataDir>("./ut_dir/analytic_spill_test", 4 * 1024 * 1024);
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->create_directory(spill_data_dir->path(), false));
+        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
+        data_map.emplace("test", std::move(spill_data_dir));
+        ExecEnv::GetInstance()->_spill_file_mgr = new SpillFileManager(std::move(data_map));
+        return ExecEnv::GetInstance()->spill_file_mgr()->init();
+    }
+
+    ~ScopedSpillFileManager() {
+        if (ExecEnv::GetInstance()->spill_file_mgr()) {
+            ExecEnv::GetInstance()->spill_file_mgr()->stop();
+            SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
+        }
+    }
 };
 
 } // namespace
@@ -308,6 +333,260 @@ TEST_F(AnalyticSinkOperatorTest, AggFunction) {
         EXPECT_EQ(block2.rows(), 0);
     }
     std::cout << "######### AggFunction with sum test end #########" << std::endl;
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillEligibilityKeepsStreamingAggregateOnExistingPath) {
+    Initialize(1);
+    state->_query_options.__set_enable_spill(true);
+    create_operator(true, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+
+    sink->_prepare_spill(state.get());
+
+    EXPECT_FALSE(sink->_enable_spill_analytic);
+    EXPECT_FALSE(sink->_spillable);
+    EXPECT_EQ(sink->_window_spill_unsupported_reason, "Streaming");
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillEligibilityAllowsPartitionCardinalityFunction) {
+    Initialize(1);
+    state->_query_options.__set_enable_spill(true);
+    create_operator(true, 1, "ntile", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+
+    sink->_prepare_spill(state.get());
+
+    EXPECT_TRUE(sink->_enable_spill_analytic);
+    EXPECT_TRUE(sink->_spillable);
+    ASSERT_EQ(sink->_window_spill_strategies.size(), 1);
+    EXPECT_EQ(sink->_window_spill_strategies[0], WindowSpillStrategy::PARTITION_CARDINALITY);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumInMemory) {
+    Initialize(10);
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_REDUCE};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+
+    Block input = ColumnHelper::create_block<DataTypeInt64>(_data_vals);
+    auto status = sink->sink(state.get(), &input, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(input.empty());
+
+    Block output = ColumnHelper::create_block<DataTypeInt64>({});
+    bool eos = false;
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_FALSE(eos);
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            output,
+            ColumnHelper::create_block<DataTypeInt64>(_data_vals, std::vector<int64_t>(10, 45))))
+            << output.dump_data();
+
+    output.clear();
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(eos);
+    EXPECT_TRUE(output.empty());
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumFromDisk) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(10);
+    state->_query_options.__set_enable_force_spill(true);
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_REDUCE};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+
+    Block first = ColumnHelper::create_block<DataTypeInt64>({0, 1, 2, 3, 4});
+    auto status = sink->sink(state.get(), &first, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    Block second = ColumnHelper::create_block<DataTypeInt64>({5, 6, 7, 8, 9});
+    status = sink->sink(state.get(), &second, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block output = ColumnHelper::create_block<DataTypeInt64>({});
+    bool eos = false;
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_FALSE(eos);
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            output, ColumnHelper::create_block<DataTypeInt64>({0, 1, 2, 3, 4},
+                                                              std::vector<int64_t>(5, 45))))
+            << output.dump_data();
+
+    output.clear();
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_FALSE(eos);
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            output, ColumnHelper::create_block<DataTypeInt64>({5, 6, 7, 8, 9},
+                                                              std::vector<int64_t>(5, 45))))
+            << output.dump_data();
+
+    output.clear();
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(eos);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathNtileUsesSealedPartitionCardinality) {
+    const std::vector<int64_t> bucket_arguments(10, 3);
+    Initialize(bucket_arguments.size());
+    create_operator(true, 1, "ntile", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_CARDINALITY};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+
+    Block input = ColumnHelper::create_block<DataTypeInt64>(bucket_arguments);
+    auto status = sink->sink(state.get(), &input, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block output = ColumnHelper::create_block<DataTypeInt64>({});
+    bool eos = false;
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const std::vector<int64_t> expected {1, 1, 1, 1, 2, 2, 2, 3, 3, 3};
+    EXPECT_TRUE(ColumnHelper::block_equal(
+            output, ColumnHelper::create_block<DataTypeInt64>(bucket_arguments, expected)))
+            << output.dump_data();
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathSplitsPartitionAcrossInputBlocks) {
+    Initialize(3);
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+    sink->_partition_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_REDUCE};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+
+    Block first = ColumnHelper::create_block<DataTypeInt64>({1, 1}, {1, 2});
+    auto status = sink->sink(state.get(), &first, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    Block second = ColumnHelper::create_block<DataTypeInt64>({2, 2, 2}, {10, 20, 30});
+    status = sink->sink(state.get(), &second, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto check_partition = [&](const std::vector<int64_t>& keys, const std::vector<int64_t>& values,
+                               int64_t sum) {
+        Block output = ColumnHelper::create_block<DataTypeInt64>({});
+        bool eos = false;
+        auto get_status = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(get_status.ok()) << get_status.to_string();
+        EXPECT_FALSE(eos);
+        auto expected = ColumnHelper::create_block<DataTypeInt64>(keys, values);
+        expected.insert(
+                {ColumnHelper::create_column<DataTypeInt64>(std::vector<int64_t>(keys.size(), sum)),
+                 std::make_shared<DataTypeInt64>(), "sum"});
+        EXPECT_TRUE(ColumnHelper::block_equal(output, expected)) << output.dump_data();
+    };
+    check_partition({1, 1}, {1, 2}, 3);
+    check_partition({2, 2, 2}, {10, 20, 30}, 60);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathCumeDistUsesPeerGroupEnds) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(3);
+    state->_query_options.__set_enable_force_spill(true);
+    create_operator(true, 1, "cume_dist", {}, std::make_shared<DataTypeFloat64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_order_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PEER_GROUP};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::CUME_DIST};
+    create_local_state();
+
+    Block first = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2});
+    auto status = sink->sink(state.get(), &first, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    Block second = ColumnHelper::create_block<DataTypeInt64>({2, 4});
+    status = sink->sink(state.get(), &second, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    auto check_block = [&](const std::vector<int64_t>& order_values,
+                           const std::vector<double>& expected) {
+        Block output = ColumnHelper::create_block<DataTypeInt64>({});
+        bool eos = false;
+        auto get_status = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(get_status.ok()) << get_status.to_string();
+        auto expected_block = ColumnHelper::create_block<DataTypeInt64>(order_values);
+        expected_block.insert({ColumnHelper::create_column<DataTypeFloat64>(expected),
+                               std::make_shared<DataTypeFloat64>(), "cume_dist"});
+        EXPECT_TRUE(ColumnHelper::block_equal(output, expected_block)) << output.dump_data();
+    };
+    check_block({1, 1, 2}, {0.4, 0.4, 0.8});
+    check_block({2, 4}, {0.8, 1.0});
+
+    Block output = ColumnHelper::create_block<DataTypeInt64>({});
+    bool eos = false;
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(eos);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathPercentRankUsesPeerGroupStarts) {
+    Initialize(5);
+    create_operator(true, 1, "percent_rank", {}, std::make_shared<DataTypeFloat64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_order_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PEER_GROUP};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::PERCENT_RANK};
+    create_local_state();
+
+    Block input = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2, 2, 4});
+    auto status = sink->sink(state.get(), &input, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block output = ColumnHelper::create_block<DataTypeInt64>({});
+    bool eos = false;
+    status = source->get_block(state.get(), &output, &eos);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    auto expected = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2, 2, 4});
+    expected.insert({ColumnHelper::create_column<DataTypeFloat64>({0.0, 0.0, 0.5, 0.5, 1.0}),
+                     std::make_shared<DataTypeFloat64>(), "percent_rank"});
+    EXPECT_TRUE(ColumnHelper::block_equal(output, expected)) << output.dump_data();
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction2) {

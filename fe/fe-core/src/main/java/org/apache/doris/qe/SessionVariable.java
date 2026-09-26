@@ -723,6 +723,8 @@ public class SessionVariable implements Serializable, Writable {
             "spill_aggregation_sink_mem_limit_bytes";
     public static final String SPILL_SORT_SINK_MEM_LIMIT_BYTES =
             "spill_sort_sink_mem_limit_bytes";
+    public static final String SPILL_ANALYTIC_SINK_MEM_LIMIT_BYTES =
+            "spill_analytic_sink_mem_limit_bytes";
     public static final String SPILL_SORT_MERGE_MEM_LIMIT_BYTES =
             "spill_sort_merge_mem_limit_bytes";
     public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT =
@@ -3296,6 +3298,11 @@ public class SessionVariable implements Serializable, Writable {
                     + "exceeds this threshold (in bytes). Default is 64MB.")
     public long spillSortSinkMemLimitBytes = 64L * 1024L * 1024L;
 
+    @VarAttrDef.VarAttr(name = SPILL_ANALYTIC_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = "Non-streaming analytic partitions will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64MB.")
+    public long spillAnalyticSinkMemLimitBytes = 64L * 1024L * 1024L;
+
     @VarAttrDef.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
             description = "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
                     + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
@@ -5600,6 +5607,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSpillJoinBuildSinkMemLimitBytes(spillJoinBuildSinkMemLimitBytes);
         tResult.setSpillAggregationSinkMemLimitBytes(spillAggregationSinkMemLimitBytes);
         tResult.setSpillSortSinkMemLimitBytes(spillSortSinkMemLimitBytes);
+        tResult.setSpillAnalyticSinkMemLimitBytes(spillAnalyticSinkMemLimitBytes);
         tResult.setSpillSortMergeMemLimitBytes(spillSortMergeMemLimitBytes);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);

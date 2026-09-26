@@ -604,6 +604,7 @@ public:
 };
 
 class MultiCastDataStreamer;
+struct AnalyticSpillPartition;
 
 struct MultiCastSharedState : public BasicSharedState,
                               public std::enable_shared_from_this<MultiCastSharedState> {
@@ -618,7 +619,9 @@ struct AnalyticSharedState : public BasicSharedState {
 public:
     AnalyticSharedState() = default;
     std::queue<Block> blocks_buffer GUARDED_BY(buffer_mutex);
+    std::queue<std::shared_ptr<AnalyticSpillPartition>> spill_partitions GUARDED_BY(buffer_mutex);
     AnnotatedMutex buffer_mutex;
+    std::atomic_bool spill_enabled = false;
     bool sink_eos GUARDED_BY(sink_eos_lock) = false;
     AnnotatedMutex sink_eos_lock;
     Arena agg_arena_pool;
