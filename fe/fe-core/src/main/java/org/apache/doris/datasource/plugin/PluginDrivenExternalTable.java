@@ -510,11 +510,32 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
             Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
             if (!handleOpt.isPresent()) {
-                LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
-                return Optional.empty();
+                // Fail loud with an actionable, JDBC-context error instead of silently returning an empty
+                // schema: an empty Optional later surfaces either as a null getFullSchema()/getBaseSchema()
+                // (NullPointerException in LogicalCatalogRelation) or as a context-free cache failure, and it
+                // is never cached, so a stale table-name entry re-hits the remote on every query.
+                String remoteQualified = dbName.isEmpty() ? tableName : dbName + "." + tableName;
+                throw new DorisConnectorException(String.format(
+                        "Cannot resolve the connector table handle for catalog '%s' table '%s'. The remote "
+                                + "table may have been removed or the metadata permission is insufficient; "
+                                + "refresh the catalog or drop the stale table name entry.",
+                        catalog.getName(), remoteQualified));
             }
 
             ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+            if (tableSchema.getColumns().isEmpty()) {
+                // A regular (non-view) table that resolves to zero columns is almost always a metadata
+                // resolution problem (e.g. DatabaseMetaData.getColumns() permission or an empty result),
+                // not a legitimate schema. Representing it as a normal empty schema would let callers that
+                // assume a non-null column list compute a schema with no columns; fail loud instead so the
+                // user gets the real cause.
+                String remoteQualified = dbName.isEmpty() ? tableName : dbName + "." + tableName;
+                throw new DorisConnectorException(String.format(
+                        "Connector table '%s' of catalog '%s' resolved to an empty column list. The remote "
+                                + "metadata may be inaccessible (e.g. missing DatabaseMetaData.getColumns() "
+                                + "permission) or the table has no columns.",
+                        remoteQualified, catalog.getName()));
+            }
             return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
         } finally {
             session.getStatementScope().closeAll();
