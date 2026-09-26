@@ -73,8 +73,24 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        const bool is_timestamp_instant =
+                orc_view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT;
+        // Instant carry precedes timezone conversion; plain TIMESTAMP carry stays in civil time
+        // so rounding cannot jump across a daylight-saving gap or fold.
+        status = orc_serde_utils::orc_timestamp_to_datetime(
+                is_timestamp_instant ? timestamp.seconds : orc_batch->data[source_row],
+                timestamp.microseconds, timezone, !is_timestamp_instant && timestamp.carry, &value);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
     }
     return Status::OK();
 }
@@ -838,6 +854,13 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
             return Status::InternalError("get unix timestamp error.");
         }
 
+        // ORC-645 aliases this pre-epoch fraction to a positive timestamp on disk.
+        // Keep the same fail-fast contract as TIMESTAMPTZ instead of writing a wrong value.
+        if (timestamp == -1 && datetime_val.microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }

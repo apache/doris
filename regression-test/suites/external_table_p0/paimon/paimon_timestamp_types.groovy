@@ -100,6 +100,8 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc")
         // test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet")
 
+        // Native ORC rounds scales 7-9 to microseconds; JNI truncates. Native Parquet uses
+        // Paimon history semantics for high-precision INT96 instead of the session timezone.
         sql """set force_jni_scanner=false"""
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
@@ -111,7 +113,6 @@ suite("paimon_timestamp_types", "p0,external,doris,external_docker,external_dock
     }
 
     // TODO:
-    // 1. Fix: native read + parquet + timestamp(7/8/9) (ts7,ts8,ts9), it will be 8 hour more
     // 2. paimon bugs: native read + orc + timestamp_ltz.
     //                 In the Shanghai time zone, the read data will be 8 hours less, 
     //                 because the data written by Flink to the orc file is UTC, but the time zone saved in the orc file is Shanghai.

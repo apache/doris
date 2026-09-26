@@ -1865,12 +1865,12 @@ public class AppendVariantEqualityDelete {
         SELECT id, CAST(v AS STRING) FROM variant_mixed_format ORDER BY id
     """
 
+    // The versioned Parquet contract requires V2 even when the session preference is disabled.
+    def variantRowsWithV2 = sql """SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"""
     sql """set enable_file_scanner_v2=false"""
     try {
-        test {
-            sql """SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"""
-            exception "legacy file scanner does not support VARIANT"
-        }
+        assertEquals(variantRowsWithV2,
+                sql("SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"))
     } finally {
         sql """set enable_file_scanner_v2=true"""
     }

@@ -43,7 +43,7 @@ VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter
 
 std::unique_ptr<ArrowBlockConvertor> VIcebergParquetWriter::_create_arrow_block_convertor(
         DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-        const cctz::time_zone& timezone) const {
+        const cctz::time_zone& timezone, bool enable_int96_timestamps) const {
     return std::make_unique<iceberg::IcebergArrowBlockConvertor>(
             _iceberg_schema, &_iceberg_schema_json, timezone_name, timezone);
 }

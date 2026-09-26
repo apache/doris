@@ -532,6 +532,13 @@ VExprSPtr binary_predicate(TExprOpcode::type opcode, const VExprSPtr& left,
     return expr;
 }
 
+VExprSPtr null_predicate(const VExprSPtr& child, bool is_null) {
+    auto expr =
+            std::make_shared<TestFunctionExpr>(is_null ? "is_null_pred" : "is_not_null_pred", u8());
+    expr->add_child(child);
+    return expr;
+}
+
 VExprSPtr cast_expr(const VExprSPtr& child, DataTypePtr target_type) {
     auto expr = Cast::create_shared(std::move(target_type));
     expr->add_child(child);
@@ -554,7 +561,10 @@ protected:
 class Int64ChildGreaterThanExpr final : public VExpr {
 public:
     explicit Int64ChildGreaterThanExpr(int64_t value)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {}
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value) {
+        // A synthetic predicate must not inherit VExpr's default SLOT_REF discriminator.
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
@@ -947,6 +957,38 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullComplexRootForOutpu
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
     EXPECT_TRUE(request.predicate_columns.empty());
+}
+
+TEST(ColumnMapperScanRequestTest, FullProjectionRetainsOnlyTimestampSemanticPaths) {
+    auto table_timestamp = field_id_col("ts", 2, timestamptz(6));
+    auto table_payload = field_id_col("payload", 3, i32());
+    auto table_event = struct_col("event", 1, {table_timestamp, table_payload});
+    auto table_other = field_id_col("other", 4, i32());
+    auto table_root = struct_col("root", 0, {table_event, table_other});
+
+    auto file_timestamp = field_id_col("ts", 2, timestamptz(6), 0);
+    file_timestamp.timestamp_is_adjusted_to_utc = true;
+    auto file_payload = field_id_col("payload", 3, i32(), 1);
+    auto file_event = struct_col("event", 1, {file_timestamp, file_payload}, 0);
+    auto file_other = field_id_col("other", 4, i32(), 1);
+    auto file_root = struct_col("root", 0, {file_event, file_other}, 10);
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_root}, {}, {file_root}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_root}, &request).ok());
+
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    const auto& root_projection = request.non_predicate_columns[0];
+    EXPECT_TRUE(root_projection.project_all_children);
+    ASSERT_EQ(root_projection.children.size(), 1);
+    EXPECT_EQ(root_projection.children[0].local_id(), 0);
+    ASSERT_EQ(root_projection.children[0].children.size(), 1);
+    const auto& timestamp_projection = root_projection.children[0].children[0];
+    EXPECT_EQ(timestamp_projection.local_id(), 0);
+    ASSERT_TRUE(timestamp_projection.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*timestamp_projection.timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: array/map nested projections also scan the full top-level complex root for
@@ -2635,6 +2677,79 @@ TEST(ColumnMapperScanRequestTest, MissingPredicateAccessPathsDoNotInferStructPro
     EXPECT_EQ(mapped_type->get_element_name(0), "a");
     EXPECT_EQ(mapped_type->get_element_name(1), "b");
     EXPECT_TRUE(request.conjuncts.empty());
+}
+
+// Scenario: Paimon projects one struct child but filters on an unprojected TIMESTAMP_LTZ(9)
+// child. The filter-only file projection must retain the history-schema timestamp semantic so an
+// unannotated INT96 leaf is materialized as TIMESTAMPTZ instead of DATETIMEV2.
+TEST(ColumnMapperScanRequestTest, FilterOnlyNestedTimestampRetainsTableFormatSemantic) {
+    const auto int_type = i32();
+    const auto ltz_type = timestamptz(9);
+
+    auto table_payload = field_id_col("payload", 1, int_type);
+    auto table_ltz = field_id_col("ltz", 2, ltz_type);
+    // FE all-access paths include residual predicate inputs even when SELECT omits those fields.
+    auto table_struct = struct_col("s", 10, {table_payload, table_ltz});
+    table_struct.has_predicate_access_paths = true;
+    table_struct.predicate_children = {table_ltz};
+
+    auto file_payload = field_id_col("payload", 1, int_type, 0);
+    auto file_ltz = field_id_col("ltz", 2, ltz_type, 1);
+    file_ltz.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 10, {file_payload, file_ltz}, 5);
+
+    // Independent predicate projections are a Parquet mapper contract.
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto filter_expr = null_predicate(
+            struct_element(table_slot(0, 0, table_struct.type, "s"), ltz_type, "ltz"), false);
+    TableFilter filter {.conjunct = VExprContext::create_shared(filter_expr),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root_projection = request.predicate_columns[0];
+    ASSERT_EQ(projection_ids(root_projection.children), std::vector<int32_t>({1}));
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    const auto* ltz_projection = find_child_projection(&root_projection, 1);
+    ASSERT_NE(ltz_projection, nullptr);
+    ASSERT_TRUE(ltz_projection->timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*ltz_projection->timestamp_is_adjusted_to_utc);
+}
+
+// A hidden slot can use a full struct type without explicit child mappings. Its physical
+// timestamp overrides must survive even though the parent has no timestamp annotation.
+TEST(ColumnMapperScanRequestTest, HiddenFullStructRetainsNestedTimestampSemantics) {
+    const auto instant_type = timestamptz(6);
+    auto table_id = field_id_col("id", 1, i32());
+    auto file_id = field_id_col("id", 1, i32(), 0);
+    auto file_instant = field_id_col("instant", 3, instant_type, 0);
+    file_instant.timestamp_is_adjusted_to_utc = true;
+    auto file_struct = struct_col("s", 2, {file_instant}, 1);
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_id}, {}, {file_id, file_struct}).ok());
+    auto expr = null_predicate(
+            struct_element(table_slot(1, 1, file_struct.type, "s"), instant_type, "instant"),
+            false);
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({{.conjunct = VExprContext::create_shared(expr),
+                                             .global_indices = {GlobalIndex(1)}}},
+                                           {table_id}, &request)
+                        .ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    const auto& root = request.predicate_columns[0];
+    ASSERT_TRUE(root.project_all_children);
+    // These children carry metadata; the normal partial-projection accessor intentionally
+    // ignores them for a full projection.
+    ASSERT_EQ(root.children.size(), 1);
+    const auto& child = root.children.front();
+    EXPECT_EQ(child.local_id(), 0);
+    ASSERT_TRUE(child.timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*child.timestamp_is_adjusted_to_utc);
 }
 
 // Scenario: a filter references a top-level column that is not projected by the query; the mapper
