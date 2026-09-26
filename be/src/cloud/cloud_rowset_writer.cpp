@@ -22,6 +22,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_writer.h"
+#include "runtime/thread_context.h"
 #include "storage/rowset/rowset_factory.h"
 
 namespace doris {
@@ -89,7 +90,12 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_load_token(
+                _context.txn_id,
+                _context.is_transient_rowset_writer ? LoadTaskPriority::HIGHEST
+                                                    : LoadTaskPriority::MID,
+                LoadTaskType::LEAF, thread_context()->resource_ctx()->workload_group(),
+                _context.delete_bitmap_cancellation);
     }
     return Status::OK();
 }

@@ -78,7 +78,12 @@ private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
 
-    void _finish_load_channel(UniqueId load_id);
+    Status _cancel_load_channel(const std::shared_ptr<LoadChannel>& channel, const Status& reason);
+    Status _finish_load_channel(const UniqueId& load_id,
+                                const std::shared_ptr<LoadChannel>& channel);
+
+    // Requires _lock. Preserve the first terminal state, including successful completion.
+    void _record_cancelled_load(const UniqueId& load_id, const std::string& reason);
 
     Status _start_bg_worker();
 

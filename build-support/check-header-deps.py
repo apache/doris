@@ -528,7 +528,7 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/data.pb.h": 220,
     "io/fs/s3_file_system.h": 109,  # the AWS SDK surface
     "util/brpc_closure.h": 61,
-    "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
+    "runtime/workload_group/workload_group.h": 44,  # thrift carrier; +2 local publish test TUs
 }
 REVERSE_SLACK = 0.10
 

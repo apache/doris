@@ -739,6 +739,12 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
 
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
+
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
@@ -938,10 +944,10 @@ DECLARE_mInt64(storage_flood_stage_left_capacity_bytes); // 1GB
 DECLARE_mInt32(flush_thread_num_per_store);
 // number of thread for flushing memtable per store, for high priority load task
 DECLARE_mInt32(high_priority_flush_thread_num_per_store);
-// number of threads = min(flush_thread_num_per_store * num_store,
-//                         max_flush_thread_num_per_cpu * num_cpu)
+// Maximum shared foreground load threads per CPU (default 8).
+// Without adaptive flushing, also capped by flush_thread_num_per_store * num_store.
 DECLARE_mInt32(max_flush_thread_num_per_cpu);
-// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+// Minimum shared foreground load threads per CPU when adaptive flushing is enabled (default 1).
 DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
 // Whether to enable adaptive flush thread adjustment
