@@ -31,6 +31,13 @@ regexTarget = "match"
 regexes = ['''__DORIS_[A-Z0-9_]+_COL__''']
 
 [[rules.allowlists]]
+description = "Ignore a deterministic UUID map fixture; this test value is not a credential"
+condition = "AND"
+regexTarget = "match"
+paths = ['''^regression-test/data/datatype_p0/uuid/test_uuid_map_matrix\.out$''']
+regexes = ['''key":"018f0f59-1010-7abc-9234-001122334455"''']
+
+[[rules.allowlists]]
 description = "Ignore the fake OIDC token fixture in AuthenticatorManagerTest"
 condition = "AND"
 regexTarget = "line"
