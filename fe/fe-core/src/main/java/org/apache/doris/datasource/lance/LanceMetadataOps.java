@@ -69,6 +69,9 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
         return execute("Failed to create Lance database " + dbName, client -> {
+            if (client.isRootDatabase(dbName)) {
+                throw new DdlException("Cannot create the configured Lance root database: " + dbName);
+            }
             if (client.databaseExists(dbName)) {
                 if (ifNotExists) {
                     catalog.resetMetaCacheNames();
@@ -99,8 +102,18 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
-        String remoteDbName = db == null ? dbName : db.getRemoteName();
         return execute("Failed to drop Lance database " + dbName, client -> {
+            if (client.isRootDatabase(dbName)) {
+                throw new DdlException("Cannot drop the configured Lance root database: " + dbName);
+            }
+            if (db == null) {
+                if (ifExists) {
+                    return false;
+                }
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+                return false;
+            }
+            String remoteDbName = db.getRemoteName();
             if (client.isRootDatabase(remoteDbName)) {
                 throw new DdlException("Cannot drop the configured Lance root database: " + dbName);
             }

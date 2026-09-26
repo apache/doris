@@ -104,6 +104,28 @@ public class LanceMetadataOpsTest {
     }
 
     @Test
+    public void testCreateRootDatabaseIsRejected() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
+        LanceExternalCatalog catalog = catalogWithClient(client);
+        LanceMetadataOps ops = new LanceMetadataOps(catalog);
+
+        try {
+            for (boolean ifNotExists : Arrays.asList(false, true)) {
+                DdlException exception = Assertions.assertThrows(DdlException.class,
+                        () -> ops.createDb("default", ifNotExists, Collections.emptyMap()));
+                Assertions.assertTrue(exception.getMessage().contains("root database"));
+            }
+        } finally {
+            client.close();
+        }
+
+        Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
+        Mockito.verify(namespace, Mockito.never()).createNamespace(Mockito.any());
+        Mockito.verify(catalog, Mockito.never()).resetMetaCacheNames();
+    }
+
+    @Test
     public void testCreateDatabaseHandlesConcurrentCreate() throws DdlException {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
         Mockito.doThrow(new NamespaceNotFoundException("missing"))
@@ -247,7 +269,9 @@ public class LanceMetadataOpsTest {
         LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
         LanceExternalCatalog catalog = catalogWithClient(client);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(database).when(catalog).getDbNullable("analytics");
         Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
+        Mockito.when(database.getRemoteName()).thenReturn("analytics");
         ExternalTable table = table("local_db", "local_table", "analytics", "events");
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
@@ -269,18 +293,19 @@ public class LanceMetadataOpsTest {
     @Test
     public void testDropDatabaseReturnsFalseForIfExistsNoOp() throws DdlException {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
-        Mockito.doThrow(new NamespaceNotFoundException("missing"))
-                .when(namespace).namespaceExists(Mockito.any());
         LanceCatalogClient client = newClient(namespace, Mockito.mock(BufferAllocator.class));
         LanceExternalCatalog catalog = catalogWithClient(client);
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
         try {
             Assertions.assertFalse(ops.dropDb("missing_db", true, false));
+            Assertions.assertThrows(DdlException.class,
+                    () -> ops.dropDb("missing_db", false, false));
         } finally {
             client.close();
         }
 
+        Mockito.verify(namespace, Mockito.never()).namespaceExists(Mockito.any());
         Mockito.verify(namespace, Mockito.never()).dropNamespace(Mockito.any());
         Mockito.verify(catalog).unregisterDatabase("missing_db");
     }
