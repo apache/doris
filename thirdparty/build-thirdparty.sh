@@ -2116,6 +2116,89 @@ build_pugixml() {
 }
 
 # lance-c
+# liblance_c.a and libpaimon_c.a are both Rust staticlibs linked into the
+# same BE binary and must be built with the SAME rustc toolchain (see the
+# in-function NOTE for the rust_eh_personality collision). LANCE_C_CARGO and
+# PAIMON_RUST_CARGO are selected independently and each version check accepts
+# any toolchain at least the minimum, so supported overrides could build the
+# two libraries with different std hashes and defer the collision to the
+# final BE link, where it surfaces as an opaque duplicate-symbol error.
+# Compare the exact rustc identity (-vV: version, commit-hash, host) across
+# both builds and fail early in the second one, stamping the identity so the
+# invariant also holds across separate build-thirdparty.sh invocations
+# (--continue / package lists). The stamp is only committed AFTER a package's
+# archive is successfully installed (commit_rust_toolchain_identity), so it
+# always describes an installed library; a failed build must not leave an
+# identity behind that a corrected retry would be rejected against. Switching
+# toolchains requires a paired rebuild: run this script with both lance_c and
+# paimon_rust on the command line, which drops the installed Rust archives and
+# the stamp first (see the all-Rust rebuild block before the package loop).
+check_rust_toolchain_identity() {
+    # Portable array passing (bash 3.2 / macOS safe): the caller spreads its
+    # cargo_env entries as trailing arguments; at the call sites they are all
+    # space-free KEY=VALUE pairs (CFLAGS is appended only afterwards).
+    local pkg="$1"
+    local cargo_bin="$2"
+    shift 2
+
+    # Locate the rustc this cargo dispatches to: an explicit cargo path
+    # usually has rustc beside it; otherwise rustc resolves via PATH and the
+    # RUSTUP_TOOLCHAIN entry of env_arr dispatches the rustup shim.
+    local rustc_bin="rustc"
+    if [[ "${cargo_bin}" == */* && -x "${cargo_bin%/*}/rustc" ]]; then
+        rustc_bin="${cargo_bin%/*}/rustc"
+    fi
+    local identity
+    if ! identity="$(env "$@" "${rustc_bin}" -vV 2>&1)"; then
+        echo "failed to resolve the rustc identity for ${pkg} ('${rustc_bin}' -vV):"
+        echo "${identity}"
+        exit 1
+    fi
+
+    local stamp="${TP_INSTALL_DIR}/.doris-rust-toolchain-id"
+    if [[ -f "${stamp}" ]]; then
+        if ! diff -q <(printf '%s\n' "${identity}") "${stamp}" >/dev/null; then
+            echo "${pkg} would use a different rustc than the one recorded for"
+            echo "the other Rust static library:"
+            echo "-- recorded (${stamp}):"
+            cat "${stamp}"
+            echo "-- this build (${pkg}, '${rustc_bin}' -vV):"
+            printf '%s\n' "${identity}"
+            echo "liblance_c.a and libpaimon_c.a must be built with the SAME rustc"
+            echo "(different std hashes pull two std copies into the BE link and collide"
+            echo "on the unmangled rust_eh_personality symbol). Point LANCE_C_CARGO and"
+            echo "PAIMON_RUST_CARGO at one toolchain, or do a paired rebuild:"
+            echo "    ./build-thirdparty.sh lance_c paimon_rust"
+            echo "(rebuilding all Rust packages removes the installed Rust archives and"
+            echo "the toolchain stamp first, so the new toolchain is accepted)."
+            exit 1
+        fi
+    fi
+    # Hand the identity to commit_rust_toolchain_identity via a global: the
+    # package build functions run in a subshell, and check/commit happen in
+    # the same one.
+    RUST_TOOLCHAIN_IDENTITY="${identity}"
+    echo "${pkg}: rustc identity matches the shared toolchain stamp."
+}
+
+commit_rust_toolchain_identity() {
+    # Record the identity checked by check_rust_toolchain_identity, but only
+    # from the point where the package's archive actually sits in
+    # TP_INSTALL_DIR (callers invoke this right after the archive copy /
+    # strip). Write atomically (tmp + mv) so an interrupted write cannot leave
+    # a truncated stamp that a later build would diff against.
+    local pkg="$1"
+    if [[ -z "${RUST_TOOLCHAIN_IDENTITY}" ]]; then
+        echo "internal error: no rustc identity recorded for ${pkg}"
+        echo "(check_rust_toolchain_identity must run first)."
+        exit 1
+    fi
+    local stamp="${TP_INSTALL_DIR}/.doris-rust-toolchain-id"
+    printf '%s\n' "${RUST_TOOLCHAIN_IDENTITY}" > "${stamp}.tmp"
+    mv -f "${stamp}.tmp" "${stamp}"
+    echo "${pkg}: committed the shared rustc toolchain stamp."
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2125,7 +2208,7 @@ build_lance_c() {
 
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.91.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust 1.94.0 or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2133,14 +2216,20 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.91.0"
+    local required_rust_version="1.94.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
-        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
             rustup toolchain install "${required_rust_version}" --profile minimal
         fi
         cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
@@ -2151,7 +2240,7 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.91.0 is the minimum supported version. Allow newer toolchains when
+    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
@@ -2171,6 +2260,8 @@ build_lance_c() {
         exit 1
     fi
 
+    check_rust_toolchain_identity lance_c "${cargo_bin}" "${cargo_env[@]}"
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
@@ -2189,6 +2280,257 @@ build_lance_c() {
     if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
         strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
     fi
+
+    # Only now (archive installed) is it safe to record the rustc identity
+    # this library was built with; see check_rust_toolchain_identity.
+    commit_rust_toolchain_identity lance_c
+}
+
+# paimon-rust
+build_paimon_rust() {
+    check_if_source_exist "${PAIMON_RUST_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build paimon-rust. Install Rust 1.94.0 or set PAIMON_RUST_CARGO."
+        exit 1
+    fi
+
+    local required_rust_version="1.94.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        # The presence check must look for the toolchain the minimum actually
+        # requires, not a literal: with only an older toolchain installed the
+        # stale check would skip the install below and then force
+        # RUSTUP_TOOLCHAIN to a version rustup cannot dispatch, failing the
+        # build before any archive is produced.
+        local required_rust_regex="${required_rust_version//./\\.}"
+        if ! rustup toolchain list | grep -Eq "^${required_rust_regex}([[:space:]-]|$)"; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
+    # BE binary; they must be built with the SAME rustc toolchain so the linker
+    # resolves both crates' std references against a single std copy. Mixing
+    # toolchains makes the precompiled std hashes differ and the linker pulls
+    # both std copies in, colliding on the unmangled `rust_eh_personality`
+    # (duplicate symbol). Build lance_c and paimon_rust with one toolchain.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    check_rust_toolchain_identity paimon_rust "${cargo_bin}" "${cargo_env[@]}"
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    # paimon-vindex-core 0.4.0 uses the unstable `stdarch_neon_f16` intrinsics
+    # (vcvt_f32_f16 / vreinterpret_f16_u16) in its aarch64 NEON fast path, which
+    # do not compile on stable Rust. On aarch64/arm64, replace the registry
+    # crate with a patched path source so the build succeeds. The patch swaps
+    # the unstable f16->f32 NEON convert for a stable scalar conversion; the
+    # rest of the NEON accumulation is left untouched. x86_64 and other arches
+    # are unaffected and keep using the pristine registry crate.
+    if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        # Retry safety: the patch + cargo update below mutate the shared
+        # workspace tree (Cargo.toml gains the [patch.crates-io] section and
+        # Cargo.lock's paimon-vindex-core entry loses its registry checksum).
+        # If a later step fails before cleanup_package_source removes the
+        # tree, the next invocation would reuse the mutated lock and the
+        # checksum extraction below would find nothing. Preserve pristine
+        # copies up front (inside the tree, so a successful cleanup removes
+        # them) and restore them before mutating again, making the whole
+        # block idempotent across retries.
+        local vindex_pristine_lock="${PWD}/.doris-vindex-pristine.lock"
+        local vindex_pristine_toml="${PWD}/.doris-vindex-pristine.toml"
+        if [[ ! -f "${vindex_pristine_lock}" ]]; then
+            cp Cargo.lock "${vindex_pristine_lock}"
+        fi
+        if [[ ! -f "${vindex_pristine_toml}" ]]; then
+            cp Cargo.toml "${vindex_pristine_toml}"
+        fi
+        cp "${vindex_pristine_lock}" Cargo.lock
+        cp "${vindex_pristine_toml}" Cargo.toml
+        local vindex_override="${PWD}/.doris-vindex-override"
+        local vindex_crate
+        vindex_crate="$(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+            -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null | head -n1)"
+        if [[ -z "${vindex_crate}" ]]; then
+            # Ensure the .crate is downloaded into the registry cache first.
+            local fetch_args=(fetch)
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                fetch_args+=(--offline)
+            fi
+            env "${cargo_env[@]}" "${cargo_bin}" "${fetch_args[@]}"
+            vindex_crate="$(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+                -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null | head -n1)"
+        fi
+        if [[ -z "${vindex_crate}" ]]; then
+            echo "failed to locate paimon-vindex-core-0.4.0.crate in the cargo registry cache"
+            exit 1
+        fi
+        # Verify the cached crate against the workspace Cargo.lock checksum
+        # before extraction. The cache lookup picks an ambient file by name,
+        # and once the [patch.crates-io] path override is applied, cargo
+        # build --locked no longer authenticates those bytes — without this
+        # check a stale or poisoned same-named cache (e.g. from another
+        # registry mirror) would enter libpaimon_c.a, and identical Doris
+        # sources could produce different artifacts. Iterate the candidates
+        # (multiple registries may cache the crate) and use the one whose
+        # sha256 matches the lock; fail when none does.
+        local vindex_checksum
+        vindex_checksum="$(awk '
+            $0 == "[[package]]" { in_pkg = 1; name = ""; version = ""; checksum = ""; next }
+            in_pkg && $1 == "name" { gsub(/[",]/, "", $3); name = $3 }
+            in_pkg && $1 == "version" { gsub(/[",]/, "", $3); version = $3 }
+            in_pkg && $1 == "checksum" { gsub(/[",]/, "", $3); checksum = $3 }
+            in_pkg && $0 == "" {
+                if (name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum; found = 1; exit }
+                in_pkg = 0
+            }
+            END {
+                if (!found && in_pkg && name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum }
+            }
+        ' "${vindex_pristine_lock}")"
+        if [[ -z "${vindex_checksum}" ]]; then
+            echo "failed to read the paimon-vindex-core 0.4.0 checksum from Cargo.lock"
+            exit 1
+        fi
+        local vindex_verified=""
+        local candidate
+        while IFS= read -r candidate; do
+            local candidate_sum
+            if command -v sha256sum >/dev/null 2>&1; then
+                candidate_sum="$(sha256sum "${candidate}" | awk '{print $1}')"
+            else
+                candidate_sum="$(shasum -a 256 "${candidate}" | awk '{print $1}')"
+            fi
+            if [[ "${candidate_sum}" == "${vindex_checksum}" ]]; then
+                vindex_verified="${candidate}"
+                break
+            fi
+        done < <(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+            -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null)
+        if [[ -z "${vindex_verified}" ]]; then
+            echo "no paimon-vindex-core-0.4.0.crate in the cargo registry cache matches"
+            echo "the Cargo.lock checksum ${vindex_checksum}; refusing to build from"
+            echo "unverified bytes (the aarch64 patch overrides the crate with a path"
+            echo "dependency, which cargo build --locked cannot authenticate)"
+            exit 1
+        fi
+        vindex_crate="${vindex_verified}"
+        rm -rf "${vindex_override}"
+        mkdir -p "${vindex_override}"
+        tar xzf "${vindex_crate}" -C "${vindex_override}" --strip-components=1
+        (cd "${vindex_override}" && \
+            patch -p1 -s <"${TP_PATCH_DIR}/paimon-vindex-core-0.4.0-aarch64-stable.patch")
+        # Inject the [patch.crates-io] override into the workspace manifest.
+        # Idempotent: skip if a previous run already injected it.
+        if ! grep -q "DORIS_PATCHED_VINDEX" Cargo.toml; then
+            cat >>Cargo.toml <<'EOF'
+
+# DORIS_PATCHED_VINDEX: override the registry crate with a build that compiles
+# on stable Rust for aarch64 (avoids the unstable stdarch_neon_f16 intrinsics).
+[patch.crates-io]
+paimon-vindex-core = { path = ".doris-vindex-override" }
+EOF
+        fi
+        # Record the path source in Cargo.lock so --locked stays satisfied.
+        env "${cargo_env[@]}" "${cargo_bin}" update \
+            -p paimon-vindex-core --offline
+    fi
+
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # cbindgen is a pinned, Doris-controlled input: an unpinned "current"
+    # release would regenerate paimon.h differently between builds. The
+    # pinned version installs under a Doris-controlled --root and its
+    # resolved absolute path is invoked directly (a custom CARGO_HOME does
+    # not necessarily put cargo-installed binaries on PATH). Offline builds
+    # pass --offline to the install command, exactly like the fetch/build
+    # handling above — cargo fails on a missing local crate cache instead
+    # of reaching for the network.
+    local cbindgen_version="0.29.4"
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-}"
+    if [[ -z "${cbindgen_bin}" ]]; then
+        local cbindgen_root="${TP_SOURCE_DIR}/.doris-cbindgen-${cbindgen_version}"
+        cbindgen_bin="${cbindgen_root}/bin/cbindgen"
+        if [[ ! -x "${cbindgen_bin}" ]]; then
+            local cbindgen_install_args=(install cbindgen
+                --version "${cbindgen_version}" --locked --root "${cbindgen_root}")
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                cbindgen_install_args+=(--offline)
+            fi
+            echo "cbindgen not found; installing pinned ${cbindgen_version} via cargo install ..."
+            env "${cargo_env[@]}" "${cargo_bin}" "${cbindgen_install_args[@]}"
+        fi
+    elif [[ ! -x "${cbindgen_bin}" ]]; then
+        echo "PAIMON_RUST_CBINDGEN=${cbindgen_bin} is not an executable file."
+        exit 1
+    fi
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
+        --output "${BUILD_DIR}/release/paimon.h"
+
+    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
+    mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
+    cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
+    cp -v "${BUILD_DIR}/release/libpaimon_c.a" "${TP_INSTALL_DIR}/lib64/"
+
+    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
+    fi
+
+    # Only now (archive installed) is it safe to record the rustc identity
+    # this library was built with; see check_rust_toolchain_identity.
+    commit_rust_toolchain_identity paimon_rust
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2268,6 +2610,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        paimon_rust
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2369,6 +2712,7 @@ cleanup_package_source() {
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
+        paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;
@@ -2396,23 +2740,84 @@ cleanup_package_source() {
     fi
 }
 
-for package in "${packages[@]}"; do
-    if [[ "${package}" == "${start_package}" ]]; then
-        PACKAGE_FOUND=1
+# The packages this invocation will actually build: with --continue the
+# `packages` list is still the full default one and the build loop skips
+# everything before ${start_package}, so decisions made by scanning
+# `packages` would describe builds that never run. Resolve the effective
+# suffix once and use it for both the Rust cleanup decision below and the
+# build loop, so the two can never disagree.
+build_packages=()
+if [[ "${CONTINUE}" -eq 0 ]]; then
+    build_packages=("${packages[@]}")
+else
+    suffix_found=0
+    for package in "${packages[@]}"; do
+        if [[ "${package}" == "${start_package}" ]]; then
+            suffix_found=1
+        fi
+        if [[ "${suffix_found}" -eq 1 ]]; then
+            build_packages+=("${package}")
+        fi
+    done
+    if [[ "${suffix_found}" -eq 0 ]]; then
+        echo "Warning: --continue package '${start_package}' not found in the package list; nothing to build"
     fi
-    if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
-        command="build_${package}"
-        # Isolate each package from environment and working-directory changes
-        # made by its build function or by a sourced upstream script.
-        (
-            "${command}"
-        )
-        cd "${TP_DIR}"
-        cleanup_package_source "${package}"
-        echo "debug after clean: ${package}"
-        df -h
-        du -sh "${TP_DIR}"
+fi
+
+# All-Rust rebuild: when the effective build list rebuilds BOTH Rust
+# packages (explicitly, or via the default full list / a resume from an
+# earlier package), drop the installed Rust archives and the shared rustc
+# toolchain stamp before the loop, so a toolchain switch can actually start
+# -- otherwise the first Rust package would be rejected against the stamp
+# recorded for the old pair. A partial rebuild (one Rust package alone)
+# keeps the check strict on purpose: mixing a new-toolchain archive with the
+# installed old-toolchain one is exactly what must not land in
+# TP_INSTALL_DIR. If the paired rebuild fails midway, TP_INSTALL_DIR is left
+# without the removed Rust archives (a BE link then fails on the missing
+# lib rather than linking mismatched std copies), which is recoverable by
+# rerunning the same paired rebuild. A --continue suffix that covers only
+# one Rust package is that partial rebuild — it must NOT drop the other
+# archive, which its suffix would then never rebuild (a resume after both
+# Rust packages would drop both and rebuild neither, leaving the install
+# prefix unlinkable); that is why the decision reads build_packages, the
+# packages that will actually build, and not the full selection list.
+rust_rebuild_lance=0
+rust_rebuild_paimon=0
+for package in "${build_packages[@]}"; do
+    case "${package}" in
+        lance_c) rust_rebuild_lance=1 ;;
+        paimon_rust) rust_rebuild_paimon=1 ;;
+    esac
+done
+if [[ "${rust_rebuild_lance}" -eq 1 && "${rust_rebuild_paimon}" -eq 1 ]]; then
+    if [[ -f "${TP_INSTALL_DIR}/.doris-rust-toolchain-id" ]] \
+        || [[ -f "${TP_INSTALL_DIR}/lib64/liblance_c.a" ]] \
+        || [[ -f "${TP_INSTALL_DIR}/lib64/libpaimon_c.a" ]]; then
+        echo "All-Rust rebuild (lance_c + paimon_rust): removing the installed"
+        echo "Rust archives and the rustc toolchain stamp so the new pair is"
+        echo "built with one toolchain from a clean slate:"
+        rm -f "${TP_INSTALL_DIR}/.doris-rust-toolchain-id" \
+            "${TP_INSTALL_DIR}/.doris-rust-toolchain-id.tmp" \
+            "${TP_INSTALL_DIR}/lib64/liblance_c.a" \
+            "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
     fi
+fi
+
+# build_packages already carries the --continue suffix filter (see its
+# computation above), so the loop builds exactly the packages the Rust
+# cleanup decision described.
+for package in "${build_packages[@]}"; do
+    command="build_${package}"
+    # Isolate each package from environment and working-directory changes
+    # made by its build function or by a sourced upstream script.
+    (
+        "${command}"
+    )
+    cd "${TP_DIR}"
+    cleanup_package_source "${package}"
+    echo "debug after clean: ${package}"
+    df -h
+    du -sh "${TP_DIR}"
 done
 
 echo "Finished to build all thirdparties"

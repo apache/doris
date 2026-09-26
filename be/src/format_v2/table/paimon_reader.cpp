@@ -34,6 +34,7 @@
 #include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
+#include "format_v2/table/paimon_rust_table_reader.h"
 #include "format_v2/table/schema_history_util.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -268,15 +269,18 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     // timer around the first native or JNI child and double-count that initialization.
     RETURN_IF_ERROR(_ensure_current_split_reader(options));
     DORIS_CHECK(_current_split_reader != nullptr);
-    if (!_is_jni_split(options.current_range)) {
-        auto native_options = options;
-        // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
-        // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
-        RETURN_IF_ERROR(
-                _to_file_format(options.current_range, &native_options.current_split_format));
-        return _current_split_reader->prepare_split(native_options);
+    // Rust splits (like JNI splits) stay on the serialized DataSplit path. They must not go
+    // through the native format normalization below: FE sets paimon_params.file_format on
+    // serialized splits too, so FORMAT_JNI would be rewritten to PARQUET and dispatched to the
+    // native child.
+    if (_is_jni_split(options.current_range) || _is_rust_split(options.current_range)) {
+        return _current_split_reader->prepare_split(options);
     }
-    return _current_split_reader->prepare_split(options);
+    auto native_options = options;
+    // Legacy FE plans wrap native files in FORMAT_JNI; normalize the child contract so the
+    // physical reader does not overwrite its recovered Parquet/ORC format with that wrapper.
+    RETURN_IF_ERROR(_to_file_format(options.current_range, &native_options.current_split_format));
+    return _current_split_reader->prepare_split(native_options);
 }
 
 Status PaimonHybridReader::build_physical_splits(const FileScanSplit& source_split,
@@ -333,6 +337,12 @@ Status PaimonHybridReader::close() {
             close_status = std::move(status);
         }
     }
+    if (_rust_reader != nullptr) {
+        auto status = _rust_reader->close();
+        if (!status.ok() && close_status.ok()) {
+            close_status = std::move(status);
+        }
+    }
     _current_split_reader = nullptr;
     return close_status;
 }
@@ -345,17 +355,36 @@ void PaimonHybridReader::set_batch_size(size_t batch_size) {
     if (_jni_reader != nullptr) {
         _jni_reader->set_batch_size(_batch_size);
     }
+    if (_rust_reader != nullptr) {
+        _rust_reader->set_batch_size(_batch_size);
+    }
 }
 
 int64_t PaimonHybridReader::condition_cache_hit_count() const {
-    // Both children survive split switches, so the wrapper must publish their cumulative totals;
+    // Child readers survive split switches, so the wrapper must publish their cumulative totals;
     // returning only the active child would make FileScannerV2's monotonic delta go backwards.
     return (_native_reader == nullptr ? 0 : _native_reader->condition_cache_hit_count()) +
-           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count());
+           (_jni_reader == nullptr ? 0 : _jni_reader->condition_cache_hit_count()) +
+           (_rust_reader == nullptr ? 0 : _rust_reader->condition_cache_hit_count());
 }
 
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
-    if (_is_jni_split(options.current_range)) {
+    if (_is_rust_split(options.current_range)) {
+        DCHECK(options.current_split_format == format::FileFormat::JNI);
+        if (_rust_reader == nullptr) {
+#ifdef BE_TEST
+            if (_test_rust_reader_factory) {
+                _rust_reader = _test_rust_reader_factory();
+            } else {
+                _rust_reader = std::make_unique<format::paimon::PaimonRustTableReader>();
+            }
+#else
+            _rust_reader = std::make_unique<format::paimon::PaimonRustTableReader>();
+#endif
+            RETURN_IF_ERROR(_init_child_reader(_rust_reader.get(), format::FileFormat::JNI));
+        }
+        _current_split_reader = _rust_reader.get();
+    } else if (_is_jni_split(options.current_range)) {
         DCHECK(options.current_split_format == format::FileFormat::JNI);
         if (_jni_reader == nullptr) {
 #ifdef BE_TEST
@@ -440,6 +469,15 @@ bool PaimonHybridReader::_is_jni_split(const TFileRangeDesc& range) {
     const auto& params = range.table_format_params.paimon_params;
     return params.__isset.paimon_split &&
            (!params.__isset.reader_type || params.reader_type == TPaimonReaderType::PAIMON_JNI);
+}
+
+bool PaimonHybridReader::_is_rust_split(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params || !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& params = range.table_format_params.paimon_params;
+    return params.__isset.paimon_split && params.__isset.reader_type &&
+           params.reader_type == TPaimonReaderType::PAIMON_RUST;
 }
 
 Status PaimonHybridReader::_to_file_format(const TFileRangeDesc& range,

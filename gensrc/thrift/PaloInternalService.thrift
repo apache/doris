@@ -510,6 +510,9 @@ struct TQueryOptions {
 
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   228: optional bool enable_hyperscan_fallback = true;
+  // Use paimon-rust to read Paimon splits on BE. Higher priority than
+  // enable_paimon_cpp_reader.
+  229: optional bool enable_paimon_rust_reader = false;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
