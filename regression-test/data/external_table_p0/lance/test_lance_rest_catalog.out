@@ -7,6 +7,12 @@ mysql
 -- !rest_tables --
 all_types
 all_types_unprefixed
+time_travel
+time_travel_managed
+time_travel_managed_lagging
+time_travel_managed_partial
+time_travel_managed_unprefixed
+time_travel_managed_untimed
 
 -- !rest_scan --
 12	12	1	12	78
@@ -17,3 +23,4 @@ all_types_unprefixed
 -- !rest_predicate_pushdown --
 8
 9
+

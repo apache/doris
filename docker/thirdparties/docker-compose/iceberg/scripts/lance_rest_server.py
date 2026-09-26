@@ -25,13 +25,34 @@ LANCE_REST_TABLES_JSON. Keys are Lance identifiers joined with "$", for example:
 
     {"all_types": "s3://warehouse/lance/all_types.lance",
      "doris$items": "s3://warehouse/lance/doris/items.lance"}
+
+Tables listed in LANCE_REST_MANAGED_TABLES_JSON are described with
+managed_versioning=true and answer the ListTableVersions / DescribeTableVersion
+endpoints from a static version list, the way a namespace that owns the table's
+manifests would. Only the versions listed are visible, so a version that exists
+in storage but is absent here behaves like one the namespace has dropped:
+
+    {"time_travel_managed": {"uri": "s3://warehouse/lance/time_travel.lance",
+                             "versions": [{"version": 1, "timestamp_millis": 1789823167597},
+                                          2, 3],
+                             "branches": {"dev": {"versions": [2, 3]}}}}
+
+A version given as an object also reports its commit time, as a real namespace does; a bare
+integer reports none. Doris resolves FOR TIME AS OF from the manifests' commit times either way. Tags are not served:
+they live in the dataset's _refs/tags/ for managed tables too. "branches" lists the versions
+recorded on each branch (manifests under <table>/tree/<branch>/_versions/), answering the
+version endpoints when a request carries a branch.
+
+Manifests are expected at their canonical V2 path,
+``<table>/_versions/<u64::MAX - version>.manifest``, which is where pylance
+writes them.
 """
 
 import json
 import os
 import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 HOST = os.environ.get("LANCE_REST_HOST", "0.0.0.0")
@@ -82,6 +103,92 @@ def _load_unprefixed_tables() -> set[tuple[str, ...]]:
 
 
 UNPREFIXED_TABLES = _load_unprefixed_tables()
+
+U64_MAX = 2**64 - 1
+
+
+def _load_managed_tables() -> dict[tuple[str, ...], dict]:
+    """Tables whose versions this namespace manages.
+
+    Each entry maps to {"versions": {version: commit_millis_or_None}, "branches": {name: [versions]}}.
+    A version may be given as a bare integer, in which case no commit time is reported, or as
+    {"version": n, "timestamp_millis": ms}, which is what a real namespace returns.
+    """
+    raw = os.environ.get("LANCE_REST_MANAGED_TABLES_JSON", "{}")
+    managed = json.loads(raw)
+    if not isinstance(managed, dict):
+        raise ValueError("LANCE_REST_MANAGED_TABLES_JSON must be a JSON object")
+    result = {}
+    for identifier, spec in managed.items():
+        parts = tuple(part for part in identifier.split(DELIMITER) if part)
+        if not parts or not isinstance(spec, dict):
+            raise ValueError("A managed Lance table needs an identifier and a spec object")
+        uri = spec.get("uri")
+        versions = spec.get("versions")
+        if not isinstance(uri, str) or not isinstance(versions, list):
+            raise ValueError("A managed Lance table spec needs 'uri' and 'versions'")
+        recorded: dict[int, int | None] = {}
+        for entry in versions:
+            if isinstance(entry, dict):
+                version, timestamp = entry.get("version"), entry.get("timestamp_millis")
+            else:
+                version, timestamp = entry, None
+            if not isinstance(version, int) or version <= 0:
+                raise ValueError("Managed Lance versions must be positive integers")
+            if timestamp is not None and not isinstance(timestamp, int):
+                raise ValueError("Managed Lance timestamp_millis must be an integer")
+            recorded[version] = timestamp
+        branches = spec.get("branches", {})
+        if not isinstance(branches, dict) or any(
+                not isinstance(name, str) or not isinstance(b, dict) or not isinstance(b.get("versions"), list)
+                or any(not isinstance(v, int) or v <= 0 for v in b["versions"])
+                for name, b in branches.items()):
+            raise ValueError("Managed Lance branches must map branch names to {'versions': [ints]}")
+        TABLES[parts] = uri
+        result[parts] = {
+            "versions": dict(sorted(recorded.items())),
+            "branches": {name: sorted(b["versions"]) for name, b in branches.items()},
+        }
+    return result
+
+
+MANAGED_TABLES = _load_managed_tables()
+
+
+def _object_store_path(table_uri: str) -> str:
+    """The table root as Lance's object store sees it: bucket-relative for s3, no leading slash."""
+    parsed = urlparse(table_uri)
+    if parsed.scheme in ("s3", "s3a", "oss"):
+        return parsed.path.lstrip("/")
+    if parsed.scheme in ("", "file"):
+        return parsed.path.lstrip("/")
+    raise ValueError(f"unsupported Lance table URI scheme: {table_uri}")
+
+
+def _table_version(identifier: tuple[str, ...], version: int, branch: str | None = None) -> dict:
+    root = _object_store_path(TABLES[identifier])
+    if branch is not None:
+        # A branch is its own manifest chain under <table>/tree/<branch>/; the fixture reports
+        # no commit times for branch versions.
+        return {
+            "version": version,
+            "manifest_path": f"{root}/tree/{branch}/_versions/{U64_MAX - version}.manifest",
+        }
+    result = {
+        "version": version,
+        "manifest_path": f"{root}/_versions/{U64_MAX - version}.manifest",
+    }
+    timestamp = MANAGED_TABLES[identifier]["versions"][version]
+    if timestamp is not None:
+        result["timestamp_millis"] = timestamp
+    return result
+
+
+def _branch_versions(managed: dict, branch: str | None):
+    """Versions recorded on the main chain (branch None) or on a branch; None if unknown."""
+    if branch is None:
+        return list(managed["versions"])
+    return managed["branches"].get(branch)
 
 
 def _storage_options(identifier: tuple[str, ...]) -> dict[str, str]:
@@ -169,7 +276,71 @@ class LanceRestHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         if not self._authorized():
             return
-        self._read_body()
+        raw_body = self._read_body()
+        try:
+            body = json.loads(raw_body) if raw_body else {}
+        except ValueError:
+            self._write_json(400, {"error": "request body is not JSON", "code": 13})
+            return
+
+        # Version endpoints first: the generic describe pattern would otherwise swallow
+        # "<id>/version/describe" as a table id.
+        version_list_match = re.fullmatch(r"/v1/table/(.+)/version/list", path)
+        if version_list_match:
+            identifier = _decode_identifier(version_list_match.group(1))
+            managed = MANAGED_TABLES.get(identifier)
+            if managed is None:
+                if identifier not in TABLES:
+                    self._write_json(404, {"error": "table not found", "code": 4})
+                else:
+                    # 13 = InvalidInput: the table exists but its versions are not managed here.
+                    self._write_json(400, {"error": "table versions are not managed", "code": 13})
+                return
+            query = parse_qs(urlparse(self.path).query)
+            branch = query.get("branch", [None])[0]
+            versions = _branch_versions(managed, branch)
+            if versions is None:
+                # 22 = TableBranchNotFound
+                self._write_json(404, {"error": f"table branch {branch} not found", "code": 22})
+                return
+            ordered = list(versions)
+            if query.get("descending", ["false"])[0].lower() == "true":
+                ordered.reverse()
+            limit = query.get("limit", [None])[0]
+            if limit is not None:
+                if not limit.isdigit():
+                    self._write_json(400, {"error": "limit must be a non-negative integer", "code": 13})
+                    return
+                ordered = ordered[: int(limit)]
+            self._write_json(
+                200,
+                {"versions": [_table_version(identifier, v, branch) for v in ordered]},
+            )
+            return
+
+        version_describe_match = re.fullmatch(r"/v1/table/(.+)/version/describe", path)
+        if version_describe_match:
+            identifier = _decode_identifier(version_describe_match.group(1))
+            managed = MANAGED_TABLES.get(identifier)
+            if managed is None:
+                if identifier not in TABLES:
+                    self._write_json(404, {"error": "table not found", "code": 4})
+                else:
+                    self._write_json(400, {"error": "table versions are not managed", "code": 13})
+                return
+            branch = body.get("branch") if isinstance(body, dict) else None
+            versions = _branch_versions(managed, branch)
+            if versions is None:
+                self._write_json(404, {"error": f"table branch {branch} not found", "code": 22})
+                return
+            version = body.get("version") if isinstance(body, dict) else None
+            if not isinstance(version, int) or version not in versions:
+                self._write_json(
+                    404, {"error": f"table version {version} not found", "code": 11}
+                )
+                return
+            self._write_json(200, {"version": _table_version(identifier, version, branch)})
+            return
 
         describe_match = re.fullmatch(r"/v1/table/(.+)/describe", path)
         if describe_match:
@@ -186,7 +357,7 @@ class LanceRestHandler(BaseHTTPRequestHandler):
                     "location": table_uri,
                     "table_uri": table_uri,
                     "storage_options": _storage_options(identifier),
-                    "managed_versioning": False,
+                    "managed_versioning": identifier in MANAGED_TABLES,
                     "is_only_declared": False,
                 },
             )
@@ -237,7 +408,7 @@ class LanceRestHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     print(
         f"Starting Lance REST Namespace fixture on {HOST}:{PORT} "
-        f"with {len(TABLES)} table(s)",
+        f"with {len(TABLES)} table(s), {len(MANAGED_TABLES)} managed",
         flush=True,
     )
     ThreadingHTTPServer((HOST, PORT), LanceRestHandler).serve_forever()

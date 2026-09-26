@@ -28,6 +28,7 @@ import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
 import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.metadata.LanceMetadataLoader;
+import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
@@ -214,7 +215,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName, Optional<TableSnapshot> snapshot) {
-        return withClient(current -> current.loadTableMetadata(dbName, tableName, snapshot));
+        return loadTableMetadata(dbName, tableName, LanceRefSelector.snapshot(snapshot));
+    }
+
+    public LanceTableMetadata loadTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return withClient(current -> current.loadTableMetadata(dbName, tableName, selector));
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {

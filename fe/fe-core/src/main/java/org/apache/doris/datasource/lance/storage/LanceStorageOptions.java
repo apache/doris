@@ -68,6 +68,26 @@ public final class LanceStorageOptions {
         return buildStorageOptions(datasetUri, storageProperties, vendedOptions);
     }
 
+    /**
+     * The options to hand the Lance SDK when it opens a namespace-managed table itself. The SDK
+     * describes the table again and adds what the namespace vends then, in the namespace's own
+     * spelling. So the vended options are handed over in that spelling too, in place of their
+     * normalized twins in {@code merged}: the SDK's fresh values then replace them key for key,
+     * a namespace that vends new credentials on every describe cannot leave the SDK with a key
+     * from one describe and a secret from the other, and if that describe vends nothing the
+     * SDK still has these.
+     */
+    public static Map<String, String> forManagedSdkOpen(String datasetUri, Map<String, String> merged,
+            Map<String, String> vendedOptions) {
+        Map<String, String> result = new HashMap<>(merged);
+        if (vendedOptions != null && !vendedOptions.isEmpty()) {
+            result.keySet().removeAll(LanceStorageProvider.forDataset(datasetUri)
+                    .normalizeVendedStorageOptions(vendedOptions).keySet());
+            result.putAll(vendedOptions);
+        }
+        return result;
+    }
+
     private static Map<String, String> buildStorageOptions(String datasetUri,
             List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
         LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);

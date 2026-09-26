@@ -63,6 +63,29 @@ public class LanceSnapshotTest {
     }
 
     @Test
+    public void testVersionNumbersAndTagNames() {
+        Assertions.assertTrue(LanceSnapshotResolver.isVersionNumber("2"));
+        Assertions.assertTrue(LanceSnapshotResolver.isVersionNumber("007"));
+        Assertions.assertEquals(7, LanceSnapshotResolver.parseVersion("007"));
+        // A signed number is a version, so '-1' is reported as invalid rather than as a missing tag.
+        Assertions.assertTrue(LanceSnapshotResolver.isVersionNumber("-1"));
+        Assertions.assertTrue(LanceSnapshotResolver.isVersionNumber("+3"));
+        Assertions.assertEquals(3, LanceSnapshotResolver.parseVersion("+3"));
+        IllegalArgumentException negative = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceSnapshotResolver.parseVersion("-1"));
+        Assertions.assertEquals("Lance FOR VERSION AS OF requires a positive version, but was -1",
+                negative.getMessage());
+        // Anything else names a tag, as for Iceberg and Paimon tables.
+        for (String tag : new String[] {"v2", "-", "+", " 2", "2 ", "", "1.5", "1e3"}) {
+            Assertions.assertFalse(LanceSnapshotResolver.isVersionNumber(tag), tag);
+        }
+        IllegalArgumentException outOfRange = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceSnapshotResolver.parseVersion("99999999999999999999"));
+        Assertions.assertEquals("Lance FOR VERSION AS OF version 99999999999999999999 is out of range",
+                outOfRange.getMessage());
+    }
+
+    @Test
     public void testBoundSnapshotCarriesItsOwnSchema() {
         LanceTableMetadata intMetadata = metadata(10,
                 Field.nullable("value", new ArrowType.Int(32, true)));

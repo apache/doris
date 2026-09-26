@@ -45,6 +45,24 @@ public class VectorSearchTableValuedFunctionTest {
     }
 
     @Test
+    public void testBackquotedTableNameMayContainSelectorCharacters() throws Exception {
+        TableName at = VectorSearchTableValuedFunction.parseTableName("c.d.`user@corp`");
+        Assert.assertEquals("user@corp", at.getTbl());
+        TableName forName = VectorSearchTableValuedFunction.parseTableName("c.d.`sales for version 2024`");
+        Assert.assertEquals("sales for version 2024", forName.getTbl());
+    }
+
+    @Test
+    public void testTableNameCannotSelectVersionTagOrBranch() {
+        for (String table : new String[] {"c.d.t@tag(v1)", "c.d.t@branch(dev)", "c.d.t FOR VERSION AS OF 2"}) {
+            AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                    () -> VectorSearchTableValuedFunction.parseTableName(table));
+            Assert.assertTrue(exception.getMessage(),
+                    exception.getMessage().contains("cannot select a version, tag or branch"));
+        }
+    }
+
+    @Test
     public void testRejectAmbiguousUnquotedMultiLevelNamespace() {
         AnalysisException exception = Assert.assertThrows(AnalysisException.class,
                 () -> VectorSearchTableValuedFunction.parseTableName(

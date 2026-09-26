@@ -19,11 +19,11 @@
 #
 # The fixture has several readers and they do not all run the same Lance version:
 #
-#   lance-c v0.1.6 (lance-rs 7.0.0-beta.7)  BE, both from source and from the prebuilt
+#   lance-c v0.1.9 (lance-rs 11.0.0, patched)  BE, both from source and from the prebuilt
 #                                           doris-thirdparty package - thirdparty/vars.sh
 #   lance-java 4.0.0                        Spark, via lance-spark-bundle 0.4.0; it
 #                                           registers runtime tables into the same __manifest
-#   lance-java 9.1.0-beta.3                 Doris FE Directory Namespace client - fe/pom.xml
+#   lance-java 12.0.0                       Doris FE Directory Namespace client - fe/pom.xml
 #
 # The writer is pinned to the Lance generation the BE actually reads. It used to be pinned
 # to the oldest reader instead, on the theory that an older writer is readable by every
