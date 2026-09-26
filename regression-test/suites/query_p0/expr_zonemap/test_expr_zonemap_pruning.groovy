@@ -99,40 +99,50 @@ suite("test_expr_zonemap_pruning") {
         assertTrue(counterValue > 0)
     }
 
-    def matchedRows = sql """
+    qt_matched_rows """
         SELECT COUNT(*) FROM test_expr_zonemap_pruning WHERE starts_with(v, 'a')
     """
-    assertEquals(4096L, matchedRows[0][0] as long)
 
+    qt_starts_with_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning WHERE starts_with(v, 'z')
+    """
     def startsWithToken = "expr_zonemap_pruning_starts_with_" + UUID.randomUUID().toString()
-    def startsWithPrunedRows = sql """
+    sql """
         SELECT '${startsWithToken}', COUNT(*) FROM test_expr_zonemap_pruning WHERE starts_with(v, 'z')
     """
-    assertEquals(0L, startsWithPrunedRows[0][1] as long)
     assertExprZonemapPruned(startsWithToken)
 
+    qt_in_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning
+        WHERE v IN ('z0', 'z1') OR starts_with(v, 'zz')
+    """
     def inToken = "expr_zonemap_pruning_in_" + UUID.randomUUID().toString()
-    def inPrunedRows = sql """
+    sql """
         SELECT '${inToken}', COUNT(*) FROM test_expr_zonemap_pruning
         WHERE v IN ('z0', 'z1') OR starts_with(v, 'zz')
     """
-    assertEquals(0L, inPrunedRows[0][1] as long)
     assertExprZonemapPruned(inToken)
 
+    qt_is_null_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning
+        WHERE v IS NULL OR starts_with(v, 'zz')
+    """
     def nullToken = "expr_zonemap_pruning_is_null_" + UUID.randomUUID().toString()
-    def nullPrunedRows = sql """
+    sql """
         SELECT '${nullToken}', COUNT(*) FROM test_expr_zonemap_pruning
         WHERE v IS NULL OR starts_with(v, 'zz')
     """
-    assertEquals(0L, nullPrunedRows[0][1] as long)
     assertExprZonemapPruned(nullToken)
 
+    qt_comparison_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning
+        WHERE id > 5000 OR id < 0
+    """
     def comparisonToken = "expr_zonemap_pruning_comparison_" + UUID.randomUUID().toString()
-    def comparisonPrunedRows = sql """
+    sql """
         SELECT '${comparisonToken}', COUNT(*) FROM test_expr_zonemap_pruning
         WHERE id > 5000 OR id < 0
     """
-    assertEquals(0L, comparisonPrunedRows[0][1] as long)
     assertExprZonemapPruned(comparisonToken)
 
     sql """ DROP TABLE IF EXISTS test_expr_zonemap_page_reachability """
@@ -160,12 +170,15 @@ suite("test_expr_zonemap_pruning") {
     """
     sql """ sync """
 
+    qt_page_reachability """
+        SELECT COUNT(*) FROM test_expr_zonemap_page_reachability
+        WHERE starts_with(v, 'm_')
+    """
     def pageReachabilityToken = "expr_zonemap_pruning_page_reachability_" + UUID.randomUUID().toString()
-    def pageReachabilityRows = sql """
+    sql """
         SELECT '${pageReachabilityToken}', COUNT(*) FROM test_expr_zonemap_page_reachability
         WHERE starts_with(v, 'm_')
     """
-    assertEquals(4096L, pageReachabilityRows[0][1] as long)
     assertProfileCounterPositive(pageReachabilityToken, "ExprZoneMapFilteredPages")
 
     sql """ DROP TABLE IF EXISTS test_monotonic_zonemap """
@@ -215,37 +228,49 @@ suite("test_expr_zonemap_pruning") {
         contains "pushAggOp=COUNT_ON_INDEX"
     }
 
+    qt_inferred_prefix_range """
+        SELECT COUNT(*) FROM test_monotonic_zonemap
+        WHERE substring(v, 1, 1) = 'a'
+    """
     def inferredPrefixRangeToken = "expr_zonemap_pruning_inferred_prefix_range_" + UUID.randomUUID().toString()
-    def inferredPrefixRangeRows = sql """
+    sql """
         SELECT '${inferredPrefixRangeToken}', COUNT(*) FROM test_monotonic_zonemap
         WHERE substring(v, 1, 1) = 'a'
     """
-    assertEquals(4096L, inferredPrefixRangeRows[0][1] as long)
     assertProfileCounterPositive(inferredPrefixRangeToken, "RowsStatsFiltered")
 
+    qt_inferred_date_range """
+        SELECT COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
+    """
     def inferredDateRangeToken = "expr_zonemap_pruning_inferred_date_range_" + UUID.randomUUID().toString()
-    def inferredDateRangeRows = sql """
+    sql """
         SELECT '${inferredDateRangeToken}', COUNT(*) FROM test_monotonic_zonemap
         WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
     """
-    assertEquals(4096L, inferredDateRangeRows[0][1] as long)
     assertProfileCounterPositive(inferredDateRangeToken, "RowsStatsFiltered")
 
+    qt_inferred_date_format """
+        SELECT COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_format(dt, '%Y-%m-%d') >= '2026-08-01'
+    """
     def inferredDateFormatToken = "expr_zonemap_pruning_inferred_date_format_" + UUID.randomUUID().toString()
-    def inferredDateFormatRows = sql """
+    sql """
         SELECT '${inferredDateFormatToken}', COUNT(*) FROM test_monotonic_zonemap
         WHERE date_format(dt, '%Y-%m-%d') >= '2026-08-01'
     """
-    assertEquals(4096L, inferredDateFormatRows[0][1] as long)
     assertProfileCounterPositive(inferredDateFormatToken, "RowsStatsFiltered")
 
+    qt_inferred_date_format_equality """
+        SELECT COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_format(dt, '%Y-%m-%d') = '2026-07-28'
+    """
     def inferredDateFormatEqualityToken =
             "expr_zonemap_pruning_inferred_date_format_equality_" + UUID.randomUUID().toString()
-    def inferredDateFormatEqualityRows = sql """
+    sql """
         SELECT '${inferredDateFormatEqualityToken}', COUNT(*) FROM test_monotonic_zonemap
         WHERE date_format(dt, '%Y-%m-%d') = '2026-07-28'
     """
-    assertEquals(4096L, inferredDateFormatEqualityRows[0][1] as long)
     assertProfileCounterPositive(inferredDateFormatEqualityToken, "RowsStatsFiltered")
 
     sql """ set enable_count_on_index_pushdown = false """
@@ -256,20 +281,22 @@ suite("test_expr_zonemap_pruning") {
         """
         contains "pushAggOp=NONE"
     }
+    qt_inferred_direct_scan """
+        SELECT COUNT(*) FROM test_monotonic_zonemap
+        WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
+    """
     def inferredDirectScanToken =
             "expr_zonemap_pruning_inferred_direct_scan_" + UUID.randomUUID().toString()
-    def inferredDirectScanRows = sql """
+    sql """
         SELECT '${inferredDirectScanToken}', COUNT(*) FROM test_monotonic_zonemap
         WHERE date_trunc(dt, 'day') = '2026-07-28 00:00:00'
     """
-    assertEquals(4096L, inferredDirectScanRows[0][1] as long)
     assertProfileCounterPositive(inferredDirectScanToken, "RowsStatsFiltered")
 
-    def largeQuarterPeriodRows = sql """
+    qt_large_quarter_period """
         SELECT COUNT(*) FROM test_monotonic_zonemap
         WHERE quarter_floor(dt, 1431655766) = '0001-01-01 00:00:00'
     """
-    assertEquals(8192L, largeQuarterPeriodRows[0][0] as long)
     sql """ set enable_count_on_index_pushdown = true """
     sql """ set enable_expr_zonemap_filter = true """
 
@@ -293,12 +320,15 @@ suite("test_expr_zonemap_pruning") {
     """
     sql """ sync """
 
+    qt_char_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_char
+        WHERE starts_with(c, 'z') OR c IN ('z0', 'z1') OR c = 'z2'
+    """
     def charToken = "expr_zonemap_pruning_char_" + UUID.randomUUID().toString()
-    def charPrunedRows = sql """
+    sql """
         SELECT '${charToken}', COUNT(*) FROM test_expr_zonemap_pruning_char
         WHERE starts_with(c, 'z') OR c IN ('z0', 'z1') OR c = 'z2'
     """
-    assertEquals(0L, charPrunedRows[0][1] as long)
     assertExprZonemapPruned(charToken)
 
     sql """ DROP TABLE IF EXISTS test_expr_zonemap_pruning_nulls """
@@ -317,12 +347,15 @@ suite("test_expr_zonemap_pruning") {
     sql """ INSERT INTO test_expr_zonemap_pruning_nulls VALUES (1, NULL), (2, NULL) """
     sql """ sync """
 
+    qt_is_not_null_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_nulls
+        WHERE v IS NOT NULL OR starts_with(v, 'zz')
+    """
     def isNotNullToken = "expr_zonemap_pruning_is_not_null_" + UUID.randomUUID().toString()
-    def isNotNullPrunedRows = sql """
+    sql """
         SELECT '${isNotNullToken}', COUNT(*) FROM test_expr_zonemap_pruning_nulls
         WHERE v IS NOT NULL OR starts_with(v, 'zz')
     """
-    assertEquals(0L, isNotNullPrunedRows[0][1] as long)
     assertExprZonemapPruned(isNotNullToken)
 
     // Column-vs-column comparisons. A predicate over two columns of the same table never became a
@@ -378,39 +411,52 @@ suite("test_expr_zonemap_pruning") {
 
     def assertTwoColumnPruned = { String predicate, String label ->
         def token = "expr_zonemap_pruning_two_columns_" + label + "_" + UUID.randomUUID().toString()
-        def rows = sql """
+        sql """
             SELECT '${token}', COUNT(*) FROM test_expr_zonemap_pruning_two_columns
             WHERE ${predicate}
         """
-        assertEquals(0L, rows[0][1] as long)
         assertExprZonemapPruned(token)
-        assertEquals(0L, assertSameWithAndWithoutPruning(predicate))
+        assertSameWithAndWithoutPruning(predicate)
     }
 
     // lo > hi and lo >= hi: rejected because min(hi) is already above max(lo).
     assertTwoColumnPruned("lo > hi", "gt")
+    qt_two_column_gt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo > hi"""
     assertTwoColumnPruned("lo >= hi", "ge")
+    qt_two_column_ge """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo >= hi"""
     // hi < lo and hi <= lo: the mirrored rules.
     assertTwoColumnPruned("hi < lo", "lt")
+    qt_two_column_lt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE hi < lo"""
     assertTwoColumnPruned("hi <= lo", "le")
+    qt_two_column_le """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE hi <= lo"""
     // lo = hi: the ranges are disjoint, so no row can be equal.
     assertTwoColumnPruned("lo = hi", "eq")
+    qt_two_column_eq """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo = hi"""
     // expected != actual: both columns collapse to the single value 7, which is the only shape that
     // lets != prune.
     assertTwoColumnPruned("expected != actual", "ne")
+    qt_two_column_ne """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE expected != actual"""
 
     // Overlapping ranges must survive, and the row counts must be exact. These are the cases that
     // catch a rule reading the wrong end of a range: lo in [0, 4095] against alt in [0, 7095] cannot
-    // be separated by the bounds, so all of these have to fall through to per-row evaluation.
-    assertEquals(2048L, assertSameWithAndWithoutPruning("lo < alt"))
-    assertEquals(2048L, assertSameWithAndWithoutPruning("lo != alt"))
-    assertEquals(2048L, assertSameWithAndWithoutPruning("lo = alt"))
-    assertEquals(4096L, assertSameWithAndWithoutPruning("lo <= alt"))
-    assertEquals(0L, assertSameWithAndWithoutPruning("lo > alt"))
-    assertEquals(4096L, assertSameWithAndWithoutPruning("lo >= alt - 3000"))
+    // be separated by the bounds, so all of these have to fall through to per-row evaluation. The
+    // enabled-vs-disabled equality stays programmatic; the exact counts land in golden output.
+    assertSameWithAndWithoutPruning("lo < alt")
+    qt_overlap_lo_lt_alt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo < alt"""
+    assertSameWithAndWithoutPruning("lo != alt")
+    qt_overlap_lo_ne_alt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo != alt"""
+    assertSameWithAndWithoutPruning("lo = alt")
+    qt_overlap_lo_eq_alt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo = alt"""
+    assertSameWithAndWithoutPruning("lo <= alt")
+    qt_overlap_lo_le_alt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo <= alt"""
+    assertSameWithAndWithoutPruning("lo > alt")
+    qt_overlap_lo_gt_alt """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo > alt"""
+    assertSameWithAndWithoutPruning("lo >= alt - 3000")
+    qt_overlap_lo_ge_alt_shift """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo >= alt - 3000"""
     // A cast on either side is rejected by the capability gate, so this must still return the right
     // answer rather than being pruned on raw bounds.
-    assertEquals(4096L, assertSameWithAndWithoutPruning("lo < CAST(hi AS BIGINT)"))
+    assertSameWithAndWithoutPruning("lo < CAST(hi AS BIGINT)")
+    qt_overlap_lo_lt_cast_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE lo < CAST(hi AS BIGINT)"""
 
     // One side partially NULL. min/max summarize the non-null values only, and a NULL row makes the
     // comparison NULL, which never satisfies the conjunct, so the separated ranges still prune.
@@ -437,13 +483,16 @@ suite("test_expr_zonemap_pruning") {
     """
     sql """ sync """
 
+    qt_two_column_null """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nulls
+        WHERE lo > hi
+    """
     def twoColumnNullToken =
             "expr_zonemap_pruning_two_columns_null_" + UUID.randomUUID().toString()
-    def twoColumnNullRows = sql """
+    sql """
         SELECT '${twoColumnNullToken}', COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nulls
         WHERE lo > hi
     """
-    assertEquals(0L, twoColumnNullRows[0][1] as long)
     assertExprZonemapPruned(twoColumnNullToken)
 
     // A column with no non-null value at all makes the comparison NULL on every row.
@@ -468,13 +517,16 @@ suite("test_expr_zonemap_pruning") {
     """
     sql """ sync """
 
+    qt_two_column_all_null """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_all_null
+        WHERE lo < hi
+    """
     def allNullToken =
             "expr_zonemap_pruning_two_columns_all_null_" + UUID.randomUUID().toString()
-    def allNullRows = sql """
+    sql """
         SELECT '${allNullToken}', COUNT(*) FROM test_expr_zonemap_pruning_two_columns_all_null
         WHERE lo < hi
     """
-    assertEquals(0L, allNullRows[0][1] as long)
     assertExprZonemapPruned(allNullToken)
 
     // Same as assertExprZonemapPruned but returns the count, so a case can pin the exact number of
@@ -530,51 +582,54 @@ suite("test_expr_zonemap_pruning") {
     """
     sql """ sync """
 
+    qt_per_segment_ne """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_per_segment WHERE a != b
+    """
     def perSegmentNeToken = "expr_zonemap_pruning_per_segment_ne_" + UUID.randomUUID().toString()
-    def perSegmentNeRows = sql """
+    sql """
         SELECT '${perSegmentNeToken}', COUNT(*) FROM test_expr_zonemap_pruning_per_segment
         WHERE a != b
     """
-    assertEquals(1024L, perSegmentNeRows[0][1] as long)
     assertEquals(2L, filteredSegmentsOf(perSegmentNeToken))
 
+    qt_per_segment_eq """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_per_segment WHERE a = b
+    """
     def perSegmentEqToken = "expr_zonemap_pruning_per_segment_eq_" + UUID.randomUUID().toString()
-    def perSegmentEqRows = sql """
+    sql """
         SELECT '${perSegmentEqToken}', COUNT(*) FROM test_expr_zonemap_pruning_per_segment
         WHERE a = b
     """
-    assertEquals(2048L, perSegmentEqRows[0][1] as long)
     assertEquals(1L, filteredSegmentsOf(perSegmentEqToken))
 
     sql """ set enable_expr_zonemap_filter = false """
-    def perSegmentNeWithout = sql """
+    qt_per_segment_ne_without """
         SELECT COUNT(*) FROM test_expr_zonemap_pruning_per_segment WHERE a != b
     """
-    def perSegmentEqWithout = sql """
+    qt_per_segment_eq_without """
         SELECT COUNT(*) FROM test_expr_zonemap_pruning_per_segment WHERE a = b
     """
     sql """ set enable_expr_zonemap_filter = true """
-    assertEquals(1024L, perSegmentNeWithout[0][0] as long)
-    assertEquals(2048L, perSegmentEqWithout[0][0] as long)
 
     // The single-slot path on the same table, to show that widening the zonemap capability gate for
     // two-slot shapes did not disturb the one-slot one it shares a gate with. It has to be a
     // predicate that expression zone maps actually see: `a = 'zzz'` is turned into a ColumnPredicate
     // and pruned by the ordinary olap path instead, which leaves ExprZoneMapFilteredSegments at 0.
+    qt_literal_still_prunes """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_per_segment WHERE starts_with(a, 'z')
+    """
     def literalStillPrunesToken =
             "expr_zonemap_pruning_per_segment_literal_" + UUID.randomUUID().toString()
-    def literalStillPrunesRows = sql """
+    sql """
         SELECT '${literalStillPrunesToken}', COUNT(*) FROM test_expr_zonemap_pruning_per_segment
         WHERE starts_with(a, 'z')
     """
-    assertEquals(0L, literalStillPrunesRows[0][1] as long)
     assertEquals(3L, filteredSegmentsOf(literalStillPrunesToken))
 
     // And the ColumnPredicate shape still returns the right answer.
-    def columnPredicateRows = sql """
+    qt_column_predicate """
         SELECT COUNT(*) FROM test_expr_zonemap_pruning_per_segment WHERE a = 'zzz'
     """
-    assertEquals(0L, columnPredicateRows[0][0] as long)
 
     // Two DOUBLE columns on a native table. Unlike Parquet, the segment writer records NaN presence
     // in the zone map, so a float column with no NaN in it prunes normally.
@@ -599,12 +654,15 @@ suite("test_expr_zonemap_pruning") {
     """
     sql """ sync """
 
+    qt_double_pruned """
+        SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_double
+        WHERE lo > hi
+    """
     def doubleToken = "expr_zonemap_pruning_two_columns_double_" + UUID.randomUUID().toString()
-    def doubleRows = sql """
+    sql """
         SELECT '${doubleToken}', COUNT(*) FROM test_expr_zonemap_pruning_two_columns_double
         WHERE lo > hi
     """
-    assertEquals(0L, doubleRows[0][1] as long)
     assertExprZonemapPruned(doubleToken)
 
     // NaN and infinities make the bounds unusable for range pruning, so these cases only have to
@@ -648,9 +706,14 @@ suite("test_expr_zonemap_pruning") {
     }
 
     // Doris orders NaN above every other value and treats NaN = NaN as true. So lo > hi holds for
-    // rows 1, 3 and 6; lo < hi for rows 2, 4 and 5; and no row has the two columns equal.
-    assertEquals(3L, assertSameOnNanTable("lo > hi"))
-    assertEquals(6L, assertSameOnNanTable("lo != hi"))
-    assertEquals(0L, assertSameOnNanTable("lo = hi"))
-    assertEquals(3L, assertSameOnNanTable("lo < hi"))
+    // rows 1, 3 and 6; lo < hi for rows 2, 4 and 5; and no row has the two columns equal. The
+    // enabled-vs-disabled equality stays programmatic; the exact counts land in golden output.
+    assertSameOnNanTable("lo > hi")
+    qt_nan_lo_gt_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nan WHERE lo > hi"""
+    assertSameOnNanTable("lo != hi")
+    qt_nan_lo_ne_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nan WHERE lo != hi"""
+    assertSameOnNanTable("lo = hi")
+    qt_nan_lo_eq_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nan WHERE lo = hi"""
+    assertSameOnNanTable("lo < hi")
+    qt_nan_lo_lt_hi """SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns_nan WHERE lo < hi"""
 }
