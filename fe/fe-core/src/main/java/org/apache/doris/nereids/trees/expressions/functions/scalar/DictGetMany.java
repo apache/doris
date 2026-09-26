@@ -31,7 +31,9 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
@@ -67,6 +69,24 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         }
         if (!getArgument(0).isLiteral() || !getArgument(1).isLiteral()) {
             throw new AnalysisException("dict_get() requires literal arguments for position 0 and 1");
+        }
+        if (!(getArgument(1) instanceof ArrayLiteral)) {
+            throw new AnalysisException("dict_get_many() second argument must be a constant ARRAY<VARCHAR>");
+        }
+        ArrayLiteral valueColumnNames = (ArrayLiteral) getArgument(1);
+        if (valueColumnNames.getValue().stream().anyMatch(NullLiteral.class::isInstance)) {
+            throw new AnalysisException("dict_get_many() second argument cannot contain NULL");
+        }
+        if (!((ArrayType) valueColumnNames.getDataType()).getItemType().isStringLikeType()
+                || valueColumnNames.getValue().stream().anyMatch(valueColumnName ->
+                        !valueColumnName.getDataType().isStringLikeType())) {
+            throw new AnalysisException("dict_get_many() second argument must be a constant ARRAY<VARCHAR>");
+        }
+        if (getArgument(2).nullable()) {
+            throw new AnalysisException("dict_get_many() query_key_values argument cannot be NULL");
+        }
+        if (!(getArgument(2).getDataType() instanceof StructType)) {
+            throw new AnalysisException("dict_get_many() third argument must be a STRUCT");
         }
         if (((Literal) getArgument(0)).getStringValue().split("\\.").length != 2) {
             throw new AnalysisException("dict_get() requires dbName.dictName as first argument");
@@ -126,6 +146,9 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
         List<StructField> originQueryFields = ((StructType) getArgumentType(2)).getFields();
         List<StructField> targetQueryFields = new ArrayList<>(); // after add essential castExpr
         List<DataType> targetTypes = dictionary.getKeyColumnTypes(); // query columns should cast to key columns' types
+        if (originQueryFields.size() != targetTypes.size()) {
+            throw new AnalysisException("dict_get_many() query_key_values field count must match dictionary key count");
+        }
 
         for (int i = 0; i < originQueryFields.size(); i++) {
             StructField field = originQueryFields.get(i);
@@ -134,7 +157,12 @@ public class DictGetMany extends ScalarFunction implements CustomSignature, Alwa
 
             if (dictionary.getLayout() == LayoutType.HASH_MAP) {
                 Optional<DataType> castType = TypeCoercionUtils.implicitCast(queryType, targetType);
-                if (castType.isPresent() && !castType.get().equals(queryType)) {
+                if (!castType.isPresent()) {
+                    throw new AnalysisException(String.format(
+                            "dict_get_many() query key type %s cannot be implicitly cast to dictionary key type %s",
+                            queryType.toSql(), targetType.toSql()));
+                }
+                if (!castType.get().equals(queryType)) {
                     queryType = castType.get();
                 }
             } else { // IP_TRIE
