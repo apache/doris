@@ -113,7 +113,8 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             streamingInsertJob.setFailureReason(new FailureReason(
                     InternalErrorCode.CANNOT_RESUME_ERR,
                     "Auto resume failed after " + autoResumeCount
-                            + " attempts. Last error: " + failureReason.getMsg()));
+                            + " attempts. Last error: " + failureReason.getMsg()
+                            + ". Run RESUME JOB to retry."));
             return;
         }
 

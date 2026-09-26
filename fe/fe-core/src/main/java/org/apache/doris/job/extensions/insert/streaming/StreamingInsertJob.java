@@ -1236,7 +1236,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private static boolean checkPrivilege(ConnectContext ctx, String  sql) throws AnalysisException {
         LogicalPlan logicalPlan = new NereidsParser().parseSingle(sql);
         if (!(logicalPlan instanceof InsertIntoTableCommand)) {
-            throw new AnalysisException("Only support insert command");
+            throw new AnalysisException("Streaming jobs only support INSERT statements");
         }
         LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
         List<String> targetTable = InsertUtils.getTargetTableQualified(logicalQuery, ctx);
@@ -1562,7 +1562,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     && runningMultiTask.isTimeout(status)) {
                 String timeoutReason = status == null ? "" : status.getFailReason();
                 if (StringUtils.isEmpty(timeoutReason)) {
-                    timeoutReason = "task failed cause timeout";
+                    timeoutReason = "Streaming task " + runningMultiTask.getTaskId()
+                            + " timed out because no progress was reported.";
                 }
                 runningMultiTask.onFail(timeoutReason);
                 // renew streaming task by auto resume
@@ -1660,7 +1661,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     getJobId(), ratio, maxFilterRatio, sampleWindowFilteredRows, sampleWindowScannedRows);
             log.error(msg);
             FailureReason failureReason = new FailureReason(InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR,
-                    "too many filtered rows exceeded max_filter_ratio " + maxFilterRatio);
+                    String.format(
+                            "too many filtered rows: ratio %s exceeds load.max_filter_ratio %s. "
+                                    + "Fix the source data or adjust the limit, then run RESUME JOB.",
+                            ratio, maxFilterRatio));
             this.setFailureReason(failureReason);
             this.updateJobStatus(JobStatus.PAUSED);
             throw new JobException(failureReason.getMsg());
