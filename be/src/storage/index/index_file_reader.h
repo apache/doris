@@ -40,7 +40,6 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "common/be_mock_util.h"
 #include "common/config.h"

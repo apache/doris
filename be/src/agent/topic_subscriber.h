@@ -22,7 +22,6 @@
 
 #include <map>
 #include <shared_mutex>
-#include <vector>
 
 namespace doris {
 class TopicListener;

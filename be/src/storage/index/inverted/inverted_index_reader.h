@@ -22,7 +22,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
 #include "core/data_type/primitive_type.h"

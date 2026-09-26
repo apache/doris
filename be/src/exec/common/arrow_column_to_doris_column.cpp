@@ -29,7 +29,6 @@
 
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
