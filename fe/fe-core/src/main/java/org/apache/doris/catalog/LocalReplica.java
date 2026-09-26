@@ -30,6 +30,7 @@ public class LocalReplica extends Replica {
 
     @SerializedName(value = "bid", alternate = {"backendId"})
     private long backendId;
+    private int schemaHash = -1;
 
     @SerializedName(value = "rds", alternate = {"remoteDataSize"})
     private volatile long remoteDataSize = 0;
@@ -136,6 +137,7 @@ public class LocalReplica extends Replica {
         super(replicaId, backendId, version, schemaHash, dataSize, remoteDataSize, rowCount, state, lastFailedVersion,
                 lastSuccessVersion);
         this.backendId = backendId;
+        this.schemaHash = schemaHash;
         this.lastFailedVersion = lastFailedVersion;
         if (this.lastFailedVersion > 0) {
             this.lastFailedTimestamp = System.currentTimeMillis();
@@ -162,6 +164,16 @@ public class LocalReplica extends Replica {
     @Override
     public void setBackendId(long backendId) {
         this.backendId = backendId;
+    }
+
+    @Override
+    public int getSchemaHash() {
+        return schemaHash;
+    }
+
+    @Override
+    public void setSchemaHash(int schemaHash) {
+        this.schemaHash = schemaHash;
     }
 
     @Override
