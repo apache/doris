@@ -518,10 +518,11 @@ under the License.
             <version>12.22.0</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
+        <!-- Keep in step with fe/pom.xml's netty-all.version. -->
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
-            <version>4.2.15.Final</version>
+            <version>4.2.17.Final</version>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>

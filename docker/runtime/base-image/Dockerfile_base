@@ -26,15 +26,23 @@ FROM ubuntu:22.04
 
 ARG TARGETARCH
 
+# Kernel-header and -dev packages are deliberately absent. linux-tools-realtime pulls
+# linux-tools-common, and libperl-dev/python2-dev pull linux-libc-dev + libc6-dev; all three
+# are built from the `linux`/`glibc` source packages, so every kernel CVE Ubuntu tracks is
+# reported against this image even though the packages ship only UAPI headers and perf wrapper
+# scripts - the vulnerable code runs in the host kernel, which an image cannot patch. They also
+# carry CVEs with no fixed version, so they can never be cleared by an apt upgrade. perf and the
+# BCC tools they provided are host-kernel-coupled and need --privileged plus a matching kernel
+# to be useful anyway; run them from a debug sidecar sharing the target's namespaces instead.
+# google-pprof keeps working: it is a perl script and only needs the base perl interpreter.
 RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
     apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     patchelf gdb binutils binutils-common mysql-client iperf3 \
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
     tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
-    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
-    google-perftools libperl-dev python2-dev \
+    silversearcher-ag \
+    google-perftools \
     net-tools ca-certificates openssl && apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /usr/lib/jvm/ && \
-    ln -sf /usr/lib/linux-tools/`ls /usr/lib/linux-tools/`/perf /usr/bin/perf &&\
     ln -s /usr/bin/google-pprof /usr/bin/pprof;
 
 COPY --from=apache/doris:jdk-latest /usr/lib/jvm/jdk-17 /usr/lib/jvm/jdk-17
@@ -45,5 +53,5 @@ COPY --from=apache/doris:debug-latest /dorisctl /opt/apache-doris/
 
 WORKDIR /opt/apache-doris
 
-# The last update at: December 23, 2025.
-# The docker image tag is changed to: base-6.0
+# The last update at: September 21, 2026.
+# The docker image tag is changed to: base-6.1
