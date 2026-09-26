@@ -112,9 +112,22 @@ public class StatisticsUtil {
     public static final int UPDATED_PARTITION_THRESHOLD = 3;
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
+        return executeQuery(template, params, getAnalyzeTimeout());
+    }
+
+    /**
+     * Same as {@link #executeQuery(String, Map)} but with an explicit statement timeout.
+     * The temporary context otherwise inherits the analyze timeout (12h by default), which
+     * is far too long for a latency-sensitive internal read such as the SPM baseline /
+     * checkpoint lookup that must fail fast and retry later.
+     *
+     * @param timeoutSeconds the statement timeout in seconds
+     */
+    public static List<ResultRow> executeQuery(String template, Map<String, String> params,
+            int timeoutSeconds) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(template);
-        return execStatisticQuery(sql, true);
+        return execStatisticQuery(sql, true, timeoutSeconds);
     }
 
     public static void execUpdate(String template, Map<String, String> params) throws Exception {
@@ -128,11 +141,17 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql, boolean enableFileCache) {
+        return execStatisticQuery(sql, enableFileCache, getAnalyzeTimeout());
+    }
+
+    /** Same as {@link #execStatisticQuery(String, boolean)} with an explicit timeout. */
+    public static List<ResultRow> execStatisticQuery(String sql, boolean enableFileCache,
+            int timeoutSeconds) {
         if (!FeConstants.enableInternalSchemaDb) {
             return Collections.emptyList();
         }
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(useFileCacheForStat)) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(useFileCacheForStat, timeoutSeconds)) {
             if (Config.isCloudMode()) {
                 try {
                     r.connectContext.getCloudCluster();
@@ -186,6 +205,16 @@ public class StatisticsUtil {
     }
 
     public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat) {
+        return buildConnectContext(useFileCacheForStat, getAnalyzeTimeout());
+    }
+
+    /**
+     * Same as {@link #buildConnectContext(boolean)} with an explicit statement timeout:
+     * latency-sensitive internal readers (SPM baselines / capture checkpoint) pass a short
+     * one so an unavailable tablet / BE fails fast and can be retried by the caller.
+     */
+    public static AutoCloseConnectContext buildConnectContext(boolean useFileCacheForStat,
+            int timeoutSeconds) {
         ConnectContext connectContext = new ConnectContext();
         connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -197,8 +226,8 @@ public class StatisticsUtil {
         sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
-        sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
+        sessionVariable.setQueryTimeoutS(timeoutSeconds);
+        sessionVariable.insertTimeoutS = timeoutSeconds;
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
         sessionVariable.enablePushDownMinMaxOnUnique = true;

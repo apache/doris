@@ -176,12 +176,12 @@ public class StatementContext implements Closeable {
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
     private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
-    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
-    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
+    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new LinkedHashMap<>();
+    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new LinkedHashMap<>();
 
     private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
-    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new LinkedHashMap<>();
     private final Map<RelationId, Long> consumerIdToLimitRows = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
@@ -208,7 +208,19 @@ public class StatementContext implements Closeable {
     // the columns in Plan.getExpressions(), such as columns in join condition or
     // filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
+    // the rules this statement must not apply: disable_nereids_rules plus, when the
+    // session carries a non-empty enable_nereids_rules (a whitelist), every rule that
+    // is outside that whitelist (see getOrCacheDisableRules)
     private BitSet disableRules;
+
+    /**
+     * SPM-local rule exclusion mask: the rules a baseline-creation statement must not
+     * apply. Installed only by SPMOptimizer on its private StatementContext, so the public
+     * enable_nereids_rules variable keeps its established (planning-inert) behavior - a
+     * session value such as enable_nereids_rules='ELIMINATE_GROUP_BY_KEY_BY_UNIFORM' must
+     * not forbid every binding / implementation rule for ordinary statements.
+     */
+    private BitSet spmExcludedRules = null;
 
     // A per-statement memoization arena for connectors: e.g. Iceberg loads a table once and shares that
     // single object across read + write resolvers within the statement. Lazily built (see
@@ -386,6 +398,12 @@ public class StatementContext implements Closeable {
     // CTEs that must be materialized (e.g., containing non-deterministic functions)
     private final Set<CTEId> forceMaterializeCTEs = new HashSet<>();
 
+    // ==================== SPM (SQL Plan Management) rewrite state (Phase 1) ====================
+    /** Whether the SPM rewrite replaced this query's plan with a matched baseline plan. */
+    private boolean spmBaselineApplied = false;
+    /** The baseline id used by the SPM rewrite (-1 when none). */
+    private long spmUsedBaselineId = -1;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -468,6 +486,22 @@ public class StatementContext implements Closeable {
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
+    }
+
+    public void setSpmBaselineApplied(boolean spmBaselineApplied) {
+        this.spmBaselineApplied = spmBaselineApplied;
+    }
+
+    public boolean isSpmBaselineApplied() {
+        return spmBaselineApplied;
+    }
+
+    public void setSpmUsedBaselineId(long spmUsedBaselineId) {
+        this.spmUsedBaselineId = spmUsedBaselineId;
+    }
+
+    public long getSpmUsedBaselineId() {
+        return spmUsedBaselineId;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -780,11 +814,38 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
+    /**
+     * Installs the SPM rule exclusion mask on this (private) statement context.
+     */
+    public synchronized void setSpmExcludedRules(BitSet spmExcludedRules) {
+        this.spmExcludedRules = spmExcludedRules;
+    }
+
+    /**
+     * The rules this statement must not apply, derived from the session variables and
+     * cached per statement:
+     *
+     * - disable_nereids_rules (a blacklist), plus
+     * - the SPM-local exclusion mask (set by SPMOptimizer for the nested
+     *   baseline-creation statement only; see {@link #setSpmExcludedRules}).
+     *
+     * CHECK_PRIVILEGES / CHECK_ROW_POLICY are never gated by either source (privilege
+     * and row-policy enforcement must always run; mirrors
+     * SessionVariable#getDisableNereidsRules(), which refuses to disable them).
+     */
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
         if (this.disableRules != null) {
             return this.disableRules;
         }
-        this.disableRules = sessionVariable.getDisableNereidsRules();
+        BitSet forbiddenRules = sessionVariable.getDisableNereidsRules();
+        if (spmExcludedRules != null) {
+            // clone before OR: the session's bitset is shared state
+            forbiddenRules = (BitSet) forbiddenRules.clone();
+            forbiddenRules.or(spmExcludedRules);
+            forbiddenRules.clear(RuleType.CHECK_PRIVILEGES.type());
+            forbiddenRules.clear(RuleType.CHECK_ROW_POLICY.type());
+        }
+        this.disableRules = forbiddenRules;
         return this.disableRules;
     }
 
@@ -824,7 +885,8 @@ public class StatementContext implements Closeable {
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
-        if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
+        if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)
+                || cacheKey.equalsIgnoreCase(SessionVariable.ENABLE_NEREIDS_RULES)) {
             this.disableRules = null;
         }
     }
@@ -938,9 +1000,9 @@ public class StatementContext implements Closeable {
     }
 
     private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
-        Map<K, Set<V>> copied = new HashMap<>();
+        Map<K, Set<V>> copied = new LinkedHashMap<>();
         for (Map.Entry<K, Set<V>> entry : source.entrySet()) {
-            copied.put(entry.getKey(), new HashSet<>(entry.getValue()));
+            copied.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
         }
         return copied;
     }

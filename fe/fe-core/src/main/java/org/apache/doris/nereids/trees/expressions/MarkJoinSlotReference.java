@@ -23,6 +23,8 @@ import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /**
  * A special type of column that will be generated to replace the subquery when unnesting the subquery of MarkJoin.
  */
@@ -41,6 +43,11 @@ public class MarkJoinSlotReference extends SlotReference {
 
     public MarkJoinSlotReference(ExprId exprId, String name, boolean existsHasAgg) {
         super(exprId, name, BooleanType.INSTANCE, true, ImmutableList.of());
+        this.existsHasAgg = existsHasAgg;
+    }
+
+    public MarkJoinSlotReference(ExprId exprId, String name, boolean existsHasAgg, List<String> qualifier) {
+        super(exprId, name, BooleanType.INSTANCE, true, qualifier);
         this.existsHasAgg = existsHasAgg;
     }
 
@@ -72,12 +79,17 @@ public class MarkJoinSlotReference extends SlotReference {
 
     @Override
     public MarkJoinSlotReference withExprId(ExprId exprId) {
-        return new MarkJoinSlotReference(exprId, name.get(), existsHasAgg);
+        return new MarkJoinSlotReference(exprId, name.get(), existsHasAgg, qualifier);
     }
 
     @Override
-    public SlotReference withName(String name) {
-        return new MarkJoinSlotReference(exprId, name, existsHasAgg);
+    public MarkJoinSlotReference withName(String name) {
+        return new MarkJoinSlotReference(exprId, name, existsHasAgg, qualifier);
+    }
+
+    @Override
+    public MarkJoinSlotReference withQualifier(List<String> qualifier) {
+        return new MarkJoinSlotReference(exprId, name.get(), existsHasAgg, qualifier);
     }
 
     @Override

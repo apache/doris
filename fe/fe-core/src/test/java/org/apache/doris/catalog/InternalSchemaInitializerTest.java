@@ -32,7 +32,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class InternalSchemaInitializerTest {
     @Test
@@ -261,5 +265,148 @@ class InternalSchemaInitializerTest {
                 "The system should not generate AlterClause for the scan_bytes_from_local_storage column that already exists");
         Assertions.assertFalse(hasRemoteStorageClause,
                 "The system should not generate AlterClause for the scan_bytes_from_remote_storage column that already exists");
+    }
+
+    // ==================== SPM baselines table: upgrade path ====================
+
+    /**
+     * An UPGRADED cluster already contains every legacy statistics/audit table, so the
+     * SPM baselines table must gate created() itself: otherwise run() exits before ever
+     * calling createTbl(), the missing spm_baselines table is never created and every
+     * BaselineManager load keeps failing (global CREATE/ALTER/DROP report "store not
+     * ready" forever). Simulate the upgrade: only this one table is absent.
+     */
+    @Test
+    public void testSpmBaselinesTableGatesCompletion() {
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmBaselinesTableMissing(db),
+                "a cluster where only spm_baselines is absent must not count as initialized");
+
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesTableMissing(db),
+                "an existing spm_baselines table must not block completion");
+
+        // the capture checkpoint table gates completion the same way: without its own
+        // check an upgraded cluster (which already HAS spm_baselines) would never create
+        // it, and a leader handoff could not resume a truncated capture window
+        Mockito.when(db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmCaptureCheckpointTableMissing(db),
+                "a cluster where only spm_capture_checkpoint is absent must not count as initialized");
+        Mockito.when(db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmCaptureCheckpointTableMissing(db),
+                "an existing spm_capture_checkpoint table must not block completion");
+    }
+
+    /**
+     * The completion gate re-runs createTbl() on an upgraded cluster: the create text it
+     * issues must cover the SPM table (CREATE TABLE IF NOT EXISTS makes the other legacy
+     * tables a no-op).
+     */
+    @Test
+    public void testCreateTblCoversSpmBaselinesTable() throws Exception {
+        Method method = InternalSchemaInitializer.class.getDeclaredMethod("getSpmBaselinesCreateSql");
+        method.setAccessible(true);
+        String sql = (String) method.invoke(null);
+        Assertions.assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS"
+                        + " `internal`.`__internal_schema`.`spm_baselines`"),
+                "the SPM completion gate re-runs createTbl(): it must create the table: " + sql);
+        Assertions.assertTrue(sql.contains("`sql_mode`"),
+                "a new cluster must create the creating-session sql_mode column: " + sql);
+        Assertions.assertTrue(sql.contains("`plan_sql_mode`"),
+                "a new cluster must create the planSql-mode column: " + sql);
+        Assertions.assertTrue(sql.contains("`plan_frozen`"),
+                "a new cluster must create the frozen-provenance column: " + sql);
+        Assertions.assertTrue(sql.contains("`schema_fingerprint`"),
+                "a new cluster must create the schema-fingerprint column: " + sql);
+    }
+
+    /**
+     * Both SPM tables carry cluster-wide state and must take part in the internal-table
+     * replica upgrade: with the default minimum replication of 1 they are created
+     * single-replica, so losing the hosting BE would make every global baseline
+     * unavailable (spm_baselines) or erase the only capture handoff cursor
+     * (spm_capture_checkpoint).
+     */
+    @Test
+    public void testSpmTablesTakePartInReplicaUpgrade() {
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_BASELINES_TBL_NAME),
+                "spm_baselines must be raised towards the statistics replica target");
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME),
+                "spm_capture_checkpoint must be raised towards the statistics replica target");
+    }
+
+    /**
+     * The checkpoint replacement must be a single-key UPSERT: the table is UNIQUE-key(id)
+     * with merge-on-write, so re-inserting the row replaces it atomically and no crash can
+     * leave the shared store without a checkpoint row.
+     */
+    @Test
+    public void testCaptureCheckpointTableIsUniqueKeyUpsert() throws Exception {
+        Method method = InternalSchemaInitializer.class.getDeclaredMethod(
+                "getSpmCaptureCheckpointCreateSql");
+        method.setAccessible(true);
+        String sql = (String) method.invoke(null);
+        Assertions.assertTrue(sql.contains("UNIQUE KEY(`id`)"),
+                "the checkpoint table must be UNIQUE-key so the INSERT upserts: " + sql);
+        Assertions.assertTrue(sql.contains("enable_unique_key_merge_on_write"),
+                "merge-on-write makes the single-row replacement atomic: " + sql);
+    }
+
+    /**
+     * A transient ALTER failure must be retried INSIDE the initializer: run() calls the
+     * upgrade only once and the replica-upgrade loop never comes back, so without the
+     * retry loop an upgraded cluster stayed without the provenance columns until a
+     * restart although BaselineManager always reads / writes them.
+     */
+    @Test
+    public void testSqlModeUpgradeRetriesUntilColumnObserved() {
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger sleeps = new AtomicInteger();
+        AtomicBoolean exists = new AtomicBoolean(false);
+        InternalSchemaInitializer.ensureSpmBaselinesColumnsExist(
+                exists::get,
+                () -> {
+                    if (attempts.incrementAndGet() == 1) {
+                        throw new RuntimeException("transient alter failure");
+                    }
+                    exists.set(true);
+                },
+                sleeps::incrementAndGet);
+        Assertions.assertEquals(2, attempts.get(),
+                "the first failed ALTER must be retried without a restart");
+        Assertions.assertEquals(1, sleeps.get(),
+                "exactly one back-off between the two attempts");
+    }
+
+    @Test
+    public void testSqlModeUpgradeSkipsAlterWhenColumnExists() {
+        AtomicInteger attempts = new AtomicInteger();
+        InternalSchemaInitializer.ensureSpmBaselinesColumnsExist(
+                () -> true, attempts::incrementAndGet, () -> { });
+        Assertions.assertEquals(0, attempts.get(),
+                "an already upgraded table must not be altered");
+    }
+
+    /**
+     * The upgrade set must cover every provenance / schema-identity column the load path
+     * reads: forgetting one leaves an upgraded cluster reading NULL forever (mode /
+     * frozen classification) or silently disabling a guard (schema fingerprint).
+     */
+    @Test
+    public void testProvenanceUpgradeCoversEveryEvolvedColumn() {
+        for (String column : new String[] {"sql_mode", "plan_sql_mode", "plan_frozen",
+                "schema_fingerprint"}) {
+            Assertions.assertTrue(
+                    InternalSchema.SPM_BASELINES_SCHEMA.stream()
+                            .anyMatch(def -> column.equalsIgnoreCase(def.getName())),
+                    "the create schema must carry the " + column + " column");
+        }
     }
 }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -57,6 +58,18 @@ public class InPredicateExtractNonConstant implements ExpressionPatternRuleFacto
     }
 
     private Expression rewrite(InPredicate inPredicate) {
+        // An SPM IN-list placeholder (SpmConstVar / SpmConstList) is a hidden value
+        // marker: its substituted value must survive into the frozen planSql. In a MIXED
+        // list such as a IN (1, b) the literal arm becomes a SpmConstVar whose
+        // isConstant() is deliberately false, so extracting the non-constant arm(s)
+        // would DROP it (the constants filter only keeps isConstant() options) and the
+        // frozen predicate would silently lose the user's literal arm. Keep the whole
+        // predicate untouched whenever any option carries a placeholder.
+        for (Expression option : inPredicate.getOptions()) {
+            if (SPMPlanTreeSupport.containsPlaceholder(option)) {
+                return inPredicate;
+            }
+        }
         Set<Expression> nonConstants = Sets.newLinkedHashSetWithExpectedSize(inPredicate.arity());
         for (Expression option : inPredicate.getOptions()) {
             if (!option.isConstant()) {

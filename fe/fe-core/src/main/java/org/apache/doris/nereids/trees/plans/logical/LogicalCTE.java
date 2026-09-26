@@ -101,6 +101,14 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     }
 
     @Override
+    public String toSpmDigest() {
+        // The generic toDigest() always renders a plain WITH; the recursion mode changes
+        // how a self-reference binds (work table vs base table), so it is part of the
+        // SPM identity (Level 3 compares isRecursive() as well)
+        return (isRecursive() ? "[RECURSIVE]" : "[PLAIN]") + toDigest();
+    }
+
+    @Override
     public boolean displayExtraPlanFirst() {
         return true;
     }

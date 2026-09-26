@@ -172,6 +172,9 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.lineage.LineageEventProcessor;
+import org.apache.doris.nereids.spm.capture.PlanCaptureManager;
+import org.apache.doris.nereids.spm.manager.BaselineManager;
+import org.apache.doris.nereids.spm.manager.BaselineRefreshDaemon;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
@@ -1922,6 +1925,17 @@ public class Env {
             if (analysisManager != null) {
                 analysisManager.getStatisticsCache().preHeat();
             }
+
+            // SPM baselines: the local cache may have been loaded BEFORE this FE became
+            // master and can miss rows the previous master wrote afterwards. Reload the
+            // shared spm_baselines table so the create-time dedup is authoritative (a
+            // failed read keeps the lazy retry; the durable-key check stays correct
+            // either way).
+            try {
+                BaselineManager.getInstance().forceReloadFromInternalTable();
+            } catch (Throwable t) {
+                LOG.warn("SPM baseline reload on master transfer failed (will retry lazily)", t);
+            }
         } catch (Throwable e) {
             // When failed to transfer to master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
@@ -2075,6 +2089,15 @@ public class Env {
         new InternalSchemaInitializer().start();
         getRefreshManager().start();
 
+        // SPM baselines are persisted in __internal_schema.spm_baselines: trigger the
+        // startup load. NEVER read the table synchronously here - this runs before
+        // canRead/isReady settle and the internal query inherits StatisticsUtil's
+        // analyze timeout, so an unavailable tablet / BE would stall master startup far
+        // beyond the advertised SPM budget. ensureLoaded() schedules the (coalesced,
+        // bounded-timeout) background load; queries served before it completes simply
+        // run without SPM, and the refresh daemon retries a failed read.
+        BaselineManager.getInstance().ensureLoaded();
+
         // binlog gcer
         binlogGcer.start();
         columnIdFlusher.start();
@@ -2094,6 +2117,8 @@ public class Env {
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
         statisticsMetricCollector.start();
+        // SPM auto plan capture (Phase 2)
+        PlanCaptureManager.getInstance().start();
         if (keyManager != null) {
             keyManager.init();
         }
@@ -2124,6 +2149,12 @@ public class Env {
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
         splitSourceManager.start();
+
+        // SPM baseline cache refresh: baselines can be created on any FE (user DDL runs on
+        // the receiving FE) or on the Leader (auto capture), while each FE keeps its own
+        // in-memory index. This read-only daemon merges the shared internal table into the
+        // local cache so rewrite results do not depend on which FE serves the query.
+        BaselineRefreshDaemon.getInstance().start();
     }
 
     private boolean transferToNonMaster(FrontendNodeType newType) {
@@ -7675,6 +7706,10 @@ public class Env {
 
     public StatisticsAutoCollector getStatisticsAutoCollector() {
         return statisticsAutoCollector;
+    }
+
+    public PlanCaptureManager getPlanCaptureManager() {
+        return PlanCaptureManager.getInstance();
     }
 
     public StatisticsMetricCollector getStatisticsMetricCollector() {

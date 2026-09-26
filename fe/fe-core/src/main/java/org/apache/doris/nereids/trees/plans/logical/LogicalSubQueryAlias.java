@@ -211,6 +211,15 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
+    public String toSpmDigest() {
+        // toDigest() computes the joined alias list but never appends it, so s(x, y) and
+        // s(y, x) would collide at Level 1/2. Append the positional aliases; Level 3
+        // compares them explicitly too.
+        return toDigest() + columnAliases.map(strings -> "(" + String.join(",", strings) + ")")
+                .orElse("");
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

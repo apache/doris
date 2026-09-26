@@ -56,10 +56,13 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 
@@ -106,10 +109,36 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         Database database = op.get();
-        modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
+        // Runs even when every table already exists: an upgraded cluster must gain the
+        // SPM provenance columns (sql_mode / plan_sql_mode / plan_frozen /
+        // schema_fingerprint) although the completion gate no longer calls createTbl().
+        // Waits until all columns are OBSERVED: run() reaches this point only once and the
+        // replica-upgrade loop below never comes back, so a transient ALTER failure was
+        // never retried in this process - the table stayed without the columns although
+        // BaselineManager always reads / writes them, and baseline loading plus global
+        // DDL stayed broken until a restart. Must precede the replica-upgrade loop below:
+        // that loop WAITS for enough BEs (sleeping), so anything after it would be
+        // deferred indefinitely on a small cluster.
+        ensureSpmBaselinesColumnsExist();
+        for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
+            modifyTblReplicaCount(database, tblName);
+        }
     }
+
+    /**
+     * Internal tables whose replica count is raised towards
+     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The two SPM tables
+     * carry cluster-wide state: with the default minimum replication of 1 they are created
+     * single-replica, and losing the hosting BE would make every global baseline
+     * unavailable or erase the only capture handoff cursor.
+     */
+    @VisibleForTesting
+    static final List<String> REPLICA_UPGRADED_INTERNAL_TABLES = Lists.newArrayList(
+            StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+            StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
+            AuditLoader.AUDIT_LOG_TABLE,
+            InternalSchema.SPM_BASELINES_TBL_NAME,
+            InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
 
     public void modifyColumnStatsTblSchema() {
         while (true) {
@@ -405,6 +434,162 @@ public class InternalSchemaInitializer extends Thread {
          * )
          */
         createTable(getAuditLogCreateSql());
+        createTable(getSpmBaselinesCreateSql());
+        createTable(getSpmCaptureCheckpointCreateSql());
+    }
+
+    /**
+     * The provenance / schema-identity columns an UPGRADED cluster must gain on the
+     * pre-existing spm_baselines table (new clusters get them from the create SQL):
+     *
+     * - sql_mode: the parser mode of the creating session (without it a PIPES_AS_CONCAT
+     *   baseline is re-parsed under the default mode after a restart, the stored digest
+     *   still finds the row while the structural match rejects every CONCAT-mode query,
+     *   and the baseline silently stops applying);
+     * - plan_sql_mode: the parser mode of the stored planSql (the raw fallback text keeps
+     *   the creator's mode, the decompiled rendering is MODE_DEFAULT);
+     * - plan_frozen: the explicit decompiled / raw-fallback provenance, so a reload never
+     *   guesses whether the text is the frozen placeholder rendering;
+     * - schema_fingerprint: the referenced-table schema identity validated before a
+     *   replay, so an ALTER TABLE ... ADD COLUMN cannot keep matching a frozen plan that
+     *   still emits the creator-time columns.
+     */
+    private static final Map<String, ScalarType> SPM_BASELINES_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_BASELINES_UPGRADE_COLUMNS.put("sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("plan_frozen",
+                ScalarType.createType(PrimitiveType.BOOLEAN));
+        SPM_BASELINES_UPGRADE_COLUMNS.put("schema_fingerprint",
+                ScalarType.createVarchar(4096));
+    }
+
+    /**
+     * Waits until the spm_baselines table carries every column of
+     * {@link #SPM_BASELINES_UPGRADE_COLUMNS}: a transient ALTER failure (BE / tablet not
+     * ready) must be retried HERE - run() calls this once and the replica-upgrade loop
+     * never comes back, so a one-shot call left an upgraded cluster without the columns
+     * until a restart although BaselineManager always reads / writes them (baseline load
+     * and global DDL stayed broken).
+     */
+    static void ensureSpmBaselinesColumnsExist() {
+        while (!spmBaselinesColumnsExist()) {
+            try {
+                upgradeSpmBaselinesSchema();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_baselines provenance columns, will retry", t);
+            }
+            if (spmBaselinesColumnsExist()) {
+                return;
+            }
+            try {
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted. {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Testable retry skeleton of {@link #ensureSpmBaselinesColumnsExist}: waits until the
+     * columns are observed, retrying a failed alter. A first ALTER failure followed by a
+     * success must converge WITHOUT a restart.
+     *
+     * @param columnsExist whether every upgraded column is already observed
+     * @param alter        the idempotent upgrade attempt (may throw)
+     * @param sleeper      the wait between attempts
+     */
+    @VisibleForTesting
+    static void ensureSpmBaselinesColumnsExist(BooleanSupplier columnsExist, Runnable alter,
+            Runnable sleeper) {
+        while (!columnsExist.getAsBoolean()) {
+            try {
+                alter.run();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_baselines provenance columns, will retry", t);
+            }
+            if (columnsExist.getAsBoolean()) {
+                return;
+            }
+            sleeper.run();
+        }
+    }
+
+    /** Whether the spm_baselines table already carries every upgraded column (false
+     *  while the table itself is not there yet - the caller keeps retrying). */
+    @VisibleForTesting
+    static boolean spmBaselinesColumnsExist() {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return false;
+        }
+        Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
+        if (table == null) {
+            return false;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return existing.containsAll(SPM_BASELINES_UPGRADE_COLUMNS.keySet());
+    }
+
+    /**
+     * Adds every missing column of {@link #SPM_BASELINES_UPGRADE_COLUMNS} to a
+     * PRE-EXISTING spm_baselines table (one ALTER per column). Idempotent: columns that
+     * already exist are left untouched, and a partially upgraded table gains only the
+     * remainder. Throws on failure - the caller's retry loop owns the retry policy.
+     */
+    private static void upgradeSpmBaselinesSchema() throws UserException {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            LOG.warn("SPM: internal schema db not found yet, will retry the provenance upgrade");
+            return;
+        }
+        Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
+        if (table == null) {
+            LOG.warn("SPM: spm_baselines table not found yet, will retry the provenance upgrade");
+            return;
+        }
+        // A column that was already issued is only visible in the base schema once its
+        // schema change FINISHED; while the table is SCHEMA_CHANGE, its state also rejects
+        // any further ALTER. Wait for the state instead of re-issuing the same column every
+        // retry round (the retry loop runs every resource_not_ready_seconds and would
+        // otherwise deadlock against its own pending schema change).
+        if (!(table instanceof OlapTable)
+                || ((OlapTable) table).getState() != OlapTable.OlapTableState.NORMAL) {
+            LOG.info("SPM: spm_baselines is not in NORMAL state ({}), waiting for the pending"
+                            + " schema change before the provenance upgrade",
+                    table instanceof OlapTable ? ((OlapTable) table).getState() : "unknown");
+            return;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        for (Map.Entry<String, ScalarType> entry : SPM_BASELINES_UPGRADE_COLUMNS.entrySet()) {
+            if (existing.contains(entry.getKey())) {
+                continue;
+            }
+            ColumnDefinition definition = new ColumnDefinition(entry.getKey(),
+                    DataType.fromCatalogType(entry.getValue()),
+                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                    Optional.empty(), "", true, Optional.empty());
+            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+            addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_BASELINES_TBL_NAME);
+            Env.getCurrentEnv().alterTable(
+                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
+            LOG.info("SPM: added the {} column to {}", entry.getKey(),
+                    InternalSchema.SPM_BASELINES_TBL_NAME);
+            // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
+            // finishes, and the wait loop's next round continues with the remainder
+            return;
+        }
     }
 
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
@@ -477,6 +662,64 @@ public class InternalSchemaInitializer extends Thread {
                         + ")\n"
                         + "DISTRIBUTED BY HASH(`query_id`)\n"
                         + "BUCKETS 2\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    private static String getSpmBaselinesCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM baselines table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 10\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
+    /**
+     * CREATE SQL of the SPM plan-capture checkpoint table: one durable row (id = 1) holding
+     * the truncated scan window, the resume cursor and the retry state.
+     */
+    private static String getSpmCaptureCheckpointCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+                // merge-on-write makes the single-row upsert (INSERT with the same key)
+                // atomic: the new checkpoint row replaces the old one in one statement,
+                // so no crash can leave the shared store without a row
+                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "UNIQUE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM capture checkpoint table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 1\n"
                         + "PROPERTIES (%s)";
         return String.format(template, catalogName, dbName, tableName,
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
@@ -572,11 +815,52 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
-        // 4. check and update audit table schema
+        // 4. check the SPM baselines table: an UPGRADED cluster already has every legacy
+        // table above, so without this check created() returns true before run() ever
+        // reaches createTbl() - the missing spm_baselines table would never be created,
+        // every load attempt would fail, BaselineManager would stay unloaded and global
+        // CREATE/ALTER/DROP BASELINE would keep reporting that the store is not ready.
+        if (isSpmBaselinesTableMissing(db)) {
+            return false;
+        }
+
+        // 4b. check the SPM plan-capture checkpoint table the same way: an upgraded cluster
+        // has spm_baselines already, so without its own check the table would never be
+        // created and the capture checkpoint could not be persisted / resumed.
+        if (isSpmCaptureCheckpointTableMissing(db)) {
+            return false;
+        }
+
+        // 5. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
-        // 5. check if we need to add new columns
+        // 6. check if we need to add new columns
         return alterAuditSchemaIfNeeded(auditTable);
+    }
+
+    /**
+     * Whether the SPM baselines internal table is absent. Package-visible for the
+     * upgrade test: a cluster where only this table is missing must NOT be considered
+     * initialized.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_TBL_NAME).isPresent();
+    }
+
+    /**
+     * Whether the SPM plan-capture checkpoint internal table is absent. Package-visible for
+     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     *
+     * @param db the internal schema database
+     * @return true when spm_capture_checkpoint does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmCaptureCheckpointTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME).isPresent();
     }
 
     private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {

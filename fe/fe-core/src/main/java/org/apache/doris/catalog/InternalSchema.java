@@ -31,11 +31,24 @@ import java.util.List;
 
 public class InternalSchema {
 
+    /** Name of the SPM baselines internal table (design doc 6.14.1). */
+    public static final String SPM_BASELINES_TBL_NAME = "spm_baselines";
+
+    /**
+     * Name of the SPM plan-capture checkpoint internal table: the single durable row keeps
+     * the truncated scan window, the total-order cursor and the retry state, so a leader
+     * handoff / FE restart resumes the SAME window instead of excluding its unconsumed tail
+     * forever.
+     */
+    public static final String SPM_CAPTURE_CHECKPOINT_TBL_NAME = "spm_capture_checkpoint";
+
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> TABLE_STATS_SCHEMA;
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
+    public static final List<ColumnDef> SPM_BASELINES_SCHEMA;
+    public static final List<ColumnDef> SPM_CAPTURE_CHECKPOINT_SCHEMA;
 
     static {
         // table statistics table
@@ -236,6 +249,86 @@ public class InternalSchema {
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+
+        // ==================== SPM baselines internal table (design doc 6.14.1) ====================
+        SPM_BASELINES_SCHEMA = new ArrayList<>();
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("bind_sql",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("bind_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("bind_sql_hash",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        // audit_log correlation: the query id of the statement that produced the baseline
+        // (CREATE BASELINE PLAN for USER baselines, the captured query for CAPTURE ones)
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("query_id",
+                ScalarType.createVarchar(64), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("cost",
+                ScalarType.createType(PrimitiveType.DOUBLE), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("query_time_ms",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("source",
+                ScalarType.createVarchar(16), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("status",
+                ScalarType.createVarchar(16), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("create_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("update_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        // parser-relevant sql_mode bits of the CREATING session (PIPES_AS_CONCAT / ...):
+        // the stored bindSql is user-authored text and must be re-parsed with the mode it
+        // was created under. NULLABLE so an upgraded cluster can add the column without
+        // a default (a missing / NULL value means MODE_DEFAULT).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // parser mode of the STORED planSql: MODE_DEFAULT for the SPM decompiled frozen
+        // rendering, the CREATOR's mode for the raw user planSql kept as the fallback when
+        // the physical plan cannot be decompiled. NULLABLE like sql_mode (NULL = default).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_sql_mode",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // explicit provenance of the stored planSql: TRUE = SPM decompiled,
+        // placeholder-carrying frozen text replayed as text; FALSE = ordinary user text
+        // (raw fallback / in-memory engine) whose parameterized tree must be rebuilt.
+        // NULLABLE so a reload of pre-column rows falls back to parsing-based
+        // classification (NULL = unknown).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("plan_frozen",
+                ScalarType.createType(PrimitiveType.BOOLEAN), ColumnNullableType.NULLABLE));
+        // CREATE-time schema identity of the referenced base tables (sorted
+        // name|tableId|schemaHash entries): validated before every frozen replay so an
+        // ALTER TABLE ... ADD COLUMN / DROP + CREATE cannot keep matching a frozen plan
+        // that still emits the creator-time output columns. NULLABLE (NULL / empty = a
+        // pre-column row: no validation possible).
+        SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
+                ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
+
+        // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
+        // the (query_time, time, query_id) cursor and the retry state survive a leader
+        // handoff / FE restart. JSON text for the two maps keeps the encoding trivial and
+        // bounded (the writer caps the entry count).
+        SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("last_scan_timestamp",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("pending_window_start",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("pending_window_end",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_query_time",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_time",
+                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_query_id",
+                ScalarType.createVarchar(1024), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("failed_attempts",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("retry_queue",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -254,6 +347,12 @@ public class InternalSchema {
                 break;
             case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
+                break;
+            case SPM_BASELINES_TBL_NAME:
+                schema = SPM_BASELINES_SCHEMA;
+                break;
+            case SPM_CAPTURE_CHECKPOINT_TBL_NAME:
+                schema = SPM_CAPTURE_CHECKPOINT_SCHEMA;
                 break;
             default:
                 throw new UserException("Unknown internal table name: " + tblName);

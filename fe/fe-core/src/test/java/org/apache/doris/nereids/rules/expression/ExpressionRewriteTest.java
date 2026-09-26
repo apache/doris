@@ -29,9 +29,11 @@ import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredica
 import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
@@ -58,6 +60,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -493,5 +496,40 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("TA in (TB, TC, TB)", "TA = TB or TA = TC");
         assertRewriteAfterTypeCoercion("TA in (3, 2, 1, TB, TC, TB)", "TA in (3, 2, 1) or TA = TB or TA = TC");
         assertRewriteAfterTypeCoercion("IA in (1 + 2, 2 + 3, 3 + TB)", "IA in (cast(1 + 2 as int), cast(2 + 3 as int)) or IA = cast(3 + TB as int)");
+    }
+
+    /**
+     * A MIXED IN list carrying an SPM placeholder (a IN (1, b) parameterizes the literal
+     * into SpmConstVar, whose isConstant() is deliberately false) must stay untouched:
+     * extracting the non-constant arm(s) would DROP the placeholder arm (the constants
+     * filter only keeps isConstant() options) and the frozen predicate would silently lose
+     * the user's literal arm.
+     */
+    @Test
+    public void testInPredicateKeepsMixedPlaceholderList() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        InPredicateExtractNonConstant.INSTANCE
+                )
+        ));
+
+        Map<String, Slot> slots = Maps.newHashMap();
+        InPredicate inPredicate = (InPredicate) typeCoercion(replaceUnboundSlot(
+                PARSER.parseExpression("IA in (1, TB)"), slots));
+        List<Expression> mixedOptions = new ArrayList<>();
+        for (Expression option : inPredicate.getOptions()) {
+            mixedOptions.add(option instanceof IntegerLiteral
+                    ? new SpmConstVar(1L, option) : option);
+        }
+        InPredicate mixed = new InPredicate(inPredicate.getCompareExpr(), mixedOptions);
+
+        Expression rewritten = executor.rewrite(mixed, context);
+        Assertions.assertInstanceOf(InPredicate.class, rewritten,
+                "a mixed IN list containing an SPM placeholder must stay an IN predicate: " + rewritten);
+        Assertions.assertEquals(2, ((InPredicate) rewritten).getOptions().size(),
+                "both the placeholder arm and the column arm must survive: " + rewritten);
+        Assertions.assertTrue(((InPredicate) rewritten).getOptions().stream()
+                        .anyMatch(option -> option instanceof SpmConstVar),
+                "the placeholder arm must not be extracted: " + rewritten);
     }
 }
