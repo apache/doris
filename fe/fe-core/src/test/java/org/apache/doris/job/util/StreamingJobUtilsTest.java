@@ -316,4 +316,89 @@ public class StreamingJobUtilsTest {
             GlobalVariable.lowerCaseTableNames = originalLowerCaseTableNames;
         }
     }
+
+    @Test
+    public void testGenerateCreateTableCmdsWithRegexIncludeTables() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+        properties.put(DataSourceConfigKeys.INCLUDE_TABLES, "sys_config_bak_.*, user_[0-9]+");
+
+        Database targetDatabase = new Database(1L, "target_db");
+        targetDatabase.registerTable(new OlapTable(2L, "sys_config_bak_20260730", new ArrayList<>(),
+                KeysType.UNIQUE_KEYS, null, null));
+        targetDatabase.registerTable(new OlapTable(3L, "user_123", new ArrayList<>(),
+                KeysType.UNIQUE_KEYS, null, null));
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
+        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+                .thenReturn(Arrays.asList("sys_config_bak_20260730", "sys_config", "user_123", "user_abc"));
+        Mockito.when(jdbcClient.getPrimaryKeys(ArgumentMatchers.anyString(), ArgumentMatchers.anyString()))
+                .thenReturn(Arrays.asList("id"));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(jdbcClient);
+
+            Map<String, ?> cmds = StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.POSTGRES, properties, new HashMap<>());
+            // Only tables matching the regex patterns are kept
+            Assertions.assertEquals(2, cmds.size());
+            Assertions.assertTrue(cmds.containsKey("sys_config_bak_20260730"));
+            Assertions.assertTrue(cmds.containsKey("user_123"));
+        }
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsWithExcludeTablesAndTrim() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+        properties.put(DataSourceConfigKeys.EXCLUDE_TABLES, " sys_config_bak_.* , user_123 ");
+
+        Database targetDatabase = new Database(1L, "target_db");
+        targetDatabase.registerTable(new OlapTable(2L, "sys_config", new ArrayList<>(),
+                KeysType.UNIQUE_KEYS, null, null));
+        targetDatabase.registerTable(new OlapTable(3L, "user_456", new ArrayList<>(),
+                KeysType.UNIQUE_KEYS, null, null));
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+        Mockito.when(internalCatalog.getDbNullable("target_db")).thenReturn(targetDatabase);
+        Mockito.when(jdbcClient.getTablesNameList("source_db"))
+                .thenReturn(Arrays.asList("sys_config_bak_20260730", "sys_config", "user_123", "user_456"));
+        Mockito.when(jdbcClient.getPrimaryKeys(ArgumentMatchers.anyString(), ArgumentMatchers.anyString()))
+                .thenReturn(Arrays.asList("id"));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class,
+                        Mockito.CALLS_REAL_METHODS)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            utils.when(() -> StreamingJobUtils.getJdbcClient(DataSourceType.POSTGRES, properties))
+                    .thenReturn(jdbcClient);
+
+            Map<String, ?> cmds = StreamingJobUtils.generateCreateTableCmds(
+                    "target_db", DataSourceType.POSTGRES, properties, new HashMap<>());
+            // Patterns are trimmed, then matched: backup tables and user_123 are excluded
+            Assertions.assertEquals(2, cmds.size());
+            Assertions.assertTrue(cmds.containsKey("sys_config"));
+            Assertions.assertTrue(cmds.containsKey("user_456"));
+        }
+    }
+
+    @Test
+    public void testGenerateCreateTableCmdsWithInvalidRegexFailsFast() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DataSourceConfigKeys.SCHEMA, "source_db");
+        properties.put(DataSourceConfigKeys.INCLUDE_TABLES, "sys_[0-9");
+
+        JobException exception = Assertions.assertThrows(JobException.class,
+                () -> StreamingJobUtils.generateCreateTableCmds(
+                        "target_db", DataSourceType.POSTGRES, properties, new HashMap<>()));
+        Assertions.assertTrue(exception.getMessage().contains("Invalid regular expression"));
+        Assertions.assertTrue(exception.getMessage().contains("sys_[0-9"));
+    }
 }

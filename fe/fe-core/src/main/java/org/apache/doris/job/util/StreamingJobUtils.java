@@ -76,6 +76,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 
 @Log4j2
@@ -370,14 +372,8 @@ public class StreamingJobUtils {
         LinkedHashMap<String, Optional<CreateTableCommand>> createtblCmds = new LinkedHashMap<>();
         String includeTables = properties.get(DataSourceConfigKeys.INCLUDE_TABLES);
         String excludeTables = properties.get(DataSourceConfigKeys.EXCLUDE_TABLES);
-        List<String> includeTablesList = new ArrayList<>();
-        if (includeTables != null) {
-            includeTablesList = Arrays.asList(includeTables.split(","));
-        }
-        List<String> excludeTablesList = new ArrayList<>();
-        if (excludeTables != null) {
-            excludeTablesList = Arrays.asList(excludeTables.split(","));
-        }
+        List<Pattern> includeTablesPatterns = parseTablePatterns(includeTables);
+        List<Pattern> excludeTablesPatterns = parseTablePatterns(excludeTables);
 
         JdbcClient jdbcClient = getJdbcClient(sourceType, properties);
         try {
@@ -392,15 +388,15 @@ public class StreamingJobUtils {
 
             List<String> noPrimaryKeyTables = new ArrayList<>();
             for (String table : tablesNameList) {
-                if (!includeTablesList.isEmpty() && !includeTablesList.contains(table)) {
+                if (!includeTablesPatterns.isEmpty() && !matchesAnyPattern(includeTablesPatterns, table)) {
                     log.info("Skip table {} in database {} as it does not in include_tables {}", table, database,
                             includeTables);
                     continue;
                 }
 
                 // if set include_tables, exclude_tables is ignored
-                if (includeTablesList.isEmpty()
-                        && !excludeTablesList.isEmpty() && excludeTablesList.contains(table)) {
+                if (includeTablesPatterns.isEmpty()
+                        && !excludeTablesPatterns.isEmpty() && matchesAnyPattern(excludeTablesPatterns, table)) {
                     log.info("Skip table {} in database {} as it in exclude_tables {}", table, database,
                             excludeTables);
                     continue;
@@ -663,5 +659,44 @@ public class StreamingJobUtils {
             }
         }
         return tableCreateProps;
+    }
+
+    /**
+     * Parse a comma-separated table pattern configuration (include_tables / exclude_tables) into
+     * compiled regex patterns.
+     *
+     * <p>Each element is trimmed and empty elements are ignored, so {@code "a, b"} behaves the
+     * same as {@code "a,b"}. Patterns are full-matched against the bare table name via
+     * {@link Pattern#matches()}, which keeps backward compatibility: a pattern without any regex
+     * metacharacter matches exactly one table, same as the previous exact-string {@code contains()}
+     * behavior, while patterns like {@code sys_config_bak_.*} or {@code *_[0-9]+} are now supported.
+     */
+    private static List<Pattern> parseTablePatterns(String config) throws JobException {
+        List<Pattern> patterns = new ArrayList<>();
+        if (config == null || config.isEmpty()) {
+            return patterns;
+        }
+        for (String pattern : config.split(",")) {
+            String trimmed = pattern.trim();
+            if (!trimmed.isEmpty()) {
+                try {
+                    patterns.add(Pattern.compile(trimmed));
+                } catch (PatternSyntaxException e) {
+                    throw new JobException(String.format(
+                            "Invalid regular expression \"%s\" in include_tables/exclude_tables: %s",
+                            trimmed, e.getMessage()), e);
+                }
+            }
+        }
+        return patterns;
+    }
+
+    private static boolean matchesAnyPattern(List<Pattern> patterns, String table) {
+        for (Pattern pattern : patterns) {
+            if (pattern.matcher(table).matches()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
