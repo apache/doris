@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -384,6 +385,14 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
+        if (originalType instanceof ConnectorComputeVariantType && targetType.isVariantType()) {
+            // The connector marker and ordinary Variant share the V2 runtime carrier. Allow the
+            // marker to cross the sink boundary without relaxing casts between stored Variant layouts.
+            return true;
+        }
+        if (targetType instanceof ConnectorComputeVariantType) {
+            return VariantType.isSupportedComputeV2CastSource(originalType);
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;

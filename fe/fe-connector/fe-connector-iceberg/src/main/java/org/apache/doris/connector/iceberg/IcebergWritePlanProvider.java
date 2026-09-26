@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
@@ -105,6 +106,11 @@ import java.util.stream.Collectors;
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
+    @Override
+    public ConnectorRowChangeStyle getRowChangeStyle() {
+        return ConnectorRowChangeStyle.POSITION_DELETE;
+    }
+
     private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
 
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
@@ -118,6 +124,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // Doris hidden row-id column fe-core's getFullSchema appends (name / STRUCT / invisible / not-null), so a
     // drift on either side turns one of the two tests red.
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+
+    private static final Set<String> ROW_LEVEL_WRITE_CONSTRAINT_EXCLUDED_COLUMNS =
+            Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+                    DORIS_ICEBERG_ROWID_COL, "$file_path", "$row_position",
+                    "$partition_spec_id", "$partition_data")));
 
     // The single request-scoped synthetic write column iceberg declares: the row-id STRUCT carrying the
     // per-row write metadata (file_path / row_position / partition_spec_id / partition_data). Same for
@@ -644,9 +655,28 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     @Override
+    public Set<String> getRowLevelWriteConstraintExcludedColumns() {
+        return ROW_LEVEL_WRITE_CONSTRAINT_EXCLUDED_COLUMNS;
+    }
+
+    @Override
+    public String getRowLevelDmlLabelPrefix(WriteOperation operation) {
+        switch (operation) {
+            case DELETE:
+                return "iceberg_delete";
+            case UPDATE:
+                return "iceberg_update_merge";
+            case MERGE:
+                return "iceberg_merge_into";
+            default:
+                throw new DorisConnectorException("Unsupported Iceberg row-level operation: " + operation);
+        }
+    }
+
+    @Override
     public Set<WriteOperation> supportedOperations() {
         return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
-                WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE);
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE, WriteOperation.REWRITE);
     }
 
     @Override

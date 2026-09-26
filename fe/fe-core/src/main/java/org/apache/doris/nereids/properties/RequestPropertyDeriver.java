@@ -185,8 +185,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             // Connector does not support parallel write (e.g., JDBC, ES).
             // Always gather to a single writer for transactional safety.
             addRequestPropertyToChildren(PhysicalProperties.GATHER);
-        } else if (connectContext != null
+        } else if (PhysicalProperties.SINK_RANDOM_PARTITIONED.equals(requiredProps)
+                && connectContext != null
                 && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
+            // Strict-consistency mode may relax only the generic random parallel-write preference.
+            // Connector routing, partition hashing, and local ordering are writer correctness contracts.
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(requiredProps);

@@ -33,16 +33,6 @@
 
 namespace doris {
 
-namespace {
-int64_t scale_threshold_by_task(int64_t value, int task_num) {
-    if (task_num <= 0) {
-        return value;
-    }
-    int64_t scaled = value / task_num;
-    return scaled == 0 ? value : scaled;
-}
-} // namespace
-
 MergePartitioner::MergePartitioner(size_t partition_count, const TMergePartitionInfo& merge_info,
                                    bool use_new_shuffle_hash_method)
         : PartitionerBase(static_cast<HashValType>(partition_count)),
@@ -183,7 +173,7 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
                 _insert_writer_count = static_cast<int>(_partition_count);
             }
         } else if (_enable_insert_rebalance) {
-            _apply_insert_rebalance(ops, insert_hashes, block->bytes());
+            RETURN_IF_ERROR(_apply_insert_rebalance(ops, insert_hashes, block->bytes()));
         }
     }
 
@@ -276,14 +266,14 @@ Status MergePartitioner::clone(RuntimeState* state, std::unique_ptr<PartitionerB
     return Status::OK();
 }
 
-void MergePartitioner::_apply_insert_rebalance(const std::vector<int8_t>& ops,
-                                               std::vector<uint32_t>& insert_hashes,
-                                               size_t block_bytes) const {
+Status MergePartitioner::_apply_insert_rebalance(const std::vector<int8_t>& ops,
+                                                 std::vector<uint32_t>& insert_hashes,
+                                                 size_t block_bytes) const {
     if (!_enable_insert_rebalance || _insert_writer_assigner == nullptr) {
-        return;
+        return Status::OK();
     }
     if (insert_hashes.empty() || _insert_partition_count == 0) {
-        return;
+        return Status::OK();
     }
     std::vector<uint8_t> mask(ops.size(), 0);
     for (size_t i = 0; i < ops.size(); ++i) {
@@ -291,7 +281,8 @@ void MergePartitioner::_apply_insert_rebalance(const std::vector<int8_t>& ops,
             mask[i] = 1;
         }
     }
-    _insert_writer_assigner->assign(insert_hashes, &mask, ops.size(), block_bytes, insert_hashes);
+    return _insert_writer_assigner->assign(insert_hashes, &mask, ops.size(), block_bytes,
+                                           insert_hashes);
 }
 
 void MergePartitioner::_init_insert_scaling(RuntimeState* state) {
@@ -324,10 +315,10 @@ void MergePartitioner::_init_insert_scaling(RuntimeState* state) {
     }
 
     int task_num = state == nullptr ? 0 : state->task_num();
-    int64_t min_partition_threshold = scale_threshold_by_task(
+    int64_t min_partition_threshold = scale_writer_threshold_by_task(
             config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold,
             task_num);
-    int64_t min_data_threshold = scale_threshold_by_task(
+    int64_t min_data_threshold = scale_writer_threshold_by_task(
             config::table_sink_partition_write_min_data_processed_rebalance_threshold, task_num);
 
     _insert_writer_assigner = std::make_unique<SkewedWriterAssigner>(

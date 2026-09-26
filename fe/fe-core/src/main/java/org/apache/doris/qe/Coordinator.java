@@ -2771,8 +2771,7 @@ public class Coordinator implements CoordInterface {
         }
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-        boolean hasExternalCommitData = params.isSetHivePartitionUpdates()
-                || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        boolean hasExternalCommitData = CommitDataSerializer.hasCommitData(params);
         if (ctx == null) {
             if (hasExternalCommitData) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
@@ -2842,18 +2841,9 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
-            if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+            if (CommitDataSerializer.hasCommitData(params)) {
                 Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
-                if (params.isSetHivePartitionUpdates()) {
-                    CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
-                }
-                if (params.isSetIcebergCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
-                }
-                if (params.isSetMcCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getMcCommitDatas());
-                }
+                CommitDataSerializer.feed(txn, params);
             }
 
             accepted = true;
