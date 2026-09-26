@@ -185,6 +185,10 @@ struct LikeSearchState {
 
     bool enable_hyperscan_fallback = true;
 
+    /// Whether a pattern rejected by RE2 may fall back to Boost.Regex, mirrors the
+    /// `enable_extended_regex` session variable.
+    bool enable_extended_regex = false;
+
     /// Used for LIKE predicates if the pattern is a constant argument, and is either a
     /// constant string or has a constant string at the beginning or end of the pattern.
     /// This will be set in order to check for that pattern in the corresponding part of
@@ -365,6 +369,19 @@ protected:
 
     static Status regexp_fn_scalar(const LikeSearchState* state, const StringRef& val,
                                    const StringRef& pattern, unsigned char* result);
+
+    // Compile `pattern` with RE2. When RE2 rejects it and extended regex is enabled, fall back
+    // to Boost.Regex, which supports zero-width assertions such as `(?=...)` and `(?<=...)`.
+    // Exactly one of `regex` / `boost_regex` is set on success.
+    static Status compile_regex(std::string_view pattern, bool enable_extended_regex,
+                                std::unique_ptr<re2::RE2>* regex,
+                                std::unique_ptr<boost::regex>* boost_regex);
+
+    // Match `val` with whichever engine `compile_regex` produced. Boost.Regex can also fail while
+    // matching (e.g. the backtracking budget of a pathological pattern is exhausted), which is
+    // reported as a non-OK Status instead of an exception.
+    static Status regex_search(const re2::RE2* regex, const boost::regex* boost_regex,
+                               const StringRef& val, unsigned char* result);
 
     // hyperscan compile expression to database and allocate scratch space
     static Status hs_prepare(FunctionContext* context, const char* expression,
