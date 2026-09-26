@@ -17,14 +17,24 @@
 
 package org.apache.doris.dictionary;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 /**
  * Tests for dictionary version journal replay robustness.
@@ -108,5 +118,43 @@ public class DictionaryManagerTest {
 
         manager.replayIncreaseVersion(new DictionaryIncreaseVersionInfo(dict));
         Assertions.assertEquals(2, manager.getDictionary(1001).getVersion());
+    }
+
+    @Test
+    public void testCreateDictionaryRejectsTableNameCollision() {
+        // A dictionary is authorized with the table privilege key, so creating a dictionary
+        // whose name is already taken by a table must be rejected, even with IF NOT EXISTS.
+        Database db = new Database(1, "db1");
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.getId()).thenReturn(100L);
+        Mockito.when(table.getName()).thenReturn("foo");
+        db.registerTable(table);
+
+        DictionaryManager manager = createManager();
+        CreateDictionaryInfo info = new CreateDictionaryInfo(false, "db1", "foo", "internal", "db1", "src",
+                ImmutableList.of(), Maps.newHashMap(), LayoutType.HASH_MAP);
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("db1")).thenReturn(db);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            DdlException exception = Assertions.assertThrows(DdlException.class,
+                    () -> manager.createDictionary(null, info));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "because a table with the same name already exists"));
+        }
+    }
+
+    @Test
+    public void testHasDictionary() throws Exception {
+        DictionaryManager manager = createManager();
+        Dictionary dict = buildDictionary(1001, "db1", "dic1", 1);
+        manager.replayCreateDictionary(new CreateDictionaryPersistInfo(dict));
+
+        Assertions.assertTrue(manager.hasDictionary("db1", "dic1"));
+        Assertions.assertFalse(manager.hasDictionary("db1", "missing"));
+        Assertions.assertFalse(manager.hasDictionary("missing_db", "dic1"));
     }
 }
