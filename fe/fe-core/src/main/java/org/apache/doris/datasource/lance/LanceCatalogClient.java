@@ -61,12 +61,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.NavigableMap;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
@@ -291,23 +289,6 @@ final class LanceCatalogClient implements AutoCloseable {
      */
     private <T> T readTableSnapshot(String dbName, String tableName, LanceRefSelector selector,
             SnapshotReader<T> reader) {
-        try {
-            return readTableSnapshotOnce(dbName, tableName, selector, reader);
-        } catch (StaleTableAccessException e) {
-            // The cached access predates a location change the SDK has already seen. Read once
-            // more with a fresh access, so the FE plans and the BE reads the same location.
-            namespaceClient.invalidateTableAccess(dbName, tableName);
-            try {
-                return readTableSnapshotOnce(dbName, tableName, selector, reader);
-            } catch (StaleTableAccessException again) {
-                throw new RuntimeException("Lance namespace reported a different location for " + dbName + "."
-                        + tableName + " while it was being opened; retry the query");
-            }
-        }
-    }
-
-    private <T> T readTableSnapshotOnce(String dbName, String tableName, LanceRefSelector selector,
-            SnapshotReader<T> reader) {
         ReadState state = new ReadState(selector, dbName + "." + tableName);
         LanceMetadataMetrics metrics = LanceMetadataMetrics.startMetadataRead();
         try {
@@ -319,14 +300,14 @@ final class LanceCatalogClient implements AutoCloseable {
                 OptionalLong direct = directMainVersion(state, metrics);
                 if (direct.isPresent() || isLatestMain(selector)) {
                     state.version = direct;
-                    try (Dataset dataset = openDataset(allocator, state.access, direct, metrics)) {
+                    try (Dataset dataset = openDataset(allocator, state, direct, metrics)) {
                         result = reader.read(dataset, state.access, metrics);
                     }
                 } else {
                     OptionalLong mainVersion = state.access.isManagedVersioning()
                             ? OptionalLong.of(recordedLatestVersion(state, Optional.empty(), metrics))
                             : OptionalLong.empty();
-                    try (Dataset main = openDataset(allocator, state.access, mainVersion, metrics)) {
+                    try (Dataset main = openDataset(allocator, state, mainVersion, metrics)) {
                         result = readFromLatest(main, state, reader, metrics);
                     }
                 }
@@ -335,8 +316,6 @@ final class LanceCatalogClient implements AutoCloseable {
             return result;
         } catch (LanceUserFacingException e) {
             throw new RuntimeException(e.getMessage(), e);
-        } catch (StaleTableAccessException e) {
-            throw e;
         } catch (Exception e) {
             LanceTableAccess access = state.access;
             String uri = access == null ? null : access.getDatasetUri();
@@ -508,13 +487,6 @@ final class LanceCatalogClient implements AutoCloseable {
         }
     }
 
-    /** The SDK opened a managed table at another location than the resolved access names. */
-    private static final class StaleTableAccessException extends RuntimeException {
-        private StaleTableAccessException() {
-            super("Lance table location changed since its access was resolved");
-        }
-    }
-
     /**
      * The newest version the namespace records for a managed chain. Doris asks for it itself:
      * opening "latest" through the SDK falls back to the newest manifest in storage when the
@@ -636,14 +608,10 @@ final class LanceCatalogClient implements AutoCloseable {
 
     /**
      * Resolves {@code FOR TIME AS OF} to a version on the chain {@code latest} is checked out on,
-     * from the commit times the manifests record, as Lance resolves {@code asof}. A managed table
-     * only selects among the versions its namespace records.
-     *
-     * <p>The version next to the selection must still exist: if the version after it, or with
-     * nothing listed at or before the time the one before the oldest listed, was removed by
-     * cleanup, the table's state at that time is unknown and the query fails instead of reading
-     * an older snapshot. A recorded version missing from the storage listing because its manifest
-     * is still staged is checked out there, which finalizes it and yields its commit time.
+     * from the commit times the manifests record, over the history {@link LanceSnapshotResolver}
+     * describes. A managed table only selects among the versions its namespace records; one
+     * missing from the storage listing because its manifest is still staged is checked out, which
+     * finalizes it and yields its commit time.
      */
     private long resolveVersionAtOrBefore(Dataset latest, LanceTableAccess access, long timestamp,
             String requestedText, ReadState state, LanceMetadataMetrics metrics) {
@@ -652,62 +620,16 @@ final class LanceCatalogClient implements AutoCloseable {
                         .filter(Objects::nonNull).collect(Collectors.toCollection(TreeSet::new))
                 : null;
         long version = metrics.measure(Stage.VERSION_RESOLVE, () -> {
-            NavigableMap<Long, Version> listed = new TreeMap<>();
-            for (Version candidate : latest.listVersions()) {
-                if (recorded == null || recorded.contains(candidate.getId())) {
-                    listed.put(candidate.getId(), candidate);
-                }
-            }
-            long selected;
             try {
-                selected = LanceSnapshotResolver.versionAtOrBefore(listed.values(), timestamp, requestedText);
-            } catch (LanceSnapshotResolver.NoVersionAtOrBeforeException e) {
-                if (recorded == null) {
-                    throw e;
-                }
-                // Recorded versions older than the oldest listed one may still be staged. Walking
-                // back, every version passed was committed after the time, so the first one at or
-                // before it is the answer.
-                Long older = listed.isEmpty() ? recorded.last() : recorded.lower(listed.firstKey());
-                while (older != null) {
-                    Version olderVersion = recordedVersion(latest, access, older);
-                    if (olderVersion == null) {
-                        throw historyRemoved(older, requestedText, state);
-                    }
-                    if (LanceSnapshotResolver.commitMillis(olderVersion) <= timestamp) {
-                        return older;
-                    }
-                    older = recorded.lower(older);
-                }
-                throw e;
+                return LanceSnapshotResolver.versionAtOrBefore(latest.listVersions(), recorded,
+                        id -> recordedVersion(latest, access, id), timestamp, requestedText);
+            } catch (LanceSnapshotResolver.HistoryRemovedException e) {
+                throw historyRemoved(e.getVersion(), requestedText, state);
             }
-            // Lance numbers a chain's commits consecutively, so a storage chain is every number
-            // between the oldest and newest listed manifest; a managed chain is what is recorded.
-            Long next = nextVersion(selected, recorded, listed);
-            while (next != null) {
-                Version nextVersion = listed.containsKey(next) ? listed.get(next)
-                        : recorded == null ? null : recordedVersion(latest, access, next);
-                if (nextVersion == null) {
-                    throw historyRemoved(next, requestedText, state);
-                }
-                if (LanceSnapshotResolver.commitMillis(nextVersion) > timestamp) {
-                    break;
-                }
-                selected = next;
-                next = nextVersion(next, recorded, listed);
-            }
-            return selected;
         });
         LOG.debug("Resolved Lance FOR TIME AS OF '{}' to version {} from manifest commit times", requestedText,
                 version);
         return version;
-    }
-
-    private static Long nextVersion(long version, NavigableSet<Long> recorded, NavigableMap<Long, Version> listed) {
-        if (recorded != null) {
-            return recorded.higher(version);
-        }
-        return version < listed.lastKey() ? version + 1 : null;
     }
 
     /**
@@ -769,21 +691,46 @@ final class LanceCatalogClient implements AutoCloseable {
                 || (lower.contains("not found") && lower.contains("_versions/"));
     }
 
-    private Dataset openDataset(BufferAllocator allocator, LanceTableAccess access, OptionalLong version,
+    /**
+     * Opens the main chain of the table {@code state} resolved. For a managed table the SDK
+     * describes the table again and opens the location and storage options that describe returns,
+     * so {@code state.access} is replaced by the access for what it opened: the BE reads with the
+     * access this read ends up with, and must open what the FE planned. If the SDK did not open
+     * with exactly that access's options, the dataset is opened once more with them. A namespace
+     * that returns a relative location cannot be read in this mode.
+     */
+    private Dataset openDataset(BufferAllocator allocator, ReadState state, OptionalLong version,
             LanceMetadataMetrics metrics) {
-        ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getSdkStorageOptions(), version, session);
-        if (access.isManagedVersioning()) {
-            // The SDK re-describes the table and opens the location the namespace returns, so a
-            // namespace that returns a relative location cannot be read in this mode. The BE
-            // opens the access's location, so both must still agree after that second describe.
-            Dataset dataset = metrics.measure(Stage.DATASET_OPEN,
-                    () -> namespaceClient.openManagedDataset(allocator, access, readOptions, session));
-            if (!StringUtils.removeEnd(dataset.uri(), "/").equals(StringUtils.removeEnd(access.getDatasetUri(), "/"))) {
+        if (state.access.isManagedVersioning()) {
+            LanceTableAccess access = state.access;
+            for (int attempt = 0; ; attempt++) {
+                ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getSdkStorageOptions(), version,
+                        session);
+                LanceTableAccess requested = access;
+                Dataset dataset = metrics.measure(Stage.DATASET_OPEN,
+                        () -> namespaceClient.openManagedDataset(allocator, requested, readOptions, session));
+                boolean opensAsBuilt;
+                try {
+                    Map<String, String> openedOptions = dataset.getInitialStorageOptions();
+                    access = namespaceClient.accessOpenedBySdk(requested, dataset.uri(), openedOptions);
+                    opensAsBuilt = LanceNamespaceClient.opensAs(access, dataset.uri(), openedOptions);
+                } catch (RuntimeException e) {
+                    dataset.close();
+                    throw e;
+                }
+                if (opensAsBuilt) {
+                    state.access = access;
+                    return dataset;
+                }
                 dataset.close();
-                throw new StaleTableAccessException();
+                if (attempt > 0) {
+                    throw new LanceUserFacingException("Lance namespace changed the location or storage options of "
+                            + state.tableName + " while it was being opened; retry the query");
+                }
             }
-            return dataset;
         }
+        LanceTableAccess access = state.access;
+        ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getSdkStorageOptions(), version, session);
         return metrics.measure(Stage.DATASET_OPEN, () -> Dataset.open().allocator(allocator).uri(access.getDatasetUri())
                 .readOptions(readOptions).build());
     }

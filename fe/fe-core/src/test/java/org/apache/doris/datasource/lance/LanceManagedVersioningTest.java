@@ -65,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -123,6 +124,9 @@ public class LanceManagedVersioningTest {
     private static final String MISTIMED_TABLE = "managed_mistimed";
     /** Managed; the namespace records version 9 as the head of branch dev, which storage lacks. */
     private static final String MISSING_HEAD_TABLE = "managed_missing_head";
+    /** Managed; every DescribeTable vends a new value for {@link #GENERATION_OPTION}, as rotating credentials do. */
+    private static final String ROTATING_TABLE = "managed_rotating";
+    private static final String GENERATION_OPTION = "doris_test_describe_generation";
     /** A branch of time_travel.lance forked from version 2 with one extra append (row 100). */
     private static final String BRANCH = "dev";
     /** A tag pointing at version 3 of the branch. */
@@ -145,6 +149,7 @@ public class LanceManagedVersioningTest {
     private String relocatedDatasetUri;
     private String relocatedStorePath;
     private volatile boolean relocated;
+    private final AtomicInteger rotatingDescribes = new AtomicInteger();
     private String stagedUntimedDatasetUri;
     private String stagedUntimedStorePath;
     private String stagedUntimedV1StorePath;
@@ -257,6 +262,7 @@ public class LanceManagedVersioningTest {
         namespaceVersions.put(MANAGED_GAP_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(MISTIMED_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(MISSING_HEAD_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(ROTATING_TABLE, Arrays.asList(1L, 2L, 3L));
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handleRequest);
@@ -687,6 +693,28 @@ public class LanceManagedVersioningTest {
     }
 
     @Test
+    public void testBeReadsWithTheOptionsTheSdkOpenedWith() {
+        LanceExternalCatalog catalog = newCatalog(320, "lance_managed_rotating");
+        try {
+            // Every read describes the table (an access with vended options is not cached), and
+            // the SDK describes it again when it opens it and uses what that describe vends. The
+            // BE must be handed the SDK's options, the last describe's, on every read.
+            for (int read = 0; read < 2; read++) {
+                LanceTableMetadata metadata = catalog.loadTableMetadata("default", ROTATING_TABLE);
+                Assertions.assertEquals(3, metadata.getVersion());
+                Assertions.assertEquals(String.valueOf(rotatingDescribes.get()),
+                        metadata.getLanceStorageOptions().get(GENERATION_OPTION));
+            }
+            LanceTableMetadata byVersion = catalog.loadTableMetadata("default", ROTATING_TABLE,
+                    Optional.of(new TableSnapshot("2", TableSnapshot.VersionType.VERSION)));
+            Assertions.assertEquals(String.valueOf(rotatingDescribes.get()),
+                    byVersion.getLanceStorageOptions().get(GENERATION_OPTION));
+        } finally {
+            catalog.onClose();
+        }
+    }
+
+    @Test
     public void testUntimedHistoryIncludesStagedVersions() {
         Assertions.assertTrue(Files.notExists(stagedUntimedV1Canonical), "fixture must start with version 1 staged");
         LanceExternalCatalog catalog = newCatalog(319, "lance_managed_staged_untimed");
@@ -1055,7 +1083,9 @@ public class LanceManagedVersioningTest {
                         ? expiredDatasetUri : location;
                 response = "{\"table\":\"" + table + "\",\"namespace\":[],"
                         + "\"location\":\"" + location + "\",\"table_uri\":\"" + tableUri + "\","
-                        + "\"storage_options\":{},"
+                        + "\"storage_options\":{" + (ROTATING_TABLE.equals(table)
+                                ? "\"" + GENERATION_OPTION + "\":\"" + rotatingDescribes.incrementAndGet() + "\"" : "")
+                        + "},"
                         + "\"managed_versioning\":" + managed + ","
                         + "\"is_only_declared\":" + declared + "}";
             }

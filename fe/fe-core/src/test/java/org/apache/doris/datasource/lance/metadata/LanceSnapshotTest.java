@@ -29,11 +29,17 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.Version;
 
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.NavigableSet;
+import java.util.Random;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 public class LanceSnapshotTest {
 
@@ -60,6 +66,127 @@ public class LanceSnapshotTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> LanceSnapshotResolver.versionAtOrBefore(
                         Arrays.asList(version1, version2, version3), first.minusNanos(1).toInstant().toEpochMilli()));
+    }
+
+    @Test
+    public void testTimeSelectorComparesCommitTimesAcrossTheHistory() {
+        // Commit times that go back: version 2 reports an earlier time than version 1.
+        Assertions.assertEquals(1, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version(1, 100), version(2, 90), version(3, 200)), null, id -> null, 150, "150"));
+        // Version 3 of 1..4 (times 10/40/20/50) is still staged, so the listing lacks it.
+        List<Long> checkedOut = new ArrayList<>();
+        Assertions.assertEquals(3, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version(1, 10), version(2, 40), version(4, 50)), recorded(1, 2, 3, 4),
+                id -> {
+                    checkedOut.add(id);
+                    return id == 3 ? version(3, 20) : null;
+                }, 30, "30"));
+        Assertions.assertEquals(Collections.singletonList(3L), checkedOut);
+        // Every listed version is after the time; a staged one inside the listed range is not.
+        Assertions.assertEquals(2, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version(1, 50), version(3, 60)), recorded(1, 2, 3),
+                id -> id == 2 ? version(2, 10) : null, 20, "20"));
+        // Cleanup removed version 2: nothing from before it is a candidate, even version 1.
+        LanceSnapshotResolver.HistoryRemovedException removed = Assertions.assertThrows(
+                LanceSnapshotResolver.HistoryRemovedException.class, () -> LanceSnapshotResolver.versionAtOrBefore(
+                        Arrays.asList(version(1, 10), version(3, 30)), null, id -> null, 20, "20"));
+        Assertions.assertEquals(2, removed.getVersion());
+        Assertions.assertEquals(3, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version(1, 10), version(3, 30)), null, id -> null, 30, "30"));
+    }
+
+    private enum State { LISTED, STAGED, REMOVED, UNRECORDED }
+
+    /**
+     * Checks the selection against a direct reading of its rule on random histories: times that
+     * repeat and go back, staged, removed, and unrecorded versions, on storage and managed chains.
+     */
+    @Test
+    public void testTimeSelectorMatchesItsRuleOnRandomHistories() {
+        Random random = new Random(20260927L);
+        for (int round = 0; round < 20000; round++) {
+            boolean managed = random.nextBoolean();
+            int count = 1 + random.nextInt(7);
+            long[] times = new long[count + 1];
+            State[] states = new State[count + 1];
+            for (int id = 1; id <= count; id++) {
+                times[id] = random.nextInt(10);
+                State[] choices = managed ? State.values() : new State[] {State.LISTED, State.REMOVED};
+                // The newest version is the open dataset, so it is always there.
+                states[id] = id == count ? State.LISTED : choices[random.nextInt(choices.length)];
+            }
+            long timestamp = random.nextInt(11) - 1;
+
+            List<Version> listed = new ArrayList<>();
+            NavigableSet<Long> recorded = managed ? new TreeSet<>() : null;
+            for (int id = 1; id <= count; id++) {
+                if (states[id] == State.LISTED || states[id] == State.UNRECORDED) {
+                    listed.add(version(id, times[id]));
+                }
+                if (managed && states[id] != State.UNRECORDED) {
+                    recorded.add((long) id);
+                }
+            }
+            Collections.shuffle(listed, random);
+
+            // The rule: the newest removed version cuts the history (for storage, only one the
+            // listing shows a gap for), and the latest commit at or before the time wins.
+            Long removed = null;
+            int oldestListed = count;
+            for (int id = count; id >= 1; id--) {
+                if (states[id] == State.LISTED) {
+                    oldestListed = id;
+                }
+            }
+            for (int id = count; id >= 1 && removed == null; id--) {
+                if (states[id] == State.REMOVED && (managed || id > oldestListed)) {
+                    removed = (long) id;
+                }
+            }
+            Long expected = null;
+            for (int id = count; removed == null || id > removed; id--) {
+                if (id < 1) {
+                    break;
+                }
+                boolean candidate = managed ? states[id] == State.LISTED || states[id] == State.STAGED
+                        : states[id] == State.LISTED;
+                if (candidate && times[id] <= timestamp
+                        && (expected == null || times[id] > times[expected.intValue()])) {
+                    expected = (long) id;
+                }
+            }
+
+            final Long cut = removed;
+            String context = "round " + round + (managed ? " managed" : " storage") + " times "
+                    + Arrays.toString(times) + " states " + Arrays.toString(states) + " at " + timestamp;
+            try {
+                long actual = LanceSnapshotResolver.versionAtOrBefore(listed, recorded, id -> {
+                    Assertions.assertTrue(managed && states[(int) id] != State.LISTED
+                            && states[(int) id] != State.UNRECORDED && (cut == null || id >= cut), context);
+                    return states[(int) id] == State.STAGED ? version(id, times[(int) id]) : null;
+                }, timestamp, String.valueOf(timestamp));
+                Assertions.assertEquals(expected, Long.valueOf(actual), context);
+            } catch (LanceSnapshotResolver.HistoryRemovedException e) {
+                Assertions.assertNull(expected, context);
+                Assertions.assertEquals(removed, Long.valueOf(e.getVersion()), context);
+            } catch (LanceSnapshotResolver.NoVersionAtOrBeforeException e) {
+                Assertions.assertNull(expected, context);
+                Assertions.assertNull(removed, context);
+            }
+        }
+    }
+
+    private static Version version(long id, long commitMillis) {
+        return new Version(id, ZonedDateTime.ofInstant(Instant.ofEpochMilli(commitMillis), ZoneOffset.UTC),
+                new TreeMap<>());
+    }
+
+    private static NavigableSet<Long> recorded(long... ids) {
+        NavigableSet<Long> result = new TreeSet<>();
+        for (long id : ids) {
+            result.add(id);
+        }
+        return result;
     }
 
     @Test

@@ -51,6 +51,7 @@ import java.net.URISyntaxException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -221,11 +222,6 @@ final class LanceNamespaceClient {
         return loadTableAccess(tableAccessKey(dbName, tableName)).access;
     }
 
-    /** Drops one table's cached access, so its next read describes the table again. */
-    void invalidateTableAccess(String dbName, String tableName) {
-        tableAccessCache.invalidate(tableAccessKey(dbName, tableName));
-    }
-
     void invalidateTableAccessCache() {
         // Swap generations: a describe already in flight may finish for its caller, but must
         // never repopulate the cache used by reads admitted after an explicit refresh.
@@ -250,11 +246,6 @@ final class LanceNamespaceClient {
             throw new RuntimeException("Lance namespace returned no table URI for " + tableId);
         }
 
-        // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
-        // and the BE through lance-c, so neither can end up with credentials the other lacks. The
-        // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
-        Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
-                storageProperties, table.getStorageOptions());
         LanceTableAccess access;
         if (Boolean.TRUE.equals(table.getManagedVersioning())) {
             // The namespace, not the dataset directory, records which manifest each version has.
@@ -270,13 +261,68 @@ final class LanceNamespaceClient {
                 throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
                         + "managed table " + tableId);
             }
-            access = LanceTableAccess.managedByNamespace(datasetUri, storageOptions,
-                    LanceStorageOptions.forManagedSdkOpen(datasetUri, storageOptions, table.getStorageOptions()),
-                    tableId);
+            access = managedAccess(datasetUri, table.getStorageOptions(), tableId);
         } else {
-            access = new LanceTableAccess(datasetUri, storageOptions);
+            access = new LanceTableAccess(datasetUri, storageOptions(datasetUri, table.getStorageOptions()));
         }
         return new CachedTableAccess(access, tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+    }
+
+    /**
+     * One option map serves both readers: the FE opens the dataset through the Lance Java SDK and
+     * the BE through lance-c, so neither can end up with credentials the other lacks. The dataset
+     * URL picks the option vocabulary, the same way Lance picks a provider from it.
+     */
+    private Map<String, String> storageOptions(String datasetUri, Map<String, String> vendedOptions) {
+        return LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri, storageProperties, vendedOptions);
+    }
+
+    LanceTableAccess managedAccess(String datasetUri, Map<String, String> vendedOptions,
+            List<String> tableId) {
+        Map<String, String> vended = vendedOptions == null ? Collections.emptyMap() : vendedOptions;
+        Map<String, String> storageOptions = storageOptions(datasetUri, vended);
+        return LanceTableAccess.managedByNamespace(datasetUri, storageOptions,
+                LanceStorageOptions.forManagedSdkOpen(datasetUri, storageOptions, vended), vended, tableId);
+    }
+
+    /**
+     * The access that reads what the SDK opened for a managed table. The SDK describes the table
+     * again and opens the location and vended options of that describe, so if the namespace
+     * changed either since {@code access} was resolved, the BE must be handed the new ones: the
+     * FE plans the dataset the SDK opened, and the BE has to open the same one. A cached access
+     * is left as it is and expires with its TTL; until then every read derives the new one again.
+     *
+     * @param openedOptions the options the SDK opened with, as {@code Dataset.getInitialStorageOptions()}
+     *     reports them: the options it was handed with its describe's vended options put on top
+     */
+    LanceTableAccess accessOpenedBySdk(LanceTableAccess access, String openedUri, Map<String, String> openedOptions) {
+        Map<String, String> opened = openedOptions == null ? Collections.emptyMap() : openedOptions;
+        boolean sameUri = StringUtils.removeEnd(openedUri, "/")
+                .equals(StringUtils.removeEnd(access.getDatasetUri(), "/"));
+        if (sameUri && opened.equals(access.getSdkStorageOptions())) {
+            return access;
+        }
+        // Every entry that differs from what the SDK was handed came from its describe. What the
+        // namespace vended the first time and not again stays, as it does for the SDK.
+        Map<String, String> vended = new HashMap<>(access.getVendedStorageOptions());
+        opened.forEach((key, value) -> {
+            if (!value.equals(access.getSdkStorageOptions().get(key))) {
+                vended.put(key, value);
+            }
+        });
+        return managedAccess(sameUri ? access.getDatasetUri() : openedUri, vended, access.getNamespaceTableId());
+    }
+
+    /**
+     * Whether the SDK opened {@code openedUri} with exactly the options {@code access} hands it, so
+     * the FE read what the BE will. It did not when the namespace changed an option's spelling or
+     * a value an option is inferred from, or moved the table to another store: the SDK then still
+     * holds the old spelling or vocabulary next to the new one.
+     */
+    static boolean opensAs(LanceTableAccess access, String openedUri, Map<String, String> openedOptions) {
+        Map<String, String> opened = openedOptions == null ? Collections.emptyMap() : openedOptions;
+        return StringUtils.removeEnd(openedUri, "/").equals(StringUtils.removeEnd(access.getDatasetUri(), "/"))
+                && opened.equals(access.getSdkStorageOptions());
     }
 
     /**

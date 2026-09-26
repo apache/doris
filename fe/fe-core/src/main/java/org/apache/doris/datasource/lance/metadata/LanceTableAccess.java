@@ -43,19 +43,22 @@ public final class LanceTableAccess {
     private final String datasetUri;
     private final Map<String, String> storageOptions;
     private final Map<String, String> sdkStorageOptions;
+    private final Map<String, String> vendedStorageOptions;
     private final List<String> namespaceTableId;
     private final String branch;
 
     /** A dataset whose versions live in its own {@code _versions/} directory. */
     public LanceTableAccess(String datasetUri, Map<String, String> storageOptions) {
-        this(datasetUri, storageOptions, storageOptions, null, null);
+        this(datasetUri, storageOptions, storageOptions, Collections.emptyMap(), null, null);
     }
 
     private LanceTableAccess(String datasetUri, Map<String, String> storageOptions,
-            Map<String, String> sdkStorageOptions, List<String> namespaceTableId, String branch) {
+            Map<String, String> sdkStorageOptions, Map<String, String> vendedStorageOptions,
+            List<String> namespaceTableId, String branch) {
         this.datasetUri = Objects.requireNonNull(datasetUri, "datasetUri");
         this.storageOptions = Collections.unmodifiableMap(new HashMap<>(storageOptions));
         this.sdkStorageOptions = Collections.unmodifiableMap(new HashMap<>(sdkStorageOptions));
+        this.vendedStorageOptions = Collections.unmodifiableMap(new HashMap<>(vendedStorageOptions));
         this.namespaceTableId = namespaceTableId == null
                 ? null : Collections.unmodifiableList(new ArrayList<>(namespaceTableId));
         this.branch = branch;
@@ -69,7 +72,8 @@ public final class LanceTableAccess {
      */
     public LanceTableAccess onBranch(String branchName, String branchUri) {
         return new LanceTableAccess(Objects.requireNonNull(branchUri, "branchUri"), storageOptions,
-                sdkStorageOptions, namespaceTableId, Objects.requireNonNull(branchName, "branchName"));
+                sdkStorageOptions, vendedStorageOptions, namespaceTableId,
+                Objects.requireNonNull(branchName, "branchName"));
     }
 
     /** The branch this access addresses, if not the main chain. */
@@ -80,11 +84,13 @@ public final class LanceTableAccess {
     /**
      * A dataset whose versions are recorded by the namespace that owns {@code namespaceTableId}.
      * {@code sdkStorageOptions} are the options the SDK opens it with before adding what the
-     * namespace vends to the SDK itself.
+     * namespace vends to the SDK itself, and {@code vendedStorageOptions} what the namespace
+     * vended, as it spelled them.
      */
     public static LanceTableAccess managedByNamespace(String datasetUri, Map<String, String> storageOptions,
-            Map<String, String> sdkStorageOptions, List<String> namespaceTableId) {
-        return new LanceTableAccess(datasetUri, storageOptions, sdkStorageOptions,
+            Map<String, String> sdkStorageOptions, Map<String, String> vendedStorageOptions,
+            List<String> namespaceTableId) {
+        return new LanceTableAccess(datasetUri, storageOptions, sdkStorageOptions, vendedStorageOptions,
                 Objects.requireNonNull(namespaceTableId, "namespaceTableId"), null);
     }
 
@@ -99,6 +105,11 @@ public final class LanceTableAccess {
     /** The options the FE opens the dataset with through the SDK; the storage options unless managed. */
     public Map<String, String> getSdkStorageOptions() {
         return sdkStorageOptions;
+    }
+
+    /** The storage options the namespace vended for a managed table, in its own spelling; empty otherwise. */
+    public Map<String, String> getVendedStorageOptions() {
+        return vendedStorageOptions;
     }
 
     /** Whether versions are resolved through the namespace rather than the dataset directory. */
