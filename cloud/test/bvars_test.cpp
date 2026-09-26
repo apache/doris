@@ -19,6 +19,8 @@
 
 #include <brpc/server.h>
 #include <bthread/bthread.h>
+#include <bthread/countdown_event.h>
+#include <butil/time.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -49,11 +51,17 @@ int main(int argc, char** argv) {
 class BvarsTest : public ::testing::Test {
 public:
     void SetUp() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
         if (server.Start("0.0.0.0:0", &options) == -1) {
             perror("Start brpc server");
         }
     }
     void TearDown() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
         server.Stop(0);
         server.Join();
     }
@@ -124,6 +132,46 @@ TEST(BvarsTest, MultiThreadRecordMetrics) {
     sleep(interval_s * 2);
 
     ASSERT_GT(update_count.load(), 200);
+}
+
+TEST(BvarsTest, DestructorWaitsForRunningUpdate) {
+    constexpr int callback_timeout_s = 5;
+    int interval_s = 1;
+    bthread::CountdownEvent update_started;
+    bthread::CountdownEvent allow_update_to_finish;
+    bthread::CountdownEvent stop_waiting;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("mBvarLatencyRecorderWithStatus::put", [&interval_s](auto&& args) {
+        auto* interval = try_any_cast<int*>(args[0]);
+        *interval = interval_s;
+    });
+    sp->set_call_back("mBvarLatencyRecorderWithStatus::update", [&](auto&&) {
+        update_started.signal();
+        allow_update_to_finish.wait();
+    });
+    sp->set_call_back("mBvarLatencyRecorderWithStatus::stop",
+                      [&](auto&&) { stop_waiting.signal(); });
+    sp->enable_processing();
+
+    auto recorder = std::make_unique<MBvarLatencyRecorderWithStatus<60>>(
+            "destructor_wait_test", std::initializer_list<std::string> {"instance_id"});
+    recorder->put({"instance"}, 1);
+    const int update_result =
+            update_started.timed_wait(butil::seconds_from_now(callback_timeout_s));
+    if (update_result != 0) {
+        // Keep cleanup non-blocking even when the timer thread did not invoke the callback.
+        allow_update_to_finish.signal();
+        EXPECT_EQ(0, update_result);
+        return;
+    }
+
+    std::thread destroyer([&] { recorder.reset(); });
+    const int stop_result = stop_waiting.timed_wait(butil::seconds_from_now(callback_timeout_s));
+    allow_update_to_finish.signal();
+    destroyer.join();
+
+    EXPECT_EQ(0, stop_result);
 }
 
 } // namespace doris::cloud
