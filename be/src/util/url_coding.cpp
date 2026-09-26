@@ -53,25 +53,41 @@ void url_encode(const std::string_view& in, std::string* out) {
 // http://www.boost.org/doc/libs/1_40_0/doc/html/boost_asio/
 //   example/http/server3/request_handler.cpp
 // See http://www.boost.org/LICENSE_1_0.txt for license for this method.
+// Value of a single hexadecimal digit, or -1 when c is not one.
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
 bool url_decode(const std::string& in, std::string* out) {
     out->clear();
     out->reserve(in.size());
 
     for (size_t i = 0; i < in.size(); ++i) {
         if (in[i] == '%') {
-            if (i + 3 <= in.size()) {
-                int value = 0;
-                std::istringstream is(in.substr(i + 1, 2));
-
-                if (is >> std::hex >> value) {
-                    (*out) += static_cast<char>(value);
-                    i += 2;
-                } else {
-                    return false;
-                }
-            } else {
+            if (i + 3 > in.size()) {
                 return false;
             }
+
+            // A '%' must be followed by exactly two hexadecimal digits. Parsing the pair
+            // with a stream accepts a partial match such as "%1g" and silently drops the
+            // character that follows it.
+            const int high = hex_digit(in[i + 1]);
+            const int low = hex_digit(in[i + 2]);
+            if (high < 0 || low < 0) {
+                return false;
+            }
+
+            (*out) += static_cast<char>((high << 4) | low);
+            i += 2;
         } else if (in[i] == '+') {
             (*out) += ' ';
         } else {

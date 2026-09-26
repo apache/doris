@@ -207,7 +207,9 @@ public:
         void put(std::map<std::string, std::string>* params, TrieNode* node,
                  const std::string& token) {
             if (params != nullptr && !node->_named_wildcard.empty()) {
-                params->insert(std::make_pair(node->_named_wildcard, token));
+                // The query string is parsed into the same map before routing runs, so
+                // insert() would silently keep a "?db=" over the {db} the path matched.
+                (*params)[node->_named_wildcard] = token;
             }
         }
 
