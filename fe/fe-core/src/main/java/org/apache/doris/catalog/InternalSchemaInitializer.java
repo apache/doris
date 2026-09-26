@@ -106,10 +106,31 @@ public class InternalSchemaInitializer extends Thread {
             return;
         }
         Database database = op.get();
-        modifyTblReplicaCount(database, StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
-        modifyTblReplicaCount(database, AuditLoader.AUDIT_LOG_TABLE);
+        // Runs even when every table already exists: an upgraded cluster must gain the
+        // sql_mode column although the completion gate no longer calls createTbl().
+        // Must precede the replica-upgrade loop below: that loop WAITS for enough BEs
+        // (sleeping), so anything after it would be deferred indefinitely on a small
+        // cluster.
+        upgradeSpmBaselinesSchema();
+        for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
+            modifyTblReplicaCount(database, tblName);
+        }
     }
+
+    /**
+     * Internal tables whose replica count is raised towards
+     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The two SPM tables
+     * carry cluster-wide state: with the default minimum replication of 1 they are created
+     * single-replica, and losing the hosting BE would make every global baseline
+     * unavailable or erase the only capture handoff cursor.
+     */
+    @VisibleForTesting
+    static final List<String> REPLICA_UPGRADED_INTERNAL_TABLES = Lists.newArrayList(
+            StatisticConstants.TABLE_STATISTIC_TBL_NAME,
+            StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
+            AuditLoader.AUDIT_LOG_TABLE,
+            InternalSchema.SPM_BASELINES_TBL_NAME,
+            InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
 
     public void modifyColumnStatsTblSchema() {
         while (true) {
@@ -409,6 +430,47 @@ public class InternalSchemaInitializer extends Thread {
         createTable(getSpmCaptureCheckpointCreateSql());
     }
 
+    /**
+     * Adds the `sql_mode` column to a PRE-EXISTING spm_baselines table (new clusters get
+     * it from the create SQL). The column carries the parser mode of the creating session:
+     * without it a PIPES_AS_CONCAT baseline is re-parsed under the default mode after a
+     * restart, so the stored digest still finds the row while the structural match rejects
+     * every CONCAT-mode query and the baseline silently stops applying. Idempotent: a
+     * table that already carries the column is left untouched.
+     */
+    private static void upgradeSpmBaselinesSchema() {
+        try {
+            Optional<Database> dbOpt =
+                    Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+            if (!dbOpt.isPresent()) {
+                return;
+            }
+            Table table = dbOpt.get().getTable(InternalSchema.SPM_BASELINES_TBL_NAME).orElse(null);
+            if (table == null) {
+                return;
+            }
+            if (table.getBaseSchema().stream()
+                    .anyMatch(column -> "sql_mode".equalsIgnoreCase(column.getName()))) {
+                return;
+            }
+            ColumnDefinition definition = new ColumnDefinition("sql_mode",
+                    DataType.fromCatalogType(ScalarType.createType(PrimitiveType.BIGINT)),
+                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                    Optional.empty(), "", true, Optional.empty());
+            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+            addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_BASELINES_TBL_NAME);
+            Env.getCurrentEnv().alterTable(
+                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
+            LOG.info("SPM: added the sql_mode column to {}", InternalSchema.SPM_BASELINES_TBL_NAME);
+        } catch (Throwable t) {
+            // Retried on the next initializer iteration / FE start; the baseline load
+            // fails fast (bounded timeout) and retries until the column exists.
+            LOG.warn("SPM: failed to add the spm_baselines sql_mode column, will retry", t);
+        }
+    }
+
     private static String getStatisticsCreateSql(String tableName, List<String> uniqueKeys) throws UserException {
         String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         String dbName = FeConstants.INTERNAL_DB_NAME;
@@ -522,6 +584,10 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
+                // merge-on-write makes the single-row upsert (INSERT with the same key)
+                // atomic: the new checkpoint row replaces the old one in one statement,
+                // so no crash can leave the shared store without a row
+                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
             }
         };
 
@@ -529,7 +595,7 @@ public class InternalSchemaInitializer extends Thread {
                 "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
                         + "%s\n"
                         + ") ENGINE = olap\n"
-                        + "DUPLICATE KEY(`id`)\n"
+                        + "UNIQUE KEY(`id`)\n"
                         + "COMMENT \"Doris internal SPM capture checkpoint table, DO NOT MODIFY IT\"\n"
                         + "DISTRIBUTED BY HASH(`id`)\n"
                         + "BUCKETS 1\n"
