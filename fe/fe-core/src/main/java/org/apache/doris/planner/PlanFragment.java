@@ -206,6 +206,19 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                     return true;
                 }
             }
+            // A fused group join is a PlanNode in its own right, it does not extend HashJoinNode, so
+            // the two loops above cannot see the bucket shuffle of a fused INNER join. Missing it
+            // made the scan job of the bucket side an UnassignedScanSingleOlapTableJob while the
+            // exchange into the join still claimed BUCKET_SHFFULE_HASH_PARTITIONED, and
+            // DistributePlanner.getDestinationsByBuckets then failed to cast that job to
+            // UnassignedScanBucketOlapTableJob.
+            List<GroupJoinNode> groupJoinNodes
+                    = getPlanRoot().collectInCurrentFragment(GroupJoinNode.class::isInstance);
+            for (GroupJoinNode groupJoinNode : groupJoinNodes) {
+                if (groupJoinNode.getDistributionMode() == DistributionMode.BUCKET_SHUFFLE) {
+                    return true;
+                }
+            }
             return false;
         });
     }
