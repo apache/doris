@@ -80,6 +80,21 @@ message TsoRangePB {
     optional int64 end_tso = 2 [default = -1];
 }
 
+// Descriptor of the GLOBAL_POINT index of one column for a whole rowset (all its segments). The
+// bloom filter itself is in a separate .gpidx file next to the segment files; only this small
+// descriptor is kept in the rowset meta.
+message ColumnPointIndexPB {
+  optional int32  column_unique_id  = 1;
+  optional string index_file_suffix = 2;   // file name relative to the rowset path prefix
+  optional int64  offset            = 3;   // offset of the bloom body in the file
+  optional int64  size              = 4;   // size of the bloom body
+  optional double fpp               = 5;   // fpp of this bloom (a share of the per-tablet budget)
+  optional int32  hash_strategy     = 6;
+  optional int64  total_rows        = 7;   // number of non-null values inserted
+  optional int64  index_id          = 8;   // index definition id, tells a dropped and re-created index apart
+  optional uint32 body_crc32        = 9;   // crc32 of the bloom body, also stored in the file header
+}
+
 // ATTN: When adding or deleting fields, please update `message RowsetMetaCloudPB`
 // simultaneously and modify the conversion function in the be/src/cloud/pb_convert.{h,cpp}.
 message RowsetMetaPB {

@@ -1983,6 +1983,21 @@ DECLARE_mString(aws_credentials_provider_version);
 DECLARE_mBool(enable_concurrency_stats_dump);
 DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 
+// GLOBAL_POINT index.
+// Expected number of bloom filters per tablet. The fpp in the index DDL is a budget for the whole
+// tablet, and each rowset bloom gets this share of it. Compaction keeps the real number small.
+DECLARE_mInt32(global_point_index_expected_blooms_per_tablet);
+// Row count used to size a bloom on the load path, where the final row count of the rowset is not
+// known yet. An underestimate only raises the fpp; it never causes a false negative.
+DECLARE_mInt64(global_point_index_write_path_estimated_rows);
+// Upper bound of one bloom on the load path, rounded down to a power of two. A load holds one bloom
+// per indexed column for every tablet it writes to. Compaction and BUILD INDEX size exactly and are
+// not capped.
+DECLARE_mInt64(global_point_index_max_write_path_bloom_bytes);
+// Tolerance of the bloom sizing self-check, in percent of the bits per key the bloom's own fpp
+// needs. 0 or less disables the check.
+DECLARE_mInt32(global_point_index_bloom_size_slack_percent);
+
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);
