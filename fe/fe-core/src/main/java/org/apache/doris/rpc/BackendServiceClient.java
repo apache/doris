@@ -199,6 +199,12 @@ public class BackendServiceClient {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
     }
 
+    // Unlike the calls above, the timeout is in milliseconds: this call runs on the planning path.
+    public Future<InternalService.PGlobalPointIndexPruneResponse> pruneGlobalPointIndex(
+            InternalService.PGlobalPointIndexPruneRequest request, int timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).pruneGlobalPointIndex(request);
+    }
+
     public Future<InternalService.PDeleteDictionaryResponse> deleteDictionary(
             InternalService.PDeleteDictionaryRequest request, int timeoutSec) {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).deleteDictionary(request);

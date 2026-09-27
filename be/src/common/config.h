@@ -2005,6 +2005,9 @@ DECLARE_mBool(enable_global_point_index_scan_gate);
 // receivers. Blooms are only sent to receivers that advertise support, so a mixed-version cluster
 // is safe; rowsets whose receiver does not support it simply get no descriptor.
 DECLARE_mBool(enable_global_point_index_sink_build);
+// Threads that read and test .gpidx files for plan-time prune requests, shared by all requests on
+// the BE. This bounds the concurrent object storage reads of pruning.
+DECLARE_Int32(global_point_index_prune_io_max_threads);
 
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 

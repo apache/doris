@@ -246,6 +246,12 @@ public:
                             PGetTabletRowsetsResponse* response,
                             google::protobuf::Closure* done) override;
 
+    // Plan-time tablet pruning with GLOBAL_POINT indexes (cloud mode).
+    void prune_global_point_index(google::protobuf::RpcController* controller,
+                                  const PGlobalPointIndexPruneRequest* request,
+                                  PGlobalPointIndexPruneResponse* response,
+                                  google::protobuf::Closure* done) override;
+
     void request_cdc_client(google::protobuf::RpcController* controller,
                             const PRequestCdcClientRequest* request,
                             PRequestCdcClientResult* result,

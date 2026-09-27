@@ -1314,4 +1314,32 @@ service PBackendService {
     rpc get_tablet_rowsets(PGetTabletRowsetsRequest) returns (PGetTabletRowsetsResponse);
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
+    // Plan-time tablet pruning with GLOBAL_POINT indexes. FE sends one request per BE.
+    rpc prune_global_point_index(PGlobalPointIndexPruneRequest) returns (PGlobalPointIndexPruneResponse);
 };
+
+// One tablet to probe, at the snapshot version FE pinned for the query. BE must probe the rowsets
+// visible at exactly this version; if its local view has not reached it, the tablet is kept.
+message PGpPruneTablet {
+    optional int64 tablet_id = 1;
+    optional int64 snapshot_version = 2;
+}
+
+message PGlobalPointIndexPruneRequest {
+    optional int64 table_id = 1;
+    optional int32 column_unique_id = 2;
+    // Probe values, encoded by FE exactly as the write path inserts them into the bloom filter.
+    repeated bytes probe_values = 3;
+    repeated PGpPruneTablet tablets = 4;
+}
+
+message PGlobalPointIndexPruneResponse {
+    optional PStatus status = 1;
+    // Tablets that must be kept: every tablet that is not a definite miss. The response lists what
+    // to keep rather than what to drop, so an omission on BE side can only cause extra scanning.
+    repeated int64 candidate_tablet_ids = 2;
+    optional int64 probed_blooms = 3;
+    // Tablets kept only because they could not be checked (no local tablet, version not synced,
+    // missing or unreadable bloom, ...).
+    optional int64 degraded_tablets = 4;
+}

@@ -3897,4 +3897,19 @@ public class Config extends ConfigBase {
             + "bloom gets a share of it, so that probing all blooms of one tablet stays within this rate.")
     public static double global_point_index_default_fpp = 0.01;
 
+    @ConfField(mutable = true, description = "Whether FE uses GLOBAL_POINT indexes to prune tablets at planning "
+            + "time. This is the cluster-wide switch; the session variable enable_global_point_index_prune can "
+            + "turn it off per query.")
+    public static boolean enable_global_point_index_prune = true;
+
+    @ConfField(mutable = true, description = "If an IN predicate on a GLOBAL_POINT column has more values than "
+            + "this, plan-time pruning is skipped for the query.")
+    public static int global_point_index_max_probe_values = 32;
+
+    @ConfField(mutable = true, description = "Timeout in milliseconds of the plan-time prune RPC. The RPC is on "
+            + "the planning path of every query that can use the index. A BE that does not answer in time has "
+            + "all its tablets kept, so a timeout only costs pruning, never correctness. Lower it once blooms "
+            + "are reliably in the BE file cache; a healthy cluster answers well within 500 ms.")
+    public static int global_point_index_prune_timeout_ms = 3000;
+
 }
