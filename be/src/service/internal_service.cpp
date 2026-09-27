@@ -457,6 +457,9 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
             }
         }
 
+        // This BE understands ADD_POINT_QUERY_INDEX, see LoadStreamStub::add_point_query_index().
+        response->set_supports_point_query_index(true);
+
         LoadStream* load_stream = nullptr;
         auto st = _exec_env->load_stream_mgr()->open_load_stream(request, load_stream);
         if (!st.ok()) {

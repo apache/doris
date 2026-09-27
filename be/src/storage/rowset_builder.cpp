@@ -283,6 +283,7 @@ Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& conte
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.write_file_cache = _req.write_file_cache;
+    context.point_query_index_from_sender = _req.point_query_index_from_sender;
 
     return Status::OK();
 }

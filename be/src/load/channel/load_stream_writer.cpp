@@ -210,6 +210,27 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
     return _rowset_writer->add_segment(segid, stat);
 }
 
+Status LoadStreamWriter::add_point_query_index(const PGlobalPointIndexPart& part,
+                                               butil::IOBuf buf) {
+    SCOPED_ATTACH_TASK(_resource_ctx);
+    std::lock_guard lock_guard(_lock);
+    if (!_is_init) {
+        return Status::Corruption("add_point_query_index failed, LoadStreamWriter is not inited");
+    }
+    // The IOBuf may not be contiguous. Bodies are small: the load path caps them with
+    // config::global_point_index_max_write_path_bloom_bytes.
+    const std::string body = buf.to_string();
+    return _rowset_writer->add_point_query_index(part, body);
+}
+
+void LoadStreamWriter::drop_point_query_indexes() {
+    std::lock_guard lock_guard(_lock);
+    if (!_is_init) {
+        return;
+    }
+    _rowset_writer->drop_point_query_indexes();
+}
+
 Status LoadStreamWriter::_calc_file_size(uint32_t segid, FileType file_type, size_t* file_size) {
     io::FileWriter* file_writer = nullptr;
     auto& file_writers =

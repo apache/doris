@@ -62,6 +62,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/pretty_printer.h"
 #include "util/slice.h"
 #include "util/stopwatch.hpp"
@@ -411,6 +412,10 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
 }
 
 Status BaseBetaRowsetWriter::_init_global_point_index_builders() {
+    if (_context.point_query_index_from_sender) {
+        // The senders build the blooms and send them with add_point_query_index().
+        return Status::OK();
+    }
     if (_context.is_transient_rowset_writer) {
         // MOW partial-update conflict resolution appends this writer's segments to an already
         // published rowset (RowsetMeta::merge_rowset_meta), which cannot take a second bloom of
@@ -439,6 +444,9 @@ Status BaseBetaRowsetWriter::_init_global_point_index_builders() {
 }
 
 Status BaseBetaRowsetWriter::_finalize_global_point_indexes(RowsetMeta* rowset_meta) {
+    if (_context.point_query_index_from_sender) {
+        return _finalize_received_point_query_indexes(rowset_meta);
+    }
     // Only the first call writes the files, in case build() runs more than once.
     for (auto& [col_unique_id, builder] : _global_point_index_builders) {
         std::string path = _context.global_point_index_path(col_unique_id);
@@ -456,6 +464,90 @@ Status BaseBetaRowsetWriter::_finalize_global_point_indexes(RowsetMeta* rowset_m
     }
     _global_point_index_builders.clear();
     _context.global_point_index_builders.clear();
+    return Status::OK();
+}
+
+Status BaseBetaRowsetWriter::add_point_query_index(const PGlobalPointIndexPart& part,
+                                                   std::string_view body) {
+    int32_t col_unique_id = part.column_unique_id();
+    std::lock_guard<std::mutex> lock(_received_point_query_indexes_mutex);
+    if (_point_query_indexes_dropped) {
+        return Status::OK();
+    }
+    auto& acc = _received_point_query_indexes[col_unique_id];
+    if (acc.poisoned) {
+        return Status::OK();
+    }
+    // A rejected part only removes the index of this column; it never fails the load.
+    auto poison = [&](const char* reason) {
+        acc.poisoned = true;
+        acc.body.clear();
+        LOG(WARNING) << "dropping GLOBAL_POINT index of column " << col_unique_id << " in rowset "
+                     << _context.rowset_id.to_string() << ", tablet " << _context.tablet_id << ": "
+                     << reason;
+        return Status::OK();
+    };
+
+    if (part.body_size() <= 1 || static_cast<size_t>(part.body_size()) != body.size() ||
+        static_cast<uint64_t>(part.body_size() - 1) * 8 != part.num_bits()) {
+        return poison("declared body size does not match the attachment or num_bits");
+    }
+    if (HashUtil::zlib_crc_hash(body.data(), static_cast<uint32_t>(body.size()), 0) !=
+        part.body_crc32()) {
+        return poison("body crc32 mismatch");
+    }
+
+    if (acc.body.empty()) {
+        acc.body.assign(body.data(), body.size());
+        acc.num_bits = part.num_bits();
+        acc.index_id = part.index_id();
+        acc.fpp = part.fpp();
+        acc.hash_strategy = part.hash_strategy();
+        acc.total_rows = part.total_rows();
+        return Status::OK();
+    }
+
+    // Only blooms of the same shape can be merged. BloomFilter::merge() is not used: its size
+    // check is a DCHECK, which release builds skip.
+    if (acc.num_bits != part.num_bits() || acc.index_id != part.index_id() ||
+        acc.hash_strategy != part.hash_strategy()) {
+        return poison("senders disagree on the bloom shape");
+    }
+    for (size_t i = 0; i < acc.body.size(); ++i) {
+        acc.body[i] = static_cast<char>(static_cast<unsigned char>(acc.body[i]) |
+                                        static_cast<unsigned char>(body[i]));
+    }
+    acc.total_rows += part.total_rows();
+    return Status::OK();
+}
+
+void BaseBetaRowsetWriter::drop_point_query_indexes() {
+    std::lock_guard<std::mutex> lock(_received_point_query_indexes_mutex);
+    _received_point_query_indexes.clear();
+    _point_query_indexes_dropped = true;
+}
+
+Status BaseBetaRowsetWriter::_finalize_received_point_query_indexes(RowsetMeta* rowset_meta) {
+    std::lock_guard<std::mutex> lock(_received_point_query_indexes_mutex);
+    for (auto& [col_unique_id, acc] : _received_point_query_indexes) {
+        if (acc.poisoned || acc.body.empty()) {
+            continue;
+        }
+        std::string path = _context.global_point_index_path(col_unique_id);
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(_create_file_writer(path, file_writer, FileType::GLOBAL_POINT_INDEX_FILE));
+        ColumnPointIndexPB index_meta;
+        // Same file writer as the local path, so equal input gives an equal file.
+        RETURN_IF_ERROR(segment_v2::write_global_point_index_file(
+                file_writer.get(), acc.body.data(), acc.body.size(), col_unique_id, acc.index_id,
+                acc.fpp, acc.total_rows, &index_meta));
+        RETURN_IF_ERROR(file_writer->close());
+        index_meta.set_index_file_suffix(fmt::format("{}.gpidx", col_unique_id));
+        rowset_meta->add_point_query_index(index_meta);
+        _total_index_size += file_writer->bytes_appended();
+        _global_point_index_files[col_unique_id] = std::move(file_writer);
+    }
+    _received_point_query_indexes.clear();
     return Status::OK();
 }
 

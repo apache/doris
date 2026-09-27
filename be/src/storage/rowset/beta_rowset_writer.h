@@ -29,6 +29,7 @@
 #include <optional>
 #include <roaring/roaring.hh>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -135,6 +136,10 @@ public:
     Status create_index_file_writer(uint32_t segment_id, IndexFileWriterPtr* writer) override;
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
+
+    Status add_point_query_index(const PGlobalPointIndexPart& part, std::string_view body) override;
+
+    void drop_point_query_indexes() override;
 
     Status flush() override;
 
@@ -250,6 +255,8 @@ protected:
     // the descriptor to `rowset_meta`.
     Status _init_global_point_index_builders();
     Status _finalize_global_point_indexes(RowsetMeta* rowset_meta);
+    // Receiver of a memtable-on-sink-node load: writes the blooms merged from the senders' parts.
+    Status _finalize_received_point_query_indexes(RowsetMeta* rowset_meta);
 
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
@@ -295,6 +302,32 @@ protected:
     // Closed .gpidx file writers, by col_unique_id. Kept because in cloud mode a small file may be
     // packed into a shared file, and CloudRowsetWriter needs the writer to find its location.
     std::unordered_map<int32_t, io::FileWriterPtr> _global_point_index_files;
+
+    // Merge state on the receiver of a memtable-on-sink-node load, by col_unique_id. Only one of
+    // this and _global_point_index_builders is used, chosen by
+    // _context.point_query_index_from_sender.
+    struct ReceivedPointQueryIndex {
+        // Byte-wise OR of every sender's body; the has-null byte ORs correctly too.
+        std::string body;
+        uint64_t num_bits = 0;
+        int64_t index_id = 0;
+        double fpp = 0;
+        int32_t hash_strategy = 0;
+        int64_t total_rows = 0;
+        // Once set, the column gets no descriptor: a half-merged bloom gives false negatives.
+        bool poisoned = false;
+    };
+    std::unordered_map<int32_t, ReceivedPointQueryIndex> _received_point_query_indexes;
+    std::mutex _received_point_query_indexes_mutex;
+    bool _point_query_indexes_dropped = false;
+
+#ifdef BE_TEST
+public:
+    const std::unordered_map<int32_t, ReceivedPointQueryIndex>& received_point_query_indexes()
+            const {
+        return _received_point_query_indexes;
+    }
+#endif
 };
 
 class SegcompactionWorker;

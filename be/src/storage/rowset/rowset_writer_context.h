@@ -116,6 +116,10 @@ struct RowsetWriterContext {
     // Exact row count of the rowset when it is known before writing (compaction, schema change,
     // BUILD INDEX). GLOBAL_POINT blooms are then sized exactly instead of from an estimate.
     std::optional<int64_t> exact_row_count_for_global_point_index;
+    // True on the receiving side of a memtable-on-sink-node load, which only gets encoded segment
+    // bytes and never sees column values. It must not build blooms itself (they would be empty
+    // and answer "absent" for everything); it merges the parts the senders send instead.
+    bool point_query_index_from_sender = false;
     // SNII only: (column_unique_id, index_id) pairs whose postings are produced
     // by index compaction. The segment writer raw-builds every OTHER SNII index
     // of the column, so one eligible and one new index on the same column can

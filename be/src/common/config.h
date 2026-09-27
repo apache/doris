@@ -2001,6 +2001,10 @@ DECLARE_mInt32(global_point_index_bloom_size_slack_percent);
 // EQ/IN predicates and skip the rowset on a definite miss. Read-path only; turning it off has no
 // effect on stored data.
 DECLARE_mBool(enable_global_point_index_scan_gate);
+// Build GLOBAL_POINT blooms on the sender of memtable-on-sink-node loads and send them to the
+// receivers. Blooms are only sent to receivers that advertise support, so a mixed-version cluster
+// is safe; rowsets whose receiver does not support it simply get no descriptor.
+DECLARE_mBool(enable_global_point_index_sink_build);
 
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
