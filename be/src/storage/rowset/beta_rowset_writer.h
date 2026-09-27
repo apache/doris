@@ -29,6 +29,7 @@
 #include <optional>
 #include <roaring/roaring.hh>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -48,6 +49,7 @@ class Block;
 
 namespace segment_v2 {
 class VerticalSegmentWriter;
+class GlobalPointIndexBuilder;
 } // namespace segment_v2
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
@@ -242,6 +244,13 @@ protected:
         return Status::OK();
     }
 
+    // GLOBAL_POINT index: _init_global_point_index_builders() creates one bloom builder per
+    // indexed column and registers it in _context for the segment writers; after all segments
+    // are closed, _finalize_global_point_indexes() writes each bloom to its .gpidx file and adds
+    // the descriptor to `rowset_meta`.
+    Status _init_global_point_index_builders();
+    Status _finalize_global_point_indexes(RowsetMeta* rowset_meta);
+
     std::atomic<int32_t> _num_segment; // number of consecutive flushed segments
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
     std::mutex _segment_set_mutex;     // mutex for _segment_set
@@ -279,6 +288,13 @@ protected:
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
+
+    // GLOBAL_POINT bloom builders of this rowset, one per indexed column, covering every segment.
+    std::unordered_map<int32_t, std::unique_ptr<segment_v2::GlobalPointIndexBuilder>>
+            _global_point_index_builders;
+    // Closed .gpidx file writers, by col_unique_id. Kept because in cloud mode a small file may be
+    // packed into a shared file, and CloudRowsetWriter needs the writer to find its location.
+    std::unordered_map<int32_t, io::FileWriterPtr> _global_point_index_files;
 };
 
 class SegcompactionWorker;

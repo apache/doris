@@ -91,6 +91,8 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     if (_context.mow_context != nullptr) {
         _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
     }
+    // This init() replaces BaseBetaRowsetWriter::init() instead of calling it.
+    RETURN_IF_ERROR(_init_global_point_index_builders());
     return Status::OK();
 }
 
@@ -115,6 +117,9 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
 
     // TODO(plat1ko): check_segment_footer
 
+    // Before _build_rowset_meta(), so that the index size and the packed file locations include
+    // the .gpidx files.
+    RETURN_IF_ERROR(_finalize_global_point_indexes(_rowset_meta.get()));
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get()));
     // At this point all writers have been closed, so collecting packed file indices is safe.
     RETURN_IF_ERROR(_collect_all_packed_slice_locations(_rowset_meta.get()));
@@ -203,6 +208,13 @@ Status CloudRowsetWriter::_collect_all_packed_slice_locations(RowsetMeta* rowset
             RETURN_IF_ERROR(_collect_packed_slice_location(idx_writer_ptr->get_file_writer(),
                                                            index_path, rowset_meta));
         }
+    }
+
+    // GLOBAL_POINT index files are small and are often packed; without their real location every
+    // later read of the standalone path would fail.
+    for (const auto& [col_unique_id, gp_writer_ptr] : _global_point_index_files) {
+        auto gp_path = _context.global_point_index_path(col_unique_id);
+        RETURN_IF_ERROR(_collect_packed_slice_location(gp_writer_ptr.get(), gp_path, rowset_meta));
     }
 
     return Status::OK();

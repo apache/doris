@@ -210,6 +210,9 @@ message RowsetMetaPB {
     // from the shared (index_id, schema_version) schema key.
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1018;
 
+    // GLOBAL_POINT index descriptors, one per indexed column; the blooms are in .gpidx files.
+    repeated ColumnPointIndexPB point_query_indexes = 1019;
+
     // For cloud segment-list rowset layout.
     // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
     repeated int64 segment_ids = 200;
@@ -340,6 +343,8 @@ message RowsetMetaCloudPB {
     // Actual inverted-index format used by this rowset's files. It is independent
     // from the shared (index_id, schema_version) schema key.
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 117;
+    // GLOBAL_POINT index descriptors, one per indexed column; the blooms are in .gpidx files.
+    repeated ColumnPointIndexPB point_query_indexes = 118;
     // For cloud segment-list rowset layout.
     // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
     repeated int64 segment_ids = 200;

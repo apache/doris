@@ -56,7 +56,8 @@ class SegmentCollector;
 
 namespace segment_v2 {
 struct HistoricalRowRetrieverContext;
-}
+class GlobalPointIndexBuilder;
+} // namespace segment_v2
 
 struct RowsetWriterContext {
     RowsetWriterContext() : schema_lock(new std::mutex) {
@@ -109,6 +110,12 @@ struct RowsetWriterContext {
     bool enable_unique_key_merge_on_write = false;
     // store column_unique_id to do index compaction
     std::set<int32_t> columns_to_do_index_compaction;
+    // GLOBAL_POINT index: col_unique_id -> the bloom builder of that column for the whole rowset.
+    // Owned by the rowset writer; segment writers only borrow the pointers to feed values.
+    std::unordered_map<int32_t, segment_v2::GlobalPointIndexBuilder*> global_point_index_builders;
+    // Exact row count of the rowset when it is known before writing (compaction, schema change,
+    // BUILD INDEX). GLOBAL_POINT blooms are then sized exactly instead of from an estimate.
+    std::optional<int64_t> exact_row_count_for_global_point_index;
     // SNII only: (column_unique_id, index_id) pairs whose postings are produced
     // by index compaction. The segment writer raw-builds every OTHER SNII index
     // of the column, so one eligible and one new index on the same column can
@@ -227,6 +234,15 @@ struct RowsetWriterContext {
         }
     }
 
+    std::string global_point_index_path(int32_t col_unique_id) const {
+        if (is_local_rowset()) {
+            return local_global_point_index_path(tablet_path, rowset_id.to_string(), col_unique_id);
+        } else {
+            return storage_resource->remote_global_point_index_path(
+                    tablet_id, rowset_id.to_string(), col_unique_id);
+        }
+    }
+
     io::FileSystemSPtr fs() const {
         // Return cached instance if available to ensure consistency across multiple calls
         if (_cached_fs != nullptr) {
@@ -309,7 +325,8 @@ struct RowsetWriterContext {
         if (config::enable_file_cache_write_index_file_only) {
             opts.allow_adaptive_file_cache_write = false;
             opts.approximate_bytes_to_write = 0;
-            opts.write_file_cache = file_type == FileType::INVERTED_INDEX_FILE;
+            opts.write_file_cache = file_type == FileType::INVERTED_INDEX_FILE ||
+                                    file_type == FileType::GLOBAL_POINT_INDEX_FILE;
             return opts;
         }
 

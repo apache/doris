@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <string>
@@ -371,6 +372,22 @@ public:
 
     bool is_ann_index() const { return _index_type == IndexType::ANN; }
 
+    bool is_global_point_index() const { return _index_type == IndexType::GLOBAL_POINT; }
+
+    // The fpp budget of a GLOBAL_POINT index for a whole tablet. FE always sets it (it fills in
+    // the default), so the fallback only covers metadata written without it.
+    double get_global_point_fpp() const {
+        auto it = _properties.find("fpp");
+        if (it != _properties.end()) {
+            char* end = nullptr;
+            double fpp = std::strtod(it->second.c_str(), &end);
+            if (end != it->second.c_str() && fpp > 0 && fpp < 1) {
+                return fpp;
+            }
+        }
+        return 0.01;
+    }
+
     void remove_parser_and_analyzer() {
         _properties.erase(INVERTED_INDEX_PARSER_KEY);
         _properties.erase(INVERTED_INDEX_PARSER_KEY_ALIAS);
@@ -607,6 +624,17 @@ public:
             }
         }
         return false;
+    }
+
+    // Every GLOBAL_POINT index of the schema; the rowset writer builds one bloom per index.
+    std::vector<const TabletIndex*> global_point_indexes() const {
+        std::vector<const TabletIndex*> result;
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::GLOBAL_POINT) {
+                result.emplace_back(index.get());
+            }
+        }
+        return result;
     }
 
     bool has_inverted_index_with_index_id(int64_t index_id) const;

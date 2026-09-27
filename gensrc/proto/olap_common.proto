@@ -30,6 +30,9 @@ enum CompressKind {
 enum FileType {
   SEGMENT_FILE = 1;
   INVERTED_INDEX_FILE = 2;
+  // A rowset-level GLOBAL_POINT index file (.gpidx). Only written by the rowset writer itself,
+  // never sent over a load stream.
+  GLOBAL_POINT_INDEX_FILE = 3;
 }
 
 message InvertedIndexFileInfo {

@@ -48,6 +48,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/thread_context.h"
+#include "storage/index/global_point/global_point_index_writer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/olap_define.h"
@@ -405,6 +406,56 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
+    RETURN_IF_ERROR(_init_global_point_index_builders());
+    return Status::OK();
+}
+
+Status BaseBetaRowsetWriter::_init_global_point_index_builders() {
+    if (_context.is_transient_rowset_writer) {
+        // MOW partial-update conflict resolution appends this writer's segments to an already
+        // published rowset (RowsetMeta::merge_rowset_meta), which cannot take a second bloom of
+        // a different size. merge_rowset_meta drops the host rowset's affected descriptors
+        // instead, so a bloom built here would only be an orphan file.
+        return Status::OK();
+    }
+    if (_context.tablet_schema == nullptr || _context.write_binlog_opt().enable) {
+        return Status::OK();
+    }
+    for (const auto* tablet_index : _context.tablet_schema->global_point_indexes()) {
+        if (tablet_index->col_unique_ids().empty()) {
+            continue;
+        }
+        int32_t col_unique_id = tablet_index->col_unique_ids()[0];
+        auto sizing = segment_v2::compute_global_point_index_sizing(
+                tablet_index->get_global_point_fpp(),
+                _context.exact_row_count_for_global_point_index);
+        auto builder = std::make_unique<segment_v2::GlobalPointIndexBuilder>(
+                col_unique_id, tablet_index->index_id());
+        RETURN_IF_ERROR(builder->init(sizing.bloom_bytes, sizing.per_bloom_fpp));
+        _context.global_point_index_builders[col_unique_id] = builder.get();
+        _global_point_index_builders[col_unique_id] = std::move(builder);
+    }
+    return Status::OK();
+}
+
+Status BaseBetaRowsetWriter::_finalize_global_point_indexes(RowsetMeta* rowset_meta) {
+    // Only the first call writes the files, in case build() runs more than once.
+    for (auto& [col_unique_id, builder] : _global_point_index_builders) {
+        std::string path = _context.global_point_index_path(col_unique_id);
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(_create_file_writer(path, file_writer, FileType::GLOBAL_POINT_INDEX_FILE));
+        ColumnPointIndexPB index_meta;
+        RETURN_IF_ERROR(builder->finalize(file_writer.get(), &index_meta));
+        RETURN_IF_ERROR(file_writer->close());
+        // Relative to the rowset path prefix, like the segment files: the full path depends on
+        // the storage resource and must not be persisted.
+        index_meta.set_index_file_suffix(fmt::format("{}.gpidx", col_unique_id));
+        rowset_meta->add_point_query_index(index_meta);
+        _total_index_size += file_writer->bytes_appended();
+        _global_point_index_files[col_unique_id] = std::move(file_writer);
+    }
+    _global_point_index_builders.clear();
+    _context.global_point_index_builders.clear();
     return Status::OK();
 }
 
@@ -1007,6 +1058,9 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),
                                    "too many segments when build new rowset");
+    // Every segment is closed, so each bloom has seen every row. This runs before
+    // _build_rowset_meta() so that the index size includes the .gpidx files.
+    RETURN_IF_ERROR(_finalize_global_point_indexes(_rowset_meta.get()));
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get(), true));
     if (_is_pending) {
         _rowset_meta->set_rowset_state(COMMITTED);

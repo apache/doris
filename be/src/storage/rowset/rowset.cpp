@@ -23,9 +23,12 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "storage/index/global_point/global_point_index_format.h"
+#include "storage/index/global_point/global_point_index_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/storage_policy.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/time.h"
@@ -164,6 +167,31 @@ Result<std::string> Rowset::segment_path(int64_t seg_id) {
         return storage_resource->remote_segment_path(_rowset_meta->tablet_id(),
                                                      _rowset_meta->rowset_id().to_string(), seg_id);
     });
+}
+
+Result<std::string> Rowset::global_point_index_path(int32_t col_unique_id) {
+    if (is_local()) {
+        return local_global_point_index_path(_tablet_path, _rowset_meta->rowset_id().to_string(),
+                                             col_unique_id);
+    }
+
+    return _rowset_meta->remote_storage_resource().transform([=, this](auto&& storage_resource) {
+        return storage_resource->remote_global_point_index_path(
+                _rowset_meta->tablet_id(), _rowset_meta->rowset_id().to_string(), col_unique_id);
+    });
+}
+
+io::FileReaderOptions Rowset::global_point_index_reader_options(const ColumnPointIndexPB& desc) {
+    int64_t path_version = 0;
+    if (!is_local()) {
+        auto storage_resource = _rowset_meta->remote_storage_resource();
+        // Unknown storage resource: the path layout is unknown, so do not cache.
+        path_version = storage_resource ? (*storage_resource)->path_version : 1;
+    }
+    return segment_v2::global_point_index_reader_options(
+            _rowset_meta->tablet_id(),
+            static_cast<int64_t>(segment_v2::kGlobalPointIndexHeaderSize) + desc.size(),
+            path_version);
 }
 
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
