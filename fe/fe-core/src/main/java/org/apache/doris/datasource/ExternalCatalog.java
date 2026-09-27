@@ -146,6 +146,7 @@ public abstract class ExternalCatalog
 
     public static final String INCLUDE_DATABASE_LIST = "include_database_list";
     public static final String EXCLUDE_DATABASE_LIST = "exclude_database_list";
+    public static final String INCLUDE_INTERNAL_DATABASE_LIST = "include_internal_database_list";
     public static final String LOWER_CASE_META_NAMES = "lower_case_meta_names";
     public static final String META_NAMES_MAPPING = "meta_names_mapping";
     // db1.tbl1,db2.tbl2,...
@@ -1281,6 +1282,10 @@ public abstract class ExternalCatalog
 
     protected Map<String, Boolean> getExcludeDatabaseMap() {
         return getSpecifiedDatabaseMap(ExternalCatalog.EXCLUDE_DATABASE_LIST);
+    }
+
+    protected Map<String, Boolean> getIncludeInternalDatabaseMap() {
+        return getSpecifiedDatabaseMap(ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST);
     }
 
     protected Map<String, List<String>> getIncludeTableMap() {

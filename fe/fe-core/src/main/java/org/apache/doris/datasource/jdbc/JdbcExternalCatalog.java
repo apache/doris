@@ -113,6 +113,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         JdbcResource.checkBooleanProperty(JdbcResource.TEST_CONNECTION, String.valueOf(isTestConnection()));
         JdbcResource.checkDatabaseListProperties(getOnlySpecifiedDatabase(), getIncludeDatabaseMap(),
                 getExcludeDatabaseMap());
+        String includeInternalDatabaseList =
+                catalogProperty.getOrDefault(ExternalCatalog.INCLUDE_INTERNAL_DATABASE_LIST, "");
+        JdbcResource.checkInternalDatabaseListProperty(includeInternalDatabaseList);
+        if (Boolean.parseBoolean(getOnlySpecifiedDatabase()) && getIncludeDatabaseMap().isEmpty()
+                && getExcludeDatabaseMap().isEmpty() && !includeInternalDatabaseList.trim().isEmpty()) {
+            throw new DdlException("include_internal_database_list requires include_database_list or "
+                    + "exclude_database_list when only_specified_database is true");
+        }
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
                 getConnectionPoolMaxWaitTime(), getConnectionPoolMaxLifeTime());
 
@@ -261,6 +269,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
                 .setExcludeDatabaseMap(getExcludeDatabaseMap())
+                .setIncludeInternalDatabaseMap(getIncludeInternalDatabaseMap())
                 .setConnectionPoolMinSize(getConnectionPoolMinSize())
                 .setConnectionPoolMaxSize(getConnectionPoolMaxSize())
                 .setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime())

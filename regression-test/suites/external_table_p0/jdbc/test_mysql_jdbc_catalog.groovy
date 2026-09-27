@@ -228,6 +228,29 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                 ('${uuid3}', true, 'abcHa1.12345', '1.123450xkalowadawd', '2022-10-01', 3.14159, 1, 2, 0, 100000, 1.2345678, 24.000, '07:09:51', '2022', '2022-11-27 07:09:51', '2022-11-27 07:09:51'); """
         order_qt_test_insert4 """ select k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15 from ${test_insert2} where id = '${uuid3}' """
 
+        def defaultInternalDatabases = sql """ show databases like 'performance_schema'; """
+        assertTrue(defaultInternalDatabases.isEmpty())
+
+        sql """ drop catalog if exists ${catalog_name} """
+
+        // test include_internal_database_list argument
+        sql """create catalog if not exists ${catalog_name} properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "${driver_class}",
+            "include_internal_database_list" = "PERFORMANCE_SCHEMA"
+        );"""
+
+        sql """switch ${catalog_name}"""
+
+        def includedInternalDatabases = sql """ show databases like 'performance_schema'; """
+        assertEquals(1, includedInternalDatabases.size())
+        def internalDatabaseTables = sql """ show tables from performance_schema like 'threads'; """
+        assertEquals(1, internalDatabaseTables.size())
+
         sql """ drop catalog if exists ${catalog_name} """
 
         // test only_specified_database argument
@@ -729,4 +752,3 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         }
     }
 }
-

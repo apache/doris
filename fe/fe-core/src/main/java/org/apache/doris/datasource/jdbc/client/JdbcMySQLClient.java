@@ -158,7 +158,7 @@ public class JdbcMySQLClient extends JdbcClient {
 
     @Override
     protected String[] getTableTypes() {
-        return new String[] {"TABLE", "VIEW", "SYSTEM VIEW"};
+        return new String[] {"TABLE", "VIEW", "SYSTEM VIEW", "SYSTEM TABLE"};
     }
 
     @Override

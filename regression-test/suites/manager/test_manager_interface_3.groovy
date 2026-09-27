@@ -425,7 +425,7 @@ suite('test_manager_interface_3',"p0") {
             }
         }
         log.info("x1 = ${x}")
-        assertTrue(x == 22)
+        assertTrue(x == 23)
 
         connect(user, "${pwd}", url) { 
             result = sql """ show resources """
@@ -437,7 +437,7 @@ suite('test_manager_interface_3',"p0") {
                 }
             }
             log.info("x2 = ${x}")
-            assertTrue(x == 22)
+            assertTrue(x == 23)
         }
 
         checkNereidsExecute("show all grants");
@@ -481,7 +481,7 @@ suite('test_manager_interface_3',"p0") {
                 }
             }
             log.info("x3 = ${x}")
-            assertTrue(x == 22)
+            assertTrue(x == 23)
         }
         sql """ drop RESOURCE if exists  ${resource_name} """ 
         sql """drop user if exists ${user}"""
