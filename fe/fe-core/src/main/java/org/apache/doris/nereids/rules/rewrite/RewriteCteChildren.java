@@ -188,7 +188,11 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
      * In this case, the only expression that can be pushed down to the producer is filter(a > 5 or a < 8).
      */
     private LogicalPlan tryToConstructFilter(CascadesContext cascadesContext, CTEId cteId, LogicalPlan child) {
-        Set<RelationId> consumerIds = cascadesContext.getCteIdToConsumers().get(cteId).stream()
+        Set<LogicalCTEConsumer> consumers = cascadesContext.getCteIdToConsumers().get(cteId);
+        if (consumers == null) {
+            return child;
+        }
+        Set<RelationId> consumerIds = consumers.stream()
                 .map(LogicalCTEConsumer::getRelationId)
                 .collect(Collectors.toSet());
         List<Set<Expression>> filtersAboveEachConsumer = cascadesContext.getConsumerIdToFilters().entrySet().stream()
@@ -199,7 +203,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
         if (someone == null) {
             return child;
         }
-        int filterSize = cascadesContext.getCteIdToConsumers().get(cteId).size();
+        int filterSize = consumers.size();
         Set<Expression> conjuncts = new HashSet<>();
         for (Expression f : someone) {
             int matchCount = 0;
