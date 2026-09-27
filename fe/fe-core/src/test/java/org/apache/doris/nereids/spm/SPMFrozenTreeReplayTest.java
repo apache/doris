@@ -31,11 +31,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 /**
  * M3 milestone test: rewrite replays the FROZEN optimal plan (SR-aligned).
@@ -204,6 +207,117 @@ public class SPMFrozenTreeReplayTest {
                 "SELECT * FROM t1 /* _spm_const_var(2) */ WHERE a > 100"));
         Assertions.assertFalse(SPMPlanner.isFrozenPlanSql("SELECT * FROM t1 WHERE a > 100"));
         Assertions.assertFalse(SPMPlanner.isFrozenPlanSql(null));
+        // the PERSISTED provenance overrides the text classifier in both directions:
+        // a literal-free optimized join decompiles to text with NO placeholder call and
+        // must still be frozen when the row says so; an explicit non-frozen flag wins
+        // over a placeholder-shaped name in a literal
+        Assertions.assertTrue(SPMPlanner.isFrozenPlanSql(
+                "SELECT * FROM [SHUFFLE] t1 INNER JOIN [BROADCAST] t2 ON (t1.a = t2.x)",
+                Boolean.TRUE), "a marker-free decompiled text is frozen when the row says so");
+        Assertions.assertFalse(SPMPlanner.isFrozenPlanSql(
+                "SELECT * FROM t1 WHERE a > _spm_const_var(1)", Boolean.FALSE),
+                "an explicit non-frozen flag wins over a placeholder-shaped name");
+    }
+
+    /**
+     * R11-8: a literal-free optimized plan (no spm_const* call anywhere) still replays
+     * as frozen when the row is marked plan_frozen=true - an EMPTY substitution map is
+     * legitimate. Before the fix the marker check recorded planFrozen=false for such a
+     * decompile, every replay rejected the frozen text and fell back to the original
+     * pre-optimization tree, losing exactly the stored join / distribution choice.
+     */
+    @Test
+    public void testLiteralFreeFrozenJoinReplaysImmediately() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT * FROM t1 JOIN t2 ON t1.a = t2.x";
+        // decompiled rendering of a literal-free hinted join: NO placeholder call
+        String frozenPlanSql = "SELECT * FROM (SELECT * FROM t1) t_5 "
+                + "INNER JOIN [BROADCAST] t2 ON (t1.a = t2.x)";
+        BaselinePlan baseline = frozenBaseline(bindSql, frozenPlanSql);
+        baseline.setPlanFrozen(Boolean.TRUE);
+        manager.createBaseline(baseline);
+
+        LogicalPlan userPlan = parse(bindSql);
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan,
+                System.currentTimeMillis() + 5000);
+
+        Assertions.assertNotNull(rewritten,
+                "a marker-free FROZEN text must replay (the provenance is the decompile,"
+                        + " not the placeholder presence)");
+        Assertions.assertTrue(rewritten.treeString().contains("hint=[broadcast]"),
+                "the frozen join distribution choice must survive: " + rewritten.treeString());
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten),
+                "an empty substitution map is fine: no placeholder may remain");
+    }
+
+    /**
+     * R11-8 (refresh / restart): the row is rebuilt from the persisted planFrozen=true +
+     * the SAME marker-free decompiled text, and the rebuilt baseline replays the frozen
+     * structure instead of flipping to the parameterized fallback tree.
+     */
+    @Test
+    public void testLiteralFreeFrozenSurvivesReloadReplay() throws Exception {
+        installConnectContext();
+        String bindSql = "SELECT * FROM t1 JOIN t2 ON t1.a = t2.x";
+        String frozenPlanSql = "SELECT * FROM (SELECT * FROM t1) t_5 "
+                + "INNER JOIN [BROADCAST] t2 ON (t1.a = t2.x)";
+        String digest = parse(bindSql).toSpmDigest();
+        long hash = SPMUtils.hashOf(digest);
+
+        ResultRow row = new ResultRow(List.of(
+                "77", bindSql, digest, String.valueOf(hash), frozenPlanSql, "", "1.0",
+                "-1", "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
+                String.valueOf(SqlModeHelper.MODE_DEFAULT),
+                String.valueOf(SqlModeHelper.MODE_DEFAULT), "true", ""));
+        BaselinePlan rebuilt = BaselineManager.parsePersistedRowForTest(row);
+        Assertions.assertNull(rebuilt.getParameterizedPlanPlan(),
+                "a frozen row is replayed as text - no parameterized plan tree is built");
+        manager.createBaseline(rebuilt);
+
+        SPMPlanner planner = new SPMPlanner();
+        LogicalPlan rewritten = planner.tryRewritePlan(parse(bindSql),
+                System.currentTimeMillis() + 5000);
+        Assertions.assertNotNull(rewritten, "the reloaded marker-free frozen row must replay");
+        Assertions.assertTrue(rewritten.treeString().contains("hint=[broadcast]"),
+                "the frozen join shape must survive the reload: " + rewritten.treeString());
+    }
+
+    /**
+     * R11-8 companion: a STALE plan_frozen=false on a row whose planSql re-parses into
+     * REAL placeholder calls (pre-provenance rows migrated with a default flag / an old
+     * release that recorded false for a successful marker-free decompile) must not kill
+     * the baseline. The parameterized fallback tree is rebuilt from an ALREADY
+     * parameterized text, its reconstructed placeholder ids do not line up with the
+     * values extracted from the bind tree, the residue safety net rejects the rewrite -
+     * the row would silently never apply. The text is the authority here.
+     */
+    @Test
+    public void testStaleNotFrozenFlagOnMarkerTextIsIgnored() throws Exception {
+        installConnectContext();
+        String bindSql = "SELECT * FROM t1 WHERE a > 100";
+        String frozenPlanSql = "SELECT * FROM t1 WHERE (a > CAST(_spm_const_var(1) AS INT))";
+        String digest = parse(bindSql).toSpmDigest();
+        long hash = SPMUtils.hashOf(digest);
+        ResultRow row = new ResultRow(List.of(
+                "88", bindSql, digest, String.valueOf(hash), frozenPlanSql, "", "1.0",
+                "-1", "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
+                String.valueOf(SqlModeHelper.MODE_DEFAULT),
+                String.valueOf(SqlModeHelper.MODE_DEFAULT), "false", ""));
+        BaselinePlan rebuilt = BaselineManager.parsePersistedRowForTest(row);
+        Assertions.assertNull(rebuilt.getParameterizedPlanPlan(),
+                "the stale flag is upgraded: the row is replayed as frozen text");
+        manager.createBaseline(rebuilt);
+
+        LogicalPlan userPlan = parse("SELECT * FROM t1 WHERE a > 42");
+        LogicalPlan rewritten = new SPMPlanner().tryRewritePlan(userPlan,
+                System.currentTimeMillis() + 5000);
+        Assertions.assertNotNull(rewritten,
+                "the stale-flag row must replay through its placeholder text");
+        Assertions.assertTrue(allExprSqls(rewritten).contains("42"),
+                "the user value must be substituted: " + allExprSqls(rewritten));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFrozenPlaceholder(rewritten),
+                "no placeholder may remain after the replay");
     }
 
     /**

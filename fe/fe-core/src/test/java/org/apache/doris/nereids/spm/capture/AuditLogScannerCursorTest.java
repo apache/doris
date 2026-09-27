@@ -32,9 +32,12 @@ import java.util.List;
  * - Dedup is namespace-aware: (catalog, db, digest), because SPM's eventual match key is
  *   namespace-qualified - identical unqualified SQL in two databases is two queries, and
  *   collapsing them would starve the other namespace forever.
- * - Pagination uses a stable (query_time, time, query_id) cursor: the batch LIMIT must
- *   never advance the window past unscanned rows (the old behavior advanced the watermark
- *   to the window end and permanently skipped every row beyond the LIMIT).
+ * - Pagination uses a stable total-order cursor: the row EVENT time first, then
+ *   query_time / query_id plus a durable tie-breaker tail (client_ip, sql_hash, metrics,
+ *   statement hash) so rows sharing (time, query_time, query_id) neither loop nor are
+ *   skipped. The batch LIMIT must never advance the window past unscanned rows (the old
+ *   behavior advanced the watermark to the window end and permanently skipped every row
+ *   beyond the LIMIT).
  */
 public class AuditLogScannerCursorTest {
 
@@ -60,6 +63,33 @@ public class AuditLogScannerCursorTest {
         values.add("false");                     // 9 is_internal
         values.add(time);                        // 10 time
         return new ResultRow(values);
+    }
+
+    /** One raw audit_log row WITH the appended cursor-tail columns (client_ip + md5). */
+    private static ResultRow rowFull(String stmt, String queryTimeRaw, String digest,
+            String db, String catalog, String queryId, String time, String clientIp,
+            String scanRows, String returnRows, String stmtHash) {
+        List<String> values = new ArrayList<>();
+        values.add(stmt);                        // 0 stmt
+        values.add(queryTimeRaw);                // 1 query_time
+        values.add(scanRows);                    // 2 scan_rows
+        values.add(returnRows);                  // 3 return_rows
+        values.add(digest);                      // 4 sql_digest
+        values.add("hash");                      // 5 sql_hash
+        values.add(db);                          // 6 db
+        values.add(catalog);                     // 7 catalog
+        values.add(queryId);                     // 8 query_id
+        values.add("false");                     // 9 is_internal
+        values.add(time);                        // 10 time
+        values.add("");                          // 11 sql_mode
+        values.add(clientIp);                    // 12 client_ip
+        values.add(stmtHash);                    // 13 md5(stmt)
+        return new ResultRow(values);
+    }
+
+    private static AuditLogScanner.CursorTail newTail(String clientIp, String sqlHash,
+            String scanRows, String returnRows, String stmtHash) {
+        return new AuditLogScanner.CursorTail(clientIp, sqlHash, scanRows, returnRows, stmtHash);
     }
 
     @Test
@@ -137,8 +167,11 @@ public class AuditLogScannerCursorTest {
         Assertions.assertTrue(nullTime.contains("`time` IS NULL"), nullTime);
         Assertions.assertTrue(nullTime.contains("`query_id` < 'q'"), nullTime);
         String nullQueryId = AuditLogScanner.cursorPredicate(100, "t", "");
+        // a NULL at the LAST key of a PREFIX-ONLY cursor terminates the chain: every
+        // ordered column agrees with the cursor row, the group is content-duplicate and
+        // re-selecting it (the old behavior) looped forever
         Assertions.assertTrue(nullQueryId.contains("`time` = 't'")
-                && nullQueryId.contains("`query_id` IS NULL"), nullQueryId);
+                && nullQueryId.contains("1 = 0"), nullQueryId);
 
         String predicate = AuditLogScanner.cursorPredicate(
                 123, "2026-01-01 00:00:00", "q'1");
@@ -184,21 +217,26 @@ public class AuditLogScannerCursorTest {
                 batch.getCursorTime(), batch.getCursorQueryId());
         Assertions.assertNotEquals("", predicate,
                 "a NULL query_id must not clear the resume predicate (window restart)");
-        Assertions.assertTrue(predicate.contains("`query_id` IS NULL"), predicate);
+        // PREFIX-ONLY cursor (a pre-column row): the NULL query_id is the last key and
+        // every ordered column agrees with the cursor row - the rest of the group is
+        // content-duplicate, so the chain terminates explicitly instead of looping
+        Assertions.assertTrue(predicate.contains("1 = 0"), predicate);
 
         String resumed = AuditLogScanner.buildScanSql("2026-01-01 00:00:00",
                 "2026-01-01 03:00:00", 500, 1000, 100000, predicate);
-        Assertions.assertTrue(resumed.contains("`query_id` IS NULL"),
-                "the resumed page carries the NULL tie-breaker: " + resumed);
+        Assertions.assertTrue(resumed.contains("1 = 0"),
+                "the resumed page skips the content-duplicate group explicitly: " + resumed);
     }
 
     @Test
     public void testScanSqlCarriesTotalOrderAndCursor() {
         String sql = AuditLogScanner.buildScanSql(
                 "2026-01-01 00:00:00", "2026-01-01 03:00:00", 500, 1000, 100000);
-        Assertions.assertTrue(
-                sql.contains("ORDER BY `query_time` DESC, `time` DESC, `query_id` DESC"),
-                "the cursor walks a stable total order: " + sql);
+        Assertions.assertTrue(sql.contains("ORDER BY `time` DESC, `query_time` DESC,"
+                        + " `query_id` DESC, `client_ip` DESC, `sql_hash` DESC, `scan_rows` DESC,"
+                        + " `return_rows` DESC, md5(`stmt`) DESC"),
+                "the cursor walks a genuinely unique total order (event time first,"
+                        + " statement hash last): " + sql);
         Assertions.assertTrue(sql.contains("LIMIT 500"), sql);
 
         String resumed = AuditLogScanner.buildScanSql("2026-01-01 00:00:00",
@@ -207,7 +245,9 @@ public class AuditLogScannerCursorTest {
         Assertions.assertTrue(resumed.contains("`query_time` < 9"),
                 "the resumed page continues exactly after the cursor: " + resumed);
         Assertions.assertTrue(
-                resumed.contains("ORDER BY `query_time` DESC, `time` DESC, `query_id` DESC"),
+                resumed.contains("ORDER BY `time` DESC, `query_time` DESC,"
+                        + " `query_id` DESC, `client_ip` DESC, `sql_hash` DESC, `scan_rows` DESC,"
+                        + " `return_rows` DESC, md5(`stmt`) DESC"),
                 resumed);
     }
 
@@ -357,5 +397,121 @@ public class AuditLogScannerCursorTest {
                 AuditLogScanner.decodeAuditSqlMode(
                         String.valueOf(SqlModeHelper.MODE_PIPES_AS_CONCAT)),
                 "a numeric mode is accepted too (persisted retry-queue entries)");
+    }
+
+    // ==================== durable cursor tail / late rows / loader lag ====================
+
+    /** A cursor tail must round-trip through its text form (checkpoint persistence). */
+    @Test
+    public void testCursorTailRoundTrip() {
+        String text = AuditLogScanner.encodeCursorTail(
+                newTail("10.0.0.1", "h1", "100", "10", "m1"));
+        AuditLogScanner.CursorTail decoded = AuditLogScanner.decodeCursorTail(text);
+        Assertions.assertNotNull(decoded, text);
+        Assertions.assertEquals("10.0.0.1", decoded.getClientIp());
+        Assertions.assertEquals("h1", decoded.getSqlHash());
+        Assertions.assertEquals("100", decoded.getScanRows());
+        Assertions.assertEquals("10", decoded.getReturnRows());
+        Assertions.assertEquals("m1", decoded.getStmtHash());
+
+        Assertions.assertEquals("", AuditLogScanner.encodeCursorTail(null),
+                "an absent tail encodes as empty text");
+        Assertions.assertEquals("", AuditLogScanner.encodeCursorTail(
+                newTail(null, null, null, null, null)),
+                "an all-NULL tail means 'no tail information' (pre-column row)");
+        Assertions.assertNull(AuditLogScanner.decodeCursorTail(""), "empty text = no tail");
+        Assertions.assertNull(AuditLogScanner.decodeCursorTail("not-json"),
+                "broken text must degrade to a prefix cursor, never throw");
+    }
+
+    /**
+     * Rows that agree on (time, query_time, query_id) must neither loop nor be skipped:
+     * the tail keys continue the comparison INSIDE the group (the old predicate either
+     * re-selected the whole NULL-query-id group forever or skipped the duplicates left
+     * after the first LIMIT).
+     */
+    @Test
+    public void testIdenticalTuplesContinueWithTail() {
+        List<ResultRow> page = List.of(
+                rowFull("select * from t", "100", "d1", "db1", "internal", "q1",
+                        "2026-01-01 00:00:00", "10.0.0.9", "100", "10", "m3"),
+                rowFull("select * from t", "100", "d1", "db1", "internal", "q1",
+                        "2026-01-01 00:00:00", "10.0.0.9", "100", "10", "m2"));
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(page, 2);
+        Assertions.assertFalse(batch.isWindowExhausted(), "a full page is truncated");
+        String tail = batch.getCursorTail();
+        Assertions.assertNotEquals("", tail,
+                "the cursor carries the full tail of the last raw row: " + tail);
+
+        String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId(), tail);
+        // the comparison descends through every ordered key and terminates on the
+        // statement hash - NOT with the old 'query_id < q1' that skipped the duplicates
+        Assertions.assertTrue(predicate.contains("`client_ip` = '10.0.0.9'"), predicate);
+        Assertions.assertTrue(predicate.contains("`sql_hash`"), predicate);
+        Assertions.assertTrue(predicate.contains("`scan_rows`"), predicate);
+        Assertions.assertTrue(predicate.contains("`return_rows`"), predicate);
+        Assertions.assertTrue(predicate.contains("md5(`stmt`)"), predicate);
+        Assertions.assertTrue(predicate.contains("'m2'"), predicate);
+        Assertions.assertFalse(predicate.contains("1 = 0"),
+                "the group's remaining rows stay reachable: " + predicate);
+    }
+
+    /**
+     * Pagination robustness: a UNIQUE row published AFTER page 1 - into the fixed
+     * pending window, carrying an event time OLDER than the cursor - must still be
+     * reached. The scan sorts by the row EVENT time first, so such a row sorts AFTER the
+     * cursor; under the old query_time-first order it sorted BEFORE the cursor and every
+     * resumed page excluded it forever.
+     */
+    @Test
+    public void testLateRowSortsAfterCursor() {
+        List<ResultRow> page = List.of(
+                rowFull("select * from t", "500", "d2", "db1", "internal", "qFirst",
+                        "2026-01-01 00:00:02", "10.0.0.2", "100", "10", "mFirst"));
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(page, 10);
+        String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId(), batch.getCursorTail());
+        // an older-event-time row (e.g. query_time 900, time 00:01) satisfies the FIRST
+        // branch of the chain ...
+        Assertions.assertTrue(predicate.contains("`time` < '2026-01-01 00:00:02'"),
+                "an older-event-time row sorts AFTER the cursor: " + predicate);
+        // ... and the event time leads the chain (the query_time comparison only applies
+        // INSIDE the equal-time group, it can no longer exclude the late row globally)
+        Assertions.assertTrue(predicate.indexOf("`time` <") >= 0
+                && predicate.indexOf("`time` <") < predicate.indexOf("`query_time` <"),
+                "the event time leads the resume chain: " + predicate);
+    }
+
+    /**
+     * The window overlap must follow the audit loader's publication batch interval: a
+     * row becomes visible up to one (worst case two) loader intervals after its event
+     * time, and the fixed five-minute overlap does not cover a loader configured beyond
+     * it (audit_plugin_max_batch_interval_sec is settable).
+     */
+    @Test
+    public void testOverlapFollowsAuditLoaderInterval() {
+        Assertions.assertEquals(300_000L, PlanCaptureManager.scanWindowOverlapMs(30),
+                "the base five-minute overlap dominates a fast loader");
+        Assertions.assertEquals(600_000L, PlanCaptureManager.scanWindowOverlapMs(300),
+                "two five-minute loader intervals are covered");
+        Assertions.assertEquals(300_000L, PlanCaptureManager.scanWindowOverlapMs(0),
+                "a misconfigured (zero) interval falls back to the base overlap");
+    }
+
+    /**
+     * A legacy (prefix-only) cursor whose last key inside the equal-prefix group is NULL
+     * terminates the chain explicitly; WITH a tail the same group continues on the tail
+     * keys instead.
+     */
+    @Test
+    public void testLegacyPrefixCursorVersusTail() {
+        String legacy = AuditLogScanner.cursorPredicate(100, "2026-01-01 00:00:03", "");
+        Assertions.assertTrue(legacy.contains("1 = 0"), legacy);
+        String withTail = AuditLogScanner.cursorPredicate(100, "2026-01-01 00:00:03", "",
+                AuditLogScanner.encodeCursorTail(newTail("10.0.0.1", "h", "1", "1", "m")));
+        Assertions.assertFalse(withTail.contains("1 = 0"),
+                "with a tail the NULL query_id group continues on the tail keys: " + withTail);
+        Assertions.assertTrue(withTail.contains("`query_id` IS NULL AND"), withTail);
     }
 }

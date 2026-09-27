@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -69,11 +70,12 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -1390,7 +1392,13 @@ public final class SPMPlanTreeSupport {
      * equals, so their stable textual form is compared as well.
      */
     private static boolean sameScanIdentity(UnboundRelation bind, UnboundRelation user) {
-        return sameSelectionIgnoreOrder(bind.getPartNames(), user.getPartNames())
+        // formal and TEMPORARY partitions are two namespaces that may carry the SAME
+        // partition names (PARTITION(p1) vs TEMPORARY PARTITION(p1)); after a
+        // formal/temp lifecycle transition the name list alone would match a baseline
+        // frozen against the other namespace and replay the now-wrong data (failing
+        // with fallback disabled). The namespaces must be compared in both directions.
+        return bind.isTempPart() == user.isTempPart()
+                && sameSelectionIgnoreOrder(bind.getPartNames(), user.getPartNames())
                 && sameSelectionIgnoreOrder(bind.getTabletIds(), user.getTabletIds())
                 && Objects.equals(bind.getHints(), user.getHints())
                 && Objects.equals(bind.getIndexName(), user.getIndexName())
@@ -1400,18 +1408,51 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Partition and tablet selections are sets: FROM t PARTITION(p1, p2) / TABLET(1, 2)
-     * read exactly the same data as the opposite order, while the decompiler emits the
-     * selection in id order regardless of how the user ordered it. A multiset comparison
-     * (with a size check, so PARTITION(p1, p1) stays distinct from PARTITION(p1)) keeps
-     * the two spellings matchable without letting a duplicated entry hide a member.
+     * Partition and tablet selections are multisets: FROM t PARTITION(p1, p2) / TABLET(1,
+     * 2) read exactly the same data as the opposite order, while the decompiler emits the
+     * selection in id order regardless of how the user ordered it. A size + HashSet
+     * comparison was too weak: it equated (p1, p1, p2) with (p1, p2, p2) - the default
+     * OLAP_SCAN_PARTITION_PRUNE rewrite deduplicates those ids, but
+     * disable_nereids_rules=OLAP_SCAN_PARTITION_PRUNE is a supported setting that SPM
+     * deliberately preserves, and on that path the duplicate entries reach the scan
+     * ranges and the frozen SQL keeps the captured multiplicity - so a matched count
+     * could double a DIFFERENT partition than the user asked for. Frequency maps compare
+     * the real multiplicities.
      */
     private static boolean sameSelectionIgnoreOrder(List<?> bind, List<?> user) {
         if (bind == null || user == null) {
             return bind == user;
         }
-        return bind.equals(user)
-                || (bind.size() == user.size() && new HashSet<>(bind).equals(new HashSet<>(user)));
+        if (bind.equals(user)) {
+            return true;
+        }
+        if (bind.size() != user.size()) {
+            return false;
+        }
+        Map<Object, Integer> frequencies = new HashMap<>();
+        for (Object entry : bind) {
+            frequencies.merge(entry, 1, Integer::sum);
+        }
+        for (Object entry : user) {
+            Integer remaining = frequencies.get(entry);
+            if (remaining == null || remaining == 0) {
+                return false;
+            }
+            frequencies.put(entry, remaining - 1);
+        }
+        return true;
+    }
+
+    /** For tests: the partition / tablet multiset comparison of the L3 scan identity. */
+    @VisibleForTesting
+    public static boolean sameSelectionIgnoreOrderForTest(List<?> bind, List<?> user) {
+        return sameSelectionIgnoreOrder(bind, user);
+    }
+
+    /** For tests: the L3 scan-identity comparison (incl. the temp-partition namespace). */
+    @VisibleForTesting
+    public static boolean sameScanIdentityForTest(UnboundRelation bind, UnboundRelation user) {
+        return sameScanIdentity(bind, user);
     }
 
     // ==================== view guard ====================
@@ -1729,6 +1770,19 @@ public final class SPMPlanTreeSupport {
             }
             return new LogicalLimit<>(userLimit.getLimit(), userLimit.getOffset(),
                     limit.getPhase(), limit.child());
+        }
+        // LogicalTopN is a SEPARATE node (it does not extend LogicalLimit): a captured
+        // ORDER BY ... LIMIT ... OFFSET ... baseline replays through its TopN node, and
+        // without this branch the user's values never replaced the captured ones (a
+        // matched query with a LARGER limit stayed capped at the capture-time limit).
+        if (current instanceof LogicalTopN && user instanceof LogicalTopN) {
+            LogicalTopN<?> topN = (LogicalTopN<?>) current;
+            LogicalTopN<?> userTopN = (LogicalTopN<?>) user;
+            if (topN.getLimit() == userTopN.getLimit()
+                    && topN.getOffset() == userTopN.getOffset()) {
+                return current;
+            }
+            return topN.withLimitChild(userTopN.getLimit(), userTopN.getOffset(), topN.child());
         }
         return current;
     }

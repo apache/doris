@@ -92,6 +92,17 @@ public class SQLRelation {
     /** Subquery alias (t_N). null means inline (no subquery nesting). */
     private String relationName = null;
 
+    /**
+     * Whether the FROM fragment ALREADY carries the relation alias in itself (a derived
+     * table like "(a UNION ALL b) t_3"). A set-operation relation is such a derived
+     * table: its FROM fragment is the parenthesized set expression itself, so the alias
+     * must sit INSIDE the FROM text (a derived table without an alias is a parse error)
+     * and {@link #toRelationSQL()} must return that fragment as-is instead of wrapping
+     * the whole query block again. {@link #newAlias()} still records the alias for column
+     * qualification.
+     */
+    private boolean fromCarriesAlias = false;
+
     /** All column names of the table (to avoid JOIN column-name conflicts; reserved in Phase 1). */
     private List<String> reserveNames = null;
 
@@ -170,11 +181,21 @@ public class SQLRelation {
     }
 
     /**
+     * Marks the FROM fragment as an ALREADY-ALIASED derived table: the alias allocated by
+     * {@link #newAlias()} lives inside the FROM text (see {@link #fromCarriesAlias}).
+     */
+    public void markFromCarriesAlias() {
+        fromCarriesAlias = true;
+    }
+
+    /**
      * Returns the SQL fragment that a parent operator can reference; this is where
      * subquery nesting is generated. Two branches (design doc 6.2.1):
      *
      * - relationName == null: inline, return from directly (e.g. "t1")
-     * - otherwise: wrap as the (SELECT ...) t_N subquery
+     * - otherwise: wrap as the (SELECT ...) t_N subquery - UNLESS the FROM fragment is
+     *   already an aliased derived table (a set-operation expression), which is its own
+     *   relation fragment and must not be nested one more level
      *
      * @return the fragment that can be embedded into a parent FROM clause
      */
@@ -188,6 +209,9 @@ public class SQLRelation {
                 newAlias();
                 return "(" + toSQL() + ") " + relationName;
             }
+            return from;
+        }
+        if (fromCarriesAlias) {
             return from;
         }
         return "(" + toSQL() + ") " + relationName;

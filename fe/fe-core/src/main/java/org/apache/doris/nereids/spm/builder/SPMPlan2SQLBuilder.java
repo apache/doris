@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -2585,14 +2586,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Whether {@code outer} is the merge stage of the same distributed TopN as
      * {@code inner} (the local stage), so that its ORDER BY / LIMIT may be written onto
-     * the same relation. Both stages must carry IDENTICAL sort keys (checked on the
-     * rendered text, since the merge stage sorts by the local stage's output slots) and
-     * the outer stage must not ask for a smaller slice than the local stage kept
-     * (outer limit &gt;= inner limit on the 100 / 101 pair mergeLimits produces). Any
-     * other adjacent TopN pair - in particular two SEMANTIC TopNs whose identity project
-     * was eliminated, e.g. "SELECT * FROM (SELECT k FROM t ORDER BY k ASC LIMIT 2) s
-     * ORDER BY k DESC LIMIT 1" - must keep the inner stage wrapped: overwriting ASC/2
-     * with DESC/1 would return the 3rd row instead of the top-2 slice.
+     * the same relation. Nereids builds MERGE(limit=L, offset=O) -&gt; [Distribute] -&gt;
+     * LOCAL(limit=L+O, offset=0), so the local stage must have kept EXACTLY L+O rows:
+     * the old {@code inner.limit &lt;= outer.limit} test was false for every positive
+     * offset (the pair was then serialized as a semantic inner LIMIT L+O and outer
+     * LIMIT L OFFSET O, and a later replay - SPM matching ignores the top-level values -
+     * stayed capped at L+O inputs), and it was true for unrelated SEMANTIC pairs
+     * (inner LIMIT 2, outer LIMIT 5), whose fold would return 5 rows instead of 2. Only
+     * the exact identity holds. Both stages must also carry IDENTICAL sort keys (checked
+     * on the rendered text, since the merge stage sorts by the local stage's output
+     * slots).
      */
     private static boolean isSameTopNContinuation(PhysicalTopN<?> outer, PhysicalTopN<?> inner,
             SQLRelation child, String outerOrderBySql) {
@@ -2600,7 +2603,33 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 && (outer.getSortPhase().isMerge() || outer.getSortPhase().isGather())
                 && inner.getOffset() == 0
                 && outerOrderBySql.equals(child.getOrderBy())
-                && inner.getLimit() <= outer.getLimit();
+                && isExactTopNContinuationLimit(outer.getLimit(), outer.getOffset(),
+                        inner.getLimit());
+    }
+
+    /**
+     * Overflow-safe identity of a distributed TopN continuation:
+     * {@code inner.limit == outer.limit + outer.offset}. The sum must not be computed
+     * when it would overflow - an unlimited stage carries Long.MAX_VALUE, and any
+     * addition to it wraps negative and could match a garbage local limit.
+     *
+     * @param outerLimit  the merge stage's limit
+     * @param outerOffset the merge stage's offset
+     * @param innerLimit  the local stage's limit
+     * @return whether the local stage kept exactly the outer stage's demanded slice
+     */
+    @VisibleForTesting
+    public static boolean isExactTopNContinuationLimit(long outerLimit, long outerOffset, long innerLimit) {
+        if (outerLimit == Long.MAX_VALUE) {
+            // an unlimited merge stage keeps the local stage unlimited as well; a positive
+            // OFFSET would demand MAX_VALUE+offset rows locally, which cannot be
+            // represented - do not fold (conservative)
+            return outerOffset == 0 && innerLimit == Long.MAX_VALUE;
+        }
+        if (outerOffset > Long.MAX_VALUE - outerLimit) {
+            return false;
+        }
+        return innerLimit == outerLimit + outerOffset;
     }
 
     /** Walks through execution-only exchange / distribute pass-through nodes so a
@@ -2734,9 +2763,70 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 emitted.add(projectExpr.getExprId());
             }
         }
+        dedupeSelectOutputNames(selects, relation);
         relation.setSelects(selects);
         relation.newAlias();
         return relation;
+    }
+
+    /**
+     * Two SELECT items can claim the SAME output name: a pass-through column kept for a
+     * still-referenced intermediate slot next to a projection alias that derives from it
+     * (e.g. the intermediate "profit" column and the branch's final
+     * "(profit - profit_loss) AS profit"). The derived table would then export two
+     * "profit" columns and EVERY upper reference ("sum(profit)") resolves ambiguously
+     * at replay - the frozen plan fails analysis. The explicit alias belongs to the
+     * FINAL output (upper layers resolve against it), so the pass-through item is
+     * renamed to its unique c_ reference and re-registered here; upper references use
+     * the registered name and stay consistent.
+     *
+     * @param selects  the projection list of the relation (mutated in place)
+     * @param relation the relation being built (its column registry is updated)
+     */
+    private static void dedupeSelectOutputNames(List<Pair<ExprId, String>> selects,
+            SQLRelation relation) {
+        Set<String> usedNames = new HashSet<>();
+        for (Pair<ExprId, String> select : selects) {
+            usedNames.add(selectOutputName(select.value()));
+        }
+        Map<String, Integer> firstOwner = new HashMap<>();
+        for (int i = 0; i < selects.size(); i++) {
+            Pair<ExprId, String> select = selects.get(i);
+            String name = selectOutputName(select.value());
+            Integer previous = firstOwner.putIfAbsent(name, i);
+            if (previous == null) {
+                continue;
+            }
+            // keep the LATER item (the explicit projection alias upper layers resolve
+            // against) under the shared name; re-alias the EARLIER pass-through reference
+            // to a fresh unique output name. The pass-through value stays the child-side
+            // reference, only its EXPORTED name changes, so the upper references of that
+            // intermediate slot (its registered name is updated here) stay resolvable.
+            Pair<ExprId, String> first = selects.get(previous);
+            if (!isPlainReference(first.value())) {
+                continue;
+            }
+            String unique = "c_" + first.key();
+            while (usedNames.contains(unique)) {
+                unique = unique + "_";
+            }
+            usedNames.add(unique);
+            selects.set(previous, Pair.of(first.key(), first.value() + " AS " + unique));
+            relation.registerRef(first.key(), unique);
+        }
+    }
+
+    /** The output name of one SELECT item: its alias, or the item itself. */
+    private static String selectOutputName(String item) {
+        int asIdx = item.toLowerCase().lastIndexOf(" as ");
+        String name = asIdx >= 0 ? item.substring(asIdx + 4).trim() : item;
+        return name.replace("`", "");
+    }
+
+    /** Whether a SELECT item is a plain column reference (no expression / qualifier). */
+    private static boolean isPlainReference(String item) {
+        return !item.contains("(") && !item.contains(" ") && !item.contains(".")
+                && !item.contains("'");
     }
 
     /**
@@ -2919,6 +3009,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private SQLRelation visitPhysicalSet(PhysicalSetOperation set, String op, Void context) {
         List<List<SlotReference>> childrenOutputs = set.getRegularChildrenOutputs();
         List<? extends Slot> outputs = set.getOutput();
+        // Output names that appear MORE THAN ONCE on the set: the analyzer's default
+        // expression-derived names make a rollup union over per-branch aggregates carry
+        // several columns LITERALLY named "sum". A bare name is AMBIGUOUS in every
+        // downstream reference (sum(sum) over the set hits all of them - the analyzer
+        // rejects the replayed plan with "sum is ambiguous"), while the originating SQL
+        // could never reference such a column by name either. Such outputs are aliased
+        // to their positional reference (c_<output id>) instead; every branch exposes
+        // that reference locally, so no further renaming is needed.
+        Map<String, Integer> outputNameCounts = new HashMap<>();
+        for (int j = 0; j < outputs.size(); j++) {
+            outputNameCounts.merge(outputs.get(j).getName(), 1, Integer::sum);
+        }
+        List<String> registeredOutputNames = new ArrayList<>();
+        for (int j = 0; j < outputs.size(); j++) {
+            Slot output = outputs.get(j);
+            registeredOutputNames.add(outputNameCounts.getOrDefault(output.getName(), 0) > 1
+                    ? quoteIdentifier("c_" + output.getExprId())
+                    : quoteIdentifier(output.getName()));
+        }
         List<String> branchSqls = Lists.newArrayList();
         for (int i = 0; i < set.children().size(); i++) {
             SQLRelation childRelation = process(set.children().get(i));
@@ -2928,20 +3037,37 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // stands would emit whatever columns that branch happened to produce (e.g. all 36
             // sales columns), so the names the outer SQL references after the set node would
             // never exist in the frozen planSql.
+            // NO newAlias() on the branch: its SQL is placed directly on either side of
+            // UNION / EXCEPT / INTERSECT, where DorisParser accepts a parenthesized query
+            // term but NO trailing alias - "(SELECT ...) t_3" is not a legal set operand
+            // (aliases are legal only in relation position, i.e. under FROM). Creation
+            // never re-parses the decompiled text, so the invalid fragment was invisible
+            // in-memory; a later refresh / restart could not rebuild the persisted frozen
+            // baseline at all. The alias is allocated further below, on the COMPLETED set
+            // relation, where parent nodes reference it.
             SQLRelation branch = new SQLRelation();
             branch.setFrom(childRelation.toRelationSQL());
-            branch.newAlias();
             List<Pair<ExprId, String>> selects = new ArrayList<>();
             for (int j = 0; j < childOutputs.size(); j++) {
                 SlotReference slot = childOutputs.get(j);
                 String columnRef = exprSqlBuilder.print(slot, childRelation);
                 String outputName = j < outputs.size() ? outputs.get(j).getName() : slot.getName();
-                String item = columnRef.equals(outputName)
-                        ? columnRef : columnRef + " AS " + quoteIdentifier(outputName);
+                String item;
+                if (j < outputs.size()
+                        && outputNameCounts.getOrDefault(outputName, 0) > 1) {
+                    // duplicated output name: alias the branch to the UNIQUE positional
+                    // reference registered for the set (see above)
+                    item = columnRef + " AS " + registeredOutputNames.get(j);
+                } else {
+                    item = columnRef.equals(outputName)
+                            ? columnRef : columnRef + " AS " + quoteIdentifier(outputName);
+                }
                 selects.add(Pair.of(slot.getExprId(), item));
             }
             branch.setSelects(selects);
-            branchSqls.add(branch.toRelationSQL());
+            // parenthesized query term: a set operand carrying its own ORDER BY / LIMIT
+            // must be grouped so the clause binds to the operand, not to the set chain
+            branchSqls.add("(" + branch.toSQL() + ")");
         }
         // PhysicalUnion may carry constant one-row branches that rule
         // MergeOneRowRelationIntoUnion MOVED out of children() into constantExprsList.
@@ -2973,12 +3099,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             }
         }
         SQLRelation setRelation = new SQLRelation();
-        setRelation.setFrom("(" + String.join(" " + op + " ", branchSqls) + ")");
-        setRelation.newAlias();
+        // A set operation is a DERIVED TABLE: the alias must sit inside the FROM fragment
+        // itself - "SELECT * FROM ((a) UNION (b))" is a parse error (every derived table
+        // needs its own alias), while rendering the alias through the generic subquery
+        // wrapper would nest the whole set block one level deeper. The alias is
+        // registered for column qualification either way.
+        String setAlias = setRelation.newAlias();
+        setRelation.setFrom("(" + String.join(" " + op + " ", branchSqls) + ") " + setAlias);
+        setRelation.markFromCarriesAlias();
         // register the set outputs so upper nodes reference the produced column names
         for (int j = 0; j < outputs.size(); j++) {
-            setRelation.registerRef(outputs.get(j).getExprId(),
-                    quoteIdentifier(outputs.get(j).getName()));
+            setRelation.registerRef(outputs.get(j).getExprId(), registeredOutputNames.get(j));
         }
         return setRelation;
     }
