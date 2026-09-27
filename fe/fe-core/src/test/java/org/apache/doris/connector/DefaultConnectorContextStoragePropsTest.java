@@ -22,9 +22,9 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.FileSystemPluginManager;
-import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -46,7 +46,7 @@ import java.util.function.Supplier;
 public class DefaultConnectorContextStoragePropsTest {
 
     private static final Supplier<ExecutionAuthenticator> NOOP_AUTH =
-            () -> new ExecutionAuthenticator() {};
+            () -> ExecutionAuthenticator.DIRECT;
 
     @AfterEach
     public void resetFactory() {

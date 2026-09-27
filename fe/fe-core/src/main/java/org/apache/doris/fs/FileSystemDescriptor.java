@@ -80,7 +80,13 @@ public class FileSystemDescriptor {
      * by BE to initialize its storage client for snapshot/upload/download tasks.
      */
     public Map<String, String> getBackendConfigProperties() {
-        return StorageAdapter.of(properties).getBackendConfigProperties();
+        // A BROKER descriptor carries the raw WITH BROKER properties, which routing does not claim
+        // (ofBroker documents that it bypasses routing): bind it the way it was bound, or the first
+        // BACKUP on a broker repository throws here out of the job loop.
+        StorageAdapter adapter = storageType == FsStorageType.BROKER
+                ? StorageAdapter.ofBroker(name, properties)
+                : StorageAdapter.of(properties);
+        return adapter.getBackendConfigProperties();
     }
 
     /**

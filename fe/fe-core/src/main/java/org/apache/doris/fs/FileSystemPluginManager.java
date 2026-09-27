@@ -41,8 +41,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -116,8 +118,10 @@ public class FileSystemPluginManager {
                         // Snapshot all self-reported metadata (sensitive keys included)
                         // before mutating any store, so one throwing implementation is
                         // rejected cleanly instead of aborting startup or leaving an
-                        // inventory row for a provider that never became active.
-                        Set<String> sensitiveKeys = p.sensitivePropertyKeys();
+                        // inventory row for a provider that never became active. The
+                        // snapshot walks the provider's set here, so a lazy set that fails
+                        // when walked fails before anything is published.
+                        Set<String> sensitiveKeys = snapshotSensitiveKeys(p);
                         PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
                         DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
                         providers.add(p);
@@ -143,13 +147,25 @@ public class FileSystemPluginManager {
                 classLoadingPolicy,
                 API_VERSION_GATE);
 
-        LOG.info("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
-                        + "successCount={}, failureCount={}",
-                report.getRootsScanned(), report.getDirsScanned(),
-                report.getSuccesses().size(), report.getFailures().size());
+        if (report.getFailures().isEmpty()) {
+            LOG.info("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount=0",
+                    report.getRootsScanned(), report.getDirsScanned(), report.getSuccesses().size());
+        } else {
+            // A shipped plugin that failed to load is an FE serving degraded: every repository, vault
+            // and catalog on that storage is unusable until the plugin directory is repaired, so the
+            // summary is an ERROR.
+            LOG.error("Filesystem plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount={}; the FE continues without the plugins"
+                            + " that failed, each is reported below with its cause",
+                    report.getRootsScanned(), report.getDirsScanned(),
+                    report.getSuccesses().size(), report.getFailures().size());
+        }
 
         for (LoadFailure failure : report.getFailures()) {
-            LOG.warn("Filesystem plugin load failure: dir={}, stage={}, message={}, cause={}",
+            // Three placeholders, four arguments: the trailing throwable is logged with its stack
+            // trace, which a "cause={}" placeholder would reduce to toString().
+            LOG.warn("Filesystem plugin load failure: dir={}, stage={}, message={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(),
                     failure.getCause());
         }
@@ -169,8 +185,8 @@ public class FileSystemPluginManager {
             // without its inventory row (or vice versa).
             Set<String> sensitiveKeys;
             try {
-                sensitiveKeys = provider.sensitivePropertyKeys();
-            } catch (RuntimeException | LinkageError e) {
+                sensitiveKeys = snapshotSensitiveKeys(provider);
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 runtimeManager.discard(handle.getPluginName());
                 LOG.warn("Skip filesystem plugin '{}' from {}: sensitivePropertyKeys() failed",
                         handle.getPluginName(), handle.getPluginDir(), e);
@@ -211,8 +227,31 @@ public class FileSystemPluginManager {
 
     /** Registers a provider at highest priority. For testing overrides. */
     public void registerProvider(FileSystemProvider provider) {
+        Set<String> sensitiveKeys = snapshotSensitiveKeys(provider);
         providers.add(0, provider);
-        DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
+        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
+    }
+
+    /**
+     * A host-owned copy of the provider's sensitive aliases, walked and checked here - inside the
+     * caller's guard and before anything is published - because the set is the plugin's: a lazy one
+     * may link a missing class only when iterated, and a null element would fail the masking set's
+     * case-insensitive comparator later, with the provider already routable.
+     */
+    private static Set<String> snapshotSensitiveKeys(FileSystemProvider provider) {
+        Set<String> answered = provider.sensitivePropertyKeys();
+        if (answered == null) {
+            return Collections.emptySet();
+        }
+        Set<String> copy = new HashSet<>();
+        for (String key : answered) {
+            if (key == null) {
+                throw new IllegalArgumentException("sensitivePropertyKeys() of provider '" + provider.name()
+                        + "' contains a null alias");
+            }
+            copy.add(key);
+        }
+        return copy;
     }
 
     /** Returns an unmodifiable view of the loaded providers, in registration order. */

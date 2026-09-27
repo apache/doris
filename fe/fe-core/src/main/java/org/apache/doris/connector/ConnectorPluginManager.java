@@ -98,9 +98,22 @@ public class ConnectorPluginManager {
     //
     // Parent-first is a delegation ORDER, not an exclusive claim: ChildFirstClassLoader falls back
     // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi)
-    // and org.apache.hadoop.hive.* still come from the plugin -- FE carries hive-exec:core, the
-    // plugins carry hive-metastore, and the class names do not intersect. Everything else the
-    // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
+    // still comes from the plugin.
+    //
+    // org.apache.hadoop.hive.* reads like the same case and is the opposite one. For paimon, hive
+    // and iceberg the class names genuinely do not intersect -- FE carries hive-exec:core, they
+    // carry hive-metastore -- but that empty intersection is because they bundle no hive-exec class
+    // at all, so every org.apache.hadoop.hive.ql.* reference they make resolves to the FE's copy,
+    // here or on the fallback path. hudi does bundle one subset, hive-exec's ql/io/parquet/**
+    // unpacked into its own jar (see fe-connector-hudi/pom.xml), which this prefix shadows with
+    // the kernel's copy today; and that subset itself reaches a further 33 classes only the kernel
+    // has. Measured over the built plugin zips: paimon 15 such classes, hudi 46, hive and iceberg
+    // 3 each; the breakdown is on the hive-exec dependency in fe-core/pom.xml. fe/lib's
+    // hive-exec:core is therefore part of the plugin contract, not only of the CREATE FUNCTION
+    // one, and narrowing it to the UDF base classes needs those plugins made self-sufficient first.
+    //
+    // Everything else the plugins bundle under this namespace does change provider:
+    // hadoop-common/auth/annotations/
     // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
     // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
     // version on both sides, and both versions are pinned in fe/pom.xml -- hadoop.version is
@@ -114,12 +127,18 @@ public class ConnectorPluginManager {
     // -wins registry -- cannot be frozen by whichever plugin's context loader happens to touch it
     // first.
     //
-    // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
-    // bringing its own. At that point the fallback above takes over on its own, and the plugin
-    // becomes responsible for shipping a patched FileSystem the same way the kernel does today -
-    // which is what the BE plugins already do, since their loader has no hadoop to delegate to:
-    // each declares hadoop-deps, and that jar's Doris-Shadows-Classes manifest entry puts it ahead
-    // of hadoop-common in the plugin directory (see be-java-extensions/jni-bootstrap PluginRuntime).
+    // NOTE: the intended end state is an FE kernel with no hadoop classes at all. The BE plugins
+    // got there by each bundling its own hadoop -- their loader has no hadoop to delegate to --
+    // with the patched FileSystem placed ahead of hadoop-common by the Doris-Shadows-Classes
+    // manifest entry of hadoop-deps (see be-java-extensions/jni-bootstrap PluginRuntime). The FE
+    // cannot copy that: the fs.cache.key patch above only means anything while every catalog
+    // shares ONE FileSystem.CACHE, and UserGroupInformation's login is process state, so hadoop
+    // has to be one copy for all plugins. It becomes a shared library bundle instead,
+    // plugins/shared/hadoop (fe-hadoop-runtime, unpacked by build.sh), which SharedLibraryLayer
+    // turns into the parent of every plugin classloader, with hadoop-deps.jar at the bundle root
+    // so the patched FileSystem precedes hadoop-common's there too. Once the kernel carries no
+    // hadoop this prefix goes: a plugin then resolves org.apache.hadoop.* child-first and, for
+    // whatever it does not bundle, falls back to that layer rather than to fe/lib.
     //
     // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
     static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
@@ -220,8 +239,26 @@ public class ConnectorPluginManager {
      * @return true if the provider was admitted
      */
     boolean registerDiscovered(ConnectorProvider provider, boolean failFast) {
-        String type = provider.getType();
-        Set<String> engineNames = provider.acceptedCreateTableEngineNames();
+        String type;
+        Set<String> engineNames;
+        try {
+            type = provider.getType();
+            // A host-owned copy: the plugin's set is traversed here, under the guard, not later while
+            // the problem checks and the claims walk it (a lazy set may link a missing class then).
+            Set<String> answered = provider.acceptedCreateTableEngineNames();
+            engineNames = answered == null ? null : new HashSet<>(answered);
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
+            // The first calls into plugin code after loading: a getType() that touches a class the
+            // plugin neither bundles nor inherits arrives here as a LinkageError the loader never saw.
+            // For a directory plugin that is one plugin's problem, not the FE's - same guard as
+            // FileSystemPluginManager's sensitivePropertyKeys() call. Built-ins keep failing loudly.
+            if (failFast) {
+                throw e;
+            }
+            LOG.error("Rejected connector provider {}: getType()/acceptedCreateTableEngineNames() failed."
+                    + " The connector will not be available.", provider.getClass().getName(), e);
+            return false;
+        }
         String problem = typeNameProblem(type);
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
@@ -262,6 +299,11 @@ public class ConnectorPluginManager {
      * matter — mirroring how a duplicate catalog type is handled.
      */
     private String createTableEngineNameProblem(Set<String> engineNames) {
+        if (engineNames == null) {
+            // The SPI promises "empty if none"; a null answer is the one shape the loop below cannot
+            // take, and for a directory plugin it is that plugin's problem, not the FE's.
+            return "acceptedCreateTableEngineNames() returned null";
+        }
         for (String engineName : engineNames) {
             if (engineName == null || engineName.trim().isEmpty()) {
                 return "acceptedCreateTableEngineNames() returned a blank engine name";
@@ -293,13 +335,24 @@ public class ConnectorPluginManager {
                 classLoadingPolicy,
                 API_VERSION_GATE);
 
-        LOG.info("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
-                        + "successCount={}, failureCount={}",
-                report.getRootsScanned(), report.getDirsScanned(),
-                report.getSuccesses().size(), report.getFailures().size());
+        if (report.getFailures().isEmpty()) {
+            LOG.info("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount=0",
+                    report.getRootsScanned(), report.getDirsScanned(), report.getSuccesses().size());
+        } else {
+            // A shipped plugin that failed to load is an FE serving degraded: every catalog of that
+            // type is unusable until the plugin directory is repaired, so the summary is an ERROR.
+            LOG.error("Connector plugin load summary: rootsScanned={}, dirsScanned={}, "
+                            + "successCount={}, failureCount={}; the FE continues without the plugins"
+                            + " that failed, each is reported below with its cause",
+                    report.getRootsScanned(), report.getDirsScanned(),
+                    report.getSuccesses().size(), report.getFailures().size());
+        }
 
         for (LoadFailure failure : report.getFailures()) {
-            LOG.warn("Connector plugin load failure: dir={}, stage={}, message={}, cause={}",
+            // Three placeholders, four arguments: the trailing throwable is logged with its stack
+            // trace, which a "cause={}" placeholder would reduce to toString().
+            LOG.warn("Connector plugin load failure: dir={}, stage={}, message={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(),
                     failure.getCause());
         }

@@ -18,6 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.extension.spi.Plugin;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.fs.FileSystemPluginManager;
+import org.apache.doris.fs.TestFileSystemPluginManagers;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -28,6 +35,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 
 public class StorageDescPersistTest {
 
@@ -73,6 +81,127 @@ public class StorageDescPersistTest {
         Assertions.assertEquals("S3", restoredBrokerDesc.getStorageAdapter().getStorageName());
         Assertions.assertEquals("test-bucket",
                 restoredBrokerDesc.getStorageAdapter().getOrigProps().get("s3.bucket"));
+    }
+
+    /**
+     * Deserialisation runs for every persisted load and export job at image load and journal replay.
+     * With the job's filesystem provider absent - the plugin failed to load - it must not throw:
+     * the FE would fail to load its image, or a serving follower would be killed by the next such
+     * journal. The binding is left for the first use, where it fails with a Status, and succeeds
+     * once the provider is back.
+     */
+    @Test
+    public void testBrokerLoadJobRoundTripSurvivesAnAbsentProvider() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "ak");
+        properties.put("s3.secret_key", "sk");
+        properties.put("s3.bucket", "test-bucket");
+        BrokerDesc brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, properties);
+        BrokerLoadJob job = new BrokerLoadJob();
+        setField(BrokerLoadJob.class.getSuperclass(), job, "brokerDesc", brokerDesc);
+        String json = GsonUtils.GSON.toJson(job);
+
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("S3"));
+        try {
+            BrokerLoadJob restored = Assertions.assertDoesNotThrow(
+                    () -> GsonUtils.GSON.fromJson(json, BrokerLoadJob.class));
+            BrokerDesc restoredDesc = (BrokerDesc) getField(BrokerLoadJob.class.getSuperclass(), restored, "brokerDesc");
+            Assertions.assertNull(getField(StorageDesc.class, restoredDesc, "storageAdapter"),
+                    "nothing binds at load while the provider is absent");
+            Assertions.assertEquals("test-bucket", restoredDesc.getProperties().get("s3.bucket"));
+            // The first use binds, and reports the absent provider instead of a broker.
+            StoragePropertiesException atUse =
+                    Assertions.assertThrows(StoragePropertiesException.class, restoredDesc::getStorageAdapter);
+            Assertions.assertTrue(atUse.getMessage().contains("Loaded filesystem providers"), atUse.getMessage());
+
+            StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders());
+            Assertions.assertEquals("S3", restoredDesc.getStorageAdapter().getStorageName(),
+                    "with the provider back, the same descriptor binds");
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
+     * Post-admission: a loaded provider's probe or bind may itself run a nested ServiceLoader lookup and
+     * fail with ServiceConfigurationError, which is an Error but no LinkageError. At replay that has to
+     * be contained like the absent-provider case, or the journal kills the follower.
+     */
+    @Test
+    public void testBrokerLoadJobRoundTripSurvivesAProviderThrowingServiceConfigurationError() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "ak");
+        properties.put("s3.secret_key", "sk");
+        BrokerDesc brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, properties);
+        BrokerLoadJob job = new BrokerLoadJob();
+        setField(BrokerLoadJob.class.getSuperclass(), job, "brokerDesc", brokerDesc);
+        String json = GsonUtils.GSON.toJson(job);
+
+        // Registered under the name the registry consults first, so it is the first one bindPrimary probes.
+        FileSystemPluginManager manager = TestFileSystemPluginManagers.withoutProviders();
+        manager.registerProvider(new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public String name() {
+                return "JFS";
+            }
+
+            @Override
+            public String description() {
+                return "a provider whose probe runs a malformed nested service lookup";
+            }
+
+            @Override
+            public boolean supports(Map<String, String> props) {
+                throw new ServiceConfigurationError("org.example.Driver: Provider org.example.Missing not found");
+            }
+
+            @Override
+            public boolean supportsExplicit(Map<String, String> props) {
+                throw new ServiceConfigurationError("org.example.Driver: Provider org.example.Missing not found");
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> props) {
+                throw new ServiceConfigurationError("org.example.Driver: Provider org.example.Missing not found");
+            }
+
+            @Override
+            public Plugin create() {
+                return new Plugin() {
+                };
+            }
+        });
+        StorageAdapter.initPluginManager(manager);
+        try {
+            BrokerLoadJob restored = Assertions.assertDoesNotThrow(
+                    () -> GsonUtils.GSON.fromJson(json, BrokerLoadJob.class));
+            BrokerDesc restoredDesc = (BrokerDesc) getField(BrokerLoadJob.class.getSuperclass(), restored, "brokerDesc");
+            Assertions.assertNull(getField(StorageDesc.class, restoredDesc, "storageAdapter"));
+            Assertions.assertThrows(ServiceConfigurationError.class, restoredDesc::getStorageAdapter,
+                    "the first use reports the provider's own failure");
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    @Test
+    public void testBrokerDescRoundTripSurvivesAnAbsentBrokerProvider() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("broker.username", "user");
+        String json = GsonUtils.GSON.toJson(new BrokerDesc("test_broker", properties));
+
+        StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders("Broker"));
+        try {
+            BrokerDesc restored = Assertions.assertDoesNotThrow(() -> GsonUtils.GSON.fromJson(json, BrokerDesc.class));
+            Assertions.assertNull(getField(StorageDesc.class, restored, "storageAdapter"));
+            Assertions.assertThrows(StoragePropertiesException.class, restored::getStorageAdapter);
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
     }
 
     private static void setField(Class<?> clazz, Object target, String fieldName, Object value)

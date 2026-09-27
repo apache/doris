@@ -336,6 +336,83 @@ public class ConnectorPluginManagerTest {
         Assertions.assertEquals(Collections.singletonList("good_type"), manager.getRegisteredTypes());
     }
 
+    @Test
+    void testADirectoryProviderWhoseFirstCallFailsToLinkIsRefusedNotThrown() {
+        // getType() is the first call into plugin code after loading. A dependency the plugin neither
+        // bundles nor inherits surfaces there as NoClassDefFoundError, which must cost that plugin
+        // alone: the FE is not stopped by one directory plugin.
+        ConnectorProvider unlinkable = new ConnectorProvider() {
+            @Override
+            public String getType() {
+                throw new NoClassDefFoundError("org/example/AbsentDependency");
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return null;
+            }
+        };
+        Assertions.assertFalse(Assertions.assertDoesNotThrow(() -> manager.registerDiscovered(unlinkable, false)),
+                "a provider that cannot answer getType() must be refused");
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(), "nothing may have been registered");
+
+        // Built-ins keep failing loudly: a classpath provider that cannot link is a broken FE build.
+        Assertions.assertThrows(NoClassDefFoundError.class, () -> manager.registerDiscovered(unlinkable, true));
+
+        // The null answer is the other way a first call can go wrong, one statement later.
+        ConnectorProvider nullEngines = new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "null_engines";
+            }
+
+            @Override
+            public Set<String> acceptedCreateTableEngineNames() {
+                return null;
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return null;
+            }
+        };
+        Assertions.assertFalse(Assertions.assertDoesNotThrow(() -> manager.registerDiscovered(nullEngines, false)),
+                "a provider answering null engine names must be refused, not thrown");
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(), "nothing may have been registered");
+
+        // The set is the plugin's: a lazy one may link a missing class only when it is first walked,
+        // which has to happen inside the guard rather than in the checks and claims that follow.
+        ConnectorProvider lazyEngines = new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "lazy_engines";
+            }
+
+            @Override
+            public Set<String> acceptedCreateTableEngineNames() {
+                return new java.util.AbstractSet<String>() {
+                    @Override
+                    public java.util.Iterator<String> iterator() {
+                        throw new NoClassDefFoundError("org/example/OptionalEngineCatalog");
+                    }
+
+                    @Override
+                    public int size() {
+                        return 1;
+                    }
+                };
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return null;
+            }
+        };
+        Assertions.assertFalse(Assertions.assertDoesNotThrow(() -> manager.registerDiscovered(lazyEngines, false)),
+                "a set that fails when walked must be refused, not thrown");
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(), "no type name may be left claimed");
+    }
+
     private static ConnectorProvider createProviderWithEngines(String type, String... engineNames) {
         Set<String> engines = new HashSet<>(Arrays.asList(engineNames));
         return new ConnectorProvider() {

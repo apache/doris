@@ -20,8 +20,8 @@ package org.apache.doris.connector;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.foundation.security.ExecutionAuthenticator;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
-import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,7 +38,7 @@ import java.util.function.Supplier;
  */
 public class DefaultConnectorContextFileSystemTest {
 
-    private static final Supplier<ExecutionAuthenticator> NOOP_AUTH = () -> new ExecutionAuthenticator() {};
+    private static final Supplier<ExecutionAuthenticator> NOOP_AUTH = () -> ExecutionAuthenticator.DIRECT;
 
     /** Records close() so the test can assert the engine forwards teardown to the cached filesystem. */
     private static final class RecordingFileSystem extends SpiSwitchingFileSystem {

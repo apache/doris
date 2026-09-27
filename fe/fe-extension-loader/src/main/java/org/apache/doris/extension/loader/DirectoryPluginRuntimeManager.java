@@ -31,9 +31,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Enumeration;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarFile;
@@ -103,6 +106,18 @@ import java.util.stream.Stream;
  * interleaving and producing inconsistent outcomes.
  */
 public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
+
+    /**
+     * How the JVM reports a class whose initializer has already failed, on every attempt after the
+     * first. The class was found - it is the initializer that is broken - so this is not a missing
+     * dependency, and the name it carries is not where the message starts.
+     */
+    private static final String ALREADY_FAILED_TO_INITIALIZE = "Could not initialize class ";
+    /**
+     * The JVM's "found under the wrong path" wording, {@code <name in the bytecode> (wrong name: <name
+     * requested>)}: the class file exists under the requested name's path, its bytecode says otherwise.
+     */
+    private static final String WRONG_NAME_MARKER = " (wrong name: ";
 
     private final ConcurrentMap<String, PluginHandle<F>> handlesByName = new ConcurrentHashMap<>();
     private final Object lifecycleLock = new Object();
@@ -267,11 +282,20 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             Class<?> discoveredClass;
             try {
                 discoveredClass = classLoader.loadClass(factoryClassName);
-            } catch (ReflectiveOperationException e) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError | ServiceConfigurationError e) {
+                // LinkageError included: defining the factory class resolves its supertypes, so a
+                // dependency the plugin neither bundles nor inherits from its parent surfaces here as
+                // NoClassDefFoundError - an Error, not a ReflectiveOperationException. Left uncaught it
+                // escapes loadAll entirely and takes FE startup down, because one plugin's missing
+                // dependency is not something the FE can be stopped by. RuntimeException for the same
+                // reason: defineClass raises SecurityException for a signed package the plugin also
+                // ships unsigned classes into. Same catch shape as factory.name() and
+                // factory.description() below.
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
-                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir,
+                        failureMessage("Failed to instantiate factory class '" + factoryClassName + "'",
+                                normalizedDir, e),
                         e);
             }
 
@@ -293,11 +317,20 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 @SuppressWarnings("unchecked")
                 Class<? extends F> factoryClass = (Class<? extends F>) discoveredClass.asSubclass(factoryType);
                 factory = factoryClass.getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException e) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError | ServiceConfigurationError e) {
+                // newInstance() is where the factory class is first initialized. A static initializer
+                // that fails arrives either as the Error itself - NoClassDefFoundError for a missing
+                // dependency - or, for a non-Error, wrapped in ExceptionInInitializerError; both are
+                // LinkageErrors, and again one plugin's problem rather than the FE's. asSubclass()
+                // throws ClassCastException (a RuntimeException) for a service file naming a class that
+                // is not a factory at all, which is the same plugin-local problem one line earlier.
                 throw new PluginLoadException(
                         normalizedDir,
                         LoadFailure.STAGE_INSTANTIATE,
-                        "Failed to instantiate factory class '" + factoryClassName + "' in " + normalizedDir,
+                        failureMessage("Failed to instantiate factory class '" + factoryClassName + "'"
+                                + (e instanceof ClassCastException
+                                        ? ": it does not implement " + factoryType.getName() : ""),
+                                normalizedDir, e),
                         e);
             }
         } catch (PluginLoadException e) {
@@ -310,12 +343,12 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         String pluginName;
         try {
             pluginName = factory.name();
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
                     LoadFailure.STAGE_INSTANTIATE,
-                    "Failed to get plugin name from discovered factory in " + normalizedDir,
+                    failureMessage("Failed to get plugin name from discovered factory", normalizedDir, e),
                     e);
         }
         String nameValidationError = PluginNames.validate(pluginName);
@@ -334,12 +367,12 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         String description;
         try {
             description = factory.description();
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
                     LoadFailure.STAGE_INSTANTIATE,
-                    "Failed to get plugin description from discovered factory in " + normalizedDir,
+                    failureMessage("Failed to get plugin description from discovered factory", normalizedDir, e),
                     e);
         }
 
@@ -521,6 +554,139 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                     null);
         }
         return classNames.get(0);
+    }
+
+    /**
+     * The message of a failure that happened while the loader was calling into plugin code: what was
+     * being done, where, and - as far as the failure says so - why. Every site that catches a plugin
+     * failure builds its message here, so no site can fall behind the others in what it records.
+     *
+     * <p>The diagnostics read plugin-controlled text (the failure's messages), so they run under a guard
+     * that degrades to nothing: a diagnostic that throws would turn a failure the loader had already
+     * caught into one that escapes it, leaks the classloader and takes FE startup down.
+     */
+    private static String failureMessage(String what, Path pluginDir, Throwable failure) {
+        String diagnostics;
+        try {
+            diagnostics = missingClassAdvice(failure) + rootCauseSummary(failure);
+        } catch (RuntimeException | Error e) {
+            diagnostics = "";
+        }
+        return what + " in " + pluginDir + diagnostics;
+    }
+
+    /**
+     * Turns a load failure caused by an absent class into an actionable sentence, or "" for any other
+     * failure. A plugin misses a class either because it does not bundle it or because it expected to
+     * inherit it from the layer its classloader delegates to, and the message must not leave the reader
+     * guessing which - a shared library bundle that was never installed looks exactly like a broken
+     * plugin jar otherwise. The one JVM wording that does mean a broken jar - a class file found under
+     * a path that disagrees with the name in its bytecode - gets its own sentence, because the shared
+     * bundle is exactly the wrong place to look for that.
+     */
+    // Package-private so that the JVM messages it has to tell apart can be asserted directly. The
+    // "Could not initialize class" wording is the JVM's second attempt at a class whose initializer
+    // already failed: not something loadAll provokes on a plugin's own classes (it gives up on the
+    // first attempt), but reachable through a parent-first class whose initializer failed under an
+    // earlier plugin, so it is skipped rather than read as a class name.
+    static String missingClassAdvice(Throwable failure) {
+        // The chain is plugin-built below the first node, and a cycle is legal Java (a.initCause(b)
+        // after b was constructed with cause a): bound the walk by identity, or a plugin can hang FE
+        // startup here, under lifecycleLock, before any port is open.
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable t = failure; t != null && seen.add(t); t = t.getCause()) {
+            if (!(t instanceof NoClassDefFoundError) && !(t instanceof ClassNotFoundException)) {
+                continue;
+            }
+            String message = t.getMessage();
+            if (message == null) {
+                continue;
+            }
+            message = message.trim();
+            if (message.isEmpty() || message.startsWith(ALREADY_FAILED_TO_INITIALIZE)) {
+                // Keep walking: what really went missing, if anything did, is further down the chain.
+                continue;
+            }
+            String[] wrongName = wrongNameForm(message);
+            if (wrongName != null) {
+                return ". The class " + wrongName[1] + " was found in this plugin's jars, but its bytecode"
+                        + " names it " + wrongName[0] + ": the jar entry is under the wrong path, which is"
+                        + " a broken plugin jar rather than a missing dependency";
+            }
+            if (!isClassName(message)) {
+                // Plugin code may wrap a lookup failure in a sentence ("Cannot load driver class
+                // com.x.Y"); nothing here can tell which word is the class, so keep walking - the JDK's
+                // own node, if there is one below, carries the bare name.
+                continue;
+            }
+            return ". The class " + message + " is in neither this plugin's own jars nor its parent"
+                    + " classloader; if it is meant to come from a shared library bundle, check that the"
+                    + " bundle is installed under the FE shared library root";
+        }
+        return "";
+    }
+
+    /**
+     * The innermost cause of a load failure as {@code Class: message} - or the failure itself when it
+     * has no cause - so that a consumer recording the {@link LoadFailure} message alone still records
+     * why: an {@link ExceptionInInitializerError} prints as its bare class name and says nothing on its
+     * own, and a cause-less {@link VerifyError} or {@link UnsupportedClassVersionError} is the whole
+     * story. Identity-bounded for the same reason as {@link #missingClassAdvice}.
+     */
+    static String rootCauseSummary(Throwable failure) {
+        if (failure == null) {
+            return "";
+        }
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        Throwable root = failure;
+        for (Throwable t = failure; t != null && seen.add(t); t = t.getCause()) {
+            root = t;
+        }
+        return "; caused by " + root;
+    }
+
+    /**
+     * Whether the text is one class name in the binary ({@code org.example.Probe$Inner}) or internal
+     * ({@code org/example/Probe$Inner}) spelling: tokens of name characters joined by one {@code .} or
+     * {@code /} each, no leading or trailing separator. A name character is anything that is neither
+     * whitespace nor one of the JVM's own delimiters, so a Unicode or compiler-mangled name still counts
+     * and a sentence never does. A linear scan on purpose: a {@code (token(sep token)*)} regex over
+     * java.util.regex recurses once per token, and the message is plugin-controlled text - a name of a
+     * few thousand tokens would overflow the FE's default thread stack inside a catch block.
+     */
+    static boolean isClassName(String text) {
+        boolean expectToken = true;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '.' || c == '/') {
+                if (expectToken) {
+                    return false;
+                }
+                expectToken = true;
+            } else if (Character.isWhitespace(c) || c == ';' || c == '[' || c == '(' || c == ')') {
+                return false;
+            } else {
+                expectToken = false;
+            }
+        }
+        return !expectToken;
+    }
+
+    /**
+     * Splits the JVM's {@code <bytecode name> (wrong name: <requested name>)} message into its two class
+     * names, or returns null when the text has any other shape.
+     */
+    private static String[] wrongNameForm(String message) {
+        int marker = message.indexOf(WRONG_NAME_MARKER);
+        if (marker <= 0 || !message.endsWith(")")) {
+            return null;
+        }
+        String bytecodeName = message.substring(0, marker);
+        String requestedName = message.substring(marker + WRONG_NAME_MARKER.length(), message.length() - 1);
+        if (!isClassName(bytecodeName) || !isClassName(requestedName)) {
+            return null;
+        }
+        return new String[] {bytecodeName, requestedName};
     }
 
     private static void closeClassLoader(ClassLoader classLoader) {

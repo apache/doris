@@ -72,6 +72,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -193,7 +194,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         for (AbstractJob job : getAllCurrentJobs()) {
             job.setEnv(env);
-            job.run();
+            try {
+                job.run();
+            } catch (Exception | LinkageError | ServiceConfigurationError e) {
+                // One job's throw must not skip every job after it in this cycle, nor go unrecorded:
+                // a job that keeps throwing here is retried each cycle until its timeout, so the log
+                // is the only place its cause shows up.
+                LOG.warn("backup/restore job {} threw out of run() and will be retried next cycle",
+                        job.getJobId(), e);
+            }
         }
     }
 
@@ -237,12 +246,26 @@ public class BackupHandler extends MasterDaemon implements Writable {
             if (oldRepo == null) {
                 throw new DdlException("Repository does not exist");
             }
+            if (!oldRepo.hasFileSystemDescriptor()) {
+                // Nothing to merge into: an unmigrated legacy or corrupt record. A repository whose
+                // descriptor merely did not bind at load is exactly what ALTER is for - the corrected
+                // properties are bound below and refused with their reason if they still do not.
+                throw new DdlException("Repository " + repoName + " is not available: "
+                        + oldRepo.getUnavailableReason());
+            }
             // Merge new properties with the existing repository's properties
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
+            StorageAdapter mergedStorage;
+            try {
+                mergedStorage = StorageAdapter.of(mergedProps);
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
+                throw new DdlException("Failed to alter repository " + repoName
+                        + ": the merged properties do not bind a filesystem provider: " + e.getMessage());
+            }
             // Create new Repository instance with merged properties
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), StorageAdapter.of(mergedProps)
+                    oldRepo.getLocation(), mergedStorage
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {

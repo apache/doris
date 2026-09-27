@@ -59,6 +59,63 @@ public class FileSystemPluginManagerTest {
                 DatasourcePrintableMap.SENSITIVE_KEY.contains("PLUGIN_MANAGER_TEST_SECRET_ALIAS"));
     }
 
+    /**
+     * The sensitive-key set is the plugin's: it is walked and checked before the provider is published,
+     * so a lazy set that fails when iterated, or one carrying a null alias, refuses the provider instead
+     * of failing later in the masking set with the provider already routable.
+     */
+    @Test
+    public void registerProvider_walksTheSensitiveKeySetBeforePublishingTheProvider() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        FileSystemProvider<FileSystemProperties> lazy = new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                return false;
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> properties) {
+                return null;
+            }
+
+            @Override
+            public Set<String> sensitivePropertyKeys() {
+                return new java.util.AbstractSet<String>() {
+                    @Override
+                    public java.util.Iterator<String> iterator() {
+                        throw new NoClassDefFoundError("org/example/OptionalAliasCatalog");
+                    }
+
+                    @Override
+                    public int size() {
+                        return 1;
+                    }
+                };
+            }
+        };
+        Assertions.assertThrows(NoClassDefFoundError.class, () -> manager.registerProvider(lazy));
+        Assertions.assertTrue(manager.getProviders().isEmpty(), "a provider whose set fails when walked is not published");
+
+        FileSystemProvider<FileSystemProperties> nullAlias = new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public boolean supports(Map<String, String> properties) {
+                return false;
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> properties) {
+                return null;
+            }
+
+            @Override
+            public Set<String> sensitivePropertyKeys() {
+                return Collections.singleton(null);
+            }
+        };
+        Assertions.assertThrows(IllegalArgumentException.class, () -> manager.registerProvider(nullAlias));
+        Assertions.assertTrue(manager.getProviders().isEmpty());
+    }
+
     // ---- bindAll (P0-T02 / D-009): raw map -> List<fe-filesystem FileSystemProperties> ----
 
     @Test
