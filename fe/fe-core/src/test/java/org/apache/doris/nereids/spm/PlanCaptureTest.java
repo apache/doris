@@ -412,13 +412,15 @@ public class PlanCaptureTest {
         Assertions.assertEquals(5000, decoded.get("qid-a").getQueryTimeMs());
         Assertions.assertEquals("db", decoded.get("qid-a").getDb());
 
-        // a checkpoint row installs the SAME state the daemon would have kept
+        // a checkpoint row installs the SAME state the daemon would have kept; the row
+        // carries the FULL cursor including its tail (the appended cursor_tail column)
         PlanCaptureManager manager = PlanCaptureManager.getInstance();
         manager.resetForTest();
+        String tail = "[\"10.0.0.1\",\"h1\",\"100\",\"10\",\"m1\"]";
         manager.applyCheckpointRow(new ResultRow(List.of(
                 "123456", "100", "200", "7", "2026-01-01 00:00:00", "qid-cursor",
                 PlanCaptureManager.encodeFailedAttempts(attempts),
-                PlanCaptureManager.encodeRetryQueue(queue))));
+                PlanCaptureManager.encodeRetryQueue(queue), tail)));
         Assertions.assertEquals(2, manager.failedAttemptsForTest("qid-a"));
         Assertions.assertTrue(manager.isQueuedForTest("qid-a"),
                 "the retry queue must survive the checkpoint");
@@ -429,6 +431,8 @@ public class PlanCaptureTest {
         Assertions.assertEquals(7L, fields[3]);
         Assertions.assertEquals("2026-01-01 00:00:00", fields[4]);
         Assertions.assertEquals("qid-cursor", fields[5]);
+        Assertions.assertEquals(tail, fields[6],
+                "the cursor tail must survive the checkpoint round-trip");
     }
 
     /**
@@ -462,7 +466,81 @@ public class PlanCaptureTest {
         Assertions.assertEquals(123456L, fields[0],
                 "the retry must apply the previous leader's pending window");
         Assertions.assertEquals(200L, fields[2]);
+        // the row predates the cursor_tail column (8 values, cursor present): the
+        // partial cursor is NOT trusted - the pending window is re-scanned from the top
+        // (captures are idempotent), because a prefix-only cursor loops / skips rows
+        // whose (time, query_time, query_id) keys collide
+        Assertions.assertEquals(org.apache.doris.nereids.spm.capture.AuditLogScanner.CURSOR_ABSENT,
+                fields[3], "a cursor without its tail must be reset, not trusted");
         manager.resetForTest();
+    }
+
+    /**
+     * Rows whose audit query id is unusable (null / empty / literal "NaN") still have to
+     * be retried: the page cursor has already moved past their audit rows, so a transient
+     * failure with an UNTRACKED candidate would be silently abandoned after one attempt.
+     * A stable synthetic retry key, derived from the row identity, keeps them queued and
+     * survives the checkpoint (the queue is keyed by it).
+     */
+    @Test
+    public void testUnusableQueryIdStillRetriesAndRoundTrips() {
+        PlanCaptureManager captureManager = PlanCaptureManager.getInstance();
+        captureManager.resetForTest();
+        String[] unusableIds = {null, "", "NaN"};
+        for (int i = 0; i < unusableIds.length; i++) {
+            CapturedQuery candidate = new CapturedQuery(
+                    "SELECT t1.a FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.b = " + i,
+                    5000, 100000, 0, "digest-noid-" + i, "hash", "db", "internal",
+                    unusableIds[i]);
+            String key = PlanCaptureManager.retryKeyOf(candidate);
+            Assertions.assertTrue(key.startsWith("spm-retry:"),
+                    "an unusable query id maps to the synthetic key: " + key);
+            Assertions.assertFalse(captureManager.isQueryIdTrackedForTest(usefulKey(candidate)),
+                    "nothing consumed yet");
+
+            captureManager.handleCandidateForTest(candidate);
+            Assertions.assertFalse(captureManager.isQueryIdTrackedForTest(key),
+                    "a failed capture with an unusable id must stay retryable");
+            Assertions.assertEquals(1, captureManager.failedAttemptsForTest(key));
+            Assertions.assertTrue(captureManager.isQueuedForTest(key),
+                    "the candidate must be queued under the synthetic key");
+
+            // the checkpoint round-trip preserves the synthetic key (the queue is encoded
+            // as a map, so decode returns the SAME key and the retry survives a handoff)
+            Map<String, CapturedQuery> queue = new LinkedHashMap<>();
+            queue.put(key, candidate);
+            Map<String, CapturedQuery> decoded = PlanCaptureManager.decodeRetryQueue(
+                    PlanCaptureManager.encodeRetryQueue(queue));
+            Assertions.assertEquals(1, decoded.size());
+            Assertions.assertTrue(decoded.containsKey(key),
+                    "the synthetic retry key must round-trip: " + decoded.keySet());
+            Assertions.assertEquals(candidate.getStmt(), decoded.get(key).getStmt());
+
+            // the same audit row read again (overlap) maps onto the SAME key: skipped
+            long failures = captureManager.getStats().failed;
+            captureManager.handleCandidateForTest(candidate);
+            Assertions.assertEquals(failures + 1, captureManager.getStats().failed,
+                    "the overlap re-read must be processed once (retried), not duplicated");
+            Assertions.assertEquals(2, captureManager.failedAttemptsForTest(key));
+        }
+        // the synthetic key is content-derived: two different rows never collide, the
+        // same row is stable
+        CapturedQuery rowA = new CapturedQuery("SELECT x FROM a1 JOIN a2 ON a1.x = a2.x",
+                1, 1, 1, "d", "h", "db", "internal", "NaN");
+        CapturedQuery rowB = new CapturedQuery("SELECT y FROM b1 JOIN b2 ON b1.y = b2.y",
+                1, 1, 1, "d", "h", "db", "internal", "NaN");
+        Assertions.assertNotEquals(PlanCaptureManager.retryKeyOf(rowA),
+                PlanCaptureManager.retryKeyOf(rowB), "different rows get different keys");
+        Assertions.assertEquals(PlanCaptureManager.retryKeyOf(rowA),
+                PlanCaptureManager.retryKeyOf(new CapturedQuery(rowA.getStmt(), 1, 1, 1,
+                        "d", "h", "db", "internal", "NaN")),
+                "the same row is stable across re-reads");
+        captureManager.resetForTest();
+    }
+
+    /** Helper: the key a USABLE id would have (identity for non-synthetic ids). */
+    private static String usefulKey(CapturedQuery candidate) {
+        return candidate.getQueryId() == null ? "" : candidate.getQueryId();
     }
 
     /**

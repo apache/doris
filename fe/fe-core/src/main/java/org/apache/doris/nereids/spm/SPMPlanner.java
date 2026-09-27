@@ -293,9 +293,9 @@ public class SPMPlanner {
         if (planSql == null) {
             return null;
         }
-        if (persistedFrozen == null
-                && !planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
-                && !planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC)) {
+        boolean textHasPlaceholder = planSql.contains(SPMFrozenTreeReplacer.CONST_VAR_FUNC)
+                || planSql.contains(SPMFrozenTreeReplacer.CONST_LIST_FUNC);
+        if (persistedFrozen == null && !textHasPlaceholder) {
             return null; // legacy row, not a frozen (placeholder-carrying) plan text
         }
         // re-parsing the frozen text needs the session context (join-hint / statement
@@ -322,7 +322,16 @@ public class SPMPlanner {
             // comment. Substituting nothing and returning such a tree would replay the
             // CAPTURED literals - the user's values must go through the parameterized
             // fallback tree instead.
-            if (!SPMPlanTreeSupport.containsFrozenPlaceholder((LogicalPlan) parsed)) {
+            //
+            // The classification only guards rows WITHOUT provenance: when the row is
+            // EXPLICITLY marked frozen (planFrozen=true), the text is the decompiler's
+            // own rendering, and a literal-free optimized plan legitimately contains no
+            // placeholder call - it must replay as-is with an EMPTY substitution map
+            // (the frozen structure / hints are the point), not fall back to the
+            // original pre-optimization tree.
+            boolean parsedHasPlaceholder =
+                    SPMPlanTreeSupport.containsFrozenPlaceholder((LogicalPlan) parsed);
+            if (persistedFrozen == null && !parsedHasPlaceholder) {
                 return null;
             }
             SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer();
@@ -558,6 +567,7 @@ public class SPMPlanner {
 
         SPMOptimizer.OptimizeResult optimizeResult;
         DecompiledPlan frozen;
+        boolean rawPlanOptimized = false;
         try {
             // optimize the parameterized plan tree in SPM mode: placeholders travel
             // through analyze / rewrite / CBO and survive into the physical plan
@@ -572,6 +582,7 @@ public class SPMPlanner {
             // parameterized-plan-tree rewrite path.
             LOG.warn("SPM parameterized plan optimization failed, falling back to raw planSql",
                     e);
+            rawPlanOptimized = true;
             optimizeResult = SPMOptimizer.optimize(ctx, planSql);
             frozen = decompileFrozenPlan(referencesView, optimizeResult, planSql);
         }
@@ -587,9 +598,22 @@ public class SPMPlanner {
         // Explicit provenance of the stored planSql, persisted so a reload never has to
         // GUESS whether the text is SPM's decompiled frozen rendering or the user's raw
         // fallback (see BaselinePlan#planFrozen / #planSqlMode).
-        Boolean planFrozen = frozen.decompiled
-                ? SPMPlanTreeSupport.containsFrozenPlaceholder(optimizeResult.getPhysicalPlan())
-                : Boolean.FALSE;
+        //
+        // The provenance is the DECOMPILER's success over the PARAMETERIZED tree - NOT
+        // the mere presence of a placeholder call: a literal-free optimized join (e.g. a
+        // hinted broadcast shuffled join with no literal value) decompiles successfully
+        // yet contains no spm_const* call. Recording planFrozen=false for it made every
+        // replay reject the frozen text and fall back to the ORIGINAL pre-optimization
+        // logical tree - losing exactly the stored join / distribution choice - while
+        // after a GLOBAL refresh (the row is rebuilt from the same decompiled planSql)
+        // the behavior flipped to frozen.
+        //
+        // EXCEPTION: a decompile of the RAW-PLAN fallback carries the CAPTURED literals
+        // (the parameterized tree could not be planned at all). Replaying it as frozen
+        // would skip the user-value substitution and return the captured values - such a
+        // text must keep the parameterized-plan-tree rewrite path (planFrozen=false),
+        // exactly like a failed decompile.
+        Boolean planFrozen = frozen.decompiled && !rawPlanOptimized;
         long planSqlMode = frozen.decompiled ? SqlModeHelper.MODE_DEFAULT : creatorMode;
         BaselinePlan baseline = assembleBaseline(bindPlan, trees.first, parameterizedPlan, bindSql,
                 frozen.sql, optimizeResult.getCost(),

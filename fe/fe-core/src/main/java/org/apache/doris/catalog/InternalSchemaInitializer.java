@@ -120,6 +120,11 @@ public class InternalSchemaInitializer extends Thread {
         // that loop WAITS for enough BEs (sleeping), so anything after it would be
         // deferred indefinitely on a small cluster.
         ensureSpmBaselinesColumnsExist();
+        // Same reasoning for the capture checkpoint: an upgraded cluster gains the cursor
+        // tail column here, and the capture daemon's checkpoint UPSERT writes it - a
+        // missing column would make every checkpoint write fail, silently losing the
+        // leader-handoff cursor.
+        ensureSpmCaptureCheckpointColumnsExist();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
             modifyTblReplicaCount(database, tblName);
         }
@@ -586,6 +591,120 @@ public class InternalSchemaInitializer extends Thread {
                     new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
             LOG.info("SPM: added the {} column to {}", entry.getKey(),
                     InternalSchema.SPM_BASELINES_TBL_NAME);
+            // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
+            // finishes, and the wait loop's next round continues with the remainder
+            return;
+        }
+    }
+
+    /**
+     * The columns an UPGRADED cluster must gain on a pre-existing
+     * spm_capture_checkpoint table (new clusters get them from the create SQL):
+     *
+     * - cursor_tail: the encoded tail of the resume cursor (see
+     *   PlanCaptureManager#CHECKPOINT_INSERT_SQL / AuditLogScanner#CursorTail). Without
+     *   it a checkpointed truncated window can only resume on the (time, query_time,
+     *   query_id) prefix: a page whose rows share those keys (e.g. NULL query ids)
+     *   either loops on the same page forever or skips its remainder after a handoff.
+     */
+    @VisibleForTesting
+    static final Map<String, ScalarType> SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("cursor_tail", ScalarType.createVarchar(4096));
+    }
+
+    /**
+     * Waits until the spm_capture_checkpoint table carries every column of
+     * {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS}: like the baselines upgrade, a
+     * transient ALTER failure (BE / tablet not ready) must be retried HERE - run() calls
+     * this once and the replica-upgrade loop never comes back.
+     */
+    static void ensureSpmCaptureCheckpointColumnsExist() {
+        while (!spmCaptureCheckpointColumnsExist()) {
+            try {
+                upgradeSpmCaptureCheckpointSchema();
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the spm_capture_checkpoint cursor_tail column,"
+                        + " will retry", t);
+            }
+            if (spmCaptureCheckpointColumnsExist()) {
+                return;
+            }
+            try {
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted. {}", e.getMessage());
+            }
+        }
+    }
+
+    /** Whether the spm_capture_checkpoint table already carries every upgraded column
+     *  (false while the table itself is not there yet - the caller keeps retrying). */
+    @VisibleForTesting
+    static boolean spmCaptureCheckpointColumnsExist() {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return false;
+        }
+        Table table = dbOpt.get().getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME).orElse(null);
+        if (table == null) {
+            return false;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return existing.containsAll(SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.keySet());
+    }
+
+    /**
+     * Adds the missing column of {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS} to a
+     * PRE-EXISTING spm_capture_checkpoint table (one ALTER per attempt). Idempotent:
+     * a column that already exists is left untouched. Throws on failure - the caller's
+     * retry loop owns the retry policy.
+     */
+    private static void upgradeSpmCaptureCheckpointSchema() throws UserException {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            LOG.warn("SPM: internal schema db not found yet, will retry the checkpoint upgrade");
+            return;
+        }
+        Table table = dbOpt.get().getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME).orElse(null);
+        if (table == null) {
+            LOG.warn("SPM: spm_capture_checkpoint table not found yet, will retry the upgrade");
+            return;
+        }
+        // Same as the baselines upgrade: a column is observable only after its schema
+        // change FINISHED, and a table in SCHEMA_CHANGE rejects further ALTERs - wait for
+        // NORMAL instead of re-issuing the same column forever.
+        if (!(table instanceof OlapTable)
+                || ((OlapTable) table).getState() != OlapTable.OlapTableState.NORMAL) {
+            LOG.info("SPM: spm_capture_checkpoint is not in NORMAL state ({}), waiting for the"
+                            + " pending schema change before the upgrade",
+                    table instanceof OlapTable ? ((OlapTable) table).getState() : "unknown");
+            return;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        for (Map.Entry<String, ScalarType> entry : SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.entrySet()) {
+            if (existing.contains(entry.getKey())) {
+                continue;
+            }
+            ColumnDefinition definition = new ColumnDefinition(entry.getKey(),
+                    DataType.fromCatalogType(entry.getValue()),
+                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                    Optional.empty(), "", true, Optional.empty());
+            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+            addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
+            Env.getCurrentEnv().alterTable(
+                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
+            LOG.info("SPM: added the {} column to {}", entry.getKey(),
+                    InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
             // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
             // finishes, and the wait loop's next round continues with the remainder
             return;

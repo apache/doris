@@ -995,6 +995,21 @@ public class StmtExecutor {
                 }
                 return;
             }
+            // Sync the journal BEFORE the SPM integration point (and therefore before the
+            // planner is created): the SPM rewrite RESOLVES METADATA - it looks up every
+            // referenced table / view of the parsed plan, reads their schema fingerprints
+            // and validates the frozen baselines against them - so it must observe the
+            // same (synced) catalog the planner will observe. On an observer FE the edit
+            // log can still lag the master at this point; matching / validating against a
+            // stale catalog rejects valid baselines or, worse, accepts a stale schema
+            // fingerprint.
+            //
+            // The sync also keeps the original guarantee for the planner itself: a query
+            // issued right after a CREATE TABLE (sent to the master and only then visible
+            // to this observer) used to fail with "table does not exist" in the plan
+            // phase - see the comment that describes the sequence next to the planner
+            // call below.
+            syncJournalIfNeeded(context);
             // =========== SPM (SQL Plan Management) query rewrite integration point ============
             // Design doc 6.12: the SPM rewrite happens after parseByNereids() and before the
             // NereidsPlanner plans the query.
@@ -1044,7 +1059,9 @@ public class StmtExecutor {
             // t2: client issues query sql to observer fe, the query would fail due to not exist table in
             //     plan phase.
             // t3: observer fe receive editlog creating the table from the master fe
-            syncJournalIfNeeded(context);
+            // The journal sync that guards this sequence now runs ABOVE, before the SPM
+            // rewrite's metadata lookups (see the comment there): by the time the planner
+            // is created the catalog is already up to date.
             planner = new NereidsPlanner(statementContext);
             try {
                 checkBlockRulesByRegex(originStmt);

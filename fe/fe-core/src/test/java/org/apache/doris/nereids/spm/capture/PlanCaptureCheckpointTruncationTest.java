@@ -52,7 +52,7 @@ public class PlanCaptureCheckpointTruncationTest {
             // > MAX_PERSISTED_RETRIES (64) failures in this page: the queue holds 70
             // entries, the checkpoint can persist only the last 64
             manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-a", "qid-a", 70,
-                    50L, 999L, "cursor-z", "qid-z");
+                    50L, 999L, "cursor-z", "qid-z", "tail-a", "tail-z");
             Map<String, String> params = persist(manager);
 
             Assertions.assertEquals("49", params.get("lastScan"),
@@ -65,6 +65,8 @@ public class PlanCaptureCheckpointTruncationTest {
                     "the durable cursor must be the PRE-PAGE cursor");
             Assertions.assertEquals("cursor-a", params.get("cursorTime"));
             Assertions.assertEquals("qid-a", params.get("cursorQueryId"));
+            Assertions.assertEquals("tail-a", params.get("cursorTail"),
+                    "the durable cursor TAIL must fall back to the pre-page tail as well");
 
             Map<String, CapturedQuery> persistedQueue =
                     PlanCaptureManager.decodeRetryQueue(params.get("retryQueue"));
@@ -81,7 +83,7 @@ public class PlanCaptureCheckpointTruncationTest {
         manager.resetForTest();
         try {
             manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-a", "qid-a", 5,
-                    50L, 999L, "cursor-z", "qid-z");
+                    50L, 999L, "cursor-z", "qid-z", "tail-a", "tail-z");
             Map<String, String> params = persist(manager);
 
             Assertions.assertEquals("50", params.get("lastScan"),
@@ -89,6 +91,8 @@ public class PlanCaptureCheckpointTruncationTest {
             Assertions.assertEquals("999", params.get("cursorQueryTime"));
             Assertions.assertEquals("cursor-z", params.get("cursorTime"));
             Assertions.assertEquals("qid-z", params.get("cursorQueryId"));
+            Assertions.assertEquals("tail-z", params.get("cursorTail"),
+                    "with a fully persisted retry state the cursor tail advances too");
             Assertions.assertEquals("100", params.get("pendingStart"));
             Assertions.assertEquals("200", params.get("pendingEnd"));
             Assertions.assertEquals(5,

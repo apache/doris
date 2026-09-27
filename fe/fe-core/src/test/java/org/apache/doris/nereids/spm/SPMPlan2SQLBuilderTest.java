@@ -969,6 +969,40 @@ public class SPMPlan2SQLBuilderTest {
                 "INTERSECT ALL must keep its ALL, otherwise multiplicity is lost: " + allSql);
     }
 
+    // ==================== set operands are query terms, not aliased relations ====================
+
+    /**
+     * R11: set operands must be rendered as UNALIASED query terms. branch.newAlias() used
+     * to emit "(SELECT ...) t_n" on either side of UNION / EXCEPT / INTERSECT, which
+     * DorisParser rejects - a parenthesized query is accepted there, a trailing alias is
+     * NOT (aliases are legal only in relation position under FROM). Creation never
+     * re-parses the decompiled text, so the invalid fragment was invisible in memory; a
+     * refresh / restart could not rebuild the persisted frozen baseline at all. The alias
+     * is now allocated on the COMPLETED set relation only, and the text must re-parse.
+     */
+    @Test
+    public void testSetOperandsAreUnaliasedAndReparse() {
+        for (String keyword : List.of("UNION ALL", "EXCEPT ALL", "INTERSECT ALL")) {
+            String sql;
+            if ("UNION ALL".equals(keyword)) {
+                sql = new SPMPlan2SQLBuilder().toSQL(mockUnion(Qualifier.ALL));
+            } else if ("EXCEPT ALL".equals(keyword)) {
+                sql = new SPMPlan2SQLBuilder().toSQL(mockExcept(Qualifier.ALL));
+            } else {
+                sql = new SPMPlan2SQLBuilder().toSQL(mockIntersect(Qualifier.ALL));
+            }
+            Assertions.assertTrue(sql.contains(" " + keyword + " "),
+                    keyword + " must appear: " + sql);
+            // the operand BEFORE the keyword must be a bare parenthesized query term:
+            // ") t_N <keyword>" is the illegal aliased-operand shape
+            Assertions.assertFalse(java.util.regex.Pattern
+                            .compile("(?s)\\)\\s+t_\\d+\\s+" + keyword).matcher(sql).find(),
+                    "a set operand must carry NO trailing alias: " + sql);
+            Assertions.assertDoesNotThrow(() -> new NereidsParser().parseSingle(sql),
+                    "the frozen set text must re-parse (refresh / restart path): " + sql);
+        }
+    }
+
     private PhysicalUnion mockUnion(Qualifier qualifier) {
         SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
         PhysicalOlapScan left = mockScan("t1", List.of(x));

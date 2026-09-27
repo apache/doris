@@ -25,9 +25,11 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.SPMPlanner;
+import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
@@ -110,7 +112,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final String CHECKPOINT_SELECT_SQL =
             "SELECT `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
-                    + " `failed_attempts`, `retry_queue` FROM " + CHECKPOINT_TABLE
+                    + " `failed_attempts`, `retry_queue`, `cursor_tail` FROM " + CHECKPOINT_TABLE
                     + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
 
     /**
@@ -123,7 +125,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final String CHECKPOINT_INSERT_SQL =
             "INSERT INTO " + CHECKPOINT_TABLE
                     + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
-                    + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}',"
+                    + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
                     + " '${failedAttempts}', '${retryQueue}', NOW())";
 
     private AuditLogScanner scanner = new AuditLogScanner();
@@ -164,14 +166,17 @@ public class PlanCaptureManager extends MasterDaemon {
     private final Map<String, CapturedQuery> failedCaptureQueue = new LinkedHashMap<>();
 
     /**
-     * Resume cursor of a TRUNCATED scan window: (query_time, time, query_id) of the last
-     * consumed row. CURSOR_ABSENT while no partial window is pending - a short batch
-     * advances the watermark instead. Zero and NULL query_time are VALID cursors (see
-     * AuditLogScanner.CURSOR_QUERY_TIME_NULL).
+     * Resume cursor of a TRUNCATED scan window: the FULL ORDER BY key tuple of the last
+     * consumed row -- (time, query_time, query_id) plus the encoded tail (client_ip,
+     * sql_hash, scan_rows, return_rows, statement hash) that uniquely separates audit
+     * rows sharing the first three keys. CURSOR_ABSENT while no partial window is
+     * pending - a short batch advances the watermark instead. Zero and NULL query_time
+     * are VALID cursors (see AuditLogScanner.CURSOR_QUERY_TIME_NULL).
      */
     private long cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
     private String cursorTime = "";
     private String cursorQueryId = "";
+    private String cursorTail = "";
 
     /**
      * The pre-page state (watermark + window bounds + cursor) the CURRENT cycle's scan
@@ -188,6 +193,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private long pageStartCursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
     private String pageStartCursorTime = "";
     private String pageStartCursorQueryId = "";
+    private String pageStartCursorTail = "";
 
     /** Whether the durable checkpoint was already consulted in this process. */
     private boolean checkpointLoaded = false;
@@ -287,6 +293,21 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " skipping this capture cycle");
             return;
         }
+        runCaptureCycle(global, newFilter);
+    }
+
+    /**
+     * One capture cycle body: everything after the runtime guards (cloud mode, enable
+     * flag, leader / checkpoint-thread checks, filter refresh). Split out so unit tests
+     * can drive a FULL cycle - checkpoint read through window derivation, scan, state
+     * advance and persist - without the process-global guards (master / cloud / enable)
+     * a test environment cannot satisfy.
+     *
+     * @param global the global session variables of this cycle
+     * @param newFilter the filter refreshed for this cycle
+     */
+    @VisibleForTesting
+    public void runCaptureCycle(SessionVariable global, PlanCaptureFilter newFilter) {
         try {
             // refresh the filter so SET GLOBAL changes take effect this cycle
             this.filter = newFilter;
@@ -295,7 +316,14 @@ public class PlanCaptureManager extends MasterDaemon {
             // interval-derived window: a truncated window from the previous leader is
             // checkpointed here, and skipping it would permanently exclude its unconsumed
             // tail (the overlap only reaches rows younger than the NEW watermark).
-            loadCheckpointIfNeeded();
+            // A FAILED read returns false and the cycle aborts BEFORE deriving or
+            // persisting anything: writing a freshly derived window while the previous
+            // leader's unconsumed tail is still unreadable would overwrite its only
+            // record (the write path shares the same internal table the read failed on).
+            if (!loadCheckpointIfNeeded()) {
+                LOG.warn("Plan capture cycle skipped: durable checkpoint not confirmed");
+                return;
+            }
 
             long currentTime = System.currentTimeMillis();
             // a non-positive interval / batch size can never be written through SQL SET
@@ -304,11 +332,14 @@ public class PlanCaptureManager extends MasterDaemon {
             // window exhausted and advance the watermark over every eligible row
             long intervalMs = Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L;
             int batchSize = Math.max(1, global.getPlanCaptureMaxBatchSize());
-            // overlap the window so audit rows loaded late (whose event time is older
-            // than the last watermark) are still scanned; duplicates are filtered by
-            // query id below
+            // overlap the window so audit rows loaded late (published after their event
+            // time has passed) are still scanned; the overlap follows the audit loader's
+            // configured batch interval so rows written at the tail of a loader batch -
+            // whose event time predates the new watermark - are not lost. Duplicates are
+            // filtered by query id below.
             long[] window = resolveScanWindow(lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
-                    currentTime, intervalMs, SCAN_WINDOW_OVERLAP_MS);
+                    currentTime, intervalMs,
+                    scanWindowOverlapMs(GlobalVariable.auditPluginMaxBatchInternalSec));
             long scanStart = window[0];
             long scanEnd = window[1];
             if (scanStart >= scanEnd) {
@@ -325,12 +356,13 @@ public class PlanCaptureManager extends MasterDaemon {
             pageStartCursorQueryTime = cursorQueryTime;
             pageStartCursorTime = cursorTime;
             pageStartCursorQueryId = cursorQueryId;
+            pageStartCursorTail = cursorTail;
 
             AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, scanEnd,
-                    batchSize, cursorQueryTime, cursorTime, cursorQueryId);
+                    batchSize, cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
             Set<String> scannedQueryIds = new HashSet<>();
             for (CapturedQuery candidate : batch.getCandidates()) {
-                scannedQueryIds.add(candidate.getQueryId());
+                scannedQueryIds.add(retryKeyOf(candidate));
                 handleCandidate(candidate);
             }
             // Rows whose capture failed stay queued: keyset pagination moved the cursor
@@ -348,18 +380,22 @@ public class PlanCaptureManager extends MasterDaemon {
                 cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
                 cursorTime = "";
                 cursorQueryId = "";
+                cursorTail = "";
             } else {
                 // The batch limit truncated the window: KEEP the window BOUNDS and remember
-                // the (query_time, time, query_id) cursor of the last consumed row, so the
-                // next cycle resumes inside the same window. Advancing to the window end
-                // here would permanently skip every eligible row beyond the LIMIT; letting
-                // the next cycle derive a new interval window would skip everything the
-                // cursor has not reached yet as well.
+                // the full total-order cursor of the last consumed row, so the next cycle
+                // resumes inside the same window. Advancing to the window end here would
+                // permanently skip every eligible row beyond the LIMIT; letting the next
+                // cycle derive a new interval window would skip everything the cursor has
+                // not reached yet as well. The cursor TAIL is what keeps rows sharing
+                // (time, query_time, query_id) - e.g. a whole page of NULL query ids -
+                // from looping or being skipped (see AuditLogScanner#ORDER_BY).
                 pendingWindowStart = scanStart;
                 pendingWindowEnd = scanEnd;
                 cursorQueryTime = batch.getCursorQueryTime();
                 cursorTime = batch.getCursorTime();
                 cursorQueryId = batch.getCursorQueryId();
+                cursorTail = batch.getCursorTail();
             }
             // Make the progress durable for the NEXT process (leader handoff / restart).
             persistCheckpoint();
@@ -383,33 +419,29 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     @VisibleForTesting
     void handleCandidate(CapturedQuery candidate) {
-        String queryId = candidate.getQueryId();
-        boolean trackId = queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId);
-        if (trackId && processedQueryIds.containsKey(queryId)) {
+        String retryKey = retryKeyOf(candidate);
+        if (processedQueryIds.containsKey(retryKey)) {
             return; // already handled in an earlier overlapping window
         }
         boolean terminal = processCandidate(candidate);
-        if (!trackId) {
-            return;
-        }
         if (terminal) {
-            failedCaptureAttempts.remove(queryId);
-            failedCaptureQueue.remove(queryId);
-            markQueryIdProcessed(queryId);
+            failedCaptureAttempts.remove(retryKey);
+            failedCaptureQueue.remove(retryKey);
+            markQueryIdProcessed(retryKey);
             return;
         }
-        int attempts = failedCaptureAttempts.merge(queryId, 1, Integer::sum);
+        int attempts = failedCaptureAttempts.merge(retryKey, 1, Integer::sum);
         if (attempts >= MAX_CAPTURE_ATTEMPTS) {
             // bounded retry: a permanently broken row must not burn every cycle
-            LOG.warn("Plan capture gave up on query id {} after {} failed attempts",
-                    queryId, attempts);
-            failedCaptureAttempts.remove(queryId);
-            failedCaptureQueue.remove(queryId);
-            markQueryIdProcessed(queryId);
+            LOG.warn("Plan capture gave up on query key {} after {} failed attempts",
+                    retryKey, attempts);
+            failedCaptureAttempts.remove(retryKey);
+            failedCaptureQueue.remove(retryKey);
+            markQueryIdProcessed(retryKey);
         } else {
-            LOG.info("Plan capture failed for query id {} (attempt {}/{}), queued for retry",
-                    queryId, attempts, MAX_CAPTURE_ATTEMPTS);
-            failedCaptureQueue.put(queryId, candidate);
+            LOG.info("Plan capture failed for query key {} (attempt {}/{}), queued for retry",
+                    retryKey, attempts, MAX_CAPTURE_ATTEMPTS);
+            failedCaptureQueue.put(retryKey, candidate);
             if (failedCaptureAttempts.size() > MAX_TRACKED_QUERY_IDS) {
                 evictOldest(failedCaptureAttempts, MAX_TRACKED_QUERY_IDS / 10);
             }
@@ -420,12 +452,39 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Replays the queued transient failures, one attempt each per cycle. A queued id that
-     * ALSO appeared in this cycle's page was already retried by the page loop (and stays
-     * queued when it failed again); every other queued id is retried here, so a failure
-     * stays reachable regardless of where the keyset cursor has moved.
+     * Tracking key of a candidate: its audit query id when usable, otherwise a
+     * SYNTHETIC key derived from the row identity. The audit plugin stores an empty or
+     * literal "NaN" query id for some execution paths; treating those rows as
+     * untrackable made a transient capture failure permanent (the keyset cursor had
+     * already moved past the row and nothing ever replayed it). The synthetic key is
+     * stable for the same audit row - statement + metrics + namespace, hashed - so an
+     * overlapping re-read maps onto the same retry entry; the "spm-retry:" prefix keeps
+     * it from colliding with a real query id.
      *
-     * @param scannedQueryIds the query ids this cycle's page already processed
+     * @param candidate the audit candidate
+     * @return the stable tracking key
+     */
+    @VisibleForTesting
+    public static String retryKeyOf(CapturedQuery candidate) {
+        String queryId = candidate.getQueryId();
+        if (queryId != null && !queryId.isEmpty() && !"NaN".equals(queryId)) {
+            return queryId;
+        }
+        String identity = candidate.getStmt() + '\u0001' + candidate.getQueryTimeMs()
+                + '\u0001' + candidate.getScanRows() + '\u0001' + candidate.getReturnRows()
+                + '\u0001' + candidate.getSqlHash() + '\u0001' + candidate.getDb()
+                + '\u0001' + candidate.getCatalog();
+        return "spm-retry:" + Long.toHexString(SPMUtils.hashOf(identity));
+    }
+
+    /**
+     * Replays the queued transient failures, one attempt each per cycle. A queued key
+     * that ALSO appeared in this cycle's page was already retried by the page loop (and
+     * stays queued when it failed again); every other queued key is retried here, so a
+     * failure stays reachable regardless of where the keyset cursor has moved.
+     *
+     * @param scannedQueryIds the tracking keys ({@link #retryKeyOf}) this cycle's page
+     *                        already processed
      */
     @VisibleForTesting
     void replayQueuedFailures(Set<String> scannedQueryIds) {
@@ -434,16 +493,16 @@ public class PlanCaptureManager extends MasterDaemon {
         }
         for (Map.Entry<String, CapturedQuery> entry
                 : new ArrayList<>(failedCaptureQueue.entrySet())) {
-            String queryId = entry.getKey();
-            if (scannedQueryIds.contains(queryId)) {
+            String retryKey = entry.getKey();
+            if (scannedQueryIds.contains(retryKey)) {
                 continue; // already retried by this cycle's page
             }
-            failedCaptureQueue.remove(queryId);
+            failedCaptureQueue.remove(retryKey);
             handleCandidate(entry.getValue());
-            if (processedQueryIds.containsKey(queryId)) {
+            if (processedQueryIds.containsKey(retryKey)) {
                 // consumed elsewhere (e.g. by the page): never replay it again
-                failedCaptureQueue.remove(queryId);
-                failedCaptureAttempts.remove(queryId);
+                failedCaptureQueue.remove(retryKey);
+                failedCaptureAttempts.remove(retryKey);
             }
         }
     }
@@ -578,21 +637,27 @@ public class PlanCaptureManager extends MasterDaemon {
      * advances one page per daemon cycle, so a leader handoff / FE restart near T+3h would
      * start at [T, T+3h) and permanently exclude the unconsumed tail - the later overlap is
      * relative to the NEW watermark and cannot recover it.
+     *
+     * @return true when the checkpoint state is CONFIRMED for this cycle (read succeeded,
+     *         nothing to load, progress already exists, or persistence is disabled);
+     *         false when the read FAILED - the caller must abort the cycle because
+     *         persisting a freshly derived window would overwrite the previous leader's
+     *         unconsumed tail before it could be read
      */
-    private void loadCheckpointIfNeeded() {
+    private boolean loadCheckpointIfNeeded() {
         if (checkpointLoaded || !checkpointPersistenceEnabled()) {
-            return;
+            return true;
         }
         if (lastScanTimestamp != 0 || pendingWindowEnd > 0
                 || cursorQueryTime != AuditLogScanner.CURSOR_ABSENT) {
             checkpointLoaded = true; // progress already exists (e.g. a unit test): never override it
-            return;
+            return true;
         }
         try {
             List<ResultRow> rows = checkpointReader.get();
             if (rows == null || rows.isEmpty()) {
                 checkpointLoaded = true; // a successful read with no row yet
-                return;
+                return true;
             }
             applyCheckpointRow(rows.get(0));
             checkpointLoaded = true; // only a SUCCESSFUL read consumes the checkpoint
@@ -602,6 +667,7 @@ public class PlanCaptureManager extends MasterDaemon {
                                 + " pending=[{}, {}), cursorQueryTime={}",
                         lastScanTimestamp, pendingWindowStart, pendingWindowEnd, cursorQueryTime);
             }
+            return true;
         } catch (Exception e) {
             // Keep checkpointLoaded FALSE: the internal-schema initializer is asynchronous
             // (and a BE / tablet may not be ready yet), so this read can fail before the
@@ -610,6 +676,7 @@ public class PlanCaptureManager extends MasterDaemon {
             // previous leader's unconsumed tail. The next cycle retries.
             LOG.warn("SPM capture checkpoint read failed (will retry next cycle): {}",
                     e.getMessage());
+            return false;
         }
     }
 
@@ -622,6 +689,22 @@ public class PlanCaptureManager extends MasterDaemon {
         cursorQueryTime = parseLongValue(row.get(3));
         cursorTime = row.get(4) == null ? "" : row.get(4);
         cursorQueryId = row.get(5) == null ? "" : row.get(5);
+        // the tail column is APPENDED to the SELECT list: rows written by an older FE
+        // (or fabricated by tests) carry fewer values
+        cursorTail = row.getValues().size() > 8 && row.get(8) != null ? row.get(8) : "";
+        if (cursorQueryTime != AuditLogScanner.CURSOR_ABSENT && cursorTail.isEmpty()) {
+            // Legacy row: a cursor exists but its tail does not (the column predates it).
+            // The (time, query_time, query_id) prefix alone cannot always make progress
+            // - a page whose rows share a NULL query_id loops forever / skips the rest -
+            // so the partial cursor is NOT trusted: reset it and re-scan the pending
+            // window from its top. Captures are idempotent (query-id dedup + baseline
+            // dedup by digest / planSql), so the re-read cannot double-capture.
+            LOG.warn("SPM capture checkpoint cursor has no tail (legacy row);"
+                    + " re-scanning the pending window from the top");
+            cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
+            cursorTime = "";
+            cursorQueryId = "";
+        }
         failedCaptureAttempts.clear();
         failedCaptureAttempts.putAll(decodeFailedAttempts(row.get(6)));
         failedCaptureQueue.clear();
@@ -655,6 +738,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 retriesTruncated ? pageStartCursorQueryTime : cursorQueryTime;
         String durableCursorTime = retriesTruncated ? pageStartCursorTime : cursorTime;
         String durableCursorQueryId = retriesTruncated ? pageStartCursorQueryId : cursorQueryId;
+        String durableCursorTail = retriesTruncated ? pageStartCursorTail : cursorTail;
         if (retriesTruncated) {
             LOG.warn("SPM capture retry state (retry queue {}, failed attempts {}) exceeds the"
                             + " durable checkpoint budget ({} entries); persisting the pre-page"
@@ -670,6 +754,8 @@ public class PlanCaptureManager extends MasterDaemon {
                 StatisticsUtil.escapeSQL(durableCursorTime == null ? "" : durableCursorTime));
         params.put("cursorQueryId",
                 StatisticsUtil.escapeSQL(durableCursorQueryId == null ? "" : durableCursorQueryId));
+        params.put("cursorTail",
+                StatisticsUtil.escapeSQL(durableCursorTail == null ? "" : durableCursorTail));
         params.put("failedAttempts",
                 StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
         params.put("retryQueue",
@@ -848,6 +934,23 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
+     * Minimum scan-window overlap: the greater of the base five minutes and TWO audit
+     * loader batch intervals ({@code audit_plugin_max_batch_interval_sec}). The loader
+     * publishes rows asynchronously in batches, so a row can become visible up to one
+     * (worst case two) full loader intervals after its event time; the overlap must
+     * cover that publication lag, otherwise a row whose event time is newer than the
+     * new watermark (or older than the cursor -- see AuditLogScanner#ORDER_BY, which
+     * sorts by event time) is reachable only while its window is still being scanned.
+     *
+     * @param auditBatchIntervalSec the configured audit loader batch interval (seconds)
+     * @return the overlap in milliseconds (never less than {@link #SCAN_WINDOW_OVERLAP_MS})
+     */
+    static long scanWindowOverlapMs(long auditBatchIntervalSec) {
+        long batchMs = Math.max(0L, auditBatchIntervalSec) * 1000L;
+        return Math.max(SCAN_WINDOW_OVERLAP_MS, 2 * batchMs);
+    }
+
+    /**
      * Resolves the (start, end) window the next capture cycle scans.
      *
      * A truncated cycle leaves {@code pendingStart/pendingEnd} set: the SAME window is
@@ -883,12 +986,14 @@ public class PlanCaptureManager extends MasterDaemon {
         cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
         cursorTime = "";
         cursorQueryId = "";
+        cursorTail = "";
         pageStartLastScanTimestamp = 0;
         pageStartWindowStart = 0;
         pageStartWindowEnd = 0;
         pageStartCursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
         pageStartCursorTime = "";
         pageStartCursorQueryId = "";
+        pageStartCursorTail = "";
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
@@ -951,13 +1056,13 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * For tests: the live checkpoint fields
-     * (lastScan, pendingStart, pendingEnd, cursorQueryTime, cursorTime, cursorQueryId).
+     * For tests: the live checkpoint fields (lastScan, pendingStart, pendingEnd,
+     * cursorQueryTime, cursorTime, cursorQueryId, cursorTail).
      */
     @VisibleForTesting
     public Object[] checkpointFieldsForTest() {
         return new Object[] {lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
-                cursorQueryTime, cursorTime, cursorQueryId};
+                cursorQueryTime, cursorTime, cursorQueryId, cursorTail};
     }
 
     /**
@@ -1047,6 +1152,22 @@ public class PlanCaptureManager extends MasterDaemon {
             long pageStartCursorQueryTime, String pageStartCursorTime,
             String pageStartCursorQueryId, int failedQueueEntries, long lastScanTimestamp,
             long cursorQueryTime, String cursorTime, String cursorQueryId) {
+        seedCheckpointStateForTest(windowStart, windowEnd, pageStartCursorQueryTime,
+                pageStartCursorTime, pageStartCursorQueryId, failedQueueEntries,
+                lastScanTimestamp, cursorQueryTime, cursorTime, cursorQueryId, "", "");
+    }
+
+    /**
+     * For tests: same as the ten-argument overload, with explicit cursor tails (the
+     * durable tail must fall back to the PRE-PAGE tail exactly like the other cursor
+     * fields when the retry state was truncated).
+     */
+    @VisibleForTesting
+    public void seedCheckpointStateForTest(long windowStart, long windowEnd,
+            long pageStartCursorQueryTime, String pageStartCursorTime,
+            String pageStartCursorQueryId, int failedQueueEntries, long lastScanTimestamp,
+            long cursorQueryTime, String cursorTime, String cursorQueryId,
+            String pageStartCursorTail, String cursorTail) {
         for (int i = 0; i < failedQueueEntries; i++) {
             failedCaptureAttempts.put("seed-failed-" + i, 1);
             failedCaptureQueue.put("seed-failed-" + i,
@@ -1059,11 +1180,13 @@ public class PlanCaptureManager extends MasterDaemon {
         this.pageStartCursorQueryTime = pageStartCursorQueryTime;
         this.pageStartCursorTime = pageStartCursorTime;
         this.pageStartCursorQueryId = pageStartCursorQueryId;
+        this.pageStartCursorTail = pageStartCursorTail;
         this.pendingWindowStart = windowStart;
         this.pendingWindowEnd = windowEnd;
         this.lastScanTimestamp = lastScanTimestamp;
         this.cursorQueryTime = cursorQueryTime;
         this.cursorTime = cursorTime;
         this.cursorQueryId = cursorQueryId;
+        this.cursorTail = cursorTail;
     }
 }

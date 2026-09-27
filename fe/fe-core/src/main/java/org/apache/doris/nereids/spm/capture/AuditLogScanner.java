@@ -23,11 +23,15 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,10 +48,10 @@ import java.util.Map;
  * databases is a DIFFERENT query for SPM (its eventual match key is namespace-qualified),
  * so the database / catalog must take part in the dedup key.
  *
- * Pagination: the batch LIMIT is applied with a stable (query_time, time, query_id)
- * cursor. The caller resumes from the returned cursor until a batch comes back shorter
- * than the limit (window exhausted); advancing the window past a truncated batch would
- * permanently skip every eligible row beyond the LIMIT.
+ * Pagination: the batch LIMIT is applied with a stable total-order cursor (see
+ * {@link #ORDER_BY}); the caller resumes from the returned cursor until a batch comes
+ * back shorter than the limit (window exhausted); advancing the window past a truncated
+ * batch would permanently skip every eligible row beyond the LIMIT.
  */
 public class AuditLogScanner {
 
@@ -72,11 +76,133 @@ public class AuditLogScanner {
     /** audit_log SELECT columns (order must match rowToCapturedQuery / toBatch). */
     private static final String SELECT_COLUMNS =
             "`stmt`, `query_time`, `scan_rows`, `return_rows`, `sql_digest`, `sql_hash`, `db`, `catalog`,"
-                    + " `query_id`, `is_internal`, `time`, `sql_mode`";
+                    + " `query_id`, `is_internal`, `time`, `sql_mode`, `client_ip`, md5(`stmt`)";
+
+    /**
+     * Canonical name of the row-content hash pseudo column (the last ORDER BY / cursor
+     * tie breaker). Auditing rows that agree on EVERY ordered key are content-duplicates
+     * (same statement, same client, same metrics), so skipping extra copies of such a
+     * content class is safe: capture dedupes by (catalog, db, digest) anyway.
+     */
+    private static final String STMT_HASH_EXPR = "md5(`stmt`)";
+
+    /**
+     * Total order of the scan / cursor. The row-EVENT time is the FIRST key (with
+     * query_id / client_ip / metrics / statement hash as durable tie breakers): the
+     * audit loader writes rows asynchronously with the ORIGINAL event time, so a row
+     * published after page 1 can carry an event time OLDER than the current cursor -
+     * under the previous query_time-first order it sorted BEFORE the cursor and every
+     * resumed page skipped it forever. With the event time leading, an older-event-time
+     * row sorts AFTER the cursor and the resumed pages reach it; a row whose event time
+     * is newer than the cursor is picked up by the window overlap (see
+     * PlanCaptureManager#scanWindowOverlapMs, which follows the loader's configured
+     * batch interval).
+     */
+    private static final String ORDER_BY =
+            " ORDER BY `time` DESC, `query_time` DESC, `query_id` DESC, `client_ip` DESC,"
+                    + " `sql_hash` DESC, `scan_rows` DESC, `return_rows` DESC, " + STMT_HASH_EXPR
+                    + " DESC ";
+
+    /**
+     * Tail of the pagination cursor AFTER (query_time, time, query_id): client_ip,
+     * sql_hash, scan_rows, return_rows and the statement hash. The audit table is a
+     * DUPLICATE KEY table whose key omits client_ip, and the raw ORDER BY has NO
+     * genuinely unique column: without the tail, rows sharing the first three keys made
+     * the resume predicate either re-select the whole (NULL query_id) group forever or
+     * skip the remaining duplicates after the first LIMIT. The tail is persisted with
+     * the checkpoint (see PlanCaptureManager#cursorTail) so a restarted / handed-off
+     * leader resumes exactly after the last consumed row.
+     */
+    public static final class CursorTail {
+        private final String clientIp;
+        private final String sqlHash;
+        private final String scanRows;
+        private final String returnRows;
+        private final String stmtHash;
+
+        CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
+                String stmtHash) {
+            this.clientIp = clientIp;
+            this.sqlHash = sqlHash;
+            this.scanRows = scanRows;
+            this.returnRows = returnRows;
+            this.stmtHash = stmtHash;
+        }
+
+        String getClientIp() {
+            return clientIp;
+        }
+
+        String getSqlHash() {
+            return sqlHash;
+        }
+
+        String getScanRows() {
+            return scanRows;
+        }
+
+        String getReturnRows() {
+            return returnRows;
+        }
+
+        String getStmtHash() {
+            return stmtHash;
+        }
+    }
+
+    /** Encodes a cursor tail as a compact JSON list (null-safe; empty text = absent). */
+    public static String encodeCursorTail(CursorTail tail) {
+        if (tail == null
+                || (tail.getClientIp() == null && tail.getSqlHash() == null
+                && tail.getScanRows() == null && tail.getReturnRows() == null
+                && tail.getStmtHash() == null)) {
+            // no tail information at all (a row without the appended columns - e.g. a
+            // pre-column audit row or a fabricated test row): treat it as a PREFIX-only
+            // cursor; a JSON array of nulls would otherwise extend the resume chain with
+            // all-NULL keys and terminate it immediately.
+            return "";
+        }
+        return new Gson().toJson(Arrays.asList(tail.getClientIp(), tail.getSqlHash(),
+                tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash()));
+    }
+
+    /** Decodes a cursor tail; blank / broken / all-null text decodes to null (legacy cursor). */
+    static CursorTail decodeCursorTail(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            List<String> values = new Gson().fromJson(text,
+                    new TypeToken<List<String>>() { }.getType());
+            if (values == null || values.size() < 5) {
+                return null;
+            }
+            boolean hasAnyValue = false;
+            for (String value : values) {
+                if (value != null) {
+                    hasAnyValue = true;
+                    break;
+                }
+            }
+            if (!hasAnyValue) {
+                return null;
+            }
+            return new CursorTail(values.get(0), values.get(1), values.get(2),
+                    values.get(3), values.get(4));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Value of a column that may be missing (pre-column rows); null when out of range. */
+    private static String valueAt(ResultRow row, int index) {
+        List<String> values = row.getValues();
+        return index < values.size() ? values.get(index) : null;
+    }
 
     /**
      * Result of one audit scan: the namespace-deduplicated candidates plus the resume
-     * cursor ((query_time, time, query_id) of the last RAW row read).
+     * cursor (the full ORDER BY key tuple of the last RAW row read).
      */
     public static class ScanBatch {
         private final List<CapturedQuery> candidates;
@@ -84,14 +210,22 @@ public class AuditLogScanner {
         private final long cursorQueryTime;
         private final String cursorTime;
         private final String cursorQueryId;
+        private final String cursorTail;
 
         ScanBatch(List<CapturedQuery> candidates, boolean windowExhausted,
-                long cursorQueryTime, String cursorTime, String cursorQueryId) {
+                long cursorQueryTime, String cursorTime, String cursorQueryId,
+                String cursorTail) {
             this.candidates = candidates;
             this.windowExhausted = windowExhausted;
             this.cursorQueryTime = cursorQueryTime;
             this.cursorTime = cursorTime == null ? "" : cursorTime;
             this.cursorQueryId = cursorQueryId == null ? "" : cursorQueryId;
+            this.cursorTail = cursorTail == null ? "" : cursorTail;
+        }
+
+        ScanBatch(List<CapturedQuery> candidates, boolean windowExhausted,
+                long cursorQueryTime, String cursorTime, String cursorQueryId) {
+            this(candidates, windowExhausted, cursorQueryTime, cursorTime, cursorQueryId, "");
         }
 
         public List<CapturedQuery> getCandidates() {
@@ -114,6 +248,11 @@ public class AuditLogScanner {
         public String getCursorQueryId() {
             return cursorQueryId;
         }
+
+        /** Encoded tail of the cursor (see {@link CursorTail}); empty = absent. */
+        public String getCursorTail() {
+            return cursorTail;
+        }
     }
 
     /**
@@ -125,7 +264,7 @@ public class AuditLogScanner {
      * @return the scan batch (candidates + resume cursor)
      */
     public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize) {
-        return scan(startTimeMs, endTimeMs, maxBatchSize, CURSOR_ABSENT, "", "");
+        return scan(startTimeMs, endTimeMs, maxBatchSize, CURSOR_ABSENT, "", "", "");
     }
 
     /**
@@ -138,12 +277,35 @@ public class AuditLogScanner {
      * @param cursorQueryTime query_time of the last consumed row (CURSOR_ABSENT = start
      *                        from the top; CURSOR_QUERY_TIME_NULL = that row's value was
      *                        NULL; any other value - including 0 - is a real cursor)
-     * @param cursorTime     time (event time) of the last consumed row; empty = SQL NULL
+     * @param cursorTime     event time of the last consumed row; empty = SQL NULL
      * @param cursorQueryId  query_id of the last consumed row; empty = SQL NULL
      * @return the scan batch (candidates + resume cursor)
      */
     public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
             long cursorQueryTime, String cursorTime, String cursorQueryId) {
+        return scan(startTimeMs, endTimeMs, maxBatchSize, cursorQueryTime, cursorTime,
+                cursorQueryId, "");
+    }
+
+    /**
+     * Scans the audit_log table within the given time window, resuming after the FULL
+     * cursor tuple (see {@link CursorTail}).
+     *
+     * @param startTimeMs    window start (epoch millis, inclusive)
+     * @param endTimeMs      window end (epoch millis, exclusive)
+     * @param maxBatchSize   max number of raw rows per batch
+     * @param cursorQueryTime query_time of the last consumed row (CURSOR_ABSENT = start
+     *                        from the top; CURSOR_QUERY_TIME_NULL = that row's value was
+     *                        NULL; any other value - including 0 - is a real cursor)
+     * @param cursorTime     event time of the last consumed row; empty = SQL NULL
+     * @param cursorQueryId  query_id of the last consumed row; empty = SQL NULL
+     * @param cursorTail     encoded tail of the last consumed row (empty = legacy cursor
+     *                       without a tail: the resume predicate falls back to the
+     *                       (time, query_time, query_id) prefix)
+     * @return the scan batch (candidates + resume cursor)
+     */
+    public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
+            long cursorQueryTime, String cursorTime, String cursorQueryId, String cursorTail) {
         String start = formatTimestamp(startTimeMs);
         String end = formatTimestamp(endTimeMs);
         // defense in depth: a non-positive batch size can no longer be written through
@@ -155,7 +317,7 @@ public class AuditLogScanner {
         long minQueryTimeMs = global.getPlanCaptureMinQueryTimeMs();
         long minScanRows = global.getPlanCaptureMinScanRows();
         String sql = buildScanSql(start, end, limit, minQueryTimeMs, minScanRows,
-                cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId));
+                cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, cursorTail));
 
         List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql);
         return toBatch(rows, limit);
@@ -178,6 +340,7 @@ public class AuditLogScanner {
         long lastQueryTime = CURSOR_ABSENT;
         String lastTime = "";
         String lastQueryId = "";
+        CursorTail lastTail = null;
         for (ResultRow row : rows) {
             // the cursor always moves to the last RAW row read, even when that row is
             // unusable / filtered later: it has been consumed and must not be scanned
@@ -189,6 +352,11 @@ public class AuditLogScanner {
                     ? CURSOR_QUERY_TIME_NULL : parseLong(rawQueryTime);
             lastTime = row.getWithDefault(10, "");
             lastQueryId = row.getWithDefault(8, "");
+            // the full ORDER BY key tuple: without the tail a group of rows sharing
+            // (time, query_time, query_id) either repeated forever (NULL query_id group)
+            // or was skipped after the first LIMIT (duplicate non-NULL tuples)
+            lastTail = new CursorTail(valueAt(row, 12), valueAt(row, 5), valueAt(row, 2),
+                    valueAt(row, 3), valueAt(row, 13));
             CapturedQuery candidate = rowToCapturedQuery(row);
             if (candidate == null || candidate.getStmt() == null || candidate.getStmt().isEmpty()) {
                 continue;
@@ -205,7 +373,7 @@ public class AuditLogScanner {
             deduped.merge(key, candidate, (a, b) -> b.getQueryTimeMs() >= a.getQueryTimeMs() ? b : a);
         }
         return new ScanBatch(new ArrayList<>(deduped.values()), rows.size() < maxBatchSize,
-                lastQueryTime, lastTime, lastQueryId);
+                lastQueryTime, lastTime, lastQueryId, encodeCursorTail(lastTail));
     }
 
     /**
@@ -228,8 +396,9 @@ public class AuditLogScanner {
 
     /**
      * Builds the audit_log scan SQL with an optional resume-cursor predicate. The ORDER
-     * BY defines the stable total order the cursor walks:
-     * (query_time DESC, time DESC, query_id DESC).
+     * BY defines the stable total order the cursor walks (see {@link #ORDER_BY}): the
+     * row EVENT time first, then every remaining identity / metric key as a durable tie
+     * breaker.
      *
      * @param start           window start timestamp (formatted)
      * @param end             window end timestamp (formatted)
@@ -249,63 +418,90 @@ public class AuditLogScanner {
                 + " OR `scan_rows` >= " + minScanRows + ") "
                 + "AND `is_internal` = false "
                 + (cursorPredicate == null ? "" : cursorPredicate)
-                + " ORDER BY `query_time` DESC, `time` DESC, `query_id` DESC "
+                + ORDER_BY
                 + "LIMIT " + maxBatchSize;
     }
 
     /**
-     * Resume-cursor predicate of the (query_time, time, query_id) total order: strictly
-     * "after" the last consumed row, so a truncated batch continues exactly where it
-     * stopped without re-reading or skipping rows.
+     * Resume-cursor predicate of the scan total order (see {@link #ORDER_BY}): strictly
+     * "after" the last consumed row in EVERY ordered key, so a truncated batch continues
+     * exactly where it stopped. Presence is decided SOLELY by the CURSOR_ABSENT sentinel:
+     * the key columns are nullable and an empty value means SQL NULL (NOT "no cursor").
      *
-     * Presence is decided SOLELY by the CURSOR_ABSENT sentinel: query_time, time and
-     * query_id are all nullable, and an empty value means SQL NULL (NOT "no cursor").
-     * Treating an empty time / query_id as "no cursor" restarted a truncated window at its
-     * FIRST page on every cycle, so a full page whose last raw row carried a NULL
-     * tie-breaker never reached the later eligible rows. NULL is therefore encoded
-     * explicitly: NULLs are the LAST value of their key under DESC, which is exactly what
-     * the raw scan ORDER BY produces.
+     * <p>NULL means "largest value" under DESC (NULLS LAST), so entering a NULL group is
+     * expressed through IS NULL and the chain continues with the next key. When the LAST
+     * key is NULL the remaining rows of the group agree on every ordered column - they
+     * are content duplicates of the cursor row (same event time, same query id, same
+     * client, same statement hash, ...), and capture dedupes by (catalog, db, digest), so
+     * the predicate stops there ("1 = 0") instead of re-selecting the group forever
+     * (which is what the old query_id-only predicate did for NULL query ids).
      */
     static String cursorPredicate(long cursorQueryTime, String cursorTime, String cursorQueryId) {
+        return cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, "");
+    }
+
+    /**
+     * Resume-cursor predicate with the full cursor tail (see {@link CursorTail}); a blank
+     * tail (legacy cursor) falls back to the (time, query_time, query_id) prefix.
+     */
+    static String cursorPredicate(long cursorQueryTime, String cursorTime, String cursorQueryId,
+            String cursorTail) {
         if (cursorQueryTime == CURSOR_ABSENT) {
             return "";
         }
-        String strictlyAfterTime = strictlyAfterTime(cursorTime, cursorQueryId);
-        if (cursorQueryTime == CURSOR_QUERY_TIME_NULL) {
-            return " AND (`query_time` IS NULL AND " + strictlyAfterTime + ") ";
+        List<CursorKey> keys = new ArrayList<>();
+        keys.add(new CursorKey("`time`", emptyToNull(cursorTime), false));
+        keys.add(new CursorKey("`query_time`",
+                cursorQueryTime == CURSOR_QUERY_TIME_NULL ? null : String.valueOf(cursorQueryTime),
+                true));
+        keys.add(new CursorKey("`query_id`", emptyToNull(cursorQueryId), false));
+        CursorTail tail = decodeCursorTail(cursorTail);
+        if (tail != null) {
+            keys.add(new CursorKey("`client_ip`", emptyToNull(tail.getClientIp()), false));
+            keys.add(new CursorKey("`sql_hash`", emptyToNull(tail.getSqlHash()), false));
+            keys.add(new CursorKey("`scan_rows`", emptyToNull(tail.getScanRows()), true));
+            keys.add(new CursorKey("`return_rows`", emptyToNull(tail.getReturnRows()), true));
+            keys.add(new CursorKey(STMT_HASH_EXPR, emptyToNull(tail.getStmtHash()), false));
         }
-        return " AND (`query_time` < " + cursorQueryTime
-                + " OR `query_time` IS NULL"
-                + " OR (`query_time` = " + cursorQueryTime
-                + " AND " + strictlyAfterTime + ")) ";
+        return " AND (" + renderAfter(keys, 0) + ") ";
     }
 
-    /**
-     * Strictly-after predicate of the (time, query_id) tail of the total order. A NULL
-     * time is the LAST time under DESC, so its group is entered through IS NULL and
-     * ordered by the query_id predicate; a non-NULL time keeps the three-valued shape
-     * (smaller value, then NULL, then the equal-time group).
-     */
-    private static String strictlyAfterTime(String cursorTime, String cursorQueryId) {
-        if (cursorTime == null || cursorTime.isEmpty()) {
-            return "(`time` IS NULL AND " + strictlyAfterQueryId(cursorQueryId) + ")";
+    /** One ordered key of the cursor: rendered expression, raw value (null = SQL NULL). */
+    private static final class CursorKey {
+        private final String expr;
+        private final String value;
+        private final boolean numeric;
+
+        private CursorKey(String expr, String value, boolean numeric) {
+            this.expr = expr;
+            this.value = value;
+            this.numeric = numeric;
         }
-        String time = escapeSQLString(cursorTime);
-        return "(`time` < '" + time
-                + "' OR `time` IS NULL"
-                + " OR (`time` = '" + time + "' AND " + strictlyAfterQueryId(cursorQueryId) + "))";
     }
 
-    /**
-     * Strictly-after predicate of the query_id tail. A NULL query_id is the LAST value of
-     * its (query_time, time) group: the group's NULL-query_id rows continue after the
-     * cursor (the cursor row itself is re-read once and deduplicated by query id).
-     */
-    private static String strictlyAfterQueryId(String cursorQueryId) {
-        if (cursorQueryId == null || cursorQueryId.isEmpty()) {
-            return "`query_id` IS NULL";
+    /** Renders the strictly-after chain for keys[i..]; see {@link #cursorPredicate}. */
+    private static String renderAfter(List<CursorKey> keys, int index) {
+        if (index >= keys.size()) {
+            return "1 = 1";
         }
-        return "`query_id` < '" + escapeSQLString(cursorQueryId) + "'";
+        CursorKey key = keys.get(index);
+        if (key.value == null) {
+            if (index == keys.size() - 1) {
+                // every ordered column agrees with the cursor row: content duplicate
+                return "1 = 0";
+            }
+            return "(" + key.expr + " IS NULL AND " + renderAfter(keys, index + 1) + ")";
+        }
+        String value = key.numeric ? key.value : "'" + escapeSQLString(key.value) + "'";
+        if (index == keys.size() - 1) {
+            return "(" + key.expr + " < " + value + " OR " + key.expr + " IS NULL)";
+        }
+        return "(" + key.expr + " < " + value + " OR " + key.expr + " IS NULL"
+                + " OR (" + key.expr + " = " + value + " AND " + renderAfter(keys, index + 1) + "))";
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isEmpty() ? null : value;
     }
 
     private static String escapeSQLString(String value) {

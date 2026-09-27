@@ -305,9 +305,13 @@ public class InternalSchema {
                 ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
 
         // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
-        // the (query_time, time, query_id) cursor and the retry state survive a leader
-        // handoff / FE restart. JSON text for the two maps keeps the encoding trivial and
-        // bounded (the writer caps the entry count).
+        // the FULL cursor (time, query_time, query_id + the encoded tie-breaker tail)
+        // and the retry state survive a leader handoff / FE restart. JSON text for the
+        // two maps keeps the encoding trivial and bounded (the writer caps the entry
+        // count). cursor_tail is the JSON tail of the ORDER BY key tuple (see
+        // AuditLogScanner#CursorTail): it keeps rows sharing (time, query_time,
+        // query_id) - e.g. a page of NULL query ids - from looping or being skipped
+        // after a handoff; a legacy row without it re-scans its pending window.
         SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
@@ -323,6 +327,8 @@ public class InternalSchema {
                 ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_query_id",
                 ScalarType.createVarchar(1024), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("cursor_tail",
+                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("failed_attempts",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("retry_queue",

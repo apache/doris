@@ -1433,6 +1433,27 @@ public class BaselineManager {
         // tree for such a row - after a reload the replay would return the CAPTURED
         // literals and the fallback tree was gone.
         boolean frozen = SPMPlanner.isFrozenPlanSql(planSql, p.getPlanFrozen());
+        if (!frozen && Boolean.FALSE.equals(p.getPlanFrozen())
+                && SPMPlanner.isFrozenPlanSql(planSql, null)) {
+            // A row explicitly flagged NOT frozen whose planSql nonetheless re-parses
+            // into REAL placeholder calls (not a mere literal / identifier carrying the
+            // name - that is exactly what the flag was added to protect against): the
+            // text is SPM's own decompiled rendering and the flag is stale. Pre-provenance
+            // rows migrated with a default flag, and older releases recorded false for a
+            // successful marker-free decompile (see SPMPlanner#buildBaselineFromSql).
+            // Replaying such a row through the parameterized fallback tree would also be
+            // WRONG: the tree is rebuilt from an ALREADY parameterized text, so the
+            // reconstructed placeholder ids no longer line up with the values extracted
+            // from the bind tree, the residue safety net rejects the rewrite and the
+            // baseline silently never applies. Treat the TEXT as the authority here.
+            LOG.warn("SPM baseline {} is flagged NOT frozen but its planSql re-parses into"
+                    + " placeholder calls; treating the row as frozen", p.getId());
+            frozen = true;
+            // keep the in-memory provenance consistent with the decision: the rewrite
+            // path re-checks planFrozen (SPMPlanner#rewriteFromFrozenTree) and would
+            // otherwise reject the very text this row depends on
+            p.setPlanFrozen(Boolean.TRUE);
+        }
         // Rebuild the transient trees with ONE shared builder over both texts in
         // the CREATE order (bind first, then plan), so the placeholder ids of the
         // two trees stay aligned and a value extracted from the bind tree can
