@@ -258,6 +258,15 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
     _key_range_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsKeyRangeFiltered", TUnit::UNIT);
+    _global_point_index_gate_timer = ADD_TIMER(_segment_profile, "GlobalPointIndexGateTime");
+    _global_point_index_rowsets_filtered_counter =
+            ADD_COUNTER(_segment_profile, "GlobalPointIndexRowsetsFiltered", TUnit::UNIT);
+    _global_point_index_rowsets_probed_counter =
+            ADD_COUNTER(_segment_profile, "GlobalPointIndexRowsetsProbed", TUnit::UNIT);
+    _global_point_index_bytes_read_counter =
+            ADD_COUNTER(_segment_profile, "GlobalPointIndexBytesRead", TUnit::BYTES);
+    _global_point_index_degraded_counter =
+            ADD_COUNTER(_segment_profile, "GlobalPointIndexDegraded", TUnit::UNIT);
 
     _io_timer = ADD_TIMER(_segment_profile, "IOTimer");
     _decompressor_timer = ADD_TIMER(_segment_profile, "DecompressorTimer");

@@ -1997,6 +1997,10 @@ DECLARE_mInt64(global_point_index_max_write_path_bloom_bytes);
 // Tolerance of the bloom sizing self-check, in percent of the bits per key the bloom's own fpp
 // needs. 0 or less disables the check.
 DECLARE_mInt32(global_point_index_bloom_size_slack_percent);
+// Scan-time gate: before opening the segments of a rowset, test its GLOBAL_POINT blooms against
+// EQ/IN predicates and skip the rowset on a definite miss. Read-path only; turning it off has no
+// effect on stored data.
+DECLARE_mBool(enable_global_point_index_scan_gate);
 
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 

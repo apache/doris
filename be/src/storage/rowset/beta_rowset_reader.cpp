@@ -27,6 +27,7 @@
 #include <string>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -36,6 +37,7 @@
 #include "runtime/runtime_profile.h"
 #include "storage/binlog.h"
 #include "storage/delete/delete_handler.h"
+#include "storage/index/global_point/global_point_index_reader.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -257,6 +259,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     bool should_use_cache = use_cache || (_read_context->reader_type == ReaderType::READER_QUERY &&
                                           enable_segment_cache);
 
+    // One GLOBAL_POINT bloom covers all segments of the rowset, so a definite miss skips the
+    // whole rowset before any segment is opened.
+    bool skip_by_global_point_index = false;
+    RETURN_IF_ERROR(_global_point_index_gate(&skip_by_global_point_index));
+    if (skip_by_global_point_index) {
+        return Status::OK();
+    }
+
     auto segment_count = _rowset->num_segments();
     auto [seg_start, seg_end] = _segment_offsets;
     // If seg_start == seg_end, it means that the segments of a rowset is not
@@ -310,6 +320,79 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         out_iters->push_back(std::move(iter));
     }
 
+    return Status::OK();
+}
+
+Status BetaRowsetReader::_global_point_index_gate(bool* skip) {
+    *skip = false;
+    const auto& descs = _rowset->rowset_meta()->point_query_indexes();
+    if (!config::enable_global_point_index_scan_gate || descs.empty() ||
+        _read_context->read_schema == nullptr || _read_options.col_id_to_predicates.empty()) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_stats->global_point_index_gate_ns);
+
+    // The descriptors describe this rowset's own data, so they are usable whatever schema
+    // changes happened since. Rowsets without a descriptor are simply scanned.
+    bool probed_any = false;
+    for (const auto& desc : descs) {
+        int32_t ordinal = _read_context->read_schema->ordinal_by_uid(desc.column_unique_id());
+        if (ordinal < 0) {
+            continue;
+        }
+        auto pred_it = _read_options.col_id_to_predicates.find(ordinal);
+        if (pred_it == _read_options.col_id_to_predicates.end()) {
+            continue;
+        }
+        auto& predicates = pred_it->second;
+        // Only predicates that can be tested against a bloom filter (EQ, IN) are used.
+        if (!predicates->can_do_bloom_filter(/*ngram*/ false)) {
+            continue;
+        }
+        // From here on, anything that prevents a reliable answer means the rowset is scanned.
+        auto path_result = _rowset->global_point_index_path(desc.column_unique_id());
+        if (!path_result.has_value()) {
+            _stats->global_point_index_degraded++;
+            continue;
+        }
+
+        std::unique_ptr<segment_v2::BloomFilter> bloom;
+        int64_t bytes_read = 0;
+        // Read through the INDEX queue of the file cache. The TTL must be cleared: it takes
+        // precedence over is_index_data, and would move the block to the TTL queue.
+        io::IOContext io_ctx = _read_options.io_ctx;
+        io_ctx.is_index_data = true;
+        io_ctx.expiration_time = 0;
+        auto reader_opts = _rowset->global_point_index_reader_options(desc);
+        RETURN_IF_ERROR(segment_v2::try_load_global_point_index(_rowset->rowset_meta()->fs(),
+                                                                path_result.value(), desc, &io_ctx,
+                                                                &bloom, &bytes_read, &reader_opts));
+        _stats->global_point_index_bytes_read += bytes_read;
+        if (bloom == nullptr) {
+            _stats->global_point_index_degraded++;
+            continue;
+        }
+        // A bloom that was never fed is a valid, all-zero file and would answer "absent" for
+        // every value. If the rowset has rows but the descriptor recorded neither a value nor a
+        // null, do not trust it.
+        if (desc.total_rows() == 0 && !bloom->has_null() &&
+            _rowset->rowset_meta()->num_rows() > 0) {
+            _stats->global_point_index_degraded++;
+            continue;
+        }
+
+        probed_any = true;
+        if (!predicates->evaluate_and(bloom.get())) {
+            *skip = true;
+            _stats->rowsets_global_point_index_filtered++;
+            return Status::OK();
+        }
+    }
+
+    if (probed_any) {
+        _stats->rowsets_global_point_index_probed++;
+    }
     return Status::OK();
 }
 

@@ -208,6 +208,12 @@ private:
     RuntimeProfile::Counter* _conditions_filtered_counter = nullptr;
     RuntimeProfile::Counter* _key_range_filtered_counter = nullptr;
 
+    RuntimeProfile::Counter* _global_point_index_gate_timer = nullptr;
+    RuntimeProfile::Counter* _global_point_index_rowsets_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _global_point_index_rowsets_probed_counter = nullptr;
+    RuntimeProfile::Counter* _global_point_index_bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _global_point_index_degraded_counter = nullptr;
+
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _sync_rowset_timer = nullptr;

@@ -1968,6 +1968,7 @@ DEFINE_mInt32(global_point_index_expected_blooms_per_tablet, "5");
 DEFINE_mInt64(global_point_index_write_path_estimated_rows, "1000000");
 DEFINE_mInt64(global_point_index_max_write_path_bloom_bytes, "262144");
 DEFINE_mInt32(global_point_index_bloom_size_slack_percent, "50");
+DEFINE_mBool(enable_global_point_index_scan_gate, "true");
 
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
