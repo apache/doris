@@ -19,11 +19,14 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableTest;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
@@ -35,18 +38,22 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -293,6 +300,22 @@ public class ExpressionUtilsTest extends TestWithFeService {
         Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeBitmap);
         unnest = new Unnest(bitmapArg, false, true);
         Assertions.assertTrue(ExpressionUtils.convertUnnest(unnest) instanceof ExplodeBitmapOuter);
+    }
+
+    @Test
+    public void testIsNullPropagating() {
+        CascadesContext context = createCascadesContext("select 1");
+        SlotReference column = new SlotReference("c", StringType.INSTANCE, true, Lists.newArrayList());
+        StringLiteral term = new StringLiteral("x");
+        Assertions.assertTrue(ExpressionUtils.isNullPropagating(column, context));
+        Assertions.assertTrue(ExpressionUtils.isNullPropagating(new MatchAny(column, term), context));
+        Assertions.assertTrue(ExpressionUtils.isNullPropagating(
+                new MatchAny(new Cast(new ElementAt(column, term), StringType.INSTANCE), term), context));
+        // nvl turns a NULL input into a value, so the MATCH above it is not NULL for NULL input.
+        Assertions.assertFalse(ExpressionUtils.isNullPropagating(
+                new MatchAny(new Nvl(column, term), term), context));
+        // Without an input slot the value does not depend on the NULL-extended row at all.
+        Assertions.assertFalse(ExpressionUtils.isNullPropagating(new MatchAny(term, term), context));
     }
 
     private void assertExpect(List<? extends Expression> originalExpressions,

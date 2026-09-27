@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SearchDslParser.QsFieldBinding;
 import org.apache.doris.analysis.SearchDslParser.QsNode;
 import org.apache.doris.analysis.SearchDslParser.QsOccur;
 import org.apache.doris.analysis.SearchDslParser.QsPlan;
+import org.apache.doris.common.Pair;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -2813,5 +2814,43 @@ public class SearchDslParserTest {
         }
         Assertions.assertTrue(foundMatchAllWithMust,
                 "Should contain MATCH_ALL_DOCS node with MUST occur");
+    }
+
+    private void assertFieldReference(String reference, String path, String analyzer) {
+        Pair<String, String> result = SearchDslParser.splitAnalyzerSelector(reference);
+        Assertions.assertEquals(path, result.first, reference);
+        Assertions.assertEquals(analyzer, result.second, reference);
+    }
+
+    @Test
+    public void testAnalyzerSelectorIsSyntactic() {
+        assertFieldReference("title", "title", null);
+        assertFieldReference("title@exact", "title", "exact");
+        assertFieldReference("v.name@exact", "v.name", "exact");
+        // Only the last unescaped @ is the selector.
+        assertFieldReference("a@b@exact", "a@b", "exact");
+        // Escaped @ (also produced for quoted segments) is part of the name.
+        assertFieldReference("name\\@literal", "name@literal", null);
+        assertFieldReference("name\\@literal@exact", "name@literal", "exact");
+        assertFieldReference("name\\\\@exact", "name\\\\", "exact");
+        // An @ that starts a path segment cannot follow a field, so it is part of the name.
+        assertFieldReference("@timestamp", "@timestamp", null);
+        assertFieldReference("v.@timestamp", "v.@timestamp", null);
+        assertFieldReference("v.@timestamp@exact", "v.@timestamp", "exact");
+        Assertions.assertThrows(SearchDslParser.SearchDslSyntaxException.class,
+                () -> SearchDslParser.splitAnalyzerSelector("title@"));
+    }
+
+    @Test
+    public void testQuotedAtSignIsNotAnalyzerSelector() {
+        QsPlan quoted = SearchDslParser.parseDsl("\"name@literal\":john");
+        assertFieldReference(quoted.getFieldBindings().get(0).getFieldName(), "name@literal", null);
+
+        // An @ that is already escaped inside the quotes is not escaped twice.
+        QsPlan escaped = SearchDslParser.parseDsl("\"name\\@literal\":john");
+        assertFieldReference(escaped.getFieldBindings().get(0).getFieldName(), "name@literal", null);
+
+        QsPlan unquoted = SearchDslParser.parseDsl("name@literal:john");
+        assertFieldReference(unquoted.getFieldBindings().get(0).getFieldName(), "name", "literal");
     }
 }

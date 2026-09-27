@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
@@ -142,7 +144,7 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
     private Plan pushDownFilterExpressions(MatchingContext<LogicalFilter<LogicalJoin<Plan, Plan>>> ctx) {
         LogicalFilter<LogicalJoin<Plan, Plan>> filter = ctx.root;
         LogicalJoin<Plan, Plan> join = filter.child();
-        PushdownProjectHelper pushdownProjectHelper = new PushdownProjectHelper(ctx.statementContext, join);
+        PushdownProjectHelper pushdownProjectHelper = new PushdownProjectHelper(ctx.cascadesContext, join);
         Pair<Boolean, Set<Expression>> pushPredicates
                 = pushdownProjectHelper.pushDownExpressions(filter.getConjuncts());
         if (!pushPredicates.first) {
@@ -197,7 +199,7 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         LogicalProject<C> project = ctx.root;
         C child = project.child();
         PushdownProjectHelper pushdownProjectHelper
-                = new PushdownProjectHelper(ctx.statementContext, child);
+                = new PushdownProjectHelper(ctx.cascadesContext, child);
 
         Pair<Boolean, List<NamedExpression>> pushProjects
                 = pushdownProjectHelper.pushDownExpressions(project.getProjects());
@@ -341,11 +343,23 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
     private static class PushdownProjectHelper {
         private final Plan plan;
         private final StatementContext statementContext;
+        // needed to push through a join only, see canComputeInChild
+        private final CascadesContext cascadesContext;
         private final Map<Expression, Expression> oldExprToNewExpr;
         private final Multimap<Plan, NamedExpression> childToPushDownProjects;
 
+        public PushdownProjectHelper(CascadesContext cascadesContext, Plan plan) {
+            this(cascadesContext.getStatementContext(), cascadesContext, plan);
+        }
+
         public PushdownProjectHelper(StatementContext statementContext, Plan plan) {
+            this(statementContext, null, plan);
+        }
+
+        private PushdownProjectHelper(StatementContext statementContext, CascadesContext cascadesContext,
+                Plan plan) {
             this.statementContext = statementContext;
+            this.cascadesContext = cascadesContext;
             this.plan = plan;
             this.oldExprToNewExpr = new LinkedHashMap<>();
             this.childToPushDownProjects = ArrayListMultimap.create();
@@ -391,7 +405,7 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);
-                        if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                        if (child.getOutputSet().containsAll(e.getInputSlots()) && canComputeInChild(i, e)) {
                             Alias alias = new Alias(statementContext.getNextExprId(), e);
                             Slot slot = alias.toSlot();
                             childToPushDownProjects.put(child, alias);
@@ -408,6 +422,19 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             } else {
                 return Optional.empty();
             }
+        }
+
+        // A filter or project above an outer join reads NULL for rows of the NULL-extended side, so an
+        // expression computed inside that child must itself be NULL for NULL input: nvl(col, 'x') MATCH 'x'
+        // is TRUE above the join but would be padded to NULL when computed below it.
+        private boolean canComputeInChild(int childIndex, Expression expression) {
+            if (!(plan instanceof LogicalJoin)) {
+                return true;
+            }
+            LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+            boolean nullExtended = childIndex == 0 ? join.getJoinType().isLeftSideNullable()
+                    : join.getJoinType().isRightSideNullable();
+            return !nullExtended || ExpressionUtils.isNullPropagating(expression, cascadesContext);
         }
 
         public List<Plan> buildNewChildren() {
