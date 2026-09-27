@@ -3892,4 +3892,9 @@ public class Config extends ConfigBase {
             + "random-distribution tables. Covers all load types " + "uniformly.")
     public static boolean enable_adaptive_random_bucket_load = true;
 
+    @ConfField(mutable = true, description = "Default target false-positive rate of a GLOBAL_POINT index, used when "
+            + "the index is created without the fpp property. It is the budget for a whole tablet: each rowset "
+            + "bloom gets a share of it, so that probing all blooms of one tablet stays within this rate.")
+    public static double global_point_index_default_fpp = 0.01;
+
 }

@@ -171,14 +171,20 @@ public class Index implements Writable {
         return indexType == IndexType.INVERTED
                 || indexType == IndexType.NGRAM_BF
                 || indexType == IndexType.BLOOMFILTER
-                || indexType == IndexType.ANN;
+                || indexType == IndexType.ANN
+                || indexType == IndexType.GLOBAL_POINT;
     }
 
     // Whether the index can be added in light mode
     // cloud mode supports light add for bf index, ngram_bf index and non-tokenized inverted index (parser="none")
     // local mode supports light add for bf index, inverted index, ann index and ngram_bf index
+    // both modes support light add for global_point index: new rowsets build their bloom from then on,
+    // and historical rowsets are backfilled by an explicit BUILD INDEX
     // the rest of the index types do not support light add
     public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
+        if (indexType == IndexType.GLOBAL_POINT) {
+            return enableAddIndexForNewData;
+        }
         if (Config.isCloudMode()) {
             if (indexType == IndexType.INVERTED) {
                 return isInvertedIndexParserNone() && enableAddIndexForNewData;
@@ -293,7 +299,17 @@ public class Index implements Writable {
         indices = indices == null ? Collections.emptyList() : indices;
         bfColumns = bfColumns == null ? Collections.emptySet() : bfColumns;
         Set<String> bfIndexColumns = new HashSet<>();
+        Set<String> globalPointColumns = new HashSet<>();
         for (Index index : indices) {
+            if (IndexType.GLOBAL_POINT == index.getIndexType()) {
+                for (String column : index.getColumns()) {
+                    column = column.toLowerCase();
+                    if (!globalPointColumns.add(column)) {
+                        throw new AnalysisException(column + " should have only one GLOBAL_POINT index");
+                    }
+                }
+                continue;
+            }
             if (IndexType.NGRAM_BF == index.getIndexType()
                     || IndexType.BLOOMFILTER == index.getIndexType()) {
                 for (String column : index.getColumns()) {

@@ -765,6 +765,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     case TIndexType::NGRAM_BF:
         _index_type = IndexType::NGRAM_BF;
         break;
+    case TIndexType::GLOBAL_POINT:
+        _index_type = IndexType::GLOBAL_POINT;
+        break;
     }
     if (index.__isset.properties) {
         for (auto kv : index.properties) {
@@ -794,6 +797,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         break;
     case TIndexType::NGRAM_BF:
         _index_type = IndexType::NGRAM_BF;
+        break;
+    case TIndexType::GLOBAL_POINT:
+        _index_type = IndexType::GLOBAL_POINT;
         break;
     }
     if (index.__isset.properties) {
