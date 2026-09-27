@@ -655,6 +655,21 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                                           &pre_read_rows, &pre_eof, filter_map));
         if (pre_read_rows == 0) {
             DCHECK_EQ(pre_eof, true);
+            if (_cached_filtered_rows != 0) {
+                // Every predicate batch read so far was filtered whole and cached (see below), and
+                // the row group has no predicate rows left: the trailing pages were pruned by the
+                // page index. There is nothing to align the lazy columns against, so the batch ends
+                // here with the cached rows accounted. Falling through would lazy-read against the
+                // filter map of the previous iteration - a filter-all map that _rebuild_filter_map
+                // re-initializes with a null data pointer - and a nested lazy column indexes into
+                // that map (gen_filter_map) instead of asking can_filter_all() first.
+                _lazy_read_filtered_rows += _cached_filtered_rows;
+                _cached_filtered_rows = 0;
+                *read_rows = 0;
+                *batch_eof = true;
+                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block));
+                return Status::OK();
+            }
             break;
         }
         pre_raw_read_rows += pre_read_rows;

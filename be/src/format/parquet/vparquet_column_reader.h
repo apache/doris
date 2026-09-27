@@ -218,6 +218,46 @@ public:
               _chunk_meta(chunk_meta),
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
+
+    /**
+     * Project the row-level filter map of a batch onto the nested levels
+     * [level_start_idx, level_end_idx) of a complex column: level i selects the row of
+     * filter_loc, advanced by one at every top-level repetition level (rep == 0) after the first.
+     *
+     * A filter-all map is legal input and may carry no data at all: FilterMap::init(nullptr, n,
+     * true) is what RowGroupReader::_rebuild_filter_map produces for batches whose rows were all
+     * filtered by the predicate columns. Every nested value of such a batch is filtered, so the
+     * nested map is built without reading the parent's - scalar columns reach the same decision
+     * through FilterMap::can_filter_all() before touching the data, this path did not.
+     */
+    static Status gen_nested_filter_map(const FilterMap& filter_map,
+                                        const std::vector<level_t>& rep_levels, size_t filter_loc,
+                                        size_t level_start_idx, size_t level_end_idx,
+                                        std::vector<uint8_t>& nested_filter_map_data,
+                                        std::unique_ptr<FilterMap>* nested_filter_map) {
+        if (filter_map.filter_all() || filter_map.filter_map_data() == nullptr) {
+            nested_filter_map_data.assign(level_end_idx - level_start_idx, 0);
+            auto all_filtered = std::make_unique<FilterMap>();
+            RETURN_IF_ERROR(all_filtered->init(nested_filter_map_data.data(),
+                                               nested_filter_map_data.size(), true));
+            *nested_filter_map = std::move(all_filtered);
+            return Status::OK();
+        }
+        nested_filter_map_data.resize(level_end_idx - level_start_idx);
+        for (size_t idx = level_start_idx; idx < level_end_idx; idx++) {
+            if (idx != level_start_idx && rep_levels[idx] == 0) {
+                filter_loc++;
+            }
+            nested_filter_map_data[idx - level_start_idx] =
+                    filter_map.filter_map_data()[filter_loc];
+        }
+
+        auto new_filter = std::make_unique<FilterMap>();
+        RETURN_IF_ERROR(new_filter->init(nested_filter_map_data.data(),
+                                         nested_filter_map_data.size(), false));
+        *nested_filter_map = std::move(new_filter);
+        return Status::OK();
+    }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size,
                 RuntimeState* state);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
@@ -297,21 +337,8 @@ private:
     Status gen_filter_map(FilterMap& filter_map, size_t filter_loc, size_t level_start_idx,
                           size_t level_end_idx, std::vector<uint8_t>& nested_filter_map_data,
                           std::unique_ptr<FilterMap>* nested_filter_map) {
-        nested_filter_map_data.resize(level_end_idx - level_start_idx);
-        for (size_t idx = level_start_idx; idx < level_end_idx; idx++) {
-            if (idx != level_start_idx && _rep_levels[idx] == 0) {
-                filter_loc++;
-            }
-            nested_filter_map_data[idx - level_start_idx] =
-                    filter_map.filter_map_data()[filter_loc];
-        }
-
-        auto new_filter = std::make_unique<FilterMap>();
-        RETURN_IF_ERROR(new_filter->init(nested_filter_map_data.data(),
-                                         nested_filter_map_data.size(), false));
-        *nested_filter_map = std::move(new_filter);
-
-        return Status::OK();
+        return gen_nested_filter_map(filter_map, _rep_levels, filter_loc, level_start_idx,
+                                     level_end_idx, nested_filter_map_data, nested_filter_map);
     }
 
     std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
