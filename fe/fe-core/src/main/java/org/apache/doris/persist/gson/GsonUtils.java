@@ -56,6 +56,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.NumericLiteralExpr;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.SearchPredicate;
+import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
@@ -261,6 +262,7 @@ public class GsonUtils {
             .registerSubtype(EncryptKeyRef.class, EncryptKeyRef.class.getSimpleName())
             .registerSubtype(FunctionCallExpr.class, FunctionCallExpr.class.getSimpleName())
             .registerSubtype(LambdaFunctionCallExpr.class, LambdaFunctionCallExpr.class.getSimpleName())
+            .registerSubtype(ShortCircuitFunctionCallExpr.class, ShortCircuitFunctionCallExpr.class.getSimpleName())
             .registerSubtype(InformationFunction.class, InformationFunction.class.getSimpleName())
             .registerSubtype(LambdaFunctionExpr.class, LambdaFunctionExpr.class.getSimpleName())
             .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
