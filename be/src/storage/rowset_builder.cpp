@@ -36,6 +36,7 @@
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"

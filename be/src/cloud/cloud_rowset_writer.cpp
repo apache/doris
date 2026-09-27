@@ -23,6 +23,7 @@
 #include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_writer.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/rowset/rowset_factory.h"
 
 namespace doris {

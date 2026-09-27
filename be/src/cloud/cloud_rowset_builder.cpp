@@ -26,6 +26,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"

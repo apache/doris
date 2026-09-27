@@ -48,6 +48,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/olap_define.h"
