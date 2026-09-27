@@ -1854,8 +1854,8 @@ private:
     }
 };
 
-using FunctionNextDay = FunctionRelativeDay<true>;
-using FunctionPreviousDay = FunctionRelativeDay<false>;
+using FunctionNextDay = FunctionRelativeDay<false>;
+using FunctionPreviousDay = FunctionRelativeDay<true>;
 
 class FunctionTime : public IFunction {
 public:
