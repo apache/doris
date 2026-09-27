@@ -1282,6 +1282,10 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
         }
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+        // One input rowset becomes one output rowset, so its row count sizes the GLOBAL_POINT
+        // blooms. A sorting schema change may output fewer rows, which only oversizes them.
+        context.exact_row_count_for_global_point_index =
+                cast_set<int64_t>(rs_reader->rowset()->num_rows());
         bool vertical = false;
         if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
             // see VBaseSchemaChangeWithSorting::_external_sorting

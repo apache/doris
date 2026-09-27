@@ -519,6 +519,14 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
              !_tablet->enable_unique_key_merge_on_write() && !tablet()->is_row_binlog_tablet());
     rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
+
+    // This path links the input segment files instead of rewriting them, so no GLOBAL_POINT bloom
+    // is built and the output rowset has no descriptor: it is scanned until a later compaction
+    // or BUILD INDEX rebuilds one.
+    if (!_cur_tablet_schema->global_point_indexes().empty()) {
+        LOG(INFO) << "ordered data compaction output has no GLOBAL_POINT index, tablet="
+                  << _tablet->tablet_id() << ", output_version=" << _output_version;
+    }
     rowset_meta->set_commit_tso(commit_tso_range(_input_rowsets));
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
@@ -1794,6 +1802,8 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
     ctx.allow_packed_file = false;
+    // The merged row count is known, so GLOBAL_POINT blooms of the output are sized exactly.
+    ctx.exact_row_count_for_global_point_index = _input_row_num;
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -2380,6 +2390,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
     ctx.allow_packed_file = false;
+    // The merged row count is known, so GLOBAL_POINT blooms of the output are sized exactly.
+    ctx.exact_row_count_for_global_point_index = _input_row_num;
     if (_tablet->is_row_binlog_tablet()) {
         ctx.write_binlog_opt().enable = true;
     }

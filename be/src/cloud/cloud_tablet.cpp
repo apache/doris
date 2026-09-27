@@ -945,7 +945,23 @@ int64_t CloudTablet::get_cloud_base_compaction_score() const {
 int64_t CloudTablet::get_cloud_cumu_compaction_score() const {
     // TODO(plat1ko): Propose an algorithm that considers tablet's key type, number of delete rowsets,
     //  number of tablet versions simultaneously.
-    return _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+    int64_t score = _approximate_cumu_num_deltas.load(std::memory_order_relaxed);
+
+    // Each delta rowset adds a GLOBAL_POINT bloom, and a query probes every bloom of the tablet,
+    // so both the false-positive rate and the probe cost grow with the number of deltas. For
+    // tablets with such an index, raise the score once the deltas exceed
+    // config::global_point_index_expected_blooms_per_tablet, by at most 4x. Other tablets are not
+    // affected.
+    int64_t target = config::global_point_index_expected_blooms_per_tablet;
+    if (score > target && target > 0) {
+        TabletSchemaSPtr schema = tablet_schema();
+        if (schema != nullptr && !schema->global_point_indexes().empty()) {
+            double multiplier =
+                    std::min(4.0, static_cast<double>(score) / static_cast<double>(target));
+            score = static_cast<int64_t>(static_cast<double>(score) * multiplier);
+        }
+    }
+    return score;
 }
 
 // return a json string to show the compaction status of this tablet
