@@ -71,7 +71,7 @@ public:
 
 private:
     struct SniiScoringSegmentAccumulator {
-        uint64_t doc_count = 0;
+        std::unordered_map<std::wstring, uint64_t> doc_counts;
         std::unordered_map<std::wstring, uint64_t> token_counts;
         std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> term_doc_freqs;
     };
@@ -83,7 +83,7 @@ private:
     Status process_segment(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
                            io::IOContext* io_ctx);
-    Status admit_snii_scoring_segment(const std::wstring& field_name, uint64_t index_doc_count,
+    Status admit_snii_scoring_segment(const std::wstring& field_name, uint64_t indexed_doc_count,
                                       uint64_t sum_total_term_freq, bool has_positions,
                                       bool has_norms,
                                       SniiScoringSegmentAccumulator* segment_accumulator);
@@ -93,9 +93,15 @@ private:
     uint64_t get_term_doc_freq_by_col(const std::wstring& lucene_col_name,
                                       const std::wstring& term);
     uint64_t get_total_term_cnt_by_col(const std::wstring& lucene_col_name);
-    uint64_t get_doc_num() const;
+    uint64_t get_doc_num(const std::wstring& lucene_col_name) const;
 
-    uint64_t _total_num_docs = 0;
+    // Per field, the document count BM25 uses as N in idf and as the avgdl denominator.
+    // CLucene segments add their document count (the largest maxDoc among the segment's
+    // scored fields) to every field, as before per-field counts existed. SNII segments add
+    // the field's indexed (non-NULL) document count, which is what Lucene's per-field
+    // docCount means; a mostly NULL field would otherwise get a far too small avgdl and
+    // flattened idf. A field may count 0 documents.
+    std::unordered_map<std::wstring, uint64_t> _total_num_docs;
     std::unordered_map<std::wstring, uint64_t> _total_num_tokens;
     std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>> _term_doc_freqs;
 
@@ -121,8 +127,9 @@ struct SniiScoringSegmentStats {
 
 // SNII scoring requires positions (which provide term frequencies) and norms. The current writer
 // emits norms for every analyzed index with positions. Older segments without norms return
-// NOT_SUPPORTED until an index rebuild or compaction supplies them.
-Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
+// NOT_SUPPORTED until an index rebuild or compaction supplies them. The field's document count is
+// its indexed (non-NULL) document count.
+Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t indexed_doc_count,
                                                              uint64_t sum_total_term_freq,
                                                              bool has_positions, bool has_norms);
 

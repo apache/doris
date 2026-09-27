@@ -559,7 +559,8 @@ SniiIndexInput MakeIndexWithAllAuxiliarySections(MemoryReporter* reporter) {
     in.config = IndexConfig::kDocsPositions;
     in.doc_count = 3;
     in.null_docids = {2};
-    in.encoded_norms = {1, 2, 3};
+    // One norm for each non-NULL document.
+    in.encoded_norms = {1, 2};
     in.terms.push_back(MakeTerm("apple", {0, 1}, true));
     in.mem_reporter = reporter;
     return in;

@@ -111,10 +111,24 @@ NullBitmapWriter::~NullBitmapWriter() = default;
 
 void NullBitmapWriter::add_null(uint32_t docid) {
     bitmap_->add(docid);
+    optimized_ = false;
 }
 
 void NullBitmapWriter::add_many(std::span<const uint32_t> docids) {
     bitmap_->addMany(docids.size(), docids.data());
+    optimized_ = false;
+}
+
+void NullBitmapWriter::optimize_for_serialization() {
+    if (optimized_) {
+        return;
+    }
+    // NULL rows usually come in long runs (whole batches, absent VARIANT paths).
+    // Without run containers every container denser than 4096 values stays an
+    // 8 KiB bitset no matter how few runs it holds.
+    bitmap_->runOptimize();
+    bitmap_->shrinkToFit();
+    optimized_ = true;
 }
 
 uint32_t NullBitmapWriter::null_count() const {
@@ -173,15 +187,25 @@ uint64_t NullBitmapWriter::build_memory_upper_bound(std::span<const uint32_t> so
             dense_container_count * (kDenseArrayConversionBytes + kBitsetBytes +
                                      sizeof(roaring::internal::array_container_t) +
                                      sizeof(roaring::internal::bitset_container_t));
-    return sizeof(roaring::Roaring) + top_array_peak + sparse_peak + dense_peak;
+    // runOptimize converts one container at a time and frees the original after
+    // building its replacement; shrinkToFit reallocates one container at a time.
+    // A replacement is never larger than a bitset container, and the top-level
+    // shrink overlap is inside top_array_peak.
+    constexpr uint64_t kReplacementContainerPeak =
+            kBitsetBytes + std::max({sizeof(roaring::internal::array_container_t),
+                                     sizeof(roaring::internal::bitset_container_t),
+                                     sizeof(roaring::internal::run_container_t)});
+    return sizeof(roaring::Roaring) + top_array_peak + sparse_peak + dense_peak +
+           kReplacementContainerPeak;
 }
 
 Status NullBitmapWriter::serialization_sizes(uint32_t doc_count,
-                                             NullBitmapSerializationSizes* out) const {
+                                             NullBitmapSerializationSizes* out) {
     if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "null bitmap: null serialization size output");
     }
+    optimize_for_serialization();
     const size_t roaring_bytes = bitmap_->getSizeInBytes();
     const size_t prefix_bytes = varint_len(doc_count) + varint_len(roaring_bytes);
     if (roaring_bytes > std::numeric_limits<size_t>::max() - prefix_bytes) {
@@ -200,7 +224,7 @@ Status NullBitmapWriter::serialization_sizes(uint32_t doc_count,
     return Status::OK();
 }
 
-Status NullBitmapWriter::finish(uint32_t doc_count, ByteSink* sink) const {
+Status NullBitmapWriter::finish(uint32_t doc_count, ByteSink* sink) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("null bitmap: null output sink");
     }

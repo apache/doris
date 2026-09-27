@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 // SNII container and per-section on-disk contract constants.
@@ -61,6 +62,9 @@ enum class SectionType : uint8_t {
     // Core metadata so a corrupt section reference cannot reinterpret valid
     // collection statistics as document norms.
     kNormsPod = 14,
+    // BM25 norms stored only for the documents that carry one (see norms_pod.h). Readers that
+    // predate it reject the section instead of misreading it as kNormsPod.
+    kNormsSparse = 15,
 };
 
 // ---- Logical index postings storage content configuration (fixed per logical

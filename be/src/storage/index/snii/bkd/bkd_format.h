@@ -62,7 +62,7 @@ inline constexpr uint32_t kSupportedVersion = 1;
 // no shared SectionType enum for blob logical indexes, so -- exactly as
 // format::kNullBitmapSectionType (0x20) does -- this is a documented literal
 // picked outside the ranges already taken by the inverted-index sections
-// (format::SectionType, currently 1..14) and the null-bitmap POD (0x20).
+// (format::SectionType, currently 1..15) and the null-bitmap POD (0x20).
 // Framing the payload is what gives bkd_index its checksum; no section here
 // hand-rolls a crc.
 inline constexpr uint8_t kBkdIndexSectionType = 0x30;

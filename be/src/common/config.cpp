@@ -1393,6 +1393,10 @@ DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
 // merge-compacted into one (bounds the k-way merge fan-in and its open fds;
 // every run is held open for the whole merge). 0 = uncapped. Default 64.
 DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
+// Sparse SNII norms: a norms section stores bytes only for the rows that carry a norm when that
+// is smaller than one byte per row. Off writes the legacy dense layout older BEs read; readers
+// accept both layouts either way.
+DEFINE_mBool(enable_snii_sparse_norms, "true");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // The kuromoji (Japanese) analyzer
@@ -1408,10 +1412,11 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
-// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
-// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
-// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
-// scoring (score()) on those indexes then fails.
+// Norms cost one byte per segment row, including rows that hold no value for the field (SNII skips
+// those rows while enable_snii_sparse_norms is on). A segment holds one index per variant path, so
+// writing norms for them costs rows * paths bytes. Turn this on to leave norms out of every index
+// on a variant path, whatever its "norms" property says; BM25 scoring (score()) on those indexes
+// then fails.
 DEFINE_mBool(inverted_index_skip_norms_for_variant, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");

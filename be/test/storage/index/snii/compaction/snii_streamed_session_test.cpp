@@ -1055,7 +1055,10 @@ TEST(SniiStreamedWriterSessionTest, SessionOwnsMovedInputUntilContainerFinish) {
                                                              {.docid = 2, .positions = {0}}})));
     assert_ok(push_materialized(session, make_term("beta", {{.docid = 0, .positions = {1}},
                                                             {.docid = 2, .positions = {2}}})));
-    assert_ok(session->set_encoded_norms(writer::TrackedEncodedNorms({7, 11, 13, 17})));
+    // Only the non-NULL documents 0 and 2 carry a norm.
+    EXPECT_TRUE(session->set_encoded_norms(writer::TrackedEncodedNorms({7, 11, 13, 17}))
+                        .is<ErrorCode::INVALID_ARGUMENT>());
+    assert_ok(session->set_encoded_norms(writer::TrackedEncodedNorms({7, 13})));
     assert_ok(session->finish());
     assert_ok(compound.finish());
 
@@ -1070,10 +1073,13 @@ TEST(SniiStreamedWriterSessionTest, SessionOwnsMovedInputUntilContainerFinish) {
     format::NormsPodReader norms;
     assert_ok(index.open_norms(&norms));
     ASSERT_EQ(norms.doc_count(), 4U);
+    // Four documents are too few for the sparse layout to be smaller: the dense layout stores
+    // kEmptyDocumentNorm for the NULL documents.
+    ASSERT_FALSE(norms.is_sparse());
     EXPECT_EQ(norms.encoded_norm(0), 7U);
-    EXPECT_EQ(norms.encoded_norm(1), 11U);
+    EXPECT_EQ(norms.encoded_norm(1), format::kEmptyDocumentNorm);
     EXPECT_EQ(norms.encoded_norm(2), 13U);
-    EXPECT_EQ(norms.encoded_norm(3), 17U);
+    EXPECT_EQ(norms.encoded_norm(3), format::kEmptyDocumentNorm);
 
     std::vector<uint32_t> term_docs;
     assert_ok(term_query(index, "alpha", &term_docs));
@@ -1126,8 +1132,8 @@ TEST(SniiStreamedWriterSessionTest, ActiveAndFinishedSessionLifecycleIsEnforced)
 }
 
 // A2: A compaction destination declares write_norms before merging postings, then receives the
-// rebuilt norms exactly once, with doc_count entries. Missing norms at finish poison the entire
-// compound writer.
+// rebuilt norms exactly once, with one entry per document that carries a norm. Missing norms at
+// finish poison the entire compound writer.
 TEST(SniiStreamedWriterSessionTest, EncodedNormsAreLateBoundExactlyOnceBeforeFinish) {
     MemoryFile file;
     SniiCompoundWriter compound(&file);

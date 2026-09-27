@@ -498,7 +498,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_with_scoring) {
     term_infos.push_back(term2);
 
     // Fill collection statistics for scoring
-    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
+    context->collection_statistics->_total_num_docs[field] = reader_holder->numDocs();
     context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fast")] = 5;
@@ -757,7 +757,7 @@ TEST_F(MultiPhraseQueryV2Test, test_multi_phrase_query_bm25_similarity) {
     term_infos.push_back(term3);
 
     // Setup statistics for BM25
-    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
+    context->collection_statistics->_total_num_docs[field] = reader_holder->numDocs();
     context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("fast")] = 5;

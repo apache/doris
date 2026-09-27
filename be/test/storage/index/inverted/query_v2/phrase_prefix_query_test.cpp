@@ -332,7 +332,7 @@ TEST_F(PhrasePrefixQueryV2Test, scorer_with_scoring) {
     std::wstring field = StringHelper::to_wstring("content");
 
     // Setup collection statistics for BM25
-    ctx->collection_statistics->_total_num_docs = reader->numDocs();
+    ctx->collection_statistics->_total_num_docs[field] = reader->numDocs();
     ctx->collection_statistics->_total_num_tokens[field] = reader->numDocs() * 8;
     ctx->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
 

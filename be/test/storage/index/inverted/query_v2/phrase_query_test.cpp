@@ -386,7 +386,7 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_scoring) {
     }
 
     // Fill collection statistics for scoring
-    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
+    context->collection_statistics->_total_num_docs[field] = reader_holder->numDocs();
     context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("quick")] = 10;
     context->collection_statistics->_term_doc_freqs[field][StringHelper::to_wstring("brown")] = 10;
@@ -621,7 +621,7 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_bm25_similarity) {
     }
 
     // Setup statistics for BM25
-    context->collection_statistics->_total_num_docs = reader_holder->numDocs();
+    context->collection_statistics->_total_num_docs[field] = reader_holder->numDocs();
     context->collection_statistics->_total_num_tokens[field] = reader_holder->numDocs() * 8;
     for (const auto& term : terms) {
         context->collection_statistics->_term_doc_freqs[field][term] = 5;

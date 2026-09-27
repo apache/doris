@@ -385,7 +385,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
 
     std::wstring ws_field = StringHelper::to_wstring("name1");
     // 直接访问成员填充统计信息
-    context->collection_statistics->_total_num_docs = 80;
+    context->collection_statistics->_total_num_docs[ws_field] = 80;
     context->collection_statistics->_total_num_tokens[ws_field] = 240; // 80*3
     auto set_df = [&](const std::string& term, uint64_t df) {
         context->collection_statistics->_term_doc_freqs[ws_field][StringHelper::to_wstring(term)] =

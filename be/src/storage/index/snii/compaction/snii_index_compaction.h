@@ -116,6 +116,13 @@ private:
     Status write_current_term(CurrentTerm current,
                               std::span<writer::SniiStreamedIndexSession* const> sessions);
     Status merge_terms(std::span<writer::SniiStreamedIndexSession* const> sessions);
+    // Turns the destination's accumulated lengths into the encoded norms of the documents
+    // that carry one and appends the NULL docids among them. The reservation (null without a
+    // memory reporter) covers the appended vector.
+    Status encode_destination_norms(
+            size_t destination_segment, std::span<const uint32_t> null_docids,
+            std::vector<uint32_t>* null_docids_with_norms,
+            writer::MemoryReporter::Reservation* null_docids_with_norms_reservation);
     Status poison(Status status);
 
     std::vector<const reader::LogicalIndexReader*> source_indexes_;

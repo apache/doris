@@ -29,7 +29,6 @@
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/section_framer.h"
-#include "storage/index/snii/encoding/varint.h"
 #include "storage/index/snii/encoding/zstd_codec.h"
 #include "storage/index/snii/format/dict_block.h"
 #include "storage/index/snii/format/dict_block_directory.h"
@@ -123,12 +122,12 @@ Status validate_norms_region(io::FileReader* reader, const RegionRef& norms, uin
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "logical_index: norms doc count exceeds uint32");
     }
-    const uint64_t payload_length = varint_len(doc_count) + doc_count;
-    const uint64_t expected_length =
-            1 + varint_len(payload_length) + payload_length + sizeof(uint32_t);
-    if (norms.length != expected_length) {
+    // A dense section has exactly this length and a sparse one is never longer (the writer
+    // only picks it when it is shorter), which bounds the cache charge below by doc_count.
+    // NormsPodReader::open validates the exact layout when the section is loaded.
+    if (norms.length > format::dense_norms_section_bytes(doc_count)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "logical_index: norms region length mismatch");
+                "logical_index: norms region longer than a dense norms section");
     }
     if (norms.length > std::numeric_limits<size_t>::max()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(

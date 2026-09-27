@@ -377,6 +377,49 @@ TEST(SniiWriterNorms, WritesNormsFollowSharedNormsPolicy) {
     doris::config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
+// Norms are only kept for rows that carry one: non-NULL rows (an empty value, an empty array and
+// an array of NULL elements included, with length 0) and NULL ARRAY rows that still produced
+// tokens. The writer keeps raw lengths until finish() so add_array_nulls can tell an empty NULL
+// row from a NULL row with one token.
+TEST(SniiWriterNorms, NullRowsKeepNormsOnlyWithTokens) {
+    doris::TabletIndexPB index_pb;
+    index_pb.set_index_type(doris::IndexType::INVERTED);
+    index_pb.set_index_id(93);
+    index_pb.set_index_name("norms_rows");
+    index_pb.add_col_unique_id(0);
+    index_pb.mutable_properties()->insert({"parser", "english"});
+    index_pb.mutable_properties()->insert({"support_phrase", "true"});
+    doris::TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    ASSERT_TRUE(writer.writes_norms_for_test());
+
+    // docids 0-1: scalar values; 2-3: NULL scalars.
+    const std::vector<doris::Slice> values = {doris::Slice("alpha beta"), doris::Slice("")};
+    ASSERT_OK(writer.add_values("", values.data(), values.size()));
+    ASSERT_OK(writer.add_nulls(2));
+
+    // docids 4-8: [alpha gamma delta], NULL row keeping [beta], NULL row, [], [NULL].
+    const std::vector<doris::Slice> elements = {doris::Slice("alpha gamma delta"),
+                                                doris::Slice("beta"), doris::Slice("ignored")};
+    const std::vector<uint8_t> element_nulls = {0, 0, 1};
+    const std::vector<uint64_t> offsets = {0, 1, 2, 2, 2, 3};
+    ASSERT_OK(writer.add_array_values(sizeof(doris::Slice), elements.data(), element_nulls.data(),
+                                      reinterpret_cast<const uint8_t*>(offsets.data()), 5));
+    EXPECT_EQ(writer.norm_lengths_for_test(), (std::vector<uint8_t> {2, 0, 3, 1, 0, 0, 0}));
+    const std::vector<uint8_t> null_map = {0, 1, 1, 0, 0};
+    ASSERT_OK(writer.add_array_nulls(null_map.data(), null_map.size()));
+
+    EXPECT_EQ(writer.null_docids_for_test(), (std::vector<uint32_t> {2, 3, 5, 6}));
+    EXPECT_EQ(writer.null_docids_with_norms_for_test(), (std::vector<uint32_t> {5}));
+    EXPECT_EQ(writer.norm_lengths_for_test(), (std::vector<uint8_t> {2, 0, 3, 1, 0, 0}));
+    writer.close_on_error();
+    EXPECT_TRUE(writer.norm_lengths_for_test().empty());
+    EXPECT_TRUE(writer.null_docids_with_norms_for_test().empty());
+}
+
 TEST(SniiDocIdSinkGrowth, AppendRangeGrowsGeometrically) {
     std::vector<uint32_t> docids;
     doris::snii::query::VectorDocIdSink sink(docids);

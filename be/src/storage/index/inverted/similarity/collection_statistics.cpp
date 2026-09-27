@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/similarity/collection_statistics.h"
 
+#include <algorithm>
 #include <exception>
 #include <set>
 #include <sstream>
@@ -41,7 +42,7 @@
 namespace doris {
 namespace collection_statistics_detail {
 
-Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
+Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t indexed_doc_count,
                                                              uint64_t sum_total_term_freq,
                                                              bool has_positions, bool has_norms) {
     if (!has_positions || !has_norms) {
@@ -51,7 +52,7 @@ Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_
                 "\"false\" or, for a variant path, when inverted_index_skip_norms_for_variant is "
                 "on"));
     }
-    return SniiScoringSegmentStats {.doc_count = index_doc_count,
+    return SniiScoringSegmentStats {.doc_count = indexed_doc_count,
                                     .token_count = sum_total_term_freq};
 }
 
@@ -133,10 +134,10 @@ Status CollectionStatistics::collect_full_collection(
         }
         oss << "]";
 
-        oss << ", total_num_docs=" << _total_num_docs;
-
         for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
+            const auto num_docs = _total_num_docs.find(ws_field_name);
             oss << ", {field=" << StringHelper::to_string(ws_field_name)
+                << ", num_docs=" << (num_docs == _total_num_docs.end() ? 0 : num_docs->second)
                 << ", num_tokens=" << num_tokens << ", terms=[";
 
             auto field_term_doc_freqs = _term_doc_freqs.find(ws_field_name);
@@ -245,11 +246,19 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 return status;
             }
             auto logical_reader = std::move(logical_reader_result.value());
-            const uint64_t segment_doc_count = logical_reader->stats().doc_count;
+            const auto& logical_stats = logical_reader->stats();
+            const uint64_t segment_doc_count = logical_stats.doc_count;
+            // Every SNII writer stores indexed_doc_count = doc_count - null_count, and the
+            // metadata decoder rejects a stats block without it.
+            if (logical_stats.indexed_doc_count > segment_doc_count) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                        "SNII indexed document count {} exceeds segment document count {}",
+                        logical_stats.indexed_doc_count, segment_doc_count);
+            }
             RETURN_IF_ERROR(admit_snii_scoring_segment(
-                    ws_field_name, segment_doc_count, logical_reader->stats().sum_total_term_freq,
-                    logical_reader->has_positions(), logical_reader->has_norms(),
-                    &segment_accumulator));
+                    ws_field_name, logical_stats.indexed_doc_count,
+                    logical_stats.sum_total_term_freq, logical_reader->has_positions(),
+                    logical_reader->has_norms(), &segment_accumulator));
 
             ::doris::snii::reader::DictBlockCache dict_block_cache;
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
@@ -342,7 +351,9 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         }
     }
 
-    _total_num_docs += static_cast<uint64_t>(total_segment_docs);
+    for (const auto& [ws_field_name, collect_info] : collect_infos) {
+        _total_num_docs[ws_field_name] += static_cast<uint64_t>(total_segment_docs);
+    }
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 
@@ -350,29 +361,25 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 }
 
 Status CollectionStatistics::admit_snii_scoring_segment(
-        const std::wstring& field_name, uint64_t index_doc_count, uint64_t sum_total_term_freq,
+        const std::wstring& field_name, uint64_t indexed_doc_count, uint64_t sum_total_term_freq,
         bool has_positions, bool has_norms, SniiScoringSegmentAccumulator* segment_accumulator) {
     DORIS_CHECK(segment_accumulator != nullptr);
     auto segment_stats = collection_statistics_detail::resolve_snii_scoring_segment(
-            index_doc_count, sum_total_term_freq, has_positions, has_norms);
+            indexed_doc_count, sum_total_term_freq, has_positions, has_norms);
     if (!segment_stats.has_value()) {
         clear();
         return segment_stats.error();
     }
-    if (!segment_accumulator->token_counts.empty() &&
-        segment_accumulator->doc_count != segment_stats->doc_count) {
-        clear();
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII scoring fields in one segment have different document counts: {} and {}",
-                segment_accumulator->doc_count, segment_stats->doc_count);
-    }
-    segment_accumulator->doc_count = segment_stats->doc_count;
+    segment_accumulator->doc_counts[field_name] += segment_stats->doc_count;
     segment_accumulator->token_counts[field_name] += segment_stats->token_count;
     return Status::OK();
 }
 
 void CollectionStatistics::commit_snii_scoring_segment(
         SniiScoringSegmentAccumulator&& segment_accumulator) {
+    for (const auto& [field_name, doc_count] : segment_accumulator.doc_counts) {
+        _total_num_docs[field_name] += doc_count;
+    }
     for (const auto& [field_name, token_count] : segment_accumulator.token_counts) {
         _total_num_tokens[field_name] += token_count;
     }
@@ -381,13 +388,12 @@ void CollectionStatistics::commit_snii_scoring_segment(
             _term_doc_freqs[field_name][term] += doc_freq;
         }
     }
-    _total_num_docs += segment_accumulator.doc_count;
     _avg_dl_by_col.clear();
     _idf_by_col_term.clear();
 }
 
 void CollectionStatistics::clear() {
-    _total_num_docs = 0;
+    _total_num_docs.clear();
     _total_num_tokens.clear();
     _term_doc_freqs.clear();
     _avg_dl_by_col.clear();
@@ -424,14 +430,15 @@ uint64_t CollectionStatistics::get_total_term_cnt_by_col(const std::wstring& luc
     return token_count->second;
 }
 
-uint64_t CollectionStatistics::get_doc_num() const {
-    if (_total_num_docs == 0) {
-        throw Exception(
-                ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
-                "Index statistics collection failed: No data available for SimilarityCollector");
+uint64_t CollectionStatistics::get_doc_num(const std::wstring& lucene_col_name) const {
+    const auto doc_count = _total_num_docs.find(lucene_col_name);
+    if (doc_count == _total_num_docs.end()) {
+        throw Exception(ErrorCode::INVERTED_INDEX_CLUCENE_ERROR,
+                        "Index statistics collection failed: Not such column {}",
+                        StringHelper::to_string(lucene_col_name));
     }
 
-    return _total_num_docs;
+    return doc_count->second;
 }
 
 float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_col_name) {
@@ -441,8 +448,12 @@ float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_c
     }
 
     const uint64_t total_term_cnt = get_total_term_cnt_by_col(lucene_col_name);
-    const uint64_t total_doc_cnt = get_doc_num();
-    float avg_dl = total_doc_cnt > 0 ? float((double)total_term_cnt / (double)total_doc_cnt) : 0.0F;
+    // A field without documents has no tokens either, except for NULL ARRAY rows that kept
+    // their tokens (they sit in postings but not in the indexed count). Dividing by at least
+    // one keeps avgdl finite, and positive whenever a posting exists.
+    const uint64_t total_doc_cnt = std::max<uint64_t>(get_doc_num(lucene_col_name), 1);
+    const auto avg_dl = static_cast<float>(static_cast<double>(total_term_cnt) /
+                                           static_cast<double>(total_doc_cnt));
     _avg_dl_by_col[lucene_col_name] = avg_dl;
     return avg_dl;
 }
@@ -457,10 +468,13 @@ float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_
         }
     }
 
-    const uint64_t doc_num = get_doc_num();
     const uint64_t doc_freq = get_term_doc_freq_by_col(lucene_col_name, term);
-    auto idf = (float)std::log(1 + ((double)doc_num - (double)doc_freq + (double)0.5) /
-                                           ((double)doc_freq + (double)0.5));
+    // doc_freq never exceeds the document count, except on SNII fields whose NULL ARRAY rows
+    // kept tokens: those rows count in doc_freq but not in the indexed document count. Using
+    // the larger value keeps idf positive; it changes nothing for any other collection.
+    const uint64_t doc_num = std::max(get_doc_num(lucene_col_name), doc_freq);
+    auto idf = (float)std::log(1 + ((double)doc_num - (double)doc_freq + 0.5) /
+                                           ((double)doc_freq + 0.5));
     _idf_by_col_term[lucene_col_name][term] = idf;
     return idf;
 }

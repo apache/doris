@@ -24,6 +24,7 @@
 #include <limits>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -283,4 +284,142 @@ TEST(SniiNullBitmap, DecodedMemoryAccountsEachPortableContainer) {
     ASSERT_TRUE(NullBitmapReader::decoded_memory_bytes(Slice(buffer), &decoded_bytes).ok());
     EXPECT_EQ(decoded_bytes,
               roaring_bytes + kContainerCount * kContainerMetadataBytes + kFixedBytes);
+}
+
+namespace {
+
+// Frames a bitmap exactly as the writers before run optimization did: addMany, then the portable
+// serialization of whatever containers that produced.
+std::vector<uint8_t> LegacyUnoptimizedSection(const std::vector<uint32_t>& nulls,
+                                              uint32_t doc_count) {
+    roaring::Roaring bitmap;
+    bitmap.addMany(nulls.size(), nulls.data());
+    std::vector<char> roaring_bytes(bitmap.getSizeInBytes());
+    bitmap.write(roaring_bytes.data());
+    ByteSink payload;
+    payload.put_varint64(doc_count);
+    payload.put_varint64(roaring_bytes.size());
+    payload.put_bytes(
+            Slice(reinterpret_cast<const uint8_t*>(roaring_bytes.data()), roaring_bytes.size()));
+    ByteSink sink;
+    SectionFramer::write(sink, kNullBitmapSectionType, payload.view());
+    return sink.buffer();
+}
+
+uint16_t PortableCookie(const std::vector<uint8_t>& framed) {
+    ByteSource src {Slice(framed)};
+    FramedSection section;
+    EXPECT_TRUE(SectionFramer::read(src, &section).ok());
+    ByteSource payload(section.payload);
+    uint64_t value = 0;
+    EXPECT_TRUE(payload.get_varint64(&value).ok());
+    EXPECT_TRUE(payload.get_varint64(&value).ok());
+    uint16_t cookie = 0;
+    EXPECT_TRUE(payload.get_fixed16(&cookie).ok());
+    return cookie;
+}
+
+std::vector<uint32_t> MostlyNull(uint32_t doc_count) {
+    std::vector<uint32_t> nulls;
+    for (uint32_t docid = 0; docid < doc_count; ++docid) {
+        const bool present = (docid >= 1000 && docid < 1100) ||
+                             (docid >= 500000 && docid < 500010) || docid >= doc_count - 576;
+        if (!present) {
+            nulls.push_back(docid);
+        }
+    }
+    return nulls;
+}
+
+} // namespace
+
+// A mostly NULL path over 16 containers: without run containers every one of them is an 8 KiB
+// bitset; run-optimized they take a few bytes each, and the section still round-trips.
+TEST(SniiNullBitmap, RunOptimizedMostlyNullSectionIsSmallAndRoundTrips) {
+    constexpr uint32_t kDocCount = 1U << 20;
+    const std::vector<uint32_t> nulls = MostlyNull(kDocCount);
+    const std::vector<uint8_t> legacy = LegacyUnoptimizedSection(nulls, kDocCount);
+
+    NullBitmapWriter writer;
+    writer.add_many(nulls);
+    doris::snii::format::NullBitmapSerializationSizes sizes;
+    ASSERT_TRUE(writer.serialization_sizes(kDocCount, &sizes).ok());
+    ByteSink sink;
+    ASSERT_TRUE(writer.finish(kDocCount, &sink).ok());
+    const std::vector<uint8_t> optimized = sink.buffer();
+    EXPECT_EQ(optimized.size(), sizes.framed_bytes);
+    EXPECT_GT(legacy.size(), 16U * 8192);
+    EXPECT_LT(optimized.size() * 100, legacy.size());
+    EXPECT_EQ(PortableCookie(optimized), 12347); // SERIAL_COOKIE: run containers present
+    EXPECT_EQ(PortableCookie(legacy), 12346);    // SERIAL_COOKIE_NO_RUNCONTAINER
+
+    NullBitmapReader reader;
+    ASSERT_TRUE(NullBitmapReader::open(Slice(optimized), &reader).ok());
+    EXPECT_EQ(reader.doc_count(), kDocCount);
+    EXPECT_EQ(reader.null_count(), nulls.size());
+    std::vector<uint32_t> decoded;
+    reader.append_docids(decoded);
+    EXPECT_EQ(decoded, nulls);
+    uint64_t decoded_bytes = 0;
+    ASSERT_TRUE(NullBitmapReader::decoded_memory_bytes(Slice(optimized), &decoded_bytes).ok());
+    EXPECT_LT(decoded_bytes, 16U * 8192);
+}
+
+// Sections written before run optimization (array and bitset containers only) stay readable.
+TEST(SniiNullBitmap, ReadsLegacyUnoptimizedSections) {
+    const std::vector<std::pair<uint32_t, std::vector<uint32_t>>> cases = {
+            {1U << 20, MostlyNull(1U << 20)},
+            {5000, {0, 3, 7, 11, 100, 4000}},
+            {200000,
+             [] {
+                 std::vector<uint32_t> nulls;
+                 for (uint32_t docid = 0; docid < 200000; ++docid) {
+                     if (docid % 5 != 0) {
+                         nulls.push_back(docid);
+                     }
+                 }
+                 return nulls;
+             }()},
+    };
+    for (const auto& [doc_count, nulls] : cases) {
+        const std::vector<uint8_t> legacy = LegacyUnoptimizedSection(nulls, doc_count);
+        ASSERT_EQ(PortableCookie(legacy), 12346);
+        NullBitmapReader reader;
+        ASSERT_TRUE(NullBitmapReader::open(Slice(legacy), &reader).ok());
+        EXPECT_EQ(reader.doc_count(), doc_count);
+        EXPECT_EQ(reader.null_count(), nulls.size());
+        std::vector<uint32_t> decoded;
+        reader.append_docids(decoded);
+        EXPECT_EQ(decoded, nulls);
+        roaring::Roaring copy;
+        reader.copy_to(&copy);
+        EXPECT_EQ(copy.cardinality(), nulls.size());
+        uint64_t decoded_bytes = 0;
+        EXPECT_TRUE(NullBitmapReader::decoded_memory_bytes(Slice(legacy), &decoded_bytes).ok());
+    }
+}
+
+// Sizes are computed on the optimized bitmap, also after more docids arrive.
+TEST(SniiNullBitmap, SerializationSizesFollowLaterAdds) {
+    NullBitmapWriter writer;
+    std::vector<uint32_t> run(70000);
+    for (uint32_t i = 0; i < run.size(); ++i) {
+        run[i] = i;
+    }
+    writer.add_many(run);
+    doris::snii::format::NullBitmapSerializationSizes first;
+    ASSERT_TRUE(writer.serialization_sizes(100000, &first).ok());
+    writer.add_null(90000);
+    doris::snii::format::NullBitmapSerializationSizes second;
+    ASSERT_TRUE(writer.serialization_sizes(100000, &second).ok());
+    EXPECT_GT(second.roaring_bytes, first.roaring_bytes);
+    ByteSink sink;
+    ASSERT_TRUE(writer.finish(100000, &sink).ok());
+    EXPECT_EQ(sink.size(), second.framed_bytes);
+    NullBitmapReader reader;
+    ASSERT_TRUE(NullBitmapReader::open(sink.view(), &reader).ok());
+    EXPECT_EQ(reader.null_count(), 70001U);
+    EXPECT_TRUE(reader.is_null(69999));
+    EXPECT_FALSE(reader.is_null(70000));
+    EXPECT_TRUE(reader.is_null(90000));
 }

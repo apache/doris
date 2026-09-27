@@ -24,20 +24,26 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <roaring/roaring.hh>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "storage/index/snii/compaction/posting_run_merger.h"
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/io/file_writer.h"
+#include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
+#include "util/defer_op.h"
 
 namespace {
 
@@ -80,10 +86,15 @@ SniiIndexInput make_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
 
 // T2 input with norms (A2: analyzed indexes with positions always write norms). Caller-supplied
 // norms must match per-document posting frequencies so compaction can rebuild identical bytes.
+// norms holds one entry per document that carries a norm: every non-NULL document plus the NULL
+// documents in null_docids_with_norms (those with postings).
 SniiIndexInput make_norms_input(uint32_t doc_count, std::vector<uint32_t> null_docids,
-                                std::vector<uint8_t> norms, std::vector<TermPostings> terms) {
+                                std::vector<uint8_t> norms, std::vector<TermPostings> terms,
+                                std::vector<uint32_t> null_docids_with_norms = {}) {
     SniiIndexInput input = make_input(doc_count, std::move(null_docids), std::move(terms));
     input.encoded_norms = std::move(norms);
+    input.null_docids_with_norms = std::move(null_docids_with_norms);
+    input.write_norms = true;
     return input;
 }
 
@@ -520,7 +531,8 @@ TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
                         /*doc_count=*/3, /*null_docids=*/ {2}, /*norms=*/ {2, 1, 1},
                         {make_term("alpha", {{.docid = 0, .positions = {0, 2}},
                                              {.docid = 1, .positions = {0}}}),
-                         make_term("beta", {{.docid = 2, .positions = {0}}})}),
+                         make_term("beta", {{.docid = 2, .positions = {0}}})},
+                        /*null_docids_with_norms=*/ {2}),
                 &source_zero, reader::LogicalIndexOpenMode::kCompaction);
     // Source 1: doc0 = alpha*1, doc1 = gamma*2; norms {1, 2}.
     build_index(make_norms_input(
@@ -572,7 +584,8 @@ TEST(SniiIndexCompactionTest, NormsMergeMatchesRebuildAfterDeletesAndRemap) {
                          make_term("gamma", {{.docid = 2, .positions = {0, 2}}})}),
                 &rebuilt[0]);
     build_index(make_norms_input(/*doc_count=*/1, /*null_docids=*/ {0}, /*norms=*/ {1},
-                                 {make_term("beta", {{.docid = 0, .positions = {0}}})}),
+                                 {make_term("beta", {{.docid = 0, .positions = {0}}})},
+                                 /*null_docids_with_norms=*/ {0}),
                 &rebuilt[1]);
     expect_identical_index_image(&merged_files[0], &rebuilt[0].file);
     expect_identical_index_image(&merged_files[1], &rebuilt[1].file);
@@ -1015,6 +1028,213 @@ TEST(SniiIndexCompactionTest, StickyExecuteFailureAbortsNewDestinationSession) {
     EXPECT_TRUE(retry_session->finish().is<doris::ErrorCode::INVALID_ARGUMENT>());
     EXPECT_TRUE(retry_compound.finish().is<doris::ErrorCode::INVALID_ARGUMENT>());
     EXPECT_FALSE(retry_file.finalized());
+}
+
+// One synthetic document: its NULL flag and how often each term occurs (0 = absent). A NULL
+// document with occurrences models a nullable ARRAY row that kept its nested payload.
+struct SyntheticDoc {
+    bool is_null = false;
+    uint32_t alpha = 0;
+    uint32_t beta = 0;
+};
+
+std::vector<uint32_t> position_range(uint32_t first, uint32_t count) {
+    std::vector<uint32_t> positions(count);
+    std::iota(positions.begin(), positions.end(), first);
+    return positions;
+}
+
+// The input the column writer hands over for these documents: postings, NULL docids, the NULL
+// docids that carry a norm, and the norms of every document that carries one.
+SniiIndexInput make_synthetic_input(const std::vector<SyntheticDoc>& docs) {
+    std::vector<PostingDoc> alpha_docs;
+    std::vector<PostingDoc> beta_docs;
+    SniiIndexInput input = make_input(static_cast<uint32_t>(docs.size()), {}, {});
+    input.write_norms = true;
+    for (uint32_t docid = 0; docid < docs.size(); ++docid) {
+        const SyntheticDoc& doc = docs[docid];
+        if (doc.alpha != 0) {
+            alpha_docs.push_back({.docid = docid, .positions = position_range(0, doc.alpha)});
+        }
+        if (doc.beta != 0) {
+            beta_docs.push_back({.docid = docid, .positions = position_range(doc.alpha, doc.beta)});
+        }
+        const uint32_t tokens = doc.alpha + doc.beta;
+        if (doc.is_null) {
+            input.null_docids.push_back(docid);
+            if (tokens == 0) {
+                continue;
+            }
+            input.null_docids_with_norms.push_back(docid);
+        }
+        input.encoded_norms.push_back(query::encode_norm(tokens));
+    }
+    input.terms.push_back(make_term("alpha", std::move(alpha_docs)));
+    if (!beta_docs.empty()) {
+        input.terms.push_back(make_term("beta", std::move(beta_docs)));
+    }
+    return input;
+}
+
+// Builds with enable_snii_sparse_norms off: the dense layout every earlier writer produced.
+void build_index_with_dense_norms(SniiIndexInput input, OpenedIndex* out,
+                                  reader::LogicalIndexOpenMode open_mode) {
+    const bool saved_sparse_norms = doris::config::enable_snii_sparse_norms;
+    doris::Defer restore {[&] { doris::config::enable_snii_sparse_norms = saved_sparse_norms; }};
+    doris::config::enable_snii_sparse_norms = false;
+    build_index(std::move(input), out, open_mode);
+}
+
+bool index_has_sparse_norms(const reader::LogicalIndexReader& index) {
+    format::NormsPodReader norms;
+    assert_ok(index.open_norms(&norms));
+    return norms.is_sparse();
+}
+
+std::vector<query::ScoredDoc> score_all(const reader::LogicalIndexReader& index,
+                                        const std::string& term) {
+    stats::SniiStatsProvider stats;
+    assert_ok(stats::SniiStatsProvider::open(&index, &stats));
+    std::vector<uint32_t> docids;
+    assert_ok(term_query(index, term, &docids));
+    roaring::Roaring candidates;
+    candidates.addMany(docids.size(), docids.data());
+    std::vector<query::ScoredDoc> scores;
+    assert_ok(query::scoring_query_candidates(index, stats, {{.physical_term = term, .idf = 2.5}},
+                                              candidates, stats.avgdl(), query::Bm25Params {},
+                                              &scores));
+    return scores;
+}
+
+// Direct compaction over a sparse-norms source, a dense-norms source written exactly as the
+// earlier writers wrote it (with NULL rows) and a source without NULL rows. Each destination
+// picks its own layout and is byte-identical to a fresh build of the merged documents; its BM25
+// scores equal those of a dense build of the same documents. With enable_snii_sparse_norms off
+// the same merge writes dense destinations, byte-identical to a dense build.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions inflate it.
+TEST(SniiIndexCompactionTest, NormsMergeOfMixedLayoutsMatchesRebuild) {
+    std::vector<SyntheticDoc> sparse_docs(70000);
+    for (uint32_t docid = 0; docid < sparse_docs.size(); ++docid) {
+        SyntheticDoc& doc = sparse_docs[docid];
+        doc.is_null = docid % 40 != 0;
+        if (!doc.is_null) {
+            doc.alpha = 1 + docid % 3;
+            doc.beta = docid % 80 == 0 ? 2 : 0;
+        } else if (docid % 4999 == 1) {
+            doc.alpha = 1;
+        }
+    }
+    std::vector<SyntheticDoc> dense_docs(66000);
+    for (uint32_t docid = 0; docid < dense_docs.size(); ++docid) {
+        SyntheticDoc& doc = dense_docs[docid];
+        doc.is_null = docid % 25 != 0 && (docid < 1000 || docid >= 1500);
+        if (!doc.is_null && docid % 7 != 0) {
+            doc.alpha = 1 + docid % 2;
+            doc.beta = docid % 50 == 0 ? 1 : 0;
+        }
+    }
+    std::vector<SyntheticDoc> no_null_docs(300);
+    for (uint32_t docid = 0; docid < no_null_docs.size(); ++docid) {
+        no_null_docs[docid].alpha = docid % 2 == 0 ? 1 : 0;
+        no_null_docs[docid].beta = docid % 2 == 1 && docid != 299 ? 3 : 0;
+    }
+
+    OpenedIndex sparse_source;
+    OpenedIndex dense_source;
+    OpenedIndex no_null_source;
+    build_index(make_synthetic_input(sparse_docs), &sparse_source,
+                reader::LogicalIndexOpenMode::kCompaction);
+    build_index_with_dense_norms(make_synthetic_input(dense_docs), &dense_source,
+                                 reader::LogicalIndexOpenMode::kCompaction);
+    build_index(make_synthetic_input(no_null_docs), &no_null_source,
+                reader::LogicalIndexOpenMode::kCompaction);
+    EXPECT_TRUE(index_has_sparse_norms(sparse_source.index));
+    EXPECT_FALSE(index_has_sparse_norms(dense_source.index));
+    EXPECT_FALSE(index_has_sparse_norms(no_null_source.index));
+
+    // Delete every 7th sparse-source document; fill destination 0 up to 65000 rows.
+    const std::vector<const std::vector<SyntheticDoc>*> sources = {&sparse_docs, &dense_docs,
+                                                                   &no_null_docs};
+    RowIdConversionMap conversion(sources.size());
+    std::array<std::vector<SyntheticDoc>, 2> destination_docs;
+    for (size_t source = 0; source < sources.size(); ++source) {
+        for (uint32_t docid = 0; docid < sources[source]->size(); ++docid) {
+            if (source == 0 && docid % 7 == 3) {
+                conversion[source].push_back(kDeleted);
+                continue;
+            }
+            const uint32_t destination = destination_docs[0].size() < 65000 ? 0 : 1;
+            conversion[source].emplace_back(
+                    destination, static_cast<uint32_t>(destination_docs[destination].size()));
+            destination_docs[destination].push_back((*sources[source])[docid]);
+        }
+    }
+    const std::vector<uint32_t> destination_rows = {
+            static_cast<uint32_t>(destination_docs[0].size()),
+            static_cast<uint32_t>(destination_docs[1].size())};
+    ASSERT_EQ(destination_rows[0], 65000U);
+    auto validated = make_validated_conversion(&conversion, {70000, 66000, 300}, destination_rows);
+    ASSERT_NE(validated, nullptr);
+    compaction::SniiCompactionEligibility eligibility {.destination_writes_norms = true};
+
+    for (const bool sparse_norms : {true, false}) {
+        SCOPED_TRACE(std::string("enable_snii_sparse_norms=") + (sparse_norms ? "true" : "false"));
+        const bool saved_sparse_norms = doris::config::enable_snii_sparse_norms;
+        doris::Defer restore {
+                [&] { doris::config::enable_snii_sparse_norms = saved_sparse_norms; }};
+        doris::config::enable_snii_sparse_norms = sparse_norms;
+
+        std::unique_ptr<SniiPlainT2MergePlan> plan;
+        assert_ok(SniiPlainT2MergePlan::prepare(
+                {&sparse_source.index, &dense_source.index, &no_null_source.index}, *validated,
+                eligibility, /*total_read_ahead_budget_bytes=*/1U << 20,
+                std::make_shared<MemoryReporter>(nullptr, 64U << 20), &plan));
+
+        std::array<MemoryFile, 2> merged_files;
+        std::array<std::unique_ptr<SniiCompoundWriter>, 2> compounds;
+        std::array<SniiStreamedIndexSession*, 2> sessions = {nullptr, nullptr};
+        for (size_t i = 0; i < compounds.size(); ++i) {
+            compounds[i] = std::make_unique<SniiCompoundWriter>(&merged_files[i]);
+            SniiIndexInput input = make_input(destination_rows[i], {}, {});
+            input.config = plan->destination_index_config();
+            input.write_norms = true;
+            assert_ok(compounds[i]->begin_streamed_index(
+                    std::move(input), plan->take_destination_null_docids(i), &sessions[i]));
+        }
+        assert_ok(plan->execute(sessions));
+        for (auto& compound : compounds) {
+            assert_ok(compound->finish());
+        }
+
+        for (size_t i = 0; i < merged_files.size(); ++i) {
+            SCOPED_TRACE("destination " + std::to_string(i));
+            // A fresh build under the same config: sparse when on, dense when off.
+            OpenedIndex rebuilt;
+            build_index(make_synthetic_input(destination_docs[i]), &rebuilt);
+            expect_identical_index_image(&merged_files[i], &rebuilt.file);
+
+            reader::SniiSegmentReader merged_segment;
+            reader::LogicalIndexReader merged_index;
+            assert_ok(reader::SniiSegmentReader::open(&merged_files[i], &merged_segment));
+            assert_ok(merged_segment.open_index(kIndexId, kIndexSuffix, &merged_index));
+            EXPECT_EQ(index_has_sparse_norms(merged_index), sparse_norms);
+
+            OpenedIndex dense_rebuilt;
+            build_index_with_dense_norms(make_synthetic_input(destination_docs[i]), &dense_rebuilt,
+                                         reader::LogicalIndexOpenMode::kQuery);
+            EXPECT_FALSE(index_has_sparse_norms(dense_rebuilt.index));
+            for (const char* term : {"alpha", "beta"}) {
+                const auto merged_scores = score_all(merged_index, term);
+                const auto dense_scores = score_all(dense_rebuilt.index, term);
+                ASSERT_FALSE(merged_scores.empty());
+                ASSERT_EQ(merged_scores.size(), dense_scores.size());
+                for (size_t j = 0; j < merged_scores.size(); ++j) {
+                    ASSERT_EQ(merged_scores[j].docid, dense_scores[j].docid);
+                    ASSERT_EQ(merged_scores[j].score, dense_scores[j].score);
+                }
+            }
+        }
+    }
 }
 
 } // namespace
