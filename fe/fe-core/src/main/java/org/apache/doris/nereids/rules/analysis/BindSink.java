@@ -900,7 +900,7 @@ public class BindSink implements AnalysisRuleFactory {
             ConnectorChangelogMode changelogMode = table.getConnectorChangelogMode()
                     .orElseThrow(() -> new AnalysisException(
                             "Connector changelog write mode is not configured for table " + table.getName()));
-            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema,
+            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema, table,
                     table.getConnectorRowLevelPrimaryKeyColumns(), changelogMode,
                     sink.getRowChangeSpec().get(), child, ctx.cascadesContext);
             List<NamedExpression> outputExpressions = child.getOutput().stream()

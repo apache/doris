@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -77,26 +78,28 @@ public final class ConnectorChangelogPlanBuilder {
     }
 
     /** Builds a changelog plan for the requested connector row-level operation. */
-    public static LogicalPlan build(List<Column> schema, List<String> primaryKeys,
+    public static LogicalPlan build(List<Column> schema, ExternalTable targetTable,
+            List<String> primaryKeys,
             ConnectorChangelogMode mode, ConnectorChangelogRowChangeSpec spec,
             LogicalPlan child, CascadesContext context) {
         if (spec instanceof ConnectorChangelogRowChangeSpec.Update) {
-            return buildUpdate(schema, mode, (ConnectorChangelogRowChangeSpec.Update) spec,
-                    child, context);
+            return buildUpdate(schema, targetTable, mode,
+                    (ConnectorChangelogRowChangeSpec.Update) spec, child, context);
         }
         if (spec instanceof ConnectorChangelogRowChangeSpec.Delete) {
             return buildDelete(schema, primaryKeys, mode,
                     (ConnectorChangelogRowChangeSpec.Delete) spec, child, context);
         }
         if (spec instanceof ConnectorChangelogRowChangeSpec.Merge) {
-            return new MergeBuilder(schema, primaryKeys, mode,
+            return new MergeBuilder(schema, targetTable, primaryKeys, mode,
                     (ConnectorChangelogRowChangeSpec.Merge) spec, child, context).build();
         }
         throw new AnalysisException("Unsupported connector changelog specification: "
                 + spec.getClass().getSimpleName());
     }
 
-    private static LogicalPlan buildUpdate(List<Column> schema, ConnectorChangelogMode mode,
+    private static LogicalPlan buildUpdate(List<Column> schema, ExternalTable targetTable,
+            ConnectorChangelogMode mode,
             ConnectorChangelogRowChangeSpec.Update update, LogicalPlan child,
             CascadesContext context) {
         Map<String, Expression> changes = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -114,6 +117,11 @@ public final class ConnectorChangelogPlanBuilder {
             Expression value = changes.remove(column.getName());
             if (value == null) {
                 value = targetSlot(update.getTargetNameInPlan(), column.getName());
+            } else {
+                value = ConnectorWriteSchemaUtils.resolveExplicitDefault(value, column);
+                value = ConnectorWriteSchemaUtils.resolveDefaultReferences(
+                        value, schema, targetTable, context.getConnectContext(),
+                        update.getTargetNameInPlan(), null);
             }
             projects.add(bindColumn(analyzer, value, column));
         }
@@ -188,21 +196,26 @@ public final class ConnectorChangelogPlanBuilder {
 
     private static final class MergeBuilder {
         private final List<Column> schema;
+        private final ExternalTable targetTable;
         private final List<String> primaryKeys;
         private final ConnectorChangelogMode mode;
         private final ConnectorChangelogRowChangeSpec.Merge merge;
         private final LogicalPlan child;
+        private final CascadesContext context;
         private final ExpressionAnalyzer analyzer;
 
-        private MergeBuilder(List<Column> schema, List<String> primaryKeys,
+        private MergeBuilder(List<Column> schema, ExternalTable targetTable,
+                List<String> primaryKeys,
                 ConnectorChangelogMode mode,
                 ConnectorChangelogRowChangeSpec.Merge merge, LogicalPlan child,
                 CascadesContext context) {
             this.schema = schema;
+            this.targetTable = targetTable;
             this.primaryKeys = primaryKeys;
             this.mode = mode;
             this.merge = merge;
             this.child = child;
+            this.context = context;
             this.analyzer = analyzer(child, context);
         }
 
@@ -437,8 +450,16 @@ public final class ConnectorChangelogPlanBuilder {
             List<Expression> output = new ArrayList<>();
             output.add(new TinyIntLiteral(mode.getUpdateValue()));
             for (Column column : schema) {
-                output.add(changes.containsKey(column.getName())
-                        ? changes.remove(column.getName()) : targetSlot(column.getName()));
+                Expression value = changes.remove(column.getName());
+                if (value == null) {
+                    value = targetSlot(column.getName());
+                } else {
+                    value = ConnectorWriteSchemaUtils.resolveExplicitDefault(value, column);
+                    value = ConnectorWriteSchemaUtils.resolveDefaultReferences(
+                            value, schema, targetTable, context.getConnectContext(),
+                            merge.getTargetNameInPlan(), null);
+                }
+                output.add(value);
             }
             if (!changes.isEmpty()) {
                 throw new AnalysisException("Unknown column in connector MERGE UPDATE: "

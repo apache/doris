@@ -69,7 +69,8 @@ public final class ConnectorWriteSchemaUtils {
         return ImmutableList.copyOf(writerColumns);
     }
 
-    static Expression resolveDefaultReferences(Expression expression, List<Column> columns,
+    /** Resolve DEFAULT(column) references against the request-scoped connector writer schema. */
+    public static Expression resolveDefaultReferences(Expression expression, List<Column> columns,
             ExternalTable targetTable, ConnectContext context,
             List<String> targetNameParts, String targetAlias) {
         return expression.rewriteDownShortCircuit(candidate -> {
