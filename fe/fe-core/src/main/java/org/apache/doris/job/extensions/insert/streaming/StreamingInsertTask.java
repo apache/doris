@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
@@ -69,6 +70,14 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private InsertIntoTableCommand taskCommand;
     private String currentDb;
     private ConnectContext ctx;
+    // The StatementContext of the attempt this task's thread is running: before() creates it,
+    // endStatement() closes it, both on the task thread, which alone touches this. ctx, by
+    // contrast, is dropped by closeOrReleaseResources(), which the job's control thread runs when
+    // it pauses the job - possibly while before() is still planning and the plan's scan nodes (a
+    // remote Doris scan holding a Flight SQL session on the other frontend) have yet to register
+    // with the statement. This keeps the final close on the task thread able to stop them then.
+    @Getter(AccessLevel.NONE)
+    private StatementContext attemptStatement;
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     private String cloudCluster;
@@ -113,6 +122,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         }
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
+        attemptStatement = statementContext;
 
         this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
         log.info("streaming insert task {} get running offset: {}", taskId, runningOffset.toString());
@@ -232,6 +242,32 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         }
     }
 
+    /**
+     * Ends this attempt's statement the way TaskProcessor ends those of the tasks it runs (this
+     * task is run by the streaming scheduler instead). The plan before() built only to rewrite the
+     * TVF never gets a coordinator, so what its scan nodes opened for one - the Flight SQL session
+     * of a remote Doris scan joined with the TVF - is released here, on the task thread once
+     * before() / run() are over, rather than left to the remote frontend's wait_timeout. For a
+     * canceled attempt as well: a STOP of the job only cancels the task, and a PAUSE runs
+     * closeOrReleaseResources() on the control thread, possibly before the plan registered its nodes.
+     */
+    @Override
+    protected void endStatement() {
+        StatementContext statementContext = attemptStatement;
+        attemptStatement = null;
+        if (statementContext != null) {
+            statementContext.close();
+        }
+    }
+
+    /**
+     * Drops the attempt's executor, command and context. Runs on the task thread once an attempt
+     * that was not canceled is over, and on the job's control thread for a canceled one
+     * (StreamingInsertJob.clearRunningStreamTask) - which may be while before() is still planning.
+     * That is why the statement is not ended here but in endStatement(), on the task thread only:
+     * closing it from another thread mid-plan would release the planner's table read locks from a
+     * thread that does not hold them.
+     */
     @Override
     public void closeOrReleaseResources() {
         if (null != stmtExecutor) {

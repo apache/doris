@@ -85,6 +85,17 @@ public abstract class AbstractStreamingTask {
 
     public abstract void closeOrReleaseResources();
 
+    /**
+     * Ends the statement of the attempt this thread just ran, whatever became of it. Called from
+     * {@link #execute()}'s finally on the task thread, once {@code before()} / {@code run()} have
+     * returned and can register nothing more for the attempt, for every outcome - a canceled one
+     * included, for which {@link #closeOrReleaseResources()} is not called there but by the job's
+     * control thread (StreamingInsertJob.clearRunningStreamTask), possibly while this thread is
+     * still planning. No-op for a task that runs no statement of its own.
+     */
+    protected void endStatement() {
+    }
+
     // Release the remote cdc reader (keep slot). No-op for tasks without a cdc reader (e.g. TVF).
     public void releaseRemoteReader() {
     }
@@ -115,6 +126,7 @@ public abstract class AbstractStreamingTask {
                 log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
                         jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
             } finally {
+                endStatement();
                 // The cancel logic will call the closeOrReleased Resources method by itself.
                 // If it is also called here,
                 // it may result in the inability to obtain relevant information when canceling the task

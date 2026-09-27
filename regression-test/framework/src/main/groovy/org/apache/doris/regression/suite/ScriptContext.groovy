@@ -98,6 +98,9 @@ class ScriptContext implements Closeable {
         suiteExecutors.submit {
             suite.context.start {
                 log.info("Run ${suiteName} in ${file}".toString())
+                // A thread the suite constructs inherits this (an InheritableThreadLocal), so its uncaught
+                // exception reaches the suite's verdict: see UncaughtThreadFailures.
+                UncaughtThreadFailures.OWNER.set(suite.threadFailures)
 
                 try {
                     // delegate closure
@@ -142,6 +145,7 @@ class ScriptContext implements Closeable {
                     } catch (Throwable t) {
                         log.error("Run suite finish callbacks failed", t)
                     }
+                    UncaughtThreadFailures.OWNER.remove()
                 }
             }
         }

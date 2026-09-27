@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.nereids.StatementContext;
+
 public class AutoCloseConnectContext implements AutoCloseable {
 
     public final ConnectContext connectContext;
@@ -36,6 +38,16 @@ public class AutoCloseConnectContext implements AutoCloseable {
 
     @Override
     public void close() {
+        // The statement this context ran (an EXPORT's SELECT INTO OUTFILE, an ANALYZE's statistics
+        // query, ...) is over with the block: end it the way ConnectProcessor ends a connection's
+        // statement, before clear() drops the reference. What a plan opened for a coordinator that
+        // never came - the Flight SQL session of a remote Doris scan when the statement failed
+        // between planning and dispatch - is released here. Idempotent, and the planner has
+        // released its table locks at the end of planning already.
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext != null) {
+            statementContext.close();
+        }
         connectContext.clear();
         ConnectContext.remove();
         if (previousContext != null) {

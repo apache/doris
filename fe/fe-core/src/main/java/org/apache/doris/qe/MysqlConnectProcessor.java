@@ -194,6 +194,17 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        } finally {
+            // This execution is over, like a COM_QUERY statement is at the end of ConnectProcessor.handleQuery:
+            // close the StatementContext it ran with (ExecuteCommand allocates one per execution), so that what a
+            // plan opened for a coordinator that never came - the Flight SQL session of a remote Doris scan when
+            // the statement failed between planning and dispatch - is released now, not left to the next
+            // execution of the prepared statement or to the remote frontend's wait_timeout. Idempotent: an
+            // execution that ran its coordinator has nothing left to release.
+            StatementContext executedStatementContext = ctx.getStatementContext();
+            if (executedStatementContext != null) {
+                executedStatementContext.close();
+            }
         }
         if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);

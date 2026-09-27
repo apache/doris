@@ -104,6 +104,8 @@ class Suite implements GroovyInterceptable {
     final List<Closure> finishCallbacks = new Vector<>()
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
+    // The uncaught exceptions of the threads this suite started itself (see UncaughtThreadFailures).
+    final UncaughtThreadFailures threadFailures
     static Boolean isTrinoConnectorDownloaded = false
 
     static final String FORCE_IN_RBO = "FORCE_IN_RBO";
@@ -123,6 +125,7 @@ class Suite implements GroovyInterceptable {
         this.context = context
         this.cluster = cluster;
         this.debugPoint = new DebugPoint(this)
+        this.threadFailures = new UncaughtThreadFailures(name)
     }
 
     String getConf(String key, String defaultValue = null) {
@@ -211,8 +214,14 @@ class Suite implements GroovyInterceptable {
     }
 
     void doLazyCheck() {
+        // The body has returned, so every thread it joined has ended: a failure on one of them is the
+        // suite's. A thread still running fails nothing from here on (UncaughtThreadFailures).
+        List<Throwable> threadFailed = threadFailures.takeAll()
         if (!lazyCheckExceptions.isEmpty()) {
             throw lazyCheckExceptions.get(0)
+        }
+        if (!threadFailed.isEmpty()) {
+            throw threadFailed.get(0)
         }
         lazyCheckFutures.forEach { it.get() }
     }

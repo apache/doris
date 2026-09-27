@@ -68,8 +68,9 @@ public class PreparedStatementContext {
      */
     public StatementContext nextStatementContext() {
         // Close the outgoing context's per-statement connector scope before dropping it. The binary
-        // COM_STMT_EXECUTE path has no per-statement StatementContext.close() finally (that only
-        // runs for COM_QUERY), and coordinated scans may not have registered a query-finish
+        // COM_STMT_EXECUTE path closes the context at the end of each execution as well
+        // (MysqlConnectProcessor.handleExecute), but that close keeps the pinned connector writer
+        // schemas this reset drops, and coordinated scans may not have registered a query-finish
         // callback yet (connector commands and failures before scan registration have none).
         // Without this, the outgoing scope's closeable connector metadata / active connector
         // transactions would be abandoned, and GC cannot finalize them.

@@ -175,9 +175,7 @@ public class NereidsCoordinator extends Coordinator {
     public void cancel(Status cancelReason) {
         coordinatorContext.getQueueToken().ifPresent(QueueToken::cancel);
 
-        for (ScanNode scanNode : coordinatorContext.scanNodes) {
-            scanNode.stop();
-        }
+        stopScanNodes(coordinatorContext.scanNodes);
 
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is " + cancelReason);
@@ -462,13 +460,7 @@ public class NereidsCoordinator extends Coordinator {
             }
         }
 
-        try {
-            for (ScanNode scanNode : coordinatorContext.scanNodes) {
-                scanNode.stop();
-            }
-        } catch (Throwable t) {
-            LOG.error("error happens when scannode stop ", t);
-        }
+        stopScanNodes(coordinatorContext.scanNodes);
     }
 
     protected void cancelInternal(Status cancelReason) {
