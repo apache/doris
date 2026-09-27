@@ -80,6 +80,24 @@ TEST(FunctionIpTest, StringToNumRejectsEmbeddedNullTail) {
     check_function_all_arg_comb<DataTypeString, true>("inet6_aton", input_types, ipv6_null_data);
 }
 
+TEST(FunctionIpTest, IPv6FromUInt128StringRejectsEmptyAndOverflow) {
+    const std::string max_uint128 = "340282366920938463463374607431768211455";
+    IPv6 max_value = 0;
+    EXPECT_TRUE(IPv6Value::from_uint128_string(max_value, max_uint128.data(), max_uint128.size()));
+    EXPECT_EQ(max_value, static_cast<IPv6>(-1));
+
+    for (const auto& value :
+         {std::string("340282366920938463463374607431768211456"),
+          std::string("680564733841876926926749214863536422913"), std::string()}) {
+        IPv6 parsed = 0;
+        EXPECT_FALSE(IPv6Value::from_uint128_string(parsed, value.data(), value.size()));
+    }
+
+    IPv6 parsed = 0;
+    EXPECT_TRUE(IPv6Value::from_uint128_string(parsed, "1", 1));
+    EXPECT_EQ(parsed, static_cast<IPv6>(1));
+}
+
 TEST(FunctionIpTest, StringToIPv6AcceptsLongIPv4Spellings) {
     std::string mapped_ipv4_zero(IPV6_BINARY_LENGTH, '\0');
     mapped_ipv4_zero[10] = static_cast<char>(0xff);
@@ -263,6 +281,17 @@ TEST(FunctionIpTest, FunctionCutIPv6Test) {
     InputTypeSet input_types = {PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_TINYINT,
                                 PrimitiveType::TYPE_TINYINT};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    std::array<uint8_t, 16> ipv6_bytes {0xff, 0x12, 0xcd, 0xab, 0x04, 0x00, 0x03, 0x00,
+                                        0x02, 0x00, 0x01, 0x00, 0xb8, 0x0d, 0x01, 0x20};
+    IPv6 ipv6;
+    std::memcpy(&ipv6, &ipv6_bytes, sizeof(IPv6));
+    DataSet odd_bytes_data_set = {
+            {{ipv6, (int8_t)1, (int8_t)0}, std::string("2001:db8:1:2:3:4:abcd:1200")},
+            {{ipv6, (int8_t)3, (int8_t)0}, std::string("2001:db8:1:2:3:4:ab00:0")},
+            {{ipv6, (int8_t)15, (int8_t)0}, std::string("2000::")}};
+    static_cast<void>(
+            check_function<DataTypeString, true>(func_name, input_types, odd_bytes_data_set));
 }
 
 class MockIndexReader : public segment_v2::InvertedIndexReader {

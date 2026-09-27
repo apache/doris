@@ -17,6 +17,9 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -30,6 +33,7 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -208,6 +212,14 @@ private:
 } // namespace
 
 namespace {
+
+bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
+    if (!field->HasMetadata()) {
+        return false;
+    }
+    const auto value = field->metadata()->Get("originalType");
+    return value.ok() && value.ValueUnsafe() == "uuid";
+}
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') {
@@ -547,6 +559,41 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
         return Status::InvalidArgument("Unsupported arrow type for string column: {}",
                                        array_builder->type()->name());
     }
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (!is_iceberg_uuid_field(field)) {
+        // Keep the existing CHAR/STRING fixed-binary binding until external type mappings change.
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    if (!is_string_type(type->get_primitive_type()) ||
+        array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
+        return Status::InvalidArgument(
+                "Iceberg UUID writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+    const int byte_width =
+            assert_cast<const arrow::FixedSizeBinaryType&>(*builder.type()).byte_width();
+    if (byte_width != 16) {
+        return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}", byte_width);
+    }
+    const auto& strings = assert_cast<const ColumnType&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+            continue;
+        }
+        std::array<uint8_t, 16> bytes;
+        RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(strings.get_data_at(row), &bytes));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+    }
+    return Status::OK();
 }
 
 template <typename ColumnType>

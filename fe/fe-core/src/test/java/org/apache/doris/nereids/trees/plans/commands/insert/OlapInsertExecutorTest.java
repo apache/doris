@@ -86,9 +86,9 @@ class OlapInsertExecutorTest {
             prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
             ctx.setEnv(currentEnv);
 
-            Mockito.when(txnMgr.commitAndPublishTransaction(
+            Mockito.when(txnMgr.commitAndPublishTransactionWithRetry(
                     Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
-                    Mockito.isNull())).thenReturn(false);
+                    Mockito.isNull(), Mockito.anyList())).thenReturn(false);
 
             OlapInsertExecutor executor = createExecutor(ctx);
             executor.txnId = 10001L;
@@ -131,9 +131,9 @@ class OlapInsertExecutorTest {
             prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
             ctx.setEnv(currentEnv);
 
-            Mockito.when(txnMgr.commitAndPublishTransaction(
+            Mockito.when(txnMgr.commitAndPublishTransactionWithRetry(
                     Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
-                    Mockito.isNull())).thenReturn(false);
+                    Mockito.isNull(), Mockito.anyList())).thenReturn(false);
 
             OlapInsertExecutor executor = createExecutor(ctx);
             executor.txnId = 10002L;
@@ -152,6 +152,33 @@ class OlapInsertExecutorTest {
 
             Mockito.verify(txnMgr, Mockito.never()).abortTransaction(Mockito.anyLong(), Mockito.anyLong(),
                     Mockito.anyString());
+        }
+    }
+
+    @Test
+    void testOrdinaryInsertUsesRetryEntry() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        Env currentEnv = createCurrentEnv(Mockito.mock(LoadManager.class));
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+            Mockito.when(txnMgr.commitAndPublishTransactionWithRetry(
+                    Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
+                    Mockito.isNull(), Mockito.anyList())).thenReturn(true);
+
+            OlapInsertExecutor executor = createExecutor(ctx);
+            executor.txnId = 10006L;
+            executor.onComplete();
+
+            Mockito.verify(txnMgr).commitAndPublishTransactionWithRetry(
+                    Mockito.eq(executor.getDatabase()), Mockito.anyList(), Mockito.eq(10006L),
+                    Mockito.anyList(), Mockito.anyLong(), Mockito.isNull(), Mockito.anyList());
+            Assertions.assertEquals(TransactionStatus.VISIBLE, executor.txnStatus);
         }
     }
 
@@ -226,7 +253,7 @@ class OlapInsertExecutorTest {
                 MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
             prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
             ctx.setEnv(currentEnv);
-            Mockito.when(txnMgr.commitAndPublishTransaction(
+            Mockito.when(txnMgr.commitAndPublishTransactionWithRetry(
                     Mockito.any(), Mockito.anyList(), Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(),
                     Mockito.isNull(), Mockito.eq(streamUpdateInfos))).thenReturn(true);
 
@@ -236,7 +263,7 @@ class OlapInsertExecutorTest {
             executor.executeSingleInsert(stmtExecutor);
 
             Mockito.verify(coordinator, Mockito.never()).exec();
-            Mockito.verify(txnMgr).commitAndPublishTransaction(
+            Mockito.verify(txnMgr).commitAndPublishTransactionWithRetry(
                     Mockito.eq(executor.getDatabase()), Mockito.anyList(), Mockito.eq(10005L),
                     Mockito.argThat(List::isEmpty), Mockito.anyLong(), Mockito.isNull(),
                     Mockito.eq(streamUpdateInfos));

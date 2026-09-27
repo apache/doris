@@ -558,6 +558,7 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excludedTriggerTables);
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getQuerySql()).thenReturn("select k1 from test_db.base_table");
         Mockito.when(mtmv.getDatabase()).thenReturn(null);
         Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
 
@@ -583,6 +584,8 @@ public class MTMVTaskTest {
                         public UpdateMvByPartitionCommand answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(3);
                             Assertions.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
+                            Assertions.assertEquals("select k1 from test_db.base_table",
+                                    statementContext.getOriginStatement().originStmt);
                             return command;
                         }
                     });
@@ -593,6 +596,8 @@ public class MTMVTaskTest {
                         public Void answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(2);
                             Assertions.assertEquals(excludedTriggerTables, statementContext.getExcludedTriggerTables());
+                            Assertions.assertEquals("select k1 from test_db.base_table",
+                                    statementContext.getOriginStatement().originStmt);
                             return null;
                         }
                     });

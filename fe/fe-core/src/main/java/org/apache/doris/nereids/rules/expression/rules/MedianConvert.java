@@ -39,7 +39,7 @@ public class MedianConvert implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesType(Median.class).then(median ->
-                    new Percentile(median.child(0), DoubleLiteral.of(0.5))
+                    new Percentile(median.isDistinct(), median.child(0), DoubleLiteral.of(0.5))
                 ).toRule(ExpressionRuleType.MEDIAN_CONVERT)
         );
     }
