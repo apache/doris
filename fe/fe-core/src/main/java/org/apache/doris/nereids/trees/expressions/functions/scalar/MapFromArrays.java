@@ -20,8 +20,9 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
-import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -41,8 +42,8 @@ import java.util.List;
 
 /** Construct a Map from key and value arrays with identical per-row offsets. */
 public class MapFromArrays extends ScalarFunction
-        implements BinaryExpression, ComputePrecision, ExplicitlyCastableSignature, PropagateNullable,
-        PreferPushDownProject {
+        implements BinaryExpression, PreserveChildTypePrecision, ExplicitlyCastableSignature, PropagateNullable,
+        PreferPushDownProject, ChildDerivedSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(MapType.of(new FollowToAnyDataType(0), new FollowToAnyDataType(1)))
@@ -67,15 +68,6 @@ public class MapFromArrays extends ScalarFunction
         return SIGNATURES;
     }
 
-    /**
-     * Keep the resolved key and value types independent. The default precision promotion merges
-     * decimal and time types from all arguments, which can lose precision across the two map sides.
-     */
-    @Override
-    public FunctionSignature computePrecision(FunctionSignature signature) {
-        return signature;
-    }
-
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         FunctionSignature resolvedSignature = super.computeSignature(signature);
@@ -88,6 +80,21 @@ public class MapFromArrays extends ScalarFunction
                 .withReturnType(returnType);
         normalizedSignature.returnType.validateDataType();
         return normalizedSignature;
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        ArrayType keyArrayType = (ArrayType) ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
+                immediateOriginArguments.get(0).getDataType());
+        ArrayType valueArrayType = (ArrayType) ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(1), currentArguments.get(1).getDataType(),
+                immediateOriginArguments.get(1).getDataType());
+        return resolvedSignature
+                .withArgumentTypes(false, ImmutableList.of(keyArrayType, valueArrayType))
+                .withReturnType(MapType.of(keyArrayType.getItemType(), valueArrayType.getItemType()));
     }
 
     @Override

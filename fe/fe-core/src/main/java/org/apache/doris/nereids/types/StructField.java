@@ -110,6 +110,24 @@ public class StructField {
         return legacyLocaleDependentName;
     }
 
+    /**
+     * Compare every field attribute that participates in external or runtime metadata.
+     *
+     * <p>{@link #equals(Object)} intentionally models only runtime type identity. Callers that cache and reuse
+     * complete schemas must additionally preserve original spelling, comments, and legacy lookup behavior. Nested
+     * field metadata inside {@code dataType} must still be compared recursively by the schema owner.</p>
+     */
+    public boolean hasSameMetadata(StructField other) {
+        return other != null
+                && nullable == other.nullable
+                && commentSpecified == other.commentSpecified
+                && legacyLocaleDependentName == other.legacyLocaleDependentName
+                && Objects.equals(name, other.name)
+                && Objects.equals(originalName, other.originalName)
+                && Objects.equals(dataType, other.dataType)
+                && Objects.equals(comment, other.comment);
+    }
+
     public StructField conversion() {
         if (this.dataType.equals(dataType.conversion())) {
             return this;

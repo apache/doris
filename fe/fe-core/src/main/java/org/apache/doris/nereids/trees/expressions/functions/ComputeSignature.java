@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.ArrayType;
@@ -115,6 +116,19 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                 .then(ComputeSignatureHelper::normalizeDecimalV2)
                 .then(ComputeSignatureHelper::ensureNestedNullableOfArray)
                 .get();
+    }
+
+    /**
+     * Refresh argument and return metadata that is derived directly from the current children after reusing a
+     * previously resolved signature. The selected signature retains the Any/Follow dependency graph, while the
+     * resolved signature freezes overload selection, coercion, and scalar precision. The default implementation
+     * handles standard Any/Follow passthroughs; functions that construct a new complex shape override this hook.
+     */
+    default FunctionSignature refreshDerivedSignature(
+            FunctionSignature selectedSignature, FunctionSignature resolvedSignature,
+            List<Expression> immediateOriginArguments, List<Expression> currentArguments) {
+        return ChildDerivedSignature.refreshFollowTypeMetadata(
+                selectedSignature, resolvedSignature, immediateOriginArguments, currentArguments);
     }
 
     /** use processor to process computeSignature */

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -53,7 +54,7 @@ import java.util.List;
  * to_json convert type to json
  */
 public class ToJson extends ScalarFunction
-        implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable {
+        implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable, ChildDerivedSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE).args(NullType.INSTANCE),
@@ -110,6 +111,27 @@ public class ToJson extends ScalarFunction
         } else {
             return SIGNATURES;
         }
+    }
+
+    @Override
+    public FunctionSignature computeSignature(FunctionSignature signature) {
+        DataType childType = child(0).getDataType();
+        if (childType.isStructType() || childType.isArrayType() || childType.isMapType()) {
+            // Dynamic complex signatures already contain the exact child type. Generic precision promotion would
+            // merge independent nested fields, while scalar Decimal/DateTime signatures still require that step.
+            return signature;
+        }
+        return NullOrIdenticalSignature.super.computeSignature(signature);
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        DataType argumentType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
+                immediateOriginArguments.get(0).getDataType());
+        return resolvedSignature.withArgumentType(0, argumentType);
     }
 
     @Override

@@ -22,7 +22,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -51,7 +53,7 @@ import java.util.List;
  */
 public class ElementAt extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
-            PropagateNullLiteral, PreferPushDownProject {
+            PropagateNullLiteral, PreferPushDownProject, ChildDerivedSignature, PreserveChildTypePrecision {
 
     private static final FunctionSignature VARIANT_KEY_SIGNATURE =
             FunctionSignature.ret(VariantType.INSTANCE)
@@ -146,20 +148,28 @@ public class ElementAt extends ScalarFunction
 
     // Resolve the type of the struct field selected by the constant int/string index.
     private DataType structFieldType(StructType structType) {
-        Expression field = getArgument(1);
+        return structType.getFields().get(structFieldOrdinal(structType, getArgument(1))).getDataType();
+    }
+
+    private int structFieldOrdinal(StructType structType, Expression field) {
         if (field instanceof IntegerLikeLiteral) {
             int offset = ((IntegerLikeLiteral) field).getIntValue();
             if (offset <= 0 || offset > structType.getFields().size()) {
                 throw new AnalysisException("the specified field index out of bound: " + this.toSql());
             }
-            return structType.getFields().get(offset - 1).getDataType();
+            return offset - 1;
         } else if (field instanceof StringLikeLiteral) {
             String name = ((StringLikeLiteral) field).getStringValue();
             StructField structField = structType.getField(name);
             if (structField == null) {
                 throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
             }
-            return structField.getDataType();
+            for (int i = 0; i < structType.getFields().size(); i++) {
+                if (structType.getFields().get(i) == structField) {
+                    return i;
+                }
+            }
+            throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
         } else {
             throw new AnalysisException("element_at over a struct only allows a constant int or"
                     + " string second parameter: " + this.toSql());
@@ -178,5 +188,53 @@ public class ElementAt extends ScalarFunction
             signature = signature.withReturnType(originalType);
         }
         return super.computeSignature(signature);
+    }
+
+    @Override
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        DataType resolvedContainerType = resolvedSignature.getArgType(0);
+        DataType currentContainerType = currentArguments.get(0).getDataType();
+        DataType originContainerType = immediateOriginArguments.get(0).getDataType();
+        DataType containerType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedContainerType, currentContainerType, originContainerType);
+        DataType currentSelectorType = currentArguments.get(1).getDataType();
+        DataType selectorType;
+        DataType returnType = resolvedSignature.returnType;
+        if (resolvedContainerType instanceof StructType && currentContainerType instanceof StructType) {
+            if (!(originContainerType instanceof StructType)) {
+                throw new AnalysisException(
+                        "Cannot safely reuse struct element signature with a non-struct origin");
+            }
+            Expression selector = currentArguments.get(1);
+            if (!(selector instanceof IntegerLikeLiteral || selector instanceof StringLikeLiteral)) {
+                throw new AnalysisException(
+                        "Cannot safely reuse struct element signature with a non-literal selector");
+            }
+            int originOrdinal = structFieldOrdinal(
+                    (StructType) originContainerType, immediateOriginArguments.get(1));
+            int currentOrdinal = structFieldOrdinal((StructType) currentContainerType, selector);
+            if (originOrdinal != currentOrdinal) {
+                throw new AnalysisException(
+                        "Cannot safely reuse struct element signature after selecting a different field");
+            }
+            // NormalizeElementAt intentionally canonicalizes an ordinal selector to a field-name selector.
+            // Its type may therefore change, but the old and new selectors must resolve to the same field ordinal.
+            selectorType = currentSelectorType;
+            returnType = ((StructType) containerType).getFields().get(currentOrdinal).getDataType();
+        } else {
+            selectorType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                    resolvedSignature.getArgType(1), currentSelectorType,
+                    immediateOriginArguments.get(1).getDataType());
+        }
+        if (containerType instanceof ArrayType) {
+            returnType = ((ArrayType) containerType).getItemType();
+        } else if (containerType instanceof MapType) {
+            returnType = ((MapType) containerType).getValueType();
+        }
+        return resolvedSignature.withArgumentType(0, containerType)
+                .withArgumentType(1, selectorType)
+                .withReturnType(returnType);
     }
 }
