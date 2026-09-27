@@ -1971,6 +1971,7 @@ DEFINE_mInt32(global_point_index_bloom_size_slack_percent, "50");
 DEFINE_mBool(enable_global_point_index_scan_gate, "true");
 DEFINE_mBool(enable_global_point_index_sink_build, "true");
 DEFINE_Int32(global_point_index_prune_io_max_threads, "16");
+DEFINE_Int32(global_point_index_warmup_io_max_threads, "8");
 
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 

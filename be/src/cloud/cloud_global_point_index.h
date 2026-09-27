@@ -34,4 +34,13 @@ void handle_global_point_index_prune(CloudStorageEngine& engine,
                                      const PGlobalPointIndexPruneRequest& request,
                                      PGlobalPointIndexPruneResponse* response);
 
+// Queues one background task per requested tablet that brings the tablet's .gpidx files into the
+// file cache, and answers at once. Each task checks residency first (in memory, no remote IO):
+// fully cached files are left alone, cached blocks in the NORMAL or DISPOSABLE queue are moved to
+// the INDEX queue, and only files that are not cached are read. The same walk runs the bloom
+// sizing self-check. The response carries the totals of the previous completed sweep.
+void handle_global_point_index_warm_up(CloudStorageEngine& engine,
+                                       const PGpIdxWarmUpRequest& request,
+                                       PGpIdxWarmUpResponse* response);
+
 } // namespace doris

@@ -2304,6 +2304,26 @@ void PInternalService::prune_global_point_index(google::protobuf::RpcController*
     }
 }
 
+void PInternalService::warm_up_global_point_index(google::protobuf::RpcController* controller,
+                                                  const PGpIdxWarmUpRequest* request,
+                                                  PGpIdxWarmUpResponse* response,
+                                                  google::protobuf::Closure* done) {
+    // Only queues the work, so the light pool is fine.
+    bool offered = _light_work_pool.try_offer([request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        if (!config::is_cloud_mode()) {
+            Status::NotSupported("GLOBAL_POINT index warm-up is only supported in cloud mode")
+                    .to_protobuf(response->mutable_status());
+            return;
+        }
+        handle_global_point_index_warm_up(ExecEnv::GetInstance()->storage_engine().to_cloud(),
+                                          *request, response);
+    });
+    if (!offered) {
+        offer_failed(response, done, _light_work_pool);
+    }
+}
+
 void PInternalService::request_cdc_client(google::protobuf::RpcController* controller,
                                           const PRequestCdcClientRequest* request,
                                           PRequestCdcClientResult* result,

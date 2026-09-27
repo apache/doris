@@ -1316,6 +1316,8 @@ service PBackendService {
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
     // Plan-time tablet pruning with GLOBAL_POINT indexes. FE sends one request per BE.
     rpc prune_global_point_index(PGlobalPointIndexPruneRequest) returns (PGlobalPointIndexPruneResponse);
+    // Asks a BE to bring these tablets' GLOBAL_POINT index files into its file cache.
+    rpc warm_up_global_point_index(PGpIdxWarmUpRequest) returns (PGpIdxWarmUpResponse);
 };
 
 // One tablet to probe, at the snapshot version FE pinned for the query. BE must probe the rowsets
@@ -1342,4 +1344,36 @@ message PGlobalPointIndexPruneResponse {
     // Tablets kept only because they could not be checked (no local tablet, version not synced,
     // missing or unreadable bloom, ...).
     optional int64 degraded_tablets = 4;
+}
+
+// The BE answers as soon as one task per tablet is queued; the reads happen in the background.
+// Warm-up is best effort: a tablet that is not warmed is read from remote storage when needed.
+message PGpIdxWarmUpRequest {
+    repeated int64 tablet_ids = 1;
+    // false: first warm-up after the BE started; rowsets are synced from the meta service first.
+    // true: periodic repair sweep of an already warmed BE; uses the cached rowsets only, which is
+    // much cheaper and may miss rowsets written since the last sync until the next sweep.
+    optional bool is_repair_sweep = 2 [default = false];
+}
+
+message PGpIdxWarmUpResponse {
+    optional PStatus status = 1;
+    // Tablets queued, and tablets rejected because the queue was full (retry them later).
+    optional int64 accepted_tablets = 2;
+    optional int64 rejected_tablets = 3;
+    // Totals of the previous sweep this BE completed; this request's own work has not run yet.
+    // Absent if no sweep completed since the BE started.
+    optional int64 prev_sweep_checked = 4;   // cacheable index files looked at
+    optional int64 prev_sweep_resident = 5;  // already fully cached in the INDEX queue
+    optional int64 prev_sweep_repaired = 6;  // read into the cache, or moved to the INDEX queue
+    optional int64 prev_sweep_failed = 7;
+    // Bloom sizing self-check over every descriptor walked. undersized: far fewer bits per key
+    // than the bloom's own fpp needs (it saturates and stops pruning; results stay correct).
+    // empty: no value recorded, either a bloom that was never fed or an all-NULL column.
+    optional int64 prev_sweep_blooms_seen = 8;
+    optional int64 prev_sweep_blooms_undersized = 9;
+    optional int64 prev_sweep_blooms_empty = 10;
+    // Non-empty rowsets without a descriptor for an index in the tablet's current schema. Normal
+    // after ADD INDEX until the historical rowsets are rewritten; should trend to zero.
+    optional int64 prev_sweep_blooms_missing = 11;
 }

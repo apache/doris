@@ -598,6 +598,20 @@ public class BackendServiceProxy {
         return null;
     }
 
+    // The BE answers once the tablets are queued, so a short deadline is enough. Returns null on
+    // failure, like pruneGlobalPointIndexAsync.
+    public Future<InternalService.PGpIdxWarmUpResponse> warmUpGlobalPointIndexAsync(
+            TNetworkAddress address, InternalService.PGpIdxWarmUpRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.warmUpGlobalPointIndex(request, 10);
+        } catch (Throwable e) {
+            LOG.warn("warm up global point index failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
+
     public Future<InternalService.PDeleteDictionaryResponse> deleteDictionaryAsync(TNetworkAddress address,
             int timeoutSec, InternalService.PDeleteDictionaryRequest request) {
         try {

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
+import org.apache.doris.cloud.GlobalPointIndexWarmUpDaemon;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
@@ -82,6 +83,7 @@ public class CloudEnv extends Env {
 
     private CloudTabletRebalancer cloudTabletRebalancer;
     private CacheHotspotManager cacheHotspotMgr;
+    private GlobalPointIndexWarmUpDaemon globalPointIndexWarmUpDaemon;
     private CloudSyncVersionDaemon cloudSyncVersionDaemon;
     private CloudFEVersionSynchronizer cloudFEVersionSynchronizer;
 
@@ -107,6 +109,7 @@ public class CloudEnv extends Env {
         this.cloudSyncVersionDaemon = new CloudSyncVersionDaemon();
         this.cloudFEVersionSynchronizer = new CloudFEVersionSynchronizer();
         this.cloudSnapshotHandler = CloudSnapshotHandler.getInstance();
+        this.globalPointIndexWarmUpDaemon = new GlobalPointIndexWarmUpDaemon();
     }
 
     public CloudTabletRebalancer getCloudTabletRebalancer() {
@@ -177,6 +180,7 @@ public class CloudEnv extends Env {
             cacheHotspotMgr.recoverRunningJobsBeforeStart();
             cacheHotspotMgr.start();
         }
+        globalPointIndexWarmUpDaemon.start();
         upgradeMgr.start();
         cloudSnapshotHandler.start();
     }

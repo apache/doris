@@ -205,6 +205,11 @@ public class BackendServiceClient {
         return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).pruneGlobalPointIndex(request);
     }
 
+    public Future<InternalService.PGpIdxWarmUpResponse> warmUpGlobalPointIndex(
+            InternalService.PGpIdxWarmUpRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).warmUpGlobalPointIndex(request);
+    }
+
     public Future<InternalService.PDeleteDictionaryResponse> deleteDictionary(
             InternalService.PDeleteDictionaryRequest request, int timeoutSec) {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).deleteDictionary(request);

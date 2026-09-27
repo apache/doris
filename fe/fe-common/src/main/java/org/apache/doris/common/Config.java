@@ -3912,4 +3912,22 @@ public class Config extends ConfigBase {
             + "are reliably in the BE file cache; a healthy cluster answers well within 500 ms.")
     public static int global_point_index_prune_timeout_ms = 3000;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Whether the master FE keeps the GLOBAL_POINT index "
+            + "files of every alive BE in its file cache: all files after the BE starts, then periodic repair sweeps "
+            + "(see enable_global_point_index_repair). Cloud mode only.")
+    public static boolean enable_global_point_index_warmup = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Number of tablets in one GLOBAL_POINT warm-up "
+            + "request to a BE.")
+    public static int global_point_index_warmup_batch_size = 1000;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Whether to run periodic GLOBAL_POINT repair sweeps "
+            + "on already warmed BEs. A sweep brings back index files evicted from the file cache and runs the bloom "
+            + "sizing self-check. Only takes effect when enable_global_point_index_warmup is on.")
+    public static boolean enable_global_point_index_repair = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = "Seconds between two GLOBAL_POINT repair sweeps of "
+            + "the same BE.")
+    public static int global_point_index_repair_interval_sec = 600;
+
 }

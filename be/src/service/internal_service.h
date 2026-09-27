@@ -252,6 +252,12 @@ public:
                                   PGlobalPointIndexPruneResponse* response,
                                   google::protobuf::Closure* done) override;
 
+    // Brings GLOBAL_POINT index files into the file cache (cloud mode). Answers once queued.
+    void warm_up_global_point_index(google::protobuf::RpcController* controller,
+                                    const PGpIdxWarmUpRequest* request,
+                                    PGpIdxWarmUpResponse* response,
+                                    google::protobuf::Closure* done) override;
+
     void request_cdc_client(google::protobuf::RpcController* controller,
                             const PRequestCdcClientRequest* request,
                             PRequestCdcClientResult* result,

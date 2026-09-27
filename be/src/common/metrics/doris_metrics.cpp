@@ -48,6 +48,14 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_local, MetricUnit::BY
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes_from_remote, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_warmup_checked_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_warmup_resident_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_warmup_repaired_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_warmup_failed_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_blooms_undersized_total,
+                                     MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_blooms_empty_total, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(global_point_index_blooms_missing_total, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(query_cache_stale_hit_total, MetricUnit::REQUESTS,
                                      "Query cache decisions that reused a stale entry by "
                                      "incremental merge.");
@@ -301,6 +309,14 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_local);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes_from_remote);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_warmup_checked_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_warmup_resident_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_warmup_repaired_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_warmup_failed_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_blooms_undersized_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_blooms_empty_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, global_point_index_blooms_missing_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_stale_hit_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_incremental_fallback_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_cache_write_back_total);
