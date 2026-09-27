@@ -23,6 +23,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/operator_helper.h"
@@ -30,6 +31,17 @@
 #include "testutil/mock/mock_data_stream_sender.h"
 #include "testutil/mock/mock_descriptors.h"
 namespace doris {
+
+template <typename T>
+class ScopedConfigValue {
+public:
+    ScopedConfigValue(T& target, T value) : _target(target), _old(target) { _target = value; }
+    ~ScopedConfigValue() { _target = _old; }
+
+private:
+    T& _target;
+    T _old;
+};
 
 TUniqueId create_TUniqueId(int64_t hi, int64_t lo) {
     TUniqueId t {};
@@ -53,11 +65,14 @@ struct MockExchangeLocalState : public ExchangeSinkLocalState {
 };
 
 struct MockExchangeSinkOperatorX : public ExchangeSinkOperatorX {
-    MockExchangeSinkOperatorX(OperatorContext& ctx)
+    MockExchangeSinkOperatorX(OperatorContext& ctx,
+                              TPartitionType::type partition_type = TPartitionType::UNPARTITIONED)
             : ExchangeSinkOperatorX(
                       &ctx.state,
                       MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &ctx.pool}, 0,
-                      TDataStreamSink {}, {}, {}) {}
+                      TDataStreamSink {}, {}, {}) {
+        _part_type = partition_type;
+    }
 
     void _init_sink_buffer() override {
         std::vector<InstanceLoId> ins_ids {fragment_instance_id.lo};
@@ -70,13 +85,14 @@ struct ChannelInfo {
     TUniqueId fragment_instance_id;
 };
 
-auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
+auto create_exchange_sink(std::vector<ChannelInfo> channel_info,
+                          TPartitionType::type partition_type = TPartitionType::UNPARTITIONED) {
     std::shared_ptr<OperatorContext> ctx = std::make_shared<OperatorContext>();
 
     ctx->state._fragment_instance_id = fragment_instance_id;
 
     std::shared_ptr<MockExchangeSinkOperatorX> op =
-            std::make_shared<MockExchangeSinkOperatorX>(*ctx);
+            std::make_shared<MockExchangeSinkOperatorX>(*ctx, partition_type);
     EXPECT_TRUE(op->prepare(&ctx->state));
 
     auto local_state = std::make_unique<MockExchangeLocalState>(op.get(), &ctx->state);
@@ -174,6 +190,24 @@ TEST(ExchangeSinkOperatorTest, shared_writer_scaling_state_is_synchronized) {
     auto [data_processed, writer_count] = op->writer_scaling_state_for_test();
     EXPECT_EQ(data_processed, thread_count * updates_per_thread);
     EXPECT_EQ(writer_count, 1);
+}
+
+TEST(ExchangeSinkOperatorTest, all_local_external_sink_counts_bytes_before_move) {
+    ScopedConfigValue<int64_t> threshold_guard(
+            config::table_sink_non_partition_write_scaling_data_processed_threshold, 1);
+    auto [op, ctx, mock_channel] = create_exchange_sink(
+            {{.is_local = true, .fragment_instance_id = create_TUniqueId(1, 1)},
+             {.is_local = true, .fragment_instance_id = create_TUniqueId(1, 2)}},
+            TPartitionType::EXTERNAL_TABLE_SINK_UNPARTITIONED);
+    Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    const auto block_bytes = block.bytes();
+
+    auto st = op->sink(&ctx->state, &block, false);
+
+    ASSERT_TRUE(st.ok()) << st.msg();
+    auto [data_processed, writer_count] = op->writer_scaling_state_for_test();
+    EXPECT_EQ(data_processed, block_bytes);
+    EXPECT_EQ(writer_count, 2);
 }
 
 TEST(ExchangeSinkOperatorTest, test_some_api) {

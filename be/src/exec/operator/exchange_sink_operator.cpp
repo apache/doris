@@ -573,9 +573,9 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
                _part_type == TPartitionType::EXTERNAL_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
+        const auto block_bytes = block->bytes();
         RETURN_IF_ERROR(send_to_current_channel());
-        const auto writer_count =
-                _update_writer_scaling(block->bytes(), local_state.channels.size());
+        const auto writer_count = _update_writer_scaling(block_bytes, local_state.channels.size());
         local_state.current_channel_idx = (local_state.current_channel_idx + 1) % writer_count;
     } else {
         // Range partition
