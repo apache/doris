@@ -591,6 +591,90 @@ TEST(MetaServiceVersionedReadTest, GetVersion) {
     }
 }
 
+// Exercise both storage layouts and both scalar/batch wire responses.
+TEST(MetaServiceVersionedReadTest, GetVersionPendingState) {
+    for (bool versioned_read : {false, true}) {
+        SCOPED_TRACE(versioned_read);
+        auto service = get_meta_service(false);
+        std::string instance_id = "pending_version_instance";
+        MOCK_GET_INSTANCE_ID(instance_id);
+        if (versioned_read) {
+            create_and_refresh_instance(service.get(), instance_id);
+        }
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int64_t partition_id : {1, 2, 3}) {
+            VersionPB version;
+            if (partition_id != 3) {
+                version.set_version(partition_id == 1 ? 12 : 7);
+            }
+            if (partition_id != 2) {
+                version.add_pending_txn_ids(100);
+            }
+            version.set_update_time_ms(2000);
+            version.set_commit_tso(3000);
+            std::string value = version.SerializeAsString();
+            txn->put(partition_version_key({instance_id, 1, 1, partition_id}), value);
+            versioned_put(txn.get(), versioned::partition_version_key({instance_id, partition_id}),
+                          value);
+        }
+        // Model waiting on an observed pending version after its transaction has become visible.
+        TxnIndexPB index;
+        index.mutable_tablet_index()->set_db_id(1);
+        txn->put(txn_index_key({instance_id, 100}), index.SerializeAsString());
+        TxnInfoPB info;
+        info.set_txn_id(100);
+        info.set_db_id(1);
+        info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+        txn->put(txn_info_key({instance_id, 1, 100}), info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        for (bool wait : {false, true}) {
+            SCOPED_TRACE(wait);
+            // Mix pending, non-pending, first-write pending, and absent partitions in request order.
+            std::vector<int64_t> ids {2, 1, 3, 4};
+            std::vector<int64_t> expected_versions {7, wait ? 13 : 12, wait ? 2 : -1, -1};
+            std::vector<bool> expected_pending {false, !wait, !wait, false};
+            GetVersionRequest batch;
+            batch.set_cloud_unique_id("test_cloud_unique_id");
+            batch.set_batch_mode(true);
+            batch.set_wait_for_pending_txn(wait);
+            for (size_t i = 0; i < ids.size(); ++i) {
+                GetVersionRequest req;
+                req.set_cloud_unique_id("test_cloud_unique_id");
+                req.set_db_id(1);
+                req.set_table_id(1);
+                req.set_partition_id(ids[i]);
+                req.set_wait_for_pending_txn(wait);
+                brpc::Controller ctrl;
+                GetVersionResponse resp;
+                service->get_version(&ctrl, &req, &resp, nullptr);
+                ASSERT_EQ(resp.status().code(), expected_versions[i] == -1
+                                                        ? MetaServiceCode::VERSION_NOT_FOUND
+                                                        : MetaServiceCode::OK);
+                ASSERT_EQ(resp.has_pending_txns_size(), 1);
+                EXPECT_EQ(resp.has_pending_txns(0), expected_pending[i]);
+                if (expected_versions[i] != -1) {
+                    EXPECT_EQ(resp.version(), expected_versions[i]);
+                }
+                batch.add_db_ids(1);
+                batch.add_table_ids(1);
+                batch.add_partition_ids(ids[i]);
+            }
+            brpc::Controller ctrl;
+            GetVersionResponse resp;
+            service->get_version(&ctrl, &batch, &resp, nullptr);
+            ASSERT_EQ(resp.status().code(), MetaServiceCode::OK) << resp.DebugString();
+            ASSERT_EQ(resp.versions_size(), ids.size());
+            ASSERT_EQ(resp.has_pending_txns_size(), ids.size());
+            for (size_t i = 0; i < ids.size(); ++i) {
+                EXPECT_EQ(resp.versions(i), expected_versions[i]);
+                EXPECT_EQ(resp.has_pending_txns(i), expected_pending[i]);
+            }
+        }
+    }
+}
+
 TEST(MetaServiceVersionedReadTest, BatchGetVersion) {
     struct TestCase {
         std::vector<int64_t> table_ids;

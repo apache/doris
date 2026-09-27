@@ -292,6 +292,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             TxnErrorCode err = reader.get_partition_version(partition_id, &partition_version,
                                                             nullptr, false, &source_instance);
             if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                response->add_has_pending_txns(false);
                 msg = "partition version not found";
                 code = MetaServiceCode::VERSION_NOT_FOUND;
                 return;
@@ -310,6 +311,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 }
                 partition_version = std::move(pending_versions.front());
             }
+            response->add_has_pending_txns(!partition_version.pending_txn_ids().empty());
             if (!partition_version.has_version()) {
                 msg = "partition version not found";
                 code = MetaServiceCode::VERSION_NOT_FOUND;
@@ -368,6 +370,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
                 }
                 version_pb = std::move(pending_versions.front());
             }
+            response->add_has_pending_txns(!version_pb.pending_txn_ids().empty());
             if (!version_pb.has_version()) {
                 msg = "not found";
                 code = MetaServiceCode::VERSION_NOT_FOUND;
@@ -381,6 +384,9 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
         TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        if (!is_table_version) {
+            response->add_has_pending_txns(false);
+        }
         msg = "not found";
         code = MetaServiceCode::VERSION_NOT_FOUND;
         return;
@@ -440,6 +446,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             response->clear_table_ids();
             response->clear_versions();
             response->clear_db_ids();
+            response->clear_has_pending_txns();
         }
         return;
     }
@@ -544,7 +551,8 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
                     }
                 }
                 for (auto& version_pb : partition_versions) {
-                    response->add_versions(version_pb.version());
+                    response->add_versions(version_pb.has_version() ? version_pb.version() : -1);
+                    response->add_has_pending_txns(!version_pb.pending_txn_ids().empty());
                     response->add_version_update_time_ms(version_pb.update_time_ms());
                     response->add_commit_tsos(version_pb.commit_tso());
                 }
@@ -557,6 +565,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
         response->clear_versions();
         response->clear_version_update_time_ms();
         response->clear_commit_tsos();
+        response->clear_has_pending_txns();
     }
 }
 
@@ -706,7 +715,8 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::batch_get_partition_ver
                 }
             }
             for (auto& version_pb : partition_versions) {
-                response->add_versions(version_pb.version());
+                response->add_versions(version_pb.has_version() ? version_pb.version() : -1);
+                response->add_has_pending_txns(!version_pb.pending_txn_ids().empty());
                 response->add_version_update_time_ms(version_pb.update_time_ms());
                 response->add_commit_tsos(version_pb.commit_tso());
             }

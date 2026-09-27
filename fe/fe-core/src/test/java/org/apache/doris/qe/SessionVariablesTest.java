@@ -113,6 +113,24 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testCloudGetVersionWaitForPendingTxn() throws Exception {
+        SessionVariable session = new SessionVariable();
+        SessionVariable forwarded = new SessionVariable();
+        Assertions.assertFalse(session.cloudGetVersionWaitForPendingTxn);
+        for (boolean waitForPendingTxn : new boolean[] {true, false}) {
+            VariableMgr.setVar(session, new SetVar(SetType.SESSION,
+                    SessionVariable.CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN,
+                    new StringLiteral(Boolean.toString(waitForPendingTxn))));
+            Assertions.assertEquals(waitForPendingTxn, session.cloudGetVersionWaitForPendingTxn);
+            Map<String, String> vars = session.getForwardVariables();
+            Assertions.assertEquals(Boolean.toString(waitForPendingTxn),
+                    vars.get(SessionVariable.CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN));
+            forwarded.setForwardedSessionVariables(vars);
+            Assertions.assertEquals(waitForPendingTxn, forwarded.cloudGetVersionWaitForPendingTxn);
+        }
+    }
+
+    @Test
     public void testInsertVisibleTimeoutReturnMode() throws Exception {
         connectContext.setThreadLocalInfo();
         SessionVariable sessionVar = connectContext.getSessionVariable();
