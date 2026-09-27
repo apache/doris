@@ -94,6 +94,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sinh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
@@ -1624,6 +1625,25 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             sessionVariable.enableStrictCast = false;
             sessionVariable.setDebugSkipFoldConstant(false);
             sessionVariable.setEnableFoldConstantByBe(false);
+        }
+    }
+
+    @Test
+    void testShortCircuitIfDoesNotFoldUnselectedBranch() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        try {
+            sessionVariable.enableStrictCast = true;
+            executor = new ExpressionRuleExecutor(ImmutableList.of(
+                    bottomUp(FoldConstantRule.INSTANCE)));
+            Expression invalidCast = new Cast(new StringLiteral("not-an-int"), IntegerType.INSTANCE);
+            Expression guarded = new ShortCircuitIf(
+                    BooleanLiteral.TRUE, new IntegerLiteral(7), invalidCast);
+
+            Assertions.assertEquals(new IntegerLiteral(7), executor.rewrite(guarded, context));
+            Assertions.assertEquals(new IntegerLiteral(7),
+                    FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(guarded, context));
+        } finally {
+            sessionVariable.enableStrictCast = false;
         }
     }
 
