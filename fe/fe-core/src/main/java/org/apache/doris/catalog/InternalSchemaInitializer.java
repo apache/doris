@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.DbName;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -615,6 +616,44 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
+     * The intended PHYSICAL position of every upgraded checkpoint column: the column of
+     * {@link InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA} it must follow. cursor_tail
+     * sits BEFORE failed_attempts / retry_queue / update_time in the canonical schema, so
+     * a plain append leaves an upgraded table with an order no freshly created table ever
+     * has. The name-addressed reader / writer survive that, but a positional
+     * {@code INSERT ... VALUES} does not (see PlanCaptureManager#CHECKPOINT_INSERT_SQL):
+     * restoring the canonical order keeps the two layouts identical.
+     */
+    @VisibleForTesting
+    static final Map<String, String> SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS =
+            new LinkedHashMap<>();
+
+    static {
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("cursor_tail", "cursor_query_id");
+    }
+
+    /**
+     * The {@link ColumnPosition} of one upgraded checkpoint column, or null for a plain
+     * APPEND (the null-ColumnPosition semantics of AddColumnOp). The anchor of every
+     * upgrade column has been part of the checkpoint table since BEFORE that column was
+     * introduced, so an upgraded table always carries it; a table created by an even
+     * older build (anchor missing) keeps the append order - its writes are name-addressed
+     * anyway.
+     *
+     * @param column          the upgraded column (a key of
+     *                        {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS})
+     * @param existingColumns the LOWERCASE names already present in the table
+     */
+    @VisibleForTesting
+    static ColumnPosition checkpointColumnPosition(String column, Set<String> existingColumns) {
+        String anchor = SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.get(column);
+        if (anchor == null || !existingColumns.contains(anchor)) {
+            return null;
+        }
+        return new ColumnPosition(anchor);
+    }
+
+    /**
      * Waits until the spm_capture_checkpoint table carries every column of
      * {@link #SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS}: like the baselines upgrade, a
      * transient ALTER failure (BE / tablet not ready) must be retried HERE - run() calls
@@ -697,7 +736,11 @@ public class InternalSchemaInitializer extends Thread {
                     DataType.fromCatalogType(entry.getValue()),
                     true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
                     Optional.empty(), "", true, Optional.empty());
-            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+            // Restore the canonical schema order instead of appending: a positional
+            // INSERT binds its values by POSITION, so an upgraded table must end up with
+            // the layout of a freshly created one (see checkpointColumnPosition)
+            AddColumnOp addColumnOp = new AddColumnOp(definition,
+                    checkpointColumnPosition(entry.getKey(), existing), null, null);
             addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
             TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
                     FeConstants.INTERNAL_DB_NAME, InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);

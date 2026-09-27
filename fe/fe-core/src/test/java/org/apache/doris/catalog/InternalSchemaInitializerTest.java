@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.spm.capture.PlanCaptureManager;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
@@ -33,10 +34,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 class InternalSchemaInitializerTest {
     @Test
@@ -407,6 +411,62 @@ class InternalSchemaInitializerTest {
                     InternalSchema.SPM_BASELINES_SCHEMA.stream()
                             .anyMatch(def -> column.equalsIgnoreCase(def.getName())),
                     "the create schema must carry the " + column + " column");
+        }
+    }
+
+    /**
+     * The durable checkpoint UPSERT (PlanCaptureManager#CHECKPOINT_INSERT_SQL) binds its
+     * VALUES by POSITION, so the explicit column list must stay one-to-one with the
+     * canonical schema order. Dropping the list (a bare positional INSERT) or letting it
+     * go stale silently rebinds every value on a table whose PHYSICAL order differs from
+     * the canonical one - the tail JSON used to land in failed_attempts there.
+     */
+    @Test
+    public void testCheckpointInsertSqlListsCanonicalColumns() {
+        String sql = PlanCaptureManager.checkpointInsertSqlForTest();
+        String canonical = InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA.stream()
+                .map(def -> "`" + def.getName().toLowerCase(Locale.ROOT) + "`")
+                .collect(Collectors.joining(", "));
+        int listStart = sql.indexOf('(');
+        int listEnd = sql.indexOf(')');
+        Assertions.assertTrue(listStart > 0 && listEnd > listStart,
+                "the UPSERT must list its target columns: " + sql);
+        Assertions.assertEquals(canonical, sql.substring(listStart + 1, listEnd),
+                "the INSERT column list must match the schema order: " + sql);
+        Assertions.assertTrue(sql.contains(") VALUES ("),
+                "the column list must be followed by the VALUES operands: " + sql);
+    }
+
+    /**
+     * An upgraded table must end up with the SAME physical order as a freshly created
+     * one: cursor_tail belongs BEFORE failed_attempts / retry_queue / update_time, but the
+     * upgrade used to APPEND it (null ColumnPosition) - a positional checkpoint INSERT
+     * then wrote the tail JSON into failed_attempts and the retry JSON into update_time.
+     */
+    @Test
+    public void testCheckpointUpgradeRestoresCanonicalColumnOrder() {
+        List<String> schemaNames = InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA.stream()
+                .map(def -> def.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toList());
+        for (String column : InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.keySet()) {
+            int columnIndex = schemaNames.indexOf(column);
+            Assertions.assertTrue(columnIndex >= 0,
+                    "the create schema must carry the upgraded column " + column);
+            String anchor =
+                    InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.get(column);
+            Assertions.assertNotNull(anchor,
+                    "the upgrade must place " + column + " at its canonical position");
+            int anchorIndex = schemaNames.indexOf(anchor);
+            Assertions.assertTrue(anchorIndex >= 0 && anchorIndex < columnIndex,
+                    "the anchor " + anchor + " must precede " + column + " in the schema");
+            ColumnPosition position = InternalSchemaInitializer.checkpointColumnPosition(column,
+                    new HashSet<>(schemaNames));
+            Assertions.assertNotNull(position,
+                    "a table carrying the anchor must get a position for " + column);
+            Assertions.assertEquals(anchor, position.getLastCol());
+            Assertions.assertNull(InternalSchemaInitializer.checkpointColumnPosition(column,
+                            new HashSet<>()),
+                    "without the anchor the upgrade falls back to the append order");
         }
     }
 }
