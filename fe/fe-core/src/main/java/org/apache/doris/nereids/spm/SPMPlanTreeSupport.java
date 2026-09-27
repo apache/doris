@@ -28,6 +28,10 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
@@ -1177,6 +1181,19 @@ public final class SPMPlanTreeSupport {
             return bindTvf.getFunctionName().equals(userTvf.getFunctionName())
                     && Objects.equals(bindTvf.getProperties(), userTvf.getProperties());
         }
+        // SELECT hints: LogicalSelectHint.getExpressions() is empty and its toDigest()
+        // drops the hint list, so two query blocks that differ ONLY in a hint payload have
+        // the same digest and the same "no expressions, same child" result. A SET_VAR hint
+        // however changes how the query is analyzed / planned (time_zone and sql_mode
+        // change the RESULT, LEADING / ORDERED change the join order): accepting a
+        // variant with a different setting would replay the creator's frozen expression /
+        // plan under the caller's setting - neither side's semantics. Compare the complete
+        // hint list of every block (nested blocks carry their own LogicalSelectHint and
+        // are reached through the child / subquery recursion).
+        if (bind instanceof LogicalSelectHint && user instanceof LogicalSelectHint) {
+            return sameSelectHints(((LogicalSelectHint<?>) bind).getHints(),
+                    ((LogicalSelectHint<?>) user).getHints());
+        }
         // Positional subquery / CTE column aliases: LogicalSubQueryAlias does not expose
         // them through getExpressions() (toDigest merely computes the joined alias list
         // without appending it), so s(x, y) and s(y, x) over the same derived table would
@@ -1325,6 +1342,79 @@ public final class SPMPlanTreeSupport {
             }
         }
         return true;
+    }
+
+    /**
+     * Compares the hint lists of one query block: same size, same position, same hint
+     * class and the same payload. The lists are compared ELEMENT-WISE (not as a set):
+     * LEADING / ORDERED spell out a join order, so the order inside one block is part of
+     * the hint. The payload comparison is structural rather than toString-based, so the
+     * same hint written with its keys in a different order still matches:
+     *
+     * - SET_VAR: variable name -> value (an empty value is the bare
+     *   {@code SET_VAR(name)} form). Variable names are matched case-insensitively (Doris
+     *   variable names are).
+     * - USE_MV: the referenced table groups and the on / off flag.
+     * - LEADING: the leading parameter list (ORDER-SENSITIVE: it fixes the join order)
+     *   and the distribution map.
+     * - any other subclass: no payload known - the rendered form must still be equal so
+     *   a future payload-carrying hint class is rejected instead of silently accepted.
+     */
+    private static boolean sameSelectHints(List<SelectHint> bindHints, List<SelectHint> userHints) {
+        if (bindHints.size() != userHints.size()) {
+            return false;
+        }
+        for (int i = 0; i < bindHints.size(); i++) {
+            SelectHint bindHint = bindHints.get(i);
+            SelectHint userHint = userHints.get(i);
+            if (!bindHint.getClass().equals(userHint.getClass())
+                    || !bindHint.getHintName().equalsIgnoreCase(userHint.getHintName())) {
+                return false;
+            }
+            if (bindHint instanceof SelectHintSetVar) {
+                Map<String, Optional<String>> bindParams =
+                        ((SelectHintSetVar) bindHint).getParameters();
+                Map<String, Optional<String>> userParams =
+                        ((SelectHintSetVar) userHint).getParameters();
+                if (bindParams.size() != userParams.size()) {
+                    return false;
+                }
+                for (Map.Entry<String, Optional<String>> entry : bindParams.entrySet()) {
+                    if (!Objects.equals(entry.getValue(),
+                            getIgnoreCase(userParams, entry.getKey()))) {
+                        return false;
+                    }
+                }
+            } else if (bindHint instanceof SelectHintUseMv) {
+                SelectHintUseMv bindMv = (SelectHintUseMv) bindHint;
+                SelectHintUseMv userMv = (SelectHintUseMv) userHint;
+                if (bindMv.isUseMv() != userMv.isUseMv()
+                        || !bindMv.getTables().equals(userMv.getTables())) {
+                    return false;
+                }
+            } else if (bindHint instanceof SelectHintLeading) {
+                SelectHintLeading bindLeading = (SelectHintLeading) bindHint;
+                SelectHintLeading userLeading = (SelectHintLeading) userHint;
+                if (!bindLeading.getParameters().equals(userLeading.getParameters())
+                        || !Objects.equals(bindLeading.getStrToHint(),
+                                userLeading.getStrToHint())) {
+                    return false;
+                }
+            } else if (!bindHint.toString().equals(userHint.toString())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Case-insensitive lookup in a hint parameter map (Doris variable names are). */
+    private static Optional<String> getIgnoreCase(Map<String, Optional<String>> map, String key) {
+        for (Map.Entry<String, Optional<String>> entry : map.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(key)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     /** Single expression pair check (bind side parameterized, user side raw). */

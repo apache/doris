@@ -121,9 +121,24 @@ public class PlanCaptureManager extends MasterDaemon {
      * separately committed statements: a crash / leadership loss / timeout / failed
      * INSERT after the DELETE left NO row for the next leader, which then derived a fresh
      * window and permanently skipped the deleted pending window's unconsumed tail.
+     *
+     * The target columns are listed EXPLICITLY. The VALUES order below follows
+     * {@link org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA}, but
+     * the PHYSICAL order of an upgraded table can differ: the upgrade of a pre-existing
+     * table APPENDS the columns it adds ({@code InternalSchemaInitializer#
+     * upgradeSpmCaptureCheckpointSchema}), which used to place cursor_tail after
+     * update_time. A positional INSERT then shifts every value behind the first
+     * out-of-position column - the tail JSON was written into failed_attempts, the retry
+     * JSON into update_time and NOW() into cursor_tail - and the checkpoint write failed
+     * / persisted garbage. Address the columns by NAME instead: the write must stay
+     * correct on every physical layout, exactly like the (by-name) CHECKPOINT_SELECT_SQL
+     * read.
      */
     private static final String CHECKPOINT_INSERT_SQL =
             "INSERT INTO " + CHECKPOINT_TABLE
+                    + " (`id`, `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
+                    + " `cursor_query_time`, `cursor_time`, `cursor_query_id`, `cursor_tail`,"
+                    + " `failed_attempts`, `retry_queue`, `update_time`)"
                     + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
                     + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
                     + " '${failedAttempts}', '${retryQueue}', NOW())";
@@ -1139,6 +1154,18 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void persistCheckpointForTest() {
         persistCheckpoint();
+    }
+
+    /**
+     * For tests: the durable UPSERT statement (see {@link #CHECKPOINT_INSERT_SQL}). The
+     * column list must stay one-to-one with
+     * {@link org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA} (and
+     * must be a column LIST, not a positional VALUES) so an upgraded table with a
+     * different PHYSICAL order cannot shift the values.
+     */
+    @VisibleForTesting
+    public static String checkpointInsertSqlForTest() {
+        return CHECKPOINT_INSERT_SQL;
     }
 
     /**

@@ -563,6 +563,14 @@ public class PlanCaptureTest {
         Assertions.assertFalse(statements.get(0).contains("DELETE"),
                 "the only checkpoint row must never be deleted before its replacement is durable: "
                         + statements.get(0));
+        // the UPSERT must address its columns by NAME: the physical order of an upgraded
+        // table can differ from the canonical schema order (see
+        // InternalSchemaInitializerTest#testCheckpointUpgradeRestoresCanonicalColumnOrder),
+        // and a positional VALUES would shift the tail JSON into failed_attempts there
+        Assertions.assertTrue(
+                statements.get(0).contains("(`id`, `last_scan_timestamp`, `pending_window_start`"),
+                "the checkpoint UPSERT must carry its explicit target column list: "
+                        + statements.get(0));
         manager.resetForTest();
     }
 }

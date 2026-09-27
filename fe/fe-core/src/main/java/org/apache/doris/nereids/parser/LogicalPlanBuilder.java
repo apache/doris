@@ -5775,7 +5775,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression predicate = null;
         if (ctx.wildWhere() != null) {
             if (ctx.wildWhere().LIKE() != null) {
-                pattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+                // Decode the SQL string literal (doubled '' quotes and backslash escapes)
+                // instead of only stripping the surrounding quotes: the raw literal text
+                // would hand PatternMatcher the ESCAPED characters, so a pattern with an
+                // apostrophe ('%a''b%') could never match the stored SQL.
+                pattern = SqlLiteralUtils.parseStringLiteral(
+                        ctx.wildWhere().STRING_LITERAL().getText());
             } else if (ctx.wildWhere().WHERE() != null) {
                 // `WHERE <column> = <literal>` becomes an exact match on that SHOW
                 // column (id / bind_sql_digest / bind_sql / plan_sql / source / status /
