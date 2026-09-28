@@ -48,8 +48,14 @@ enum RowsetTypePB : int;
 // 4. call `get_delete_bitmap()` to get the result of all tasks
 class CalcDeleteBitmapToken {
 public:
-    explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
-            : _thread_token(std::move(thread_token)), _status(Status::OK()) {}
+    explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token,
+                                   std::shared_ptr<AtomicStatus> load_cancel_status = nullptr)
+            : _thread_token(std::move(thread_token)),
+              _load_cancel_status(std::move(load_cancel_status)),
+              _status(Status::OK()) {}
+
+    // Drain callbacks before destroying the status and lock they access.
+    ~CalcDeleteBitmapToken() { cancel(); }
 
     // calculate delete bitmap of `cur_segment` to historical `target_rowsets`
     Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
@@ -66,14 +72,15 @@ public:
     // submit a generic function to the thread pool
     template <typename Func>
     Status submit_func(Func&& func) {
-        {
-            std::shared_lock rlock(_lock);
-            RETURN_IF_ERROR(_status);
-            _resource_ctx = thread_context()->resource_ctx();
-        }
-        return _thread_token->submit_func([this, func = std::forward<Func>(func)]() {
-            SCOPED_ATTACH_TASK(_resource_ctx);
-            auto st = func();
+        RETURN_IF_ERROR(_get_status());
+        auto resource_ctx = thread_context()->resource_ctx();
+        return _thread_token->submit_func([this, resource_ctx, func = std::forward<Func>(func)]() {
+            SCOPED_ATTACH_TASK(resource_ctx);
+            // Cancellation may have been published while this task was queued.
+            auto st = _get_status();
+            if (st.ok()) {
+                st = func();
+            }
             if (!st.ok()) {
                 std::lock_guard wlock(_lock);
                 if (_status.ok()) {
@@ -89,13 +96,15 @@ public:
     void cancel() { _thread_token->shutdown(); }
 
 private:
+    Status _get_status();
+
     std::unique_ptr<ThreadPoolToken> _thread_token;
+    const std::shared_ptr<AtomicStatus> _load_cancel_status;
 
     std::shared_mutex _lock;
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;
-    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.
@@ -108,7 +117,8 @@ public:
     // init should be called after storage engine is opened,
     void init(const std::string& name, int max_threads);
 
-    std::unique_ptr<CalcDeleteBitmapToken> create_token();
+    std::unique_ptr<CalcDeleteBitmapToken> create_token(
+            std::shared_ptr<AtomicStatus> load_cancel_status = nullptr);
 
 private:
     std::unique_ptr<ThreadPool> _thread_pool;

@@ -428,13 +428,11 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
     // 2. wait all writer finished flush.
     for (auto* writer : need_wait_writers) {
-        RETURN_IF_ERROR(_check_cancelled());
         RETURN_IF_ERROR((writer->wait_flush()));
     }
 
     // 3. build rowset
     for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-        RETURN_IF_ERROR(_check_cancelled());
         Status st = (*it)->build_rowset();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -453,7 +451,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
 
     // 4. wait for delete bitmap calculation complete if necessary
     for (auto it = need_wait_writers.begin(); it != need_wait_writers.end();) {
-        RETURN_IF_ERROR(_check_cancelled());
         Status st = (*it)->wait_calc_delete_bitmap();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -466,7 +463,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     // 5. commit all writers
 
     for (auto* writer : need_wait_writers) {
-        RETURN_IF_ERROR(_check_cancelled());
         // close may return failed, but no need to handle it here.
         // tablet_vec will only contains success tablet, and then let FE judge it.
         _commit_txn(writer, res);

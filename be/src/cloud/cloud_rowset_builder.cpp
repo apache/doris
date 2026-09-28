@@ -89,6 +89,7 @@ Status CloudRowsetBuilder::init() {
     context.txn_id = _req.txn_id;
     context.txn_expiration = _req.txn_expiration;
     context.load_id = _req.load_id;
+    context.load_cancel_status = _req.load_cancel_status;
     context.db_id = _req.table_schema_param->db_id();
     context.table_id = _req.table_schema_param->table_id();
     context.rowset_state = PREPARED;
@@ -117,7 +118,8 @@ Status CloudRowsetBuilder::init() {
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _rowset_id = context.rowset_id;
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+    _calc_delete_bitmap_token =
+            _engine.calc_delete_bitmap_executor()->create_token(_req.load_cancel_status);
 
     if (!_skip_writing_rowset_metadata) {
         RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), "",

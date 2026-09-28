@@ -35,16 +35,9 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
                                      int64_t end_version, DeleteBitmapPtr delete_bitmap,
                                      RowsetWriter* rowset_writer,
                                      DeleteBitmapPtr tablet_delete_bitmap) {
-    {
-        std::shared_lock rlock(_lock);
-        RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
-    }
-
     const auto submit_time_us = MonotonicMicros();
-    return _thread_token->submit_func([=, this]() {
+    return submit_func([=]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(_resource_ctx);
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
                                                      tablet_delete_bitmap, queue_time_us);
@@ -53,11 +46,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
                          << " seg_id: " << cur_segment->id() << " version: " << end_version
                          << " error: " << st;
-            std::lock_guard wlock(_lock);
-            if (_status.ok()) {
-                _status = st;
-            }
         }
+        return st;
     });
 }
 
@@ -65,33 +55,32 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
                                      RowsetId rowset_id,
                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                      DeleteBitmapPtr delete_bitmap) {
-    {
-        std::shared_lock rlock(_lock);
-        RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
-    }
     const auto submit_time_us = MonotonicMicros();
-    return _thread_token->submit_func([=, this]() {
+    return submit_func([=]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(_resource_ctx);
         auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
                                                               delete_bitmap, queue_time_us);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << rowset_id
                          << " segments num: " << segments.size() << " error: " << st;
-            std::lock_guard wlock(_lock);
-            if (_status.ok()) {
-                _status = st;
-            }
         }
+        return st;
     });
 }
 
-Status CalcDeleteBitmapToken::wait() {
-    _thread_token->wait();
-    // all tasks complete here, don't need lock;
+Status CalcDeleteBitmapToken::_get_status() {
+    if (_load_cancel_status && !_load_cancel_status->ok()) {
+        return _load_cancel_status->status();
+    }
+    std::shared_lock rlock(_lock);
     return _status;
+}
+
+Status CalcDeleteBitmapToken::wait() {
+    // Cancellation skips queued work, but callers still need running callbacks to finish.
+    _thread_token->wait();
+    return _get_status();
 }
 
 void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
@@ -101,9 +90,11 @@ void CalcDeleteBitmapExecutor::init(const std::string& name, int max_threads) {
                               .build(&_thread_pool));
 }
 
-std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token() {
+std::unique_ptr<CalcDeleteBitmapToken> CalcDeleteBitmapExecutor::create_token(
+        std::shared_ptr<AtomicStatus> load_cancel_status) {
     return std::make_unique<CalcDeleteBitmapToken>(
-            _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT));
+            _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT),
+            std::move(load_cancel_status));
 }
 
 } // namespace doris

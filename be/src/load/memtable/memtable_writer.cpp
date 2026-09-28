@@ -114,7 +114,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
                     _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr,
-                    _req.table_schema_param));
+                    _req.table_schema_param, _req.load_cancel_status));
 
     _is_init = true;
     return Status::OK();

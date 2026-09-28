@@ -176,7 +176,9 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
     }
 
     RETURN_IF_ERROR(_rowset_builder->init());
+    RETURN_IF_ERROR(_get_load_cancel_status());
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
+    RETURN_IF_ERROR(_get_load_cancel_status());
 
     // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
     if (config::skip_writing_empty_rowset_metadata) {

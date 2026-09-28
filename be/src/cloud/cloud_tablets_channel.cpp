@@ -258,7 +258,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     using namespace std::chrono;
     auto build_start = steady_clock::now();
     for (auto* writer : writers_to_commit) {
-        RETURN_IF_ERROR(_check_cancelled());
         if (!writer->is_init()) {
             continue;
         }
@@ -281,7 +280,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     std::vector<std::function<Status()>> tasks;
     tasks.reserve(writers_to_commit.size());
     for (auto* writer : writers_to_commit) {
-        RETURN_IF_ERROR(_check_cancelled());
         tasks.emplace_back([writer] { return writer->commit_rowset(); });
     }
     _close_status = cloud::bthread_fork_join(tasks, 10);
@@ -294,7 +292,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // 4. calculate delete bitmap for Unique Key MoW tables
     for (auto* writer : writers_to_commit) {
-        RETURN_IF_ERROR(_check_cancelled());
         auto st = writer->submit_calc_delete_bitmap_task();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -307,7 +304,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // 5. wait for delete bitmap calculation complete if necessary
     for (auto* writer : writers_to_commit) {
-        RETURN_IF_ERROR(_check_cancelled());
         auto st = writer->wait_calc_delete_bitmap();
         if (!st.ok()) {
             LOG(WARNING) << "failed to close wait DeltaWriter. tablet_id=" << writer->tablet_id()
@@ -320,7 +316,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     // 6. set txn related info if necessary
     for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
-        RETURN_IF_ERROR(_check_cancelled());
         auto st = (*it)->set_txn_related_info();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -332,7 +327,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     tablet_vec->Reserve(static_cast<int>(writers_to_commit.size() * 2));
     for (auto* writer : writers_to_commit) {
-        RETURN_IF_ERROR(_check_cancelled());
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
         // unused required field.

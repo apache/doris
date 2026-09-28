@@ -89,7 +89,8 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+                _context.load_cancel_status);
     }
     return Status::OK();
 }
