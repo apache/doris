@@ -1746,9 +1746,9 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         transient_rs_writer = std::move(group_writer);
     }
 
-    // Preserve the local single-segment fast path while holding the tablet lock.
-    // Load workers submit leaves and help them without another resource-context attach.
-    if (segments.size() <= 1 && ThreadPool::current_load_pool() == nullptr) {
+    // Compute a single segment inline, including on shared load workers, to avoid
+    // child-task scheduling and waiting while holding the tablet lock.
+    if (segments.size() <= 1) {
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
                                            cur_version - 1, nullptr, transient_rs_writer.get(),
                                            tablet_delete_bitmap));
