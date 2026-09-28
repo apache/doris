@@ -20,11 +20,37 @@
 #include <parquet/api/reader.h>
 #include <parquet/schema.h>
 
+#include <algorithm>
+
 #include "format/table/iceberg/iceberg_arrow_block_convertor.h"
 #include "format/table/parquet_utils.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
+
+static std::string encode_iceberg_bound(const ::parquet::Statistics& stats, std::string encoded) {
+    if (!stats.descr()->logical_type()->is_decimal()) {
+        return encoded;
+    }
+    // Parquet integer statistics are little-endian, while binary decimals already use big-endian.
+    // Iceberg bounds require the unscaled value's shortest signed big-endian representation.
+    if (stats.physical_type() == ::parquet::Type::INT32 ||
+        stats.physical_type() == ::parquet::Type::INT64) {
+        std::reverse(encoded.begin(), encoded.end());
+    }
+    size_t start = 0;
+    while (start + 1 < encoded.size()) {
+        const auto byte = static_cast<uint8_t>(encoded[start]);
+        const bool next_is_negative = (static_cast<uint8_t>(encoded[start + 1]) & 0x80) != 0;
+        if ((byte == 0 && !next_is_negative) || (byte == 0xff && next_is_negative)) {
+            ++start;
+        } else {
+            break;
+        }
+    }
+    encoded.erase(0, start);
+    return encoded;
+}
 
 VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter* file_writer,
                                              const VExprContextSPtrs& output_vexpr_ctxs,
@@ -90,8 +116,8 @@ Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumn
         }
         if (column_stat->HasMinMax()) {
             has_any_min_max = true;
-            lower_bounds[field_id] = column_stat->EncodeMin();
-            upper_bounds[field_id] = column_stat->EncodeMax();
+            lower_bounds[field_id] = encode_iceberg_bound(*column_stat, column_stat->EncodeMin());
+            upper_bounds[field_id] = encode_iceberg_bound(*column_stat, column_stat->EncodeMax());
         }
     }
 
