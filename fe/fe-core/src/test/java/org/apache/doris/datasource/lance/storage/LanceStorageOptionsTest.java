@@ -239,27 +239,24 @@ public class LanceStorageOptionsTest {
     }
 
     /**
-     * The SDK opens a managed table after describing it again and adds that describe's vended
-     * options in their own spelling. It gets the vended options in that same spelling, so its
-     * own values replace them key for key and no normalized twin is left beside them.
+     * What the SDK's own describe of a managed table vends is normalized the same way before the
+     * SDK sees it, so its values replace the merged ones key for key. A vended alias would leave
+     * the canonical key missing, and Lance fills a missing canonical key from the FE environment.
      */
     @Test
-    public void testSdkOptionsCarryVendedOptionsInTheNamespaceSpelling() {
+    public void testVendedOptionsNormalizeOntoTheMergedSpelling() {
         Map<String, String> vended = new HashMap<>();
         vended.put("access_key_id", "vended-ak");
         vended.put("secret_access_key", "vended-sk");
-        vended.put("session_token", "vended-token");
+        vended.put("endpoint", "https://storage-b");
         Map<String, String> merged =
                 LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), vended);
 
-        Map<String, String> sdk = LanceStorageOptions.forManagedSdkOpen(S3_URI, merged, vended);
+        Map<String, String> normalized = LanceStorageOptions.normalizeVendedStorageOptions(S3_URI, vended);
 
-        for (String key : new String[] {"aws_access_key_id", "aws_secret_access_key", "aws_session_token"}) {
-            Assertions.assertNull(sdk.get(key), key);
-        }
-        vended.forEach((key, value) -> Assertions.assertEquals(value, sdk.get(key), key));
-        Assertions.assertEquals("http://minio:9000", sdk.get("aws_endpoint"));
-        Assertions.assertEquals(merged, LanceStorageOptions.forManagedSdkOpen(S3_URI, merged, null));
+        Assertions.assertEquals(3, normalized.size());
+        normalized.forEach((key, value) -> Assertions.assertEquals(merged.get(key), value, key));
+        Assertions.assertEquals("https://storage-b", normalized.get("aws_endpoint"));
     }
 
     /** Every accepted spelling has to collapse, or the race just moves to the ones missed. */

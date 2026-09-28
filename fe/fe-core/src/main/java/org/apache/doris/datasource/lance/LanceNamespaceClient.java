@@ -279,10 +279,8 @@ final class LanceNamespaceClient {
 
     LanceTableAccess managedAccess(String datasetUri, Map<String, String> vendedOptions,
             List<String> tableId) {
-        Map<String, String> vended = vendedOptions == null ? Collections.emptyMap() : vendedOptions;
-        Map<String, String> storageOptions = storageOptions(datasetUri, vended);
-        return LanceTableAccess.managedByNamespace(datasetUri, storageOptions,
-                LanceStorageOptions.forManagedSdkOpen(datasetUri, storageOptions, vended), vended, tableId);
+        Map<String, String> vended = LanceStorageOptions.normalizeVendedStorageOptions(datasetUri, vendedOptions);
+        return LanceTableAccess.managedByNamespace(datasetUri, storageOptions(datasetUri, vended), vended, tableId);
     }
 
     /**
@@ -293,20 +291,21 @@ final class LanceNamespaceClient {
      * is left as it is and expires with its TTL; until then every read derives the new one again.
      *
      * @param openedOptions the options the SDK opened with, as {@code Dataset.getInitialStorageOptions()}
-     *     reports them: the options it was handed with its describe's vended options put on top
+     *     reports them: the options it was handed with its describe's vended options, normalized by
+     *     {@link LanceSdkNamespace}, put on top
      */
     LanceTableAccess accessOpenedBySdk(LanceTableAccess access, String openedUri, Map<String, String> openedOptions) {
         Map<String, String> opened = openedOptions == null ? Collections.emptyMap() : openedOptions;
         boolean sameUri = StringUtils.removeEnd(openedUri, "/")
                 .equals(StringUtils.removeEnd(access.getDatasetUri(), "/"));
-        if (sameUri && opened.equals(access.getSdkStorageOptions())) {
+        if (sameUri && opened.equals(access.getStorageOptions())) {
             return access;
         }
         // Every entry that differs from what the SDK was handed came from its describe. What the
         // namespace vended the first time and not again stays, as it does for the SDK.
         Map<String, String> vended = new HashMap<>(access.getVendedStorageOptions());
         opened.forEach((key, value) -> {
-            if (!value.equals(access.getSdkStorageOptions().get(key))) {
+            if (!value.equals(access.getStorageOptions().get(key))) {
                 vended.put(key, value);
             }
         });
@@ -315,30 +314,34 @@ final class LanceNamespaceClient {
 
     /**
      * Whether the SDK opened {@code openedUri} with exactly the options {@code access} hands it, so
-     * the FE read what the BE will. It did not when the namespace changed an option's spelling or
-     * a value an option is inferred from, or moved the table to another store: the SDK then still
-     * holds the old spelling or vocabulary next to the new one.
+     * the FE read what the BE will. It did not when the namespace changed a value an option is
+     * inferred from, or moved the table to another store: the SDK then still holds the old
+     * inferred option or vocabulary next to the new one.
      */
     static boolean opensAs(LanceTableAccess access, String openedUri, Map<String, String> openedOptions) {
         Map<String, String> opened = openedOptions == null ? Collections.emptyMap() : openedOptions;
         return StringUtils.removeEnd(openedUri, "/").equals(StringUtils.removeEnd(access.getDatasetUri(), "/"))
-                && opened.equals(access.getSdkStorageOptions());
+                && opened.equals(access.getStorageOptions());
+    }
+
+    /** The namespace to hand the SDK for one open of the managed table {@code access} addresses. */
+    LanceSdkNamespace sdkNamespace(LanceTableAccess access) {
+        return new LanceSdkNamespace(namespace, access.getStorageOptions());
     }
 
     /**
-     * Opens a namespace-managed dataset through the namespace client. The SDK describes the table
-     * through this Java client, outside {@code namespaceLock}, and then resolves versions with its
-     * own native client (the native handle of a REST or Directory namespace), so the open is not
-     * serialized with the requests this class issues itself. Both clients are safe to call
-     * concurrently.
+     * Opens a namespace-managed dataset through {@code sdkNamespace}, which wraps this client's
+     * namespace. The SDK describes the table and resolves versions through it, outside
+     * {@code namespaceLock}, so the open is not serialized with the requests this class issues
+     * itself. The REST and Directory namespaces are safe to call concurrently.
      *
      * <p>The session is passed to the builder explicitly: when the SDK opens through a namespace
      * client it rebuilds the read options and drops the session they carry, so the one inside
      * {@code readOptions} is ignored on this path.
      */
     Dataset openManagedDataset(BufferAllocator allocator, LanceTableAccess access, ReadOptions readOptions,
-            Session session) {
-        return Dataset.open().allocator(allocator).namespaceClient(namespace)
+            Session session, LanceSdkNamespace sdkNamespace) {
+        return Dataset.open().allocator(allocator).namespaceClient(sdkNamespace)
                 .tableId(access.getNamespaceTableId()).readOptions(readOptions).session(session).build();
     }
 

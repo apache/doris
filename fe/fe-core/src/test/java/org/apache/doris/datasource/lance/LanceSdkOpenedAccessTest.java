@@ -22,6 +22,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.lance.namespace.model.DescribeTableRequest;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -32,8 +33,9 @@ import java.util.Map;
 /**
  * The access a managed read hands the BE after the Lance SDK opened the table with the result of
  * its own DescribeTable. The SDK opens with the options it was handed and that describe's vended
- * options put on top ({@code OpenDatasetBuilder.buildFromNamespaceClient} in Lance 12), which
- * {@link #sdkOpen} reproduces, so none of this needs the native library.
+ * options put on top ({@code OpenDatasetBuilder.buildFromNamespaceClient} in Lance 12), and
+ * describes the table through {@link LanceSdkNamespace}. {@link #sdkOpen} reproduces both, so none
+ * of this needs the native library.
  */
 public class LanceSdkOpenedAccessTest {
     private static final String S3_URI = "s3://bucket/table.lance";
@@ -70,8 +72,14 @@ public class LanceSdkOpenedAccessTest {
 
     /** The options the SDK opens with when handed {@code access} and its describe vends {@code vended}. */
     private static Map<String, String> sdkOpen(LanceTableAccess access, Map<String, String> vended) {
-        Map<String, String> result = new HashMap<>(access.getSdkStorageOptions());
-        result.putAll(vended);
+        return sdkOpen(access, S3_URI, vended);
+    }
+
+    private static Map<String, String> sdkOpen(LanceTableAccess access, String location, Map<String, String> vended) {
+        LanceSdkNamespace sdkNamespace = new LanceSdkNamespace(
+                new LanceSdkNamespaceTest.StubNamespace(location, vended), access.getStorageOptions());
+        Map<String, String> result = new HashMap<>(access.getStorageOptions());
+        result.putAll(sdkNamespace.describeTable(new DescribeTableRequest().id(TABLE_ID)).getStorageOptions());
         return result;
     }
 
@@ -115,28 +123,31 @@ public class LanceSdkOpenedAccessTest {
         Assertions.assertTrue(LanceNamespaceClient.opensAs(forBe, S3_URI, opened));
     }
 
+    /**
+     * A describe that vends an option under an alias reaches the SDK in the canonical spelling,
+     * replacing the catalog's value: with both spellings, object_store would keep whichever its map
+     * yields last, and Lance would fill the canonical key from the FE environment were it missing.
+     */
     @Test
-    public void testNewSpellingOrInferredOptionNeedsAReopen() {
+    public void testAliasFromTheSdkDescribeReplacesTheCanonicalKey() {
         LanceNamespaceClient client = client(minioCatalog());
-        // The catalog's endpoint, then a describe that vends the same option under an alias. The
-        // SDK holds both spellings; which one object_store keeps is up to map order.
-        LanceTableAccess access = client.managedAccess(S3_URI, Collections.emptyMap(), TABLE_ID);
+        LanceTableAccess access = client.managedAccess(S3_URI, options("endpoint", "https://storage-a"), TABLE_ID);
+        Assertions.assertEquals("https://storage-a", access.getStorageOptions().get("aws_endpoint"));
+        Assertions.assertFalse(access.getStorageOptions().containsKey("endpoint"));
         Map<String, String> opened = sdkOpen(access, options("endpoint", "https://storage-b"));
-        Assertions.assertEquals("http://minio:9000", opened.get("aws_endpoint"));
+        Assertions.assertEquals("https://storage-b", opened.get("aws_endpoint"));
+        Assertions.assertFalse(opened.containsKey("endpoint"));
         LanceTableAccess rebuilt = client.accessOpenedBySdk(access, S3_URI, opened);
         Assertions.assertEquals("https://storage-b", rebuilt.getStorageOptions().get("aws_endpoint"));
-        Assertions.assertFalse(LanceNamespaceClient.opensAs(rebuilt, S3_URI, opened));
-        // Reopened with the rebuilt access, the SDK holds one spelling and the read settles.
-        Map<String, String> reopened = sdkOpen(rebuilt, options("endpoint", "https://storage-b"));
-        Assertions.assertFalse(reopened.containsKey("aws_endpoint"));
-        LanceTableAccess settled = client.accessOpenedBySdk(rebuilt, S3_URI, reopened);
-        Assertions.assertSame(rebuilt, settled);
-        Assertions.assertTrue(LanceNamespaceClient.opensAs(settled, S3_URI, reopened));
+        Assertions.assertTrue(LanceNamespaceClient.opensAs(rebuilt, S3_URI, opened));
+    }
 
+    @Test
+    public void testInferredOptionNeedsAReopen() {
         // An endpoint moving off plain HTTP drops the allow_http the old one implied.
         LanceNamespaceClient bare = client(Collections.emptyMap());
         LanceTableAccess http = bare.managedAccess(S3_URI, options("aws_endpoint", "http://storage-a"), TABLE_ID);
-        Assertions.assertEquals("true", http.getSdkStorageOptions().get("allow_http"));
+        Assertions.assertEquals("true", http.getStorageOptions().get("allow_http"));
         Map<String, String> https = sdkOpen(http, options("aws_endpoint", "https://storage-b"));
         LanceTableAccess rebuiltHttps = bare.accessOpenedBySdk(http, S3_URI, https);
         Assertions.assertNull(rebuiltHttps.getStorageOptions().get("allow_http"));
@@ -156,11 +167,11 @@ public class LanceSdkOpenedAccessTest {
         // Another store: the SDK opened it with S3 options, so it has to be opened again with the
         // options built for the new location.
         String oss = "oss://bucket/table.lance";
-        Map<String, String> ossOpened = sdkOpen(access, options("oss_access_key_id", "oak"));
+        Map<String, String> ossOpened = sdkOpen(access, oss, options("oss_access_key_id", "oak"));
         LanceTableAccess onOss = client.accessOpenedBySdk(access, oss, ossOpened);
         Assertions.assertEquals(oss, onOss.getDatasetUri());
         Assertions.assertFalse(LanceNamespaceClient.opensAs(onOss, oss, ossOpened));
-        Map<String, String> ossReopened = sdkOpen(onOss, options("oss_access_key_id", "oak"));
+        Map<String, String> ossReopened = sdkOpen(onOss, oss, options("oss_access_key_id", "oak"));
         Assertions.assertSame(onOss, client.accessOpenedBySdk(onOss, oss, ossReopened));
         Assertions.assertTrue(LanceNamespaceClient.opensAs(onOss, oss, ossReopened));
     }

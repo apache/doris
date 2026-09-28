@@ -35,29 +35,26 @@ import java.util.Optional;
  * version and copies a still-staged manifest to its canonical path. A reader which only knows
  * the dataset URI, such as the BE lance-c reader, can then open the same version afterwards.
  *
- * <p>The dataset URI and storage options are kept in both modes; they are what the BE receives.
- * In namespace mode the SDK starts from {@link #getSdkStorageOptions()} instead and adds the
- * options the namespace vends when the SDK describes the table itself.
+ * <p>The dataset URI and storage options are kept in both modes; they are what the BE receives,
+ * and what the FE hands the SDK. In namespace mode the SDK adds the options the namespace vends
+ * when the SDK describes the table itself.
  */
 public final class LanceTableAccess {
     private final String datasetUri;
     private final Map<String, String> storageOptions;
-    private final Map<String, String> sdkStorageOptions;
     private final Map<String, String> vendedStorageOptions;
     private final List<String> namespaceTableId;
     private final String branch;
 
     /** A dataset whose versions live in its own {@code _versions/} directory. */
     public LanceTableAccess(String datasetUri, Map<String, String> storageOptions) {
-        this(datasetUri, storageOptions, storageOptions, Collections.emptyMap(), null, null);
+        this(datasetUri, storageOptions, Collections.emptyMap(), null, null);
     }
 
     private LanceTableAccess(String datasetUri, Map<String, String> storageOptions,
-            Map<String, String> sdkStorageOptions, Map<String, String> vendedStorageOptions,
-            List<String> namespaceTableId, String branch) {
+            Map<String, String> vendedStorageOptions, List<String> namespaceTableId, String branch) {
         this.datasetUri = Objects.requireNonNull(datasetUri, "datasetUri");
         this.storageOptions = Collections.unmodifiableMap(new HashMap<>(storageOptions));
-        this.sdkStorageOptions = Collections.unmodifiableMap(new HashMap<>(sdkStorageOptions));
         this.vendedStorageOptions = Collections.unmodifiableMap(new HashMap<>(vendedStorageOptions));
         this.namespaceTableId = namespaceTableId == null
                 ? null : Collections.unmodifiableList(new ArrayList<>(namespaceTableId));
@@ -72,8 +69,7 @@ public final class LanceTableAccess {
      */
     public LanceTableAccess onBranch(String branchName, String branchUri) {
         return new LanceTableAccess(Objects.requireNonNull(branchUri, "branchUri"), storageOptions,
-                sdkStorageOptions, vendedStorageOptions, namespaceTableId,
-                Objects.requireNonNull(branchName, "branchName"));
+                vendedStorageOptions, namespaceTableId, Objects.requireNonNull(branchName, "branchName"));
     }
 
     /** The branch this access addresses, if not the main chain. */
@@ -83,14 +79,12 @@ public final class LanceTableAccess {
 
     /**
      * A dataset whose versions are recorded by the namespace that owns {@code namespaceTableId}.
-     * {@code sdkStorageOptions} are the options the SDK opens it with before adding what the
-     * namespace vends to the SDK itself, and {@code vendedStorageOptions} what the namespace
-     * vended, as it spelled them.
+     * {@code vendedStorageOptions} are what the namespace vended, in the storage provider's
+     * vocabulary, as merged into {@code storageOptions}.
      */
     public static LanceTableAccess managedByNamespace(String datasetUri, Map<String, String> storageOptions,
-            Map<String, String> sdkStorageOptions, Map<String, String> vendedStorageOptions,
-            List<String> namespaceTableId) {
-        return new LanceTableAccess(datasetUri, storageOptions, sdkStorageOptions, vendedStorageOptions,
+            Map<String, String> vendedStorageOptions, List<String> namespaceTableId) {
+        return new LanceTableAccess(datasetUri, storageOptions, vendedStorageOptions,
                 Objects.requireNonNull(namespaceTableId, "namespaceTableId"), null);
     }
 
@@ -98,16 +92,12 @@ public final class LanceTableAccess {
         return datasetUri;
     }
 
+    /** The options the BE reads the dataset with, and the FE opens it with through the SDK. */
     public Map<String, String> getStorageOptions() {
         return storageOptions;
     }
 
-    /** The options the FE opens the dataset with through the SDK; the storage options unless managed. */
-    public Map<String, String> getSdkStorageOptions() {
-        return sdkStorageOptions;
-    }
-
-    /** The storage options the namespace vended for a managed table, in its own spelling; empty otherwise. */
+    /** The storage options the namespace vended for a managed table, normalized; empty otherwise. */
     public Map<String, String> getVendedStorageOptions() {
         return vendedStorageOptions;
     }

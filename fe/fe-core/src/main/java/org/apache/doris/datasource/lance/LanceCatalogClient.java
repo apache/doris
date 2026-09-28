@@ -316,7 +316,8 @@ final class LanceCatalogClient implements AutoCloseable {
             return result;
         } catch (LanceUserFacingException e) {
             throw new RuntimeException(e.getMessage(), e);
-        } catch (Exception e) {
+        } catch (Exception sdkError) {
+            Exception e = unwrapCallbackFailure(state, sdkError);
             LanceTableAccess access = state.access;
             String uri = access == null ? null : access.getDatasetUri();
             Map<String, String> options = access == null ? namespaceStorageOptions : access.getStorageOptions();
@@ -348,6 +349,8 @@ final class LanceCatalogClient implements AutoCloseable {
         private final LanceRefSelector selector;
         private final String tableName;
         private LanceTableAccess access;
+        /** The namespace the SDK opened a managed table through, which keeps its callbacks' failures. */
+        private LanceSdkNamespace sdkNamespace;
         private Optional<String> branch;
         /**
          * Set once the branch is known to exist: the namespace recorded versions for it, or its
@@ -507,6 +510,15 @@ final class LanceCatalogClient implements AutoCloseable {
         return latest.getAsLong();
     }
 
+    /**
+     * The failure behind {@code sdkError}. For a managed table the SDK resolves versions through
+     * {@link LanceSdkNamespace} by JNI callback, and reports a namespace error there without its
+     * type or message; the namespace kept it.
+     */
+    private static Exception unwrapCallbackFailure(ReadState state, Exception sdkError) {
+        return state.sdkNamespace == null ? sdkError : state.sdkNamespace.unwrapCallbackFailure(sdkError);
+    }
+
     private RuntimeException sanitizedCause(Throwable error, String uri, Map<String, String> options) {
         return new RuntimeException(LanceErrorMessages.sanitize(error, uri, options, catalogSecrets));
     }
@@ -622,7 +634,7 @@ final class LanceCatalogClient implements AutoCloseable {
         long version = metrics.measure(Stage.VERSION_RESOLVE, () -> {
             try {
                 return LanceSnapshotResolver.versionAtOrBefore(latest.listVersions(), recorded,
-                        id -> recordedVersion(latest, access, id), timestamp, requestedText);
+                        id -> recordedVersion(latest, access, id, state), timestamp, requestedText);
             } catch (LanceSnapshotResolver.HistoryRemovedException e) {
                 throw historyRemoved(e.getVersion(), requestedText, state);
             }
@@ -636,16 +648,23 @@ final class LanceCatalogClient implements AutoCloseable {
      * A namespace-recorded version checked out through the namespace, or null if it is gone. A
      * still-staged manifest is finalized by the checkout.
      */
-    private static Version recordedVersion(Dataset latest, LanceTableAccess access, long version) {
+    private static Version recordedVersion(Dataset latest, LanceTableAccess access, long version,
+            ReadState state) {
         Ref ref = access.getBranch().map(name -> Ref.ofBranch(name, version)).orElseGet(() -> Ref.ofMain(version));
         try (Dataset recorded = latest.checkout(ref)) {
             return recorded.getVersion();
         } catch (Exception e) {
             // Also the IOException the JNI raises for a missing manifest.
-            if (!isVersionNotFound(e)) {
-                throw e;
+            Exception failure = unwrapCallbackFailure(state, e);
+            if (isVersionNotFound(failure)) {
+                return null;
             }
-            return null;
+            // The namespace's own exception if it kept one; otherwise the SDK's, which may be the
+            // checked IOException the JNI throws undeclared.
+            if (failure instanceof RuntimeException) {
+                throw (RuntimeException) failure;
+            }
+            throw e;
         }
     }
 
@@ -704,11 +723,13 @@ final class LanceCatalogClient implements AutoCloseable {
         if (state.access.isManagedVersioning()) {
             LanceTableAccess access = state.access;
             for (int attempt = 0; ; attempt++) {
-                ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getSdkStorageOptions(), version,
+                ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getStorageOptions(), version,
                         session);
                 LanceTableAccess requested = access;
-                Dataset dataset = metrics.measure(Stage.DATASET_OPEN,
-                        () -> namespaceClient.openManagedDataset(allocator, requested, readOptions, session));
+                LanceSdkNamespace sdkNamespace = namespaceClient.sdkNamespace(requested);
+                state.sdkNamespace = sdkNamespace;
+                Dataset dataset = metrics.measure(Stage.DATASET_OPEN, () -> namespaceClient.openManagedDataset(
+                        allocator, requested, readOptions, session, sdkNamespace));
                 boolean opensAsBuilt;
                 try {
                     Map<String, String> openedOptions = dataset.getInitialStorageOptions();
@@ -730,7 +751,7 @@ final class LanceCatalogClient implements AutoCloseable {
             }
         }
         LanceTableAccess access = state.access;
-        ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getSdkStorageOptions(), version, session);
+        ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getStorageOptions(), version, session);
         return metrics.measure(Stage.DATASET_OPEN, () -> Dataset.open().allocator(allocator).uri(access.getDatasetUri())
                 .readOptions(readOptions).build());
     }
