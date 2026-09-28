@@ -98,13 +98,16 @@ jobs:
           cat > "$home/config.toml" <<'EOF'
           cli_auth_credentials_store = "file"
           approval_policy = "never"
+
           [features]
-          code_mode_only = true
-          code_mode_host = true
-          memories = false
-          apps = false
-          plugins = false
+          memories = true
+
+          [memories]
+          use_memories = true
+          generate_memories = true
+
           [otel]
+          environment = "github-actions"
           exporter = "none"
           trace_exporter = "none"
           metrics_exporter = "none"
