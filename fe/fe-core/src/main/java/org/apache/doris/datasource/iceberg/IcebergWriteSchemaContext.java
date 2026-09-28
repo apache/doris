@@ -240,20 +240,22 @@ public final class IcebergWriteSchemaContext {
                 Objects.requireNonNull(writerProperties, "writerProperties should not be null"));
         validateWriterMetadataSources(schema, partitionSpec, sortOrder, tableName);
 
+        // A writer follows the pinned Iceberg schema, independently of the catalog's read mapping.
+        // Civil timestamp or text intermediates would lose DST-fold identity or arbitrary bytes.
         List<Column> parsedColumns = IcebergUtils.parseSchema(
-                schema, enableMappingVarbinary, enableMappingTimestampTz);
+                schema, true, true);
         this.columns = ImmutableList.copyOf(parsedColumns);
         List<Column> writerColumns = new ArrayList<>(parsedColumns);
         writerColumns.add(IcebergRowId.createHiddenColumn());
         if (formatVersion >= IcebergUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
             Column rowIdColumn = IcebergUtils.parseField(
                     org.apache.iceberg.MetadataColumns.ROW_ID,
-                    enableMappingVarbinary, enableMappingTimestampTz);
+                    true, true);
             rowIdColumn.setIsVisible(false);
             writerColumns.add(rowIdColumn);
             Column sequenceColumn = IcebergUtils.parseField(
                     org.apache.iceberg.MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER,
-                    enableMappingVarbinary, enableMappingTimestampTz);
+                    true, true);
             sequenceColumn.setIsVisible(false);
             writerColumns.add(sequenceColumn);
         }
@@ -265,10 +267,10 @@ public final class IcebergWriteSchemaContext {
             byId.put(field.fieldId(), field);
             if (field.writeDefault() != null) {
                 DataType targetType = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
-                        field.type(), enableMappingVarbinary, enableMappingTimestampTz));
+                        field.type(), true, true));
                 defaults.put(field.fieldId(), toDorisExpression(
                         field.type(), field.writeDefault(), targetType,
-                        enableMappingVarbinary, enableMappingTimestampTz));
+                        true, true));
             }
         }
         this.fieldsById = byId.build();

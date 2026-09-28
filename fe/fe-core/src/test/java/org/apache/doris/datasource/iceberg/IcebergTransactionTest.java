@@ -84,6 +84,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergTransactionTest {
+    @Test
+    public void testNullBinaryStaticOverwriteFilterForFullAndHybridSpecs() {
+        for (org.apache.iceberg.types.Type type : new org.apache.iceberg.types.Type[] {
+                Types.BinaryType.get(), Types.FixedType.ofLength(16), Types.UUIDType.get()}) {
+            Schema schema = new Schema(Types.NestedField.optional(1, "key", type),
+                    Types.NestedField.optional(2, "region", Types.StringType.get()));
+            for (boolean hybrid : new boolean[] {false, true}) {
+                PartitionSpec.Builder builder = PartitionSpec.builderFor(schema).identity("key");
+                if (hybrid) {
+                    builder.identity("region");
+                }
+                Expression filter = getTxn().buildPartitionFilter(
+                        Collections.singletonMap("key", null), builder.build(), schema);
+                Assert.assertEquals(Expression.Operation.IS_NULL, filter.op());
+                Assert.assertEquals("key", ((UnboundPredicate<?>) filter).ref().name());
+            }
+        }
+    }
+
 
     private static String dbName = "db3";
     private static String tbWithPartition = "tbWithPartition";

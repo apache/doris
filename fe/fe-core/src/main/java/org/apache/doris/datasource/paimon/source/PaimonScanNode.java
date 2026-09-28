@@ -546,7 +546,8 @@ public class PaimonScanNode extends FileQueryScanNode {
             if (needPartitionMetadata) {
                 partitionInfoMap = partitionInfoMaps.computeIfAbsent(partitionValue, k -> {
                     return PaimonUtil.getPartitionInfoMap(
-                            source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone());
+                            source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone(),
+                            source.getCatalog().getEnableMappingTimestampTz());
                 });
             } else {
                 partitionInfoMaps.put(partitionValue, null);

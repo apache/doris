@@ -46,28 +46,32 @@ public:
 
 class PartitionColumnTransformUtils {
 public:
-    static DateV2Value<DateV2ValueType>& epoch_date() {
-        static DateV2Value<DateV2ValueType> epoch_date;
-        static bool initialized = false;
-        if (!initialized) {
-            CastParameters params;
-            DORIS_CHECK((CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
-                    {"1970-01-01 00:00:00", 19}, epoch_date, nullptr, params)));
-            initialized = true;
-        }
+    static const DateV2Value<DateV2ValueType>& epoch_date() {
+        // Function-local initialization is synchronized; a separate mutable flag races across writers.
+        static const auto epoch_date = [] {
+            DateV2Value<DateV2ValueType> value;
+            value.unchecked_set_time(1970, 1, 1, 0, 0, 0);
+            return value;
+        }();
         return epoch_date;
     }
 
-    static DateV2Value<DateTimeV2ValueType>& epoch_datetime() {
-        static DateV2Value<DateTimeV2ValueType> epoch_datetime;
-        static bool initialized = false;
-        if (!initialized) {
-            CastParameters params;
-            DORIS_CHECK((CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
-                    {"1970-01-01 00:00:00", 19}, epoch_datetime, nullptr, -1, params)));
-            initialized = true;
-        }
+    static const DateV2Value<DateTimeV2ValueType>& epoch_datetime() {
+        static const auto epoch_datetime = [] {
+            DateV2Value<DateTimeV2ValueType> value;
+            value.unchecked_set_time(1970, 1, 1, 0, 0, 0);
+            return value;
+        }();
         return epoch_datetime;
+    }
+
+    static DateV2Value<DateTimeV2ValueType> timestamp_value(UInt64 value) {
+        return DateV2Value<DateTimeV2ValueType>(value);
+    }
+
+    static DateV2Value<DateTimeV2ValueType> timestamp_value(const TimestampTzValue& value) {
+        // TIMESTAMPTZ's calendar fields are already UTC. Never project through the session zone.
+        return value.utc_dt();
     }
 
     static std::string human_year(int year_ordinal) {
@@ -89,13 +93,14 @@ public:
     }
 
     static std::string human_hour(int hour_ordinal) {
-        int day_value = hour_ordinal / 24;
-        int housr_value = hour_ordinal % 24;
+        // Iceberg ordinals floor toward negative infinity, including the hour before the epoch.
+        int day_value = hour_ordinal / 24 - (hour_ordinal % 24 < 0);
+        int hour_value = hour_ordinal - day_value * 24;
         auto ymd = std::chrono::year_month_day(std::chrono::sys_days(
                 std::chrono::floor<std::chrono::days>(EPOCH + std::chrono::days(day_value))));
         return fmt::format("{:04d}-{:02d}-{:02d}-{:02d}", static_cast<int>(ymd.year()),
                            static_cast<unsigned>(ymd.month()), static_cast<unsigned>(ymd.day()),
-                           housr_value);
+                           hour_value);
     }
 
 private:
@@ -640,6 +645,7 @@ private:
     DataTypePtr _target_type;
 };
 
+template <PrimitiveType P>
 class TimestampBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
     TimestampBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
@@ -666,7 +672,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnVector<P>&>(*column_ptr).get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
@@ -678,15 +684,17 @@ public:
         auto* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
-            DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-
-            int64_t timestamp;
-            if (!value.unix_timestamp(&timestamp, "UTC")) {
-                LOG(WARNING) << "Failed to call unix_timestamp :" << value.debug_string();
-                timestamp = 0;
+            if (is_nullable && assert_cast<const ColumnUInt8&>(*null_map_column_ptr)
+                                       .get_data()[p_in - in_data.data()]) {
+                *p_out++ = 0;
+                ++p_in;
+                continue;
             }
-            Int64 long_value = static_cast<Int64>(timestamp) * 1000000;
+            auto value = PartitionColumnTransformUtils::timestamp_value(*p_in);
+
+            // Iceberg hashes the entire signed epoch-microsecond value, not truncated seconds.
+            Int64 long_value = value.datetime_diff_in_microseconds(
+                    PartitionColumnTransformUtils::epoch_datetime());
             uint32_t hash_value = HashUtil::murmur_hash3_32(&long_value, sizeof(long_value), 0);
 
             *p_out = (hash_value & INT32_MAX) % _bucket_num;
@@ -820,9 +828,8 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            // datetime_diff<YEAR> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_date(), value));
+            // Partition ordinals identify calendar units, not complete elapsed years.
+            *p_out = static_cast<Int32>(value.year()) - 1970;
             ++p_in;
             ++p_out;
         }
@@ -850,6 +857,7 @@ private:
     DataTypePtr _target_type;
 };
 
+template <PrimitiveType P>
 class TimestampYearPartitionColumnTransform : public PartitionColumnTransform {
 public:
     TimestampYearPartitionColumnTransform(const DataTypePtr source_type)
@@ -875,7 +883,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnVector<P>&>(*column_ptr).get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
@@ -887,11 +895,14 @@ public:
         auto* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
-            DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // datetime_diff<YEAR> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<YEAR>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            if (is_nullable && assert_cast<const ColumnUInt8&>(*null_map_column_ptr)
+                                       .get_data()[p_in - in_data.data()]) {
+                *p_out++ = 0;
+                ++p_in;
+                continue;
+            }
+            auto value = PartitionColumnTransformUtils::timestamp_value(*p_in);
+            *p_out = static_cast<Int32>(value.year()) - 1970;
             ++p_in;
             ++p_out;
         }
@@ -958,9 +969,7 @@ public:
         while (p_in < end_in) {
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(*(UInt32*)p_in);
-            // datetime_diff<MONTH> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_date(), value));
+            *p_out = (static_cast<Int32>(value.year()) - 1970) * 12 + value.month() - 1;
             ++p_in;
             ++p_out;
         }
@@ -988,6 +997,7 @@ private:
     DataTypePtr _target_type;
 };
 
+template <PrimitiveType P>
 class TimestampMonthPartitionColumnTransform : public PartitionColumnTransform {
 public:
     TimestampMonthPartitionColumnTransform(const DataTypePtr source_type)
@@ -1013,7 +1023,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnVector<P>&>(*column_ptr).get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
@@ -1025,11 +1035,14 @@ public:
         auto* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
-            DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // datetime_diff<MONTH> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<MONTH>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            if (is_nullable && assert_cast<const ColumnUInt8&>(*null_map_column_ptr)
+                                       .get_data()[p_in - in_data.data()]) {
+                *p_out++ = 0;
+                ++p_in;
+                continue;
+            }
+            auto value = PartitionColumnTransformUtils::timestamp_value(*p_in);
+            *p_out = (static_cast<Int32>(value.year()) - 1970) * 12 + value.month() - 1;
             ++p_in;
             ++p_out;
         }
@@ -1131,6 +1144,7 @@ private:
     DataTypePtr _target_type;
 };
 
+template <PrimitiveType P>
 class TimestampDayPartitionColumnTransform : public PartitionColumnTransform {
 public:
     TimestampDayPartitionColumnTransform(const DataTypePtr source_type)
@@ -1156,7 +1170,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnVector<P>&>(*column_ptr).get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
@@ -1168,11 +1182,14 @@ public:
         auto* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
-            DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // datetime_diff<DAY> actually returns int
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<DAY>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            if (is_nullable && assert_cast<const ColumnUInt8&>(*null_map_column_ptr)
+                                       .get_data()[p_in - in_data.data()]) {
+                *p_out++ = 0;
+                ++p_in;
+                continue;
+            }
+            auto value = PartitionColumnTransformUtils::timestamp_value(*p_in);
+            *p_out = value.date_diff_in_days(PartitionColumnTransformUtils::epoch_datetime());
             ++p_in;
             ++p_out;
         }
@@ -1204,6 +1221,7 @@ private:
     DataTypePtr _target_type;
 };
 
+template <PrimitiveType P>
 class TimestampHourPartitionColumnTransform : public PartitionColumnTransform {
 public:
     TimestampHourPartitionColumnTransform(const DataTypePtr source_type)
@@ -1229,7 +1247,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnVector<P>&>(*column_ptr).get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
@@ -1241,11 +1259,16 @@ public:
         auto* __restrict p_out = out_data.data();
 
         while (p_in < end_in) {
-            DateV2Value<DateTimeV2ValueType> value =
-                    binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(UInt64*)p_in);
-            // hour diff would't overflow int32
-            *p_out = cast_set<int, int64_t, false>(
-                    datetime_diff<HOUR>(PartitionColumnTransformUtils::epoch_datetime(), value));
+            if (is_nullable && assert_cast<const ColumnUInt8&>(*null_map_column_ptr)
+                                       .get_data()[p_in - in_data.data()]) {
+                *p_out++ = 0;
+                ++p_in;
+                continue;
+            }
+            auto value = PartitionColumnTransformUtils::timestamp_value(*p_in);
+            // Calendar partitions floor to the containing hour rather than truncate toward zero.
+            *p_out = value.date_diff_in_days(PartitionColumnTransformUtils::epoch_datetime()) * 24 +
+                     value.hour();
             ++p_in;
             ++p_out;
         }

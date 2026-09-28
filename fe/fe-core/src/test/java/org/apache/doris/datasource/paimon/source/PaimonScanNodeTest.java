@@ -1697,6 +1697,7 @@ public class PaimonScanNodeTest {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonScanNode spyNode = Mockito.spy(node);
         PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(PaimonExternalCatalog.class));
         Table table = Mockito.mock(Table.class);
         PaimonSysExternalTable externalTable = Mockito.mock(PaimonSysExternalTable.class);
         Mockito.when(source.getPaimonTable()).thenReturn(table);

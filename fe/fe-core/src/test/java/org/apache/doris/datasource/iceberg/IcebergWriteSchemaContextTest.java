@@ -83,6 +83,29 @@ import java.util.stream.Collectors;
 public class IcebergWriteSchemaContextTest {
 
     @Test
+    public void testWriterBindingsPreserveNestedTypesWithoutChangingReadMapping() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "payload", Types.FixedType.ofLength(4)),
+                Types.NestedField.optional(2, "events", Types.ListType.ofOptional(
+                        3, Types.TimestampType.withZone())),
+                defaultField(4, "binary_default", Types.BinaryType.get(), null,
+                        Literal.of(ByteBuffer.wrap(new byte[] {0, (byte) 0xff})), false));
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(schema, 3, false, false);
+        Assertions.assertTrue(context.getColumns().get(0).getType().isVarbinaryType());
+        Assertions.assertEquals(4, context.getColumns().get(0).getType().getLength());
+        org.apache.doris.catalog.ArrayType events =
+                (org.apache.doris.catalog.ArrayType) context.getColumns().get(1).getType();
+        Assertions.assertTrue(events.getItemType().isTimeStampTz());
+        Assertions.assertArrayEquals(new byte[] {0, (byte) 0xff},
+                (byte[]) ((VarBinaryLiteral) context.resolveWriteDefault(context.getColumns().get(2))).getValue());
+        // Read mapping remains opt-in while the writer uses the external logical types.
+        Assertions.assertTrue(IcebergUtils.icebergTypeToDorisType(
+                Types.FixedType.ofLength(4), false, false).isChar());
+        Assertions.assertFalse(IcebergUtils.icebergTypeToDorisType(
+                Types.TimestampType.withZone(), false, false).isTimeStampTz());
+    }
+
+    @Test
     public void testPrimitiveWriteDefaultsUseTypedValues() {
         Schema schema = new Schema(17, Arrays.asList(
                 defaultField(1, "boolean_col", Types.BooleanType.get(), Literal.of(true), Literal.of(false), false),
@@ -181,7 +204,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testLegacyTimestamptzWriteDefaultUsesSessionLocalWallTime() {
+    public void testTimestamptzWriteDefaultPreservesInstantWithoutFlag() {
         long instantMicros = DateTimeUtil.isoTimestamptzToMicros(
                 "2025-01-18T01:02:03.654321+00:00");
         Types.NestedField field = defaultField(
@@ -193,7 +216,7 @@ public class IcebergWriteSchemaContextTest {
         try {
             IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.forSchema(
                     new Schema(field), 3, false, false);
-            Assertions.assertEquals("2025-01-18 09:02:03.654321",
+            Assertions.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     stringValue(writeContext.resolveWriteDefault(
                             writeContext.getColumns().get(0))));
         } finally {
@@ -809,7 +832,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testCreateUsesMappingOptionsFromRetainedGeneration() {
+    public void testWriterTypesIgnoreReadMappingFromRetainedGeneration() {
         Schema schema = new Schema(50, ImmutableList.of(
                 Types.NestedField.optional(1, "binary_col", Types.BinaryType.get()),
                 Types.NestedField.optional(2, "timestamptz_col", Types.TimestampType.withZone())));
@@ -833,7 +856,7 @@ public class IcebergWriteSchemaContextTest {
 
         Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
                 context.getColumns().get(0).getType().getPrimitiveType());
-        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.TIMESTAMPTZ,
                 context.getColumns().get(1).getType().getPrimitiveType());
         Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
         Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();

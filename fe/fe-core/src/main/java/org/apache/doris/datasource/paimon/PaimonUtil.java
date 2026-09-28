@@ -95,6 +95,7 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -729,6 +730,11 @@ public class PaimonUtil {
     }
 
     public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
+        return getPartitionInfoMap(table, partitionValues, timeZone, false);
+    }
+
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone,
+            boolean enableTimestampTzMapping) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<String> partitionKeys = table.partitionKeys();
         RowType partitionType = table.rowType().project(partitionKeys);
@@ -738,7 +744,7 @@ public class PaimonUtil {
         for (int i = 0; i < partitionKeys.size(); i++) {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i], timeZone);
+                        partitionValuesArray[i], timeZone, enableTimestampTzMapping);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
@@ -750,7 +756,7 @@ public class PaimonUtil {
     }
 
     private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
-            String timeZone) {
+            String timeZone, boolean enableTimestampTzMapping) {
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case INTEGER:
@@ -809,6 +815,11 @@ public class PaimonUtil {
                 }
                 // Paimon timestamp with local time zone is stored as Timestamp type in utc
                 Timestamp timestamp = (Timestamp) value;
+                if (enableTimestampTzMapping) {
+                    // Instant-typed path columns must distinguish both sides of a DST overlap.
+                    return timestamp.toLocalDateTime().atOffset(ZoneOffset.UTC)
+                            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+                }
                 return timestamp.toLocalDateTime()
                         .atZone(ZoneId.of("UTC"))
                         .withZoneSameInstant(ZoneId.of(timeZone))

@@ -22,9 +22,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
+import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
@@ -46,7 +48,9 @@ import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
@@ -55,6 +59,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -62,6 +68,43 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonUtilTest {
+    @Test
+    public void testDorisTimestampTypesPreservePaimonSemanticsAndPrecision() {
+        org.apache.paimon.types.DataType timestamp = DorisTypeVisitor.visit(
+                ScalarType.createDatetimeV2Type(3), new DorisToPaimonTypeVisitor());
+        Assert.assertTrue(timestamp instanceof TimestampType);
+        Assert.assertEquals(3, ((TimestampType) timestamp).getPrecision());
+
+        org.apache.paimon.types.DataType timestampLtz = DorisTypeVisitor.visit(
+                ScalarType.createTimeStampTzType(6), new DorisToPaimonTypeVisitor());
+        Assert.assertTrue(timestampLtz instanceof LocalZonedTimestampType);
+        Assert.assertEquals(6, ((LocalZonedTimestampType) timestampLtz).getPrecision());
+    }
+
+    @Test
+    public void testLtzPartitionValuesRetainInstantsAcrossTimeZones() {
+        Table table = mockPartitionTable(Collections.emptyMap(),
+                DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        for (LocalDateTime utc : Arrays.asList(
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+            BinaryRow row = new BinaryRow(1);
+            BinaryRowWriter writer = new BinaryRowWriter(row);
+            writer.writeTimestamp(0, Timestamp.fromLocalDateTime(utc), 6);
+            writer.complete();
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                // Path literals need an explicit offset even when both DST instants display alike.
+                String value = PaimonUtil.getPartitionInfoMap(table, row, zone, true).get("part");
+                Assert.assertEquals(utc.toInstant(ZoneOffset.UTC),
+                        OffsetDateTime.parse(value.replace(' ', 'T')).toInstant());
+                String legacy = PaimonUtil.getPartitionInfoMap(table, row, zone, false).get("part");
+                Assert.assertEquals(utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(java.time.ZoneId.of(zone))
+                        .toLocalDateTime(), LocalDateTime.parse(legacy.replace(' ', 'T')));
+            }
+        }
+    }
+
     @Test
     public void testTimestampSemanticsSurviveNestedWireRoundTrip() throws Exception {
         RowType row = DataTypes.ROW(
