@@ -2267,58 +2267,6 @@ build_paimon_rust() {
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
 
-    # paimon-vindex-core 0.4.0 uses the unstable `stdarch_neon_f16` intrinsics
-    # (vcvt_f32_f16 / vreinterpret_f16_u16) in its aarch64 NEON fast path, which
-    # do not compile on stable Rust. On aarch64/arm64, replace the registry
-    # crate with a patched path source so the build succeeds. The patch swaps
-    # the unstable f16->f32 NEON convert for a stable scalar conversion; the
-    # rest of the NEON accumulation is left untouched. x86_64 and other arches
-    # are unaffected and keep using the pristine registry crate.
-    if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
-        # Retry safety: the patch + cargo update below mutate the shared
-        # workspace tree (Cargo.toml gains the [patch.crates-io] section and
-        # Cargo.lock's paimon-vindex-core entry loses its registry checksum).
-        # If a later step fails before cleanup_package_source removes the
-        # tree, the next invocation would reuse the mutated lock and the
-        # checksum extraction below would find nothing. Preserve pristine
-        # copies up front (inside the tree, so a successful cleanup removes
-        # them) and restore them before mutating again, making the whole
-        # block idempotent across retries.
-        local vindex_pristine_lock="${PWD}/.doris-vindex-pristine.lock"
-        local vindex_pristine_toml="${PWD}/.doris-vindex-pristine.toml"
-        if [[ ! -f "${vindex_pristine_lock}" ]]; then
-            cp Cargo.lock "${vindex_pristine_lock}"
-        fi
-        if [[ ! -f "${vindex_pristine_toml}" ]]; then
-            cp Cargo.toml "${vindex_pristine_toml}"
-        fi
-        cp "${vindex_pristine_lock}" Cargo.lock
-        cp "${vindex_pristine_toml}" Cargo.toml
-        local vindex_override="${PWD}/.doris-vindex-override"
-        local vindex_crate
-        vindex_crate="$(verified_paimon_vindex_crate "${vindex_pristine_lock}" \
-            "${cargo_bin}" "${cargo_env[@]}")"
-        rm -rf "${vindex_override}"
-        mkdir -p "${vindex_override}"
-        tar xzf "${vindex_crate}" -C "${vindex_override}" --strip-components=1
-        (cd "${vindex_override}" && \
-            patch -p1 -s <"${TP_PATCH_DIR}/paimon-vindex-core-0.4.0-aarch64-stable.patch")
-        # Inject the [patch.crates-io] override into the workspace manifest.
-        # Idempotent: skip if a previous run already injected it.
-        if ! grep -q "DORIS_PATCHED_VINDEX" Cargo.toml; then
-            cat >>Cargo.toml <<'EOF'
-
-# DORIS_PATCHED_VINDEX: override the registry crate with a build that compiles
-# on stable Rust for aarch64 (avoids the unstable stdarch_neon_f16 intrinsics).
-[patch.crates-io]
-paimon-vindex-core = { path = ".doris-vindex-override" }
-EOF
-        fi
-        # Record the path source in Cargo.lock so --locked stays satisfied.
-        env "${cargo_env[@]}" "${cargo_bin}" update \
-            -p paimon-vindex-core --offline
-    fi
-
     local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
     if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
         cargo_args+=(--offline)
