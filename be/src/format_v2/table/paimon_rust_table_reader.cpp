@@ -651,6 +651,10 @@ Status PaimonRustTableReader::_truncate_char_or_varchar_columns(Block* block) {
         // the direct rust path does not populate, so iterate the block's own
         // slot-derived types here — the arrow side is always lengthless Utf8,
         // so any bounded CHAR/VARCHAR target truncates to its declared length.
+        // Partition/default expressions can produce ColumnConst(ColumnNullable). The shared
+        // truncation helper expects a materialized nullable column, as in finalize_chunk.
+        auto& column = block->get_by_position(idx).column;
+        column = column->convert_to_full_column_if_const();
         _truncate_char_or_varchar_column(block, idx, target_len);
     }
     return Status::OK();

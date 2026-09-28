@@ -74,6 +74,64 @@ public class PaimonRustReaderCompatibilityTest {
     }
 
     @Test
+    public void testPersistedStringToTemporal() throws Exception {
+        for (boolean date : new boolean[] {true, false}) {
+            for (boolean nested : new boolean[] {false, true}) {
+                DataType sourceType = nested ? DataTypes.ROW(DataTypes.FIELD(2, "value", DataTypes.STRING()))
+                        : DataTypes.STRING();
+                DataType target = date ? DataTypes.DATE() : DataTypes.TIMESTAMP(3);
+                FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT())
+                        .column("v", sourceType), ImmutableMap.of("bucket", "-1"));
+                Object value = BinaryString.fromString("42");
+                commit(table, GenericRow.of(1, nested ? GenericRow.of(value) : value),
+                        GenericRow.of(2, nested ? GenericRow.of((Object) null) : null));
+                assertRead(table, true, row -> row.getInt(0), Arrays.asList(1, 2));
+                table.schemaManager().commitChanges(Collections.singletonList(SchemaChange.updateColumnType(
+                        nested ? new String[] {"v", "value"} : new String[] {"v"}, target, true)));
+                table = FileStoreTableFactory.create(table.fileIO(), table.location());
+                // Java accepts epoch-day/epoch-millisecond strings that Arrow's date parser rejects.
+                assertRead(table, false, row -> {
+                    InternalRow valueRow = nested ? row.getRow(1, 1) : row;
+                    int pos = nested ? 0 : 1;
+                    if (valueRow.isNullAt(pos)) {
+                        return null;
+                    }
+                    return date ? java.time.LocalDate.ofEpochDay(valueRow.getInt(pos)).toString()
+                            : valueRow.getTimestamp(pos, 3).toString();
+                }, Arrays.asList(date ? "1970-02-12" : "1970-01-01T00:00:00.042", null));
+            }
+        }
+    }
+
+    @Test
+    public void testPersistedIntegerToTimestamp() throws Exception {
+        for (boolean bigint : new boolean[] {false, true}) {
+            for (int precision : new int[] {0, 3, 6}) {
+                for (boolean nested : new boolean[] {false, true}) {
+                    DataType sourceType = bigint ? DataTypes.BIGINT() : DataTypes.INT();
+                    FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT())
+                            .column("v", nested ? DataTypes.ROW(DataTypes.FIELD(2, "value", sourceType)) : sourceType),
+                            ImmutableMap.of("bucket", "-1"));
+                    Object value = bigint ? (Object) 1700000000L : 1700000000;
+                    commit(table, GenericRow.of(1, nested ? GenericRow.of(value) : value),
+                            GenericRow.of(2, nested ? GenericRow.of((Object) null) : null));
+                    assertRead(table, true, row -> row.getInt(0), Arrays.asList(1, 2));
+                    table.schemaManager().commitChanges(Collections.singletonList(SchemaChange.updateColumnType(
+                            nested ? new String[] {"v", "value"} : new String[] {"v"},
+                            DataTypes.TIMESTAMP(precision), true)));
+                    table = FileStoreTableFactory.create(table.fileIO(), table.location());
+                    // Paimon numeric timestamps use seconds independently of the target precision.
+                    assertRead(table, false, row -> {
+                        InternalRow valueRow = nested ? row.getRow(1, 1) : row;
+                        int pos = nested ? 0 : 1;
+                        return valueRow.isNullAt(pos) ? null : valueRow.getTimestamp(pos, precision).toString();
+                    }, Arrays.asList("2023-11-14T22:13:20", null));
+                }
+            }
+        }
+    }
+
+    @Test
     public void testPersistedFloatingToDecimalRounding() throws Exception {
         FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT())
                 .column("v", DataTypes.DOUBLE()), ImmutableMap.of("bucket", "-1"));

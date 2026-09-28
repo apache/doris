@@ -3305,6 +3305,51 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustStringHistoryToTemporalFallback() throws Exception {
+        for (org.apache.paimon.types.DataType sourceType : Arrays.asList(
+                DataTypes.STRING(), DataTypes.VARCHAR(20), DataTypes.CHAR(20))) {
+            for (org.apache.paimon.types.DataType target : Arrays.asList(DataTypes.DATE(),
+                    DataTypes.TIMESTAMP(0), DataTypes.TIMESTAMP(3), DataTypes.TIMESTAMP(6),
+                    DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3))) {
+                assertHistoricalTemporalRouting(sourceType, target, TPaimonReaderType.PAIMON_JNI);
+            }
+        }
+        assertHistoricalTemporalRouting(DataTypes.DATE(), DataTypes.DATE(), TPaimonReaderType.PAIMON_RUST);
+    }
+
+    @Test
+    public void testRustIntegerHistoryToTimestampFallback() throws Exception {
+        for (int precision : new int[] {0, 3, 6}) {
+            for (org.apache.paimon.types.DataType target : Arrays.asList(DataTypes.TIMESTAMP(precision),
+                    DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(precision))) {
+                for (org.apache.paimon.types.DataType sourceType : Arrays.asList(DataTypes.INT(), DataTypes.BIGINT())) {
+                    assertHistoricalTemporalRouting(sourceType, target, TPaimonReaderType.PAIMON_JNI);
+                }
+                assertHistoricalTemporalRouting(target, target, TPaimonReaderType.PAIMON_RUST);
+            }
+        }
+    }
+
+    private void assertHistoricalTemporalRouting(org.apache.paimon.types.DataType sourceType,
+            org.apache.paimon.types.DataType target, TPaimonReaderType expected) throws Exception {
+        org.apache.paimon.types.DataType[][] shapes = {
+                {sourceType, target},
+                {DataTypes.ROW(new DataField(2, "old_name", sourceType)),
+                        DataTypes.ROW(new DataField(2, "renamed", target))},
+                {DataTypes.ARRAY(sourceType), DataTypes.ARRAY(target)},
+                {DataTypes.MAP(sourceType, DataTypes.INT()), DataTypes.MAP(target, DataTypes.INT())},
+                {DataTypes.MAP(DataTypes.INT(), sourceType), DataTypes.MAP(DataTypes.INT(), target)}};
+        for (org.apache.paimon.types.DataType[] shape : shapes) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            Mockito.when(f.schemas.schema(1)).thenReturn(new TableSchema(1, Arrays.asList(
+                    new DataField(0, "id", new IntType(false)), new DataField(1, "v", shape[0])),
+                    10, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null));
+            f.schema(2, shape[1], Collections.emptyMap(), false);
+            Assert.assertEquals(Arrays.toString(shape), expected, f.reader(f.split));
+        }
+    }
+
+    @Test
     public void testRustFloatingHistoryToDecimalFallback() throws Exception {
         for (org.apache.paimon.types.DataType oldType : Arrays.asList(
                 DataTypes.FLOAT(), DataTypes.DOUBLE(), DataTypes.INT(), DataTypes.DECIMAL(3, 2))) {

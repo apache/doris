@@ -129,7 +129,19 @@ final class PaimonRustReaderCapabilities {
             return true;
         }
         int oldWidth = integerWidth(oldType.getTypeRoot());
-        int newWidth = integerWidth(newType.getTypeRoot());
+        DataTypeRoot oldRoot = oldType.getTypeRoot();
+        DataTypeRoot newRoot = newType.getTypeRoot();
+        boolean targetTimestamp = newRoot == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
+                || newRoot == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
+        // Java accepts epoch-day/millisecond strings and interprets numeric timestamps as seconds.
+        // Arrow instead parses calendar strings or reuses numeric timestamp ticks, including in
+        // nested values. Keep these historical casts on JNI until the pinned reader matches Java.
+        boolean sourceString = oldRoot == DataTypeRoot.CHAR || oldRoot == DataTypeRoot.VARCHAR;
+        if ((sourceString && (newRoot == DataTypeRoot.DATE || targetTimestamp))
+                || (oldWidth > 0 && targetTimestamp)) {
+            return true;
+        }
+        int newWidth = integerWidth(newRoot);
         if (newWidth > 0) {
             // Floating-point and decimal sources also differ under narrowing; only integer
             // identity/widening casts have the same range and value semantics in both readers.

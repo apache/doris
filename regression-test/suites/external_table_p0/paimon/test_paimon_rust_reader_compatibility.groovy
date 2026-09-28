@@ -27,7 +27,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
     def database = "test_paimon_rust_compatibility_db"
     def settings = ["enable_paimon_rust_reader", "force_jni_scanner",
                     "enable_file_scanner_v2", "enable_profile", "enable_prune_nested_column",
-                    "enable_push_down_no_group_agg"]
+                    "enable_push_down_no_group_agg", "time_zone"]
     def saved = settings.collectEntries { [(it): sql("select @@${it}")[0][0]] }
     sql "DROP CATALOG IF EXISTS ${catalog}"
     sql """CREATE CATALOG ${catalog} PROPERTIES (
@@ -41,6 +41,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
     sql "USE ${database}"
     try {
         sql "set enable_profile=true"
+        sql "set time_zone='+00:00'"
         sql "set enable_prune_nested_column=true"
         sql "set enable_file_scanner_v2=true"
         sql "set force_jni_scanner=true"
@@ -104,6 +105,30 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         sql "set force_jni_scanner=true"
         // Forced logical splits still return real rows to the upper aggregate in both readers.
         aggregateQueries.each { entry -> check(entry[0], entry[1], true) }
+
+        ["DATE", "DATETIME(3)"].eachWithIndex { target, index ->
+            def name = "string_to_temporal_${index}"
+            sql """CREATE TABLE ${name} (id INT, v STRING) ENGINE=paimon
+                PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+            sql "INSERT INTO ${name} VALUES (1,'42'), (2,NULL)"
+            check("select id,v from ${name} order by id", [[1,"42"],[2,null]], true)
+            sql "ALTER TABLE ${name} MODIFY COLUMN v ${target} NULL"
+            // The historical string is an epoch count in Java, not an Arrow calendar literal.
+            check("select id,cast(v as string) from ${name} order by id",
+                    [[1,index == 0 ? "1970-02-12" : "1970-01-01 00:00:00.042"],[2,null]], false)
+        }
+        ["INT", "BIGINT"].each { sourceType ->
+            [0, 3, 6].each { precision ->
+                def name = "integer_to_timestamp_${sourceType.toLowerCase()}_${precision}"
+                sql """CREATE TABLE ${name} (id INT, v ${sourceType}) ENGINE=paimon
+                    PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+                sql "INSERT INTO ${name} VALUES (1,1700000000), (2,NULL)"
+                sql "ALTER TABLE ${name} MODIFY COLUMN v DATETIME(${precision}) NULL"
+                // All target precisions must interpret the source number as epoch seconds.
+                check("select id,date_format(v,'%Y-%m-%d %H:%i:%s') from ${name} order by id",
+                        [[1,"2023-11-14 22:13:20"],[2,null]], false)
+            }
+        }
 
         createPk("nested_values", "v STRUCT<a:INT,b:INT>, arr ARRAY<STRUCT<a:INT,b:INT>>, "
                 + "m MAP<INT,STRUCT<a:INT,b:INT>>", "")
@@ -225,7 +250,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             FROM numbers('number'='4096')"""
         check("select id from sparse_prefix order by id", [[4096]], false)
     } finally {
-        saved.each { name, value -> sql "set ${name}=${value}" }
+        saved.each { name, value -> sql "set ${name}='${value}'" }
         sql "DROP DATABASE IF EXISTS ${database} FORCE"
         sql "DROP CATALOG IF EXISTS ${catalog}"
     }

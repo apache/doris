@@ -255,6 +255,45 @@ TEST_F(PaimonRustTableReaderTest, FillsPartitionConstantsForMissingArrowColumns)
     EXPECT_EQ(std::string(value.data(), value.size()), "2024-01-01");
 }
 
+TEST_F(PaimonRustTableReaderTest, TruncatesNullablePartitionAndDefaultConstants) {
+    _query_options.__set_truncate_char_or_varchar_columns(true);
+    _runtime_state = RuntimeState::create_unique(_query_options, _query_globals);
+    for (const auto primitive : {PrimitiveType::TYPE_CHAR, PrimitiveType::TYPE_VARCHAR}) {
+        for (bool is_null : {false, true}) {
+            PaimonRustTableReader reader;
+            ASSERT_TRUE(init_reader_with_count(&reader, {}).ok());
+            const auto type = make_nullable(std::make_shared<DataTypeString>(3, primitive));
+            auto partition = make_column("partition_key", type, true);
+            auto default_column = make_column("default_value", type);
+            const auto value = is_null ? Field() : Field::create_field<TYPE_STRING>("abcdef");
+            default_column.default_expr =
+                    VExprContext::create_shared(VLiteral::create_shared(type, value));
+            reader.TEST_set_projected_columns({partition, default_column});
+            reader.TEST_set_partition_values({{"partition_key", value}});
+            Block block({ColumnWithTypeAndName(type->create_column(), type, "partition_key"),
+                         ColumnWithTypeAndName(type->create_column(), type, "default_value")});
+            ASSERT_TRUE(reader.TEST_fill_non_arrow_columns(&block, 3).ok());
+            ASSERT_TRUE(is_column_const(*block.get_by_position(0).column));
+            // Split constants wrap nullable data; truncation must preserve both the row count
+            // and null map when it materializes that outer wrapper.
+            ASSERT_TRUE(reader.TEST_truncate_char_or_varchar_columns(&block).ok());
+            ASSERT_EQ(block.rows(), 3);
+            for (size_t column = 0; column < 2; ++column) {
+                for (size_t row = 0; row < 3; ++row) {
+                    Field actual;
+                    block.get_by_position(column).column->get(row, actual);
+                    if (is_null) {
+                        EXPECT_TRUE(actual.is_null());
+                    } else {
+                        const auto& text = actual.get<TYPE_STRING>();
+                        EXPECT_EQ(std::string(text.data(), text.size()), "abc");
+                    }
+                }
+            }
+        }
+    }
+}
+
 TEST_F(PaimonRustTableReaderTest, DirectPathTruncatesBoundedStringColumns) {
     // The pinned rust reader maps paimon CHAR(n)/VARCHAR(n) to lengthless Arrow
     // Utf8, so the direct Arrow path must enforce truncate_char_or_varchar_

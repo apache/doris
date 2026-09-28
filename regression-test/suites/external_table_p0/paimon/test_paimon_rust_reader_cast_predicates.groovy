@@ -31,6 +31,8 @@
 // never reach the JNI / rust converters. The actual reader path is verified
 // per leg through the query profile (the rust reader's PaimonRustReader
 // timer group).
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -61,6 +63,11 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
             id INT, s VARCHAR(10)
         ) USING paimon;
         INSERT INTO paimon.${dbName}.t_cast_null VALUES (1, '5'), (2, NULL);
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_partition_constants;
+        CREATE TABLE paimon.${dbName}.t_partition_constants (id INT, p VARCHAR(3))
+            USING paimon PARTITIONED BY (p) TBLPROPERTIES ('bucket'='-1');
+        INSERT INTO paimon.${dbName}.t_partition_constants VALUES (1,'abc'), (2,'abc'), (3,NULL);
     """
 
     // The s3.region property is required: paimon-rust's S3 client rejects a
@@ -82,6 +89,7 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
     // Capture the settings this suite overrides so finally can restore them.
     def originalForceJni = sql("select @@force_jni_scanner")[0][0]
     def originalEnableProfile = sql("select @@enable_profile")[0][0]
+    def originalTruncate = sql("select @@truncate_char_or_varchar_columns")[0][0]
 
     try {
         sql """switch ${catalogName}"""
@@ -92,24 +100,16 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
         // differential actually exercises both converters.
         sql """set force_jni_scanner=true"""
         sql """set enable_profile=true"""
+        sql "set truncate_char_or_varchar_columns=true"
 
-        // Runs one query and returns its profile text via the FE REST API
-        // (`show query profile "/<id>"` only lists profiles in this version).
-        // The profile is finalized asynchronously after the query returns, so
-        // retry briefly until the endpoint serves the finished body.
-        def profileTextOf = { String query ->
+        // Use configured HTTP credentials and wait for the Rust group as well as profile
+        // completion: the scanner group can appear before its child reader timers arrive.
+        def profiles = new ProfileAction(context)
+        def profileTextOf = { String query, boolean rustExpected ->
             sql(query)
-            def queryId = sql("select last_query_id()")[0][0]
-            for (int i = 0; i < 10; i++) {
-                def (code, out, err) = curl("GET",
-                        "http://${context.config.feHttpAddress}/rest/v1/query_profile/text/${queryId}",
-                        null, 30, "root", "")
-                if (code == 0 && out.contains("FileScannerV2")) {
-                    return out
-                }
-                Thread.sleep(1000)
-            }
-            throw new Exception("profile not available for query ${queryId}")
+            def queryId = sql("select last_query_id()")[0][0].toString()
+            def required = rustExpected ? ["FileScannerV2", "PaimonRustReader"] : ["FileScannerV2"]
+            profiles.getProfile(queryId, required)
         }
 
         def testQueries = [
@@ -150,6 +150,9 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
                 [[2], [3]],
                 [[1], [3]]
         ]
+        // Partition keys are supplied as nullable constants outside the Arrow batch.
+        testQueries.add("select id,p from t_partition_constants order by id")
+        expectedResults.add([[1,"abc"],[2,"abc"],[3,null]])
         // Representative scale-cast query reused for the reader-path checks.
         String scaleCastQuery = testQueries[0]
 
@@ -157,17 +160,19 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
         def jniResults = testQueries.collect { query -> sql(query) }
         // The JNI leg must ride the logical-split JNI reader: the profile of
         // the representative query must not contain the rust reader's timer.
-        def jniProfile = profileTextOf(scaleCastQuery)
+        def jniProfile = profileTextOf(scaleCastQuery, false)
         assertFalse(jniProfile.contains("PaimonRustReader"), "JNI leg must not use the rust reader")
 
         sql """set enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
         // The rust leg must actually run the rust reader: its profile carries
         // the PaimonRustReader timer group, which only the rust reader creates.
-        def rustProfile = profileTextOf(scaleCastQuery)
+        def rustProfile = profileTextOf(scaleCastQuery, true)
         assertTrue(rustProfile.contains("PaimonRustReader"),
                 "rust leg must use the rust reader (profile timer missing)")
 
+        assertTrue(profileTextOf(testQueries.last(), true).contains("PaimonRustReader"),
+                "partition constants must exercise the Rust materialization path")
         for (int i = 0; i < testQueries.size(); i++) {
             // The rust reader must agree with the JNI reader (which, like FE,
             // never pushes a casted operand) on every form.
@@ -181,6 +186,7 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
         sql """set enable_paimon_rust_reader=false"""
         sql """set force_jni_scanner=${originalForceJni}"""
         sql """set enable_profile=${originalEnableProfile}"""
+        sql "set truncate_char_or_varchar_columns=${originalTruncate}"
         sql """drop catalog if exists ${catalogName}"""
     }
 }
