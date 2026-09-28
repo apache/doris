@@ -32,7 +32,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-RETRY_DELAYS = (30, 60, 120)
+# Six same-session capacity retries, each after a fixed five-minute wait.
+RETRY_DELAYS = (300,) * 6
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
 UNSUPPORTED_CHATGPT_MODEL = "model is not supported when using Codex with a ChatGPT account."
 PROCESS_EXIT_GRACE_SECONDS = 5
