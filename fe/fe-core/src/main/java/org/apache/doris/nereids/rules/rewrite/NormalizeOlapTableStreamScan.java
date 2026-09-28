@@ -265,10 +265,10 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         selectedPartitionIds = streamWrapper.filterConsumedPartitionIds(selectedPartitionIds);
         // What this read is about to answer with is recorded here, where the plan is final and the read states
         // are in place, and before the read is built: the refresh that reads it back may not record a
-        // partition it replaced through an image of the table as of the offset as caught up -- what it wrote
-        // is that image, and the delta that would bring the table up to date does not apply to it. See
+        // partition it replaced from an answer that is not the table as it is now as caught up -- what it
+        // wrote is that answer, and the delta that would bring the table up to date does not apply to it. See
         // MTMVTask#executePartitionBasedRefresh.
-        if (streamWrapper.readsSnapshotOfAnOlderImage(selectedPartitionIds)) {
+        if (!streamWrapper.answersWithTheCurrentTable(selectedPartitionIds)) {
             cascadesContext.getStatementContext().getIvmRewriteContext()
                     .ifPresent(IvmRewriteContext::markReadFromAStreamOffset);
         }

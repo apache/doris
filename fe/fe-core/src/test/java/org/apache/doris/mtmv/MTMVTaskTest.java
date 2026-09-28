@@ -378,6 +378,40 @@ public class MTMVTaskTest {
                 Deencapsulation.getField(task, "ivmPlannedEpochs"));
     }
 
+    /**
+     * A retry that recreated a partition of a name this task already holds a capture for drops that capture.
+     *
+     * <p>The retry's partition sync can drop a partition and add one of the same name back, which the alignment
+     * gives {@code {0, 1}}: it is a different, empty partition, and the rows the captures and snapshots
+     * describe are gone with the old one. Writing them back credits the new partition with what the old one
+     * held, and a partition clean at an epoch that a later change only raises to is one no refresh rebuilds.
+     */
+    @Test
+    public void testARetryThatRecreatedAPartitionDropsWhatThisTaskHeldForItsName() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L, ptwoName, 2L)));
+        Map<String, Long> captured = Maps.newConcurrentMap();
+        captured.put(poneName, 2L);
+        captured.put(ptwoName, 2L);
+        Deencapsulation.setField(task, "ivmCapturedEpochs", captured);
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Maps.newConcurrentMap();
+        snapshots.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        snapshots.put(ptwoName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Deencapsulation.setField(task, "partitionSnapshots", snapshots);
+        // p1 is the name the retry recreated; p2 is the partition the rebuild replaced, whose capture stands.
+        Mockito.when(mtmv.getPartitionStates()).thenReturn(Maps.newHashMap(Map.of(
+                poneName, MTMVPartitionState.initial(),
+                ptwoName, new MTMVPartitionState(1, 2))));
+        Set<String> dirtyPartitions = Sets.newLinkedHashSet();
+
+        Deencapsulation.invoke(task, "adoptPartitionsCreatedByTheRetry", dirtyPartitions);
+
+        Assertions.assertEquals(Map.of(ptwoName, 2L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
+        Assertions.assertEquals(Sets.newHashSet(ptwoName),
+                ((Map<?, ?>) Deencapsulation.getField(task, "partitionSnapshots")).keySet());
+        Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName), dirtyPartitions);
+    }
+
     @Test
     public void testBuildAttemptsAutoCompleteMethodSkipsPartitionsAttempt() {
         // setUp stubs refreshMethod=COMPLETE. The PARTITIONS attempt must be skipped:

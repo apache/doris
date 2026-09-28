@@ -1000,6 +1000,17 @@ public class MTMVTask extends AbstractTask {
             if (entry.getValue().isDirty()) {
                 dirtyPartitions.add(entry.getKey());
             }
+            // A partition the alignment has just created -- the state an entry starts with,
+            // MTMVPartitionState.initial() -- is a
+            // partition of this name that the retry's partition sync recreated: the partition the captures and
+            // snapshots this task holds for that name describe is gone, and the one that took its name holds
+            // nothing. Writing those back would credit the new one with what the old one held, which is worse
+            // than a wrong number: a partition clean at an epoch a later change only raises to is one no
+            // refresh rebuilds, so the rows the recreation removed would be published as current.
+            if (entry.getValue().getRefreshEpoch() == 0 && entry.getValue().getLatestEpoch() == 1) {
+                ivmCapturedEpochs.remove(entry.getKey());
+                partitionSnapshots.remove(entry.getKey());
+            }
         }
     }
 

@@ -45,19 +45,31 @@ public class OlapTableStreamSnapshotReadTest {
     public void testAMergeOnWritePartitionBehindItsOffsetIsReadAsAnOlderImage() {
         // The offset of the first partition has not reached its end, so a read of it answers with the image at
         // that offset; the second is read directly.
-        Fixture fixture = fixture(KeysType.UNIQUE_KEYS, Map.of(1L, 100L, 2L, 200L),
+        Fixture fixture = fixture(KeysType.UNIQUE_KEYS, Map.of(1L, 200L, 2L, 200L),
                 partition(1L, 200L, true), partition(2L, 200L, true));
 
-        Assertions.assertTrue(fixture.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
-        Assertions.assertFalse(fixture.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(2L)));
+        Assertions.assertTrue(fixture.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
 
-        // A partition with no consumption baseline is not behind an offset it does not have. The read drops
-        // those before it reads anything through the stream, so counting one as an older image withholds
-        // snapshots for a partition that was read as the table is -- and, if it was just populated, leaves it
-        // needing a rebuild it does not owe.
-        Fixture baselineLess = fixture(KeysType.UNIQUE_KEYS, Map.of(2L, 200L),
+        // One whose offset has not reached the end is read as of that offset, which is the table as it was.
+        Fixture behind = fixture(KeysType.UNIQUE_KEYS, Map.of(1L, 100L, 2L, 200L),
                 partition(1L, 200L, true), partition(2L, 200L, true));
-        Assertions.assertFalse(baselineLess.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
+        Assertions.assertFalse(behind.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
+        Assertions.assertTrue(behind.wrapper.answersWithTheCurrentTable(Lists.newArrayList(2L)));
+    }
+
+    @Test
+    public void testAPartitionTheReadDropsIsCurrentOnlyWhenItHoldsNoRows() {
+        // A partition with no consumption baseline is not read at all: there is no offset to read it from.
+        // Rows it holds by now are rows the answer does not have, so the answer is not the table as it is --
+        // recording such a partition as caught up leaves it clean while the rows it should have joined in are
+        // missing. One that holds nothing contributes nothing, and dropping it changes nothing.
+        Fixture withRows = fixture(KeysType.UNIQUE_KEYS, Map.of(2L, 200L),
+                partition(1L, 200L, true), partition(2L, 200L, true));
+        Assertions.assertFalse(withRows.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
+
+        Fixture withoutRows = fixture(KeysType.UNIQUE_KEYS, Map.of(2L, 200L),
+                partition(1L, 200L, false), partition(2L, 200L, true));
+        Assertions.assertTrue(withoutRows.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
     }
 
     @Test
@@ -65,20 +77,19 @@ public class OlapTableStreamSnapshotReadTest {
         Fixture fixture = fixture(KeysType.DUP_KEYS, Map.of(1L, 100L, 2L, 200L),
                 partition(1L, 200L, true), partition(2L, 200L, true));
 
-        Assertions.assertTrue(fixture.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
-        Assertions.assertFalse(fixture.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(2L)));
+        Assertions.assertFalse(fixture.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
+        Assertions.assertTrue(fixture.wrapper.answersWithTheCurrentTable(Lists.newArrayList(2L)));
 
-        // A partition with no consumption baseline is not behind an offset it does not have: the read is
-        // bounded by nothing and answers with the table as it is. Counting it as an older image records
-        // partitions that are current, which costs a rebuild each.
+        // A partition with no consumption baseline is dropped by the read, and one that holds rows is the
+        // same answer for either key type: not the table as it is.
         Fixture baselineLess = fixture(KeysType.DUP_KEYS, Map.of(2L, 200L),
                 partition(1L, 200L, true), partition(2L, 200L, true));
-        Assertions.assertFalse(baselineLess.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
+        Assertions.assertFalse(baselineLess.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
 
-        // One that has been consumed up to its end is not behind it either.
+        // One that has been consumed up to its end is read as the table is.
         Fixture consumed = fixture(KeysType.DUP_KEYS, Map.of(1L, 200L, 2L, 200L),
                 partition(1L, 200L, true), partition(2L, 200L, true));
-        Assertions.assertFalse(consumed.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
+        Assertions.assertTrue(consumed.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
     }
 
     private static Partition partition(long id, long tso, boolean hasData) {

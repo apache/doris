@@ -104,16 +104,6 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
 
         OlapTableStream stream = IvmUtil.getIvmStream(rewriteContext.getMtmv(), baseTable);
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(stream, baseTable, selectedPartitionIds);
-        // A snapshot read of a table the MV does not partition by answers with the image at the stream offset
-        // for the partitions behind it, and with the table as it is for the rest; which of the two each
-        // partition gets is decided here, so it is recorded here. The refresh that reads this back may not
-        // record a partition it replaced through the first kind as caught up: what it wrote is that image,
-        // and the delta that would bring the table up to date does not apply to it. See
-        // MTMVTask#executePartitionBasedRefresh.
-        if (readMode == StreamReadMode.SNAPSHOT
-                && streamWrapper.readsSnapshotOfAnOlderImage(selectedPartitionIds)) {
-            rewriteContext.markReadFromAStreamOffset();
-        }
         LogicalOlapTableStreamScan streamScan = new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(), streamWrapper, scan.getQualifier(),
                 selectedPartitionIds, scan.getSelectedTabletIds(), scan.getHints(),
