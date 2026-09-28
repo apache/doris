@@ -811,7 +811,7 @@ public class MTMV extends OlapTable {
     // A payload without the member carries no state at all, which is not the same as an empty map that
     // says the states are now empty: leaving them alone is the only answer that cannot lose state.
     public void alterPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
-        replayAlterPartitionStates(partitionStates, null);
+        replayAlterPartitionStates(partitionStates, null, false);
     }
 
     /**
@@ -821,13 +821,25 @@ public class MTMV extends OlapTable {
      *
      * <p>A payload without the states carries none, which is not the same as an empty map that says the
      * states are now empty: leaving them alone is the only answer that cannot lose state.
+     *
+     * <p>{@code merge} says what the payload's states are. False, which is what a payload written before the
+     * member existed means and what the invalidation channel still writes, carries the map itself and
+     * replaces. True carries only the partitions a change touched -- see submitPartitionStatesDelta -- so the
+     * entries it does not name belong to other records (an invalidation that ran during the refresh, an entry
+     * alignment added) and are merged over rather than dropped.
      */
     public void replayAlterPartitionStates(Map<String, MTMVPartitionState> partitionStates,
-            Set<String> removedSnapshotPartitions) {
+            Set<String> removedSnapshotPartitions, boolean merge) {
         writeMvLock();
         try {
             if (partitionStates != null) {
-                this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+                if (merge) {
+                    for (Entry<String, MTMVPartitionState> entry : partitionStates.entrySet()) {
+                        this.partitionStates.put(entry.getKey(), new MTMVPartitionState(entry.getValue()));
+                    }
+                } else {
+                    this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+                }
             }
             refreshSnapshot.removeSnapshots(removedSnapshotPartitions);
         } finally {
@@ -1374,6 +1386,7 @@ public class MTMV extends OlapTable {
             return Collections.emptyMap();
         }
         Map<String, Long> raised = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        Map<String, MTMVPartitionState> raisedStates = Maps.newLinkedHashMapWithExpectedSize(partitionNames.size());
         EditLogItem editLogItem;
         writeMvLock();
         try {
@@ -1385,11 +1398,14 @@ public class MTMV extends OlapTable {
                 }
                 state.setLatestEpoch(state.getLatestEpoch() + 1);
                 raised.put(partitionName, state.getLatestEpoch());
+                // A detached copy, because the payload describes the state this raise produced rather than
+                // the MV's entry, which later raises and write-backs move on.
+                raisedStates.put(partitionName, new MTMVPartitionState(state));
             }
             if (raised.isEmpty()) {
                 return Collections.emptyMap();
             }
-            editLogItem = submitPartitionStatesChange(Collections.emptySet());
+            editLogItem = submitPartitionStatesDelta(raisedStates);
         } finally {
             writeMvUnlock();
         }
@@ -1409,6 +1425,26 @@ public class MTMV extends OlapTable {
                 new TableNameInfo(getQualifiedDbName(), getName()), MTMVAlterOpType.ALTER_PARTITION_STATES);
         alterMTMV.setPartitionStates(partitionStates);
         alterMTMV.setRemovedSnapshotPartitions(removedSnapshotPartitions);
+        return submitAlterLog(alterMTMV);
+    }
+
+    /**
+     * Journals the given states as the delta they are: a record that carries only the partitions a change
+     * touched, which a replay merges into the states the MV holds.
+     *
+     * <p>What a refresh raises for the scope it is about to replace is such a delta, and it is raised on
+     * every partition-based refresh, so the whole map would be the wrong shape for it: the map has one entry
+     * per MV partition, and a refresh of one partition of a large MV would copy and journal all of them,
+     * under the MV write lock, every time. The partitions the record does not name belong to other records --
+     * an invalidation that ran during the refresh, an entry an alignment added -- and a replay that replaced
+     * the map with the delta would drop them.
+     */
+    private EditLogItem submitPartitionStatesDelta(Map<String, MTMVPartitionState> raised) {
+        AlterMTMV alterMTMV = new AlterMTMV(
+                new TableNameInfo(getQualifiedDbName(), getName()), MTMVAlterOpType.ALTER_PARTITION_STATES);
+        alterMTMV.setPartitionStates(raised);
+        alterMTMV.setMergePartitionStates(true);
+        alterMTMV.setRemovedSnapshotPartitions(Collections.emptySet());
         return submitAlterLog(alterMTMV);
     }
 

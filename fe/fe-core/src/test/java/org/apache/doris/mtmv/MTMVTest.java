@@ -1224,11 +1224,14 @@ public class MTMVTest {
                 Sets.newHashSet("p202601", "p202602", "p202603"), raised);
 
         // The parts of the scope that named a requirement of their own are not moved: p202602 is left where
-        // it is, and the caller is not told to record it.
+        // it is, and the caller is not told to record it -- in the result or in the record, which carries the
+        // entries this raised and only those.
         Assertions.assertEquals(Map.of("p202601", 2L, "p202603", 2L), raised);
         Assertions.assertEquals(1, journaled.size());
+        Assertions.assertTrue(journaled.get(0).isMergePartitionStates());
+        Assertions.assertEquals(Sets.newHashSet("p202601", "p202603"),
+                journaled.get(0).getPartitionStates().keySet());
         Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p202601").getLatestEpoch());
-        Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p202602").getLatestEpoch());
         Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p202603").getLatestEpoch());
 
         // The epoch the refresh records is the one it raised, and recording it is what clears the partition:
@@ -1239,6 +1242,56 @@ public class MTMVTest {
         Assertions.assertFalse(mtmv.getPartitionStates().get("p202603").isDirty());
         // What this result published nothing for keeps the requirement it had.
         Assertions.assertTrue(mtmv.getPartitionStates().get("p202602").isDirty());
+    }
+
+    /**
+     * What a refresh raises for its scope reaches the journal as the delta it is, and a replay merges it.
+     *
+     * <p>The raise runs on every partition-based refresh, so the size of the record is the size of the scope
+     * and not the size of the MV: a one-partition refresh of a thousand-partition MV carries one entry, not a
+     * thousand. Merging is the other half of that: the entries the record does not carry belong to other
+     * records -- an invalidation that ran during the refresh, an entry an alignment added -- so a replay that
+     * replaced the map with the delta would drop them.
+     */
+    @Test
+    public void testRaiseRebuildRequirementJournalsTheDeltaAndReplaysItMerged() {
+        Set<String> manyPartitions = Sets.newLinkedHashSet();
+        Map<String, MTMVPartitionState> current = Maps.newLinkedHashMap();
+        for (int i = 0; i < 1000; i++) {
+            String partitionName = String.format("p%04d", i);
+            manyPartitions.add(partitionName);
+            current.put(partitionName, new MTMVPartitionState(1, 1));
+        }
+        MTMV mtmv = ivmMvWithPartitions(manyPartitions);
+        mtmv.alterPartitionStates(current);
+        Deencapsulation.setField(mtmv, "name", "mv1");
+
+        Map<String, Long> raised = Maps.newHashMap();
+        List<AlterMTMV> journaled = runRaiseRebuildRequirement(mtmv, Sets.newHashSet("p0007"), raised);
+
+        Assertions.assertEquals(Map.of("p0007", 2L), raised);
+        Assertions.assertEquals(1, journaled.size());
+        Assertions.assertEquals(1, journaled.get(0).getPartitionStates().size());
+        Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p0007").getLatestEpoch());
+
+        // It survives the journal as itself: the flag and the single entry.
+        AlterMTMV readBack = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(journaled.get(0)), AlterMTMV.class);
+        Assertions.assertTrue(readBack.isMergePartitionStates());
+        Assertions.assertEquals(1, readBack.getPartitionStates().size());
+
+        // Replaying it merges: the partitions it does not name keep the states they hold, and the one it does
+        // carries the requirement the record raised.
+        mtmv.replayAlterPartitionStates(readBack.getPartitionStates(), readBack.getRemovedSnapshotPartitions(),
+                readBack.isMergePartitionStates());
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get("p0007").getLatestEpoch());
+        Assertions.assertEquals(1, mtmv.getPartitionStates().get("p0000").getLatestEpoch());
+        Assertions.assertTrue(mtmv.getPartitionStates().get("p0007").isDirty());
+        Assertions.assertFalse(mtmv.getPartitionStates().get("p0000").isDirty());
+
+        // The invalidation channel still replaces, which is what lets it also carry a map that lost entries.
+        mtmv.replayAlterPartitionStates(Map.of("p0000", new MTMVPartitionState(1, 1)), null, false);
+        Assertions.assertEquals(Sets.newHashSet("p0000"), mtmv.getPartitionStates().keySet());
     }
 
     @Test

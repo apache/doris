@@ -66,6 +66,11 @@ public class AlterMTMV implements Writable {
     // MV partitions whose refresh snapshot the same change dropped; see MTMV.markIvmPartitionsInvalidated.
     @SerializedName("rsp")
     private Set<String> removedSnapshotPartitions;
+    // Set when the states above are the entries a change touched rather than the map itself, which a replay
+    // merges into the states the MV holds instead of replacing them. A payload written before this member
+    // existed carries the whole map, and an absent member reads as false, which is the replacing behavior.
+    @SerializedName("mps")
+    private boolean mergePartitionStates;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -162,6 +167,14 @@ public class AlterMTMV implements Writable {
 
     public void setPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
         this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
+    }
+
+    public boolean isMergePartitionStates() {
+        return mergePartitionStates;
+    }
+
+    public void setMergePartitionStates(boolean mergePartitionStates) {
+        this.mergePartitionStates = mergePartitionStates;
     }
 
     public Set<String> getRemovedSnapshotPartitions() {

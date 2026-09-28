@@ -1350,7 +1350,7 @@ public class Alter {
                     // the new requirement but still found the snapshot could let a transparent rewrite
                     // serve rows the rebuild has not replaced yet.
                     mtmv.replayAlterPartitionStates(alterMTMV.getPartitionStates(),
-                            alterMTMV.getRemovedSnapshotPartitions());
+                            alterMTMV.getRemovedSnapshotPartitions(), alterMTMV.isMergePartitionStates());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
