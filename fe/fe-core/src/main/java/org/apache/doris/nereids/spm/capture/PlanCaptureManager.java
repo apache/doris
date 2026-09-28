@@ -181,6 +181,45 @@ public class PlanCaptureManager extends MasterDaemon {
     private final Map<String, CapturedQuery> failedCaptureQueue = new LinkedHashMap<>();
 
     /**
+     * Pre-page checkpoint state of the page a queued retry was FIRST seen on: the durable
+     * checkpoint must never move past an entry that the persisted JSON drops
+     * ({@link #MAX_PERSISTED_RETRIES}) - keyset pagination has already moved beyond its
+     * audit row, so only a cursor BEFORE that row can reach it after a restart / handoff.
+     * First-wins (pages only move forward) and evicted together with the queue.
+     */
+    private final Map<String, RetryAnchor> failedCaptureAnchors = new LinkedHashMap<>();
+
+    /** One pre-page checkpoint state (see {@link #failedCaptureAnchors}). */
+    private static final class RetryAnchor {
+        final long lastScanTimestamp;
+        final long windowStart;
+        final long windowEnd;
+        final long cursorQueryTime;
+        final String cursorTime;
+        final String cursorQueryId;
+        final String cursorTail;
+
+        RetryAnchor(long lastScanTimestamp, long windowStart, long windowEnd,
+                long cursorQueryTime, String cursorTime, String cursorQueryId,
+                String cursorTail) {
+            this.lastScanTimestamp = lastScanTimestamp;
+            this.windowStart = windowStart;
+            this.windowEnd = windowEnd;
+            this.cursorQueryTime = cursorQueryTime;
+            this.cursorTime = cursorTime;
+            this.cursorQueryId = cursorQueryId;
+            this.cursorTail = cursorTail;
+        }
+    }
+
+    /** The pre-page state of the CURRENT page (anchors entries queued by this page). */
+    private RetryAnchor currentPageAnchor() {
+        return new RetryAnchor(pageStartLastScanTimestamp, pageStartWindowStart,
+                pageStartWindowEnd, pageStartCursorQueryTime, pageStartCursorTime,
+                pageStartCursorQueryId, pageStartCursorTail);
+    }
+
+    /**
      * Resume cursor of a TRUNCATED scan window: the FULL ORDER BY key tuple of the last
      * consumed row -- (time, query_time, query_id) plus the encoded tail (client_ip,
      * sql_hash, scan_rows, return_rows, statement hash) that uniquely separates audit
@@ -442,6 +481,7 @@ public class PlanCaptureManager extends MasterDaemon {
         if (terminal) {
             failedCaptureAttempts.remove(retryKey);
             failedCaptureQueue.remove(retryKey);
+            failedCaptureAnchors.remove(retryKey);
             markQueryIdProcessed(retryKey);
             return;
         }
@@ -452,16 +492,21 @@ public class PlanCaptureManager extends MasterDaemon {
                     retryKey, attempts);
             failedCaptureAttempts.remove(retryKey);
             failedCaptureQueue.remove(retryKey);
+            failedCaptureAnchors.remove(retryKey);
             markQueryIdProcessed(retryKey);
         } else {
             LOG.info("Plan capture failed for query key {} (attempt {}/{}), queued for retry",
                     retryKey, attempts, MAX_CAPTURE_ATTEMPTS);
             failedCaptureQueue.put(retryKey, candidate);
+            // first-wins: the entry must stay reachable from the page it was FIRST
+            // queued on even after later pages advance the scan cursor past its row
+            failedCaptureAnchors.putIfAbsent(retryKey, currentPageAnchor());
             if (failedCaptureAttempts.size() > MAX_TRACKED_QUERY_IDS) {
                 evictOldest(failedCaptureAttempts, MAX_TRACKED_QUERY_IDS / 10);
             }
             if (failedCaptureQueue.size() > MAX_TRACKED_QUERY_IDS) {
                 evictOldest(failedCaptureQueue, MAX_TRACKED_QUERY_IDS / 10);
+                evictOldest(failedCaptureAnchors, MAX_TRACKED_QUERY_IDS / 10);
             }
         }
     }
@@ -518,6 +563,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 // consumed elsewhere (e.g. by the page): never replay it again
                 failedCaptureQueue.remove(retryKey);
                 failedCaptureAttempts.remove(retryKey);
+                failedCaptureAnchors.remove(retryKey);
             }
         }
     }
@@ -566,10 +612,22 @@ public class PlanCaptureManager extends MasterDaemon {
                 return true;
             }
             // Level 4 filter: tables must still exist in the CAPTURED namespace (external
-            // tables resolve through their own catalog, not InternalCatalog)
-            if (!filter.allTablesExist(tables, candidate.getCatalog(), candidate.getDb())) {
+            // tables resolve through their own catalog, not InternalCatalog). A definitive
+            // MISSING is terminal; UNAVAILABLE (catalog still initializing / metadata
+            // outage) stays RETRYABLE - a terminal decision would mark the audit row
+            // processed and the keyset cursor has already advanced past it, permanently
+            // losing an otherwise eligible external query during a transient outage.
+            PlanCaptureFilter.TableLookup lookup =
+                    filter.checkAllTablesExist(tables, candidate.getCatalog(), candidate.getDb());
+            if (lookup == PlanCaptureFilter.TableLookup.MISSING) {
                 skipFilterCount.incrementAndGet();
                 return true;
+            }
+            if (lookup == PlanCaptureFilter.TableLookup.UNAVAILABLE) {
+                LOG.info("Plan capture deferred for query {}: table metadata is unavailable"
+                        + " (attempt {})", candidate.getQueryId(),
+                        failedCaptureAttempts.getOrDefault(retryKeyOf(candidate), 0) + 1);
+                return false;
             }
 
             // Build the baseline through the Phase 1 flow (bindSql = planSql = stmt,
@@ -730,6 +788,16 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureAttempts.putAll(decodeFailedAttempts(row.get(6)));
         failedCaptureQueue.clear();
         failedCaptureQueue.putAll(decodeRetryQueue(row.get(7)));
+        failedCaptureAnchors.clear();
+        // Restored retries have no in-page anchor in this process yet: the restored
+        // cursor IS a position before every persisted retry (the checkpoint rewound to
+        // the earliest OMITTED one, and the JSON keeps the NEWER ones), so it can serve
+        // as their anchor until a later re-read / re-queue refreshes it.
+        RetryAnchor restoredAnchor = new RetryAnchor(lastScanTimestamp, pendingWindowStart,
+                pendingWindowEnd, cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
+        for (String retryKey : failedCaptureQueue.keySet()) {
+            failedCaptureAnchors.put(retryKey, restoredAnchor);
+        }
     }
 
     /**
@@ -746,25 +814,66 @@ public class PlanCaptureManager extends MasterDaemon {
         // entries were omitted would step over exactly those omitted retries - after a
         // restart or leader handoff they are neither replayed from the queue (dropped) nor
         // reachable by keyset pagination (the cursor is past them; the five-minute overlap
-        // only reaches recent rows). Persist the PRE-PAGE state instead: the next process
-        // re-scans the whole page, re-queues / re-attempts its rows, and only then moves
-        // on. The condition is self-healing: retries leave the queue on success or after
-        // MAX_CAPTURE_ATTEMPTS, and the cursor advances again once the maps fit the budget.
-        boolean retriesTruncated = failedCaptureQueue.size() > MAX_PERSISTED_RETRIES
-                || failedCaptureAttempts.size() > MAX_PERSISTED_RETRIES;
-        long durableLastScan = retriesTruncated ? pageStartLastScanTimestamp : lastScanTimestamp;
-        long durablePendingStart = retriesTruncated ? pageStartWindowStart : pendingWindowStart;
-        long durablePendingEnd = retriesTruncated ? pageStartWindowEnd : pendingWindowEnd;
-        long durableCursorQueryTime =
-                retriesTruncated ? pageStartCursorQueryTime : cursorQueryTime;
-        String durableCursorTime = retriesTruncated ? pageStartCursorTime : cursorTime;
-        String durableCursorQueryId = retriesTruncated ? pageStartCursorQueryId : cursorQueryId;
-        String durableCursorTail = retriesTruncated ? pageStartCursorTail : cursorTail;
+        // only reaches recent rows).
+        //
+        // The durable cursor must sit before the EARLIEST entry the JSON drops, not merely
+        // before the CURRENT page: page 1 may queue 100 failures (its checkpoint rewinds
+        // before page 1), and a LATER page - already past page 1 - still sees the same
+        // 100. Rewinding only to that later page's start would leave the 36 oldest
+        // entries neither queued (truncated JSON) nor re-readable (cursor past them).
+        // Every queued retry therefore carries the PRE-PAGE anchor of the page it was
+        // FIRST seen on (failedCaptureAnchors), and the durable cursor uses the OLDEST
+        // queued entry's anchor. The condition is self-healing: retries leave the queue
+        // on success or after MAX_CAPTURE_ATTEMPTS, and the cursor advances again once
+        // the maps fit the budget.
+        boolean queueTruncated = failedCaptureQueue.size() > MAX_PERSISTED_RETRIES;
+        boolean attemptsTruncated = failedCaptureAttempts.size() > MAX_PERSISTED_RETRIES;
+        boolean retriesTruncated = queueTruncated || attemptsTruncated;
+        RetryAnchor durableAnchor = null;
+        if (queueTruncated && !failedCaptureQueue.isEmpty()) {
+            // insertion order = page order: the FIRST (oldest) queued retry is an entry
+            // the persisted JSON drops, and its anchor precedes every other queued retry
+            durableAnchor = failedCaptureAnchors.get(
+                    failedCaptureQueue.keySet().iterator().next());
+        }
+        long durableLastScan;
+        long durablePendingStart;
+        long durablePendingEnd;
+        long durableCursorQueryTime;
+        String durableCursorTime;
+        String durableCursorQueryId;
+        String durableCursorTail;
+        if (durableAnchor != null) {
+            durableLastScan = durableAnchor.lastScanTimestamp;
+            durablePendingStart = durableAnchor.windowStart;
+            durablePendingEnd = durableAnchor.windowEnd;
+            durableCursorQueryTime = durableAnchor.cursorQueryTime;
+            durableCursorTime = durableAnchor.cursorTime;
+            durableCursorQueryId = durableAnchor.cursorQueryId;
+            durableCursorTail = durableAnchor.cursorTail;
+        } else if (retriesTruncated) {
+            durableLastScan = pageStartLastScanTimestamp;
+            durablePendingStart = pageStartWindowStart;
+            durablePendingEnd = pageStartWindowEnd;
+            durableCursorQueryTime = pageStartCursorQueryTime;
+            durableCursorTime = pageStartCursorTime;
+            durableCursorQueryId = pageStartCursorQueryId;
+            durableCursorTail = pageStartCursorTail;
+        } else {
+            durableLastScan = lastScanTimestamp;
+            durablePendingStart = pendingWindowStart;
+            durablePendingEnd = pendingWindowEnd;
+            durableCursorQueryTime = cursorQueryTime;
+            durableCursorTime = cursorTime;
+            durableCursorQueryId = cursorQueryId;
+            durableCursorTail = cursorTail;
+        }
         if (retriesTruncated) {
             LOG.warn("SPM capture retry state (retry queue {}, failed attempts {}) exceeds the"
-                            + " durable checkpoint budget ({} entries); persisting the pre-page"
-                            + " cursor so the page is re-scanned after a restart / handoff",
-                    failedCaptureQueue.size(), failedCaptureAttempts.size(), MAX_PERSISTED_RETRIES);
+                            + " durable checkpoint budget ({} entries); persisting a cursor"
+                            + " before the oldest omitted retry (anchor={})",
+                    failedCaptureQueue.size(), failedCaptureAttempts.size(),
+                    MAX_PERSISTED_RETRIES, durableAnchor != null);
         }
         Map<String, String> params = new HashMap<>();
         params.put("lastScan", String.valueOf(durableLastScan));
@@ -1029,6 +1138,7 @@ public class PlanCaptureManager extends MasterDaemon {
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
+        failedCaptureAnchors.clear();
         checkpointLoaded = false;
         // restore the production read / write seams (tests replace them)
         checkpointReader = () -> StatisticsUtil.executeQuery(
@@ -1217,6 +1327,12 @@ public class PlanCaptureManager extends MasterDaemon {
             failedCaptureQueue.put("seed-failed-" + i,
                     new CapturedQuery("select " + i, 1, 1, 1, "d", "h", "db", "cat",
                             "q:" + i, false, SqlModeHelper.MODE_DEFAULT));
+            // entries queued by the CURRENT page carry the pre-page anchor of this page
+            // (first-wins, mirroring handleCandidate): the truncation guard persists the
+            // OLDEST queued entry's anchor instead of blindly the current page start
+            failedCaptureAnchors.putIfAbsent("seed-failed-" + i, new RetryAnchor(
+                    lastScanTimestamp - 1, windowStart, windowEnd, pageStartCursorQueryTime,
+                    pageStartCursorTime, pageStartCursorQueryId, pageStartCursorTail));
         }
         this.pageStartLastScanTimestamp = lastScanTimestamp - 1;
         this.pageStartWindowStart = windowStart;

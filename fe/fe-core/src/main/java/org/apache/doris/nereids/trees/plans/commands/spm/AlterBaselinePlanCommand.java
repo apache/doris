@@ -100,11 +100,13 @@ public class AlterBaselinePlanCommand extends Command implements Forward {
     /**
      * Runs on the FE the user is connected to after the forwarded ALTER finished on the
      * master: refresh the local cache right away so the new status takes effect on this FE
-     * without waiting for the next BaselineRefreshDaemon cycle.
+     * without waiting for the next BaselineRefreshDaemon cycle. The refresh is CONFIRMED: a
+     * pre-DDL in-flight load is fenced and an unconfirmable read surfaces as a retryable
+     * failure instead of silently keeping the old status locally.
      */
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
-        BaselineManager.getInstance().refreshFromInternalTable();
+        BaselineManager.getInstance().refreshAfterForwardedDdl();
     }
 
     @Override

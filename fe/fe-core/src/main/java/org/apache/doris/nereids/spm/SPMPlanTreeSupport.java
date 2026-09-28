@@ -1782,14 +1782,25 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * One dependency entry of one referenced function. An ALIAS UDF resolves through the
-     * nereids FunctionRegistry to its AliasUdfBuilder: the entry is the name plus a hash
-     * of the inlined body SQL and the definition's saved session variables, so a
-     * definition change (x+1 -&gt; x+2, or different definition-time variables) changes
-     * the fingerprint and the replay check fails closed. Builtins / java UDFs are not
-     * inlined into the frozen SQL, so they only contribute a stable identity. key(...)
-     * folds a named secret into the plan and can be recreated without touching any
-     * table: a volatile marker is recorded and CREATE refuses such baselines.
+     * One dependency entry of one referenced function, a function of EVERYTHING that can
+     * change how the call RESOLVES:
+     *
+     * - the WRITTEN database qualifier: a qualified call resolves only through that
+     *   database's UDF scope, while an unqualified one searches the CURRENT database
+     *   then the global scope. The old lookup always searched ctx.getDatabase() and
+     *   IGNORED function.getDbName(), so other_db.f(varchar_col) hashed (or missed)
+     *   the wrong scope and changing the real overload left the entry unchanged;
+     * - every same-name UDF overload (alias body + saved definition-time variables +
+     *   argument types), NOT just the first one: the plans checked here are UNBOUND, so
+     *   the exact overload the analyzer will pick cannot be reproduced; hashing the
+     *   whole set fails closed when ANY overload changes;
+     * - the effective builtin/UDF choice: prefer_udf_over_builtin decides between a
+     *   colliding alias UDF and a builtin of the same name (and a qualified call never
+     *   falls back to a builtin), so flipping the flag after freezing a colliding
+     *   abs(INT) invalidates the baseline instead of replaying the other implementation.
+     *
+     * key(...) folds a named secret into the plan and can be recreated without touching
+     * any table: a volatile marker is recorded and CREATE refuses such baselines.
      */
     private static String describeFunctionDependency(ConnectContext ctx,
             org.apache.doris.nereids.analyzer.UnboundFunction function) {
@@ -1799,39 +1810,74 @@ public final class SPMPlanTreeSupport {
         if ("key".equals(name)) {
             return "fn:key|volatile";
         }
+        String writtenDb = function.getDbName();
+        boolean qualified = writtenDb != null && !writtenDb.isEmpty();
         try {
+            org.apache.doris.catalog.FunctionRegistry registry =
+                    org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry();
             // NAME-level UDF lookup: the plans checked here are UNBOUND, so the
-            // argument-matching overload of findFunctionBuilder cannot resolve them (and
-            // the dependency must not depend on argument types anyway). findUdfBuilder
-            // lowercases the name itself and scans db + global scopes.
+            // argument-matching overload of findFunctionBuilder cannot resolve them.
+            // findUdfBuilder lowercases the name and scans [db, global] with db = the
+            // WRITTEN qualifier when present, otherwise the current database.
             java.util.List<org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder>
-                    udfBuilders = org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry()
-                            .findUdfBuilder(ctx == null ? null : ctx.getDatabase(), name);
-            for (org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder
-                    : udfBuilders) {
-                if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
-                        .AliasUdfBuilder) {
-                    org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf udf =
-                            ((org.apache.doris.nereids.trees.expressions.functions.udf
-                                    .AliasUdfBuilder) builder).getAliasUdf();
-                    if (udf != null) {
-                        return "fn:" + name + "|" + SPMUtils.hashOf(
-                                udf.getUnboundFunction().toSql() + "|" + udf.getSessionVariables());
-                    }
-                }
+                    udfCandidates = registry.findUdfBuilder(
+                            qualified ? writtenDb : (ctx == null ? null : ctx.getDatabase()), name);
+            boolean builtinExists = registry.getName2BuiltinBuilders()
+                    .get(name) != null
+                    || registry.isBuiltinAggStateCombinator(name);
+            boolean preferUdf = org.apache.doris.qe.ConnectContext.get() != null
+                    && org.apache.doris.qe.ConnectContext.get().getSessionVariable()
+                            .preferUdfOverBuiltin;
+            java.util.TreeSet<String> overloads = new java.util.TreeSet<>();
+            for (org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder candidate
+                    : udfCandidates) {
+                overloads.add(describeUdfCandidate(candidate));
             }
-            if (!udfBuilders.isEmpty()) {
-                // java UDF / UDAF / UDTF: not inlined into the frozen SQL, so a stable
-                // identity is enough (a dropped/added registration changes the
-                // fingerprint and fails closed)
-                return "fn:" + name + "|udf";
+            // the effective resolution MIRRORS FunctionRegistry#findFunctionBuilder's
+            // scope / preference order (arity and argument-type filtering cannot be
+            // reproduced on an unbound call, so any overload change invalidates through
+            // the hash instead)
+            String kind;
+            if (!qualified && registry.isBuiltinAggStateCombinator(name)) {
+                kind = "builtin";
+            } else if (qualified) {
+                kind = overloads.isEmpty() ? "none" : "udf";
+            } else if (preferUdf) {
+                kind = !overloads.isEmpty() ? "udf" : (builtinExists ? "builtin" : "none");
+            } else {
+                kind = builtinExists ? "builtin" : (overloads.isEmpty() ? "none" : "udf");
             }
-            return "fn:" + name + "|builtin";
+            return "fn:" + (qualified ? writtenDb + "." : "") + name
+                    + "|" + kind
+                    + "|u=" + (overloads.isEmpty() ? "-"
+                            : SPMUtils.hashOf(String.join(",", overloads)));
         } catch (RuntimeException e) {
             // name-level lookup hiccup (null database / privilege probe): a stable
             // identity, so both sides degrade identically instead of mismatching
             return "fn?:" + name;
         }
+    }
+
+    /** Stable identity of one same-name UDF candidate (body for alias UDFs). */
+    private static String describeUdfCandidate(
+            org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder) {
+        String signature = "";
+        if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                .UdfBuilder) {
+            org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder udfBuilder =
+                    (org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder) builder;
+            signature = udfBuilder.getArgTypes() + "|" + udfBuilder.hasVarArguments();
+        }
+        if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                .AliasUdfBuilder) {
+            org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf udf =
+                    ((org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder)
+                            builder).getAliasUdf();
+            return "alias:" + (udf == null ? "null"
+                    : udf.getUnboundFunction().toSql() + "|" + udf.getSessionVariables())
+                    + "|" + signature;
+        }
+        return "other:" + builder.functionClass().getName() + "|" + signature;
     }
 
     /**

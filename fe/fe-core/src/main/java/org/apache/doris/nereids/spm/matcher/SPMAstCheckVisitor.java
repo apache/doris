@@ -213,7 +213,11 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
             return ((SlotReference) expr).getName();
         }
         if (expr instanceof UnboundSlot) {
-            return String.join(".", ((UnboundSlot) expr).getNameParts());
+            // Boundary-preserving rendering (see UnboundSlot#toDigest): joining the raw
+            // name parts with dots made `a.b` (ONE dotted component) equal to a.b
+            // (qualifier a + column b), so a replay could return the captured `a.b`
+            // value for a query that selected column b.
+            return expr.toDigest();
         }
         return expr.toSql();
     }

@@ -1268,6 +1268,75 @@ public class BaselineManager {
     }
 
     /**
+     * CONFIRMED post-forward refresh for the CREATE / ALTER / DROP hooks
+     * ({@code afterForwardToMaster}): the DDL already committed on the master, so this FE
+     * must publish a state that INCLUDES it (or fail retryably) before the statement
+     * returns. {@link #refreshFromInternalTable} is best-effort and has two holes:
+     *
+     * - {@code loaded == false}: an older load (started BEFORE the DDL) may hold the
+     *   {@code loadInProgress} slot; the best-effort refresh returns immediately and the
+     *   pre-DDL snapshot can publish afterwards - a CREATE stays invisible, a DROP /
+     *   disable keeps replaying locally until the daemon refresh;
+     * - {@code loaded == true}: a transient read failure is swallowed and the stale rows
+     *   stay exactly as before the DDL.
+     *
+     * Fix: fence every snapshot whose read may predate the DDL through the store
+     * generation (the in-flight load discards itself, see
+     * {@link #readAndPublishPossessingLoadSlot}) and then obtain a fresh read - an inline
+     * load while unpublished, or a snapshot apply while published. On failure the
+     * published store is INVALIDATED (fail closed: never keep replaying a possibly
+     * dropped / disabled baseline) and a retryable failure surfaces to the caller.
+     */
+    public void refreshAfterForwardedDdl() {
+        if (!persistenceEnabled() && snapshotReaderForTest == null) {
+            return;
+        }
+        synchronized (writerLock) {
+            // Fence: no snapshot whose READ started before this point may publish. An
+            // older background load holding the slot will be discarded by the generation
+            // check instead of resurrecting pre-DDL content after this method returns.
+            storeGeneration.incrementAndGet();
+            if (!loaded) {
+                // Wait (bounded) for the in-flight load to finish and discard itself,
+                // then load once against the CURRENT table content.
+                long deadline = System.currentTimeMillis() + MANAGEMENT_LOAD_WAIT_MILLIS;
+                while (!loaded && System.currentTimeMillis() < deadline) {
+                    if (loadInProgress.compareAndSet(false, true)) {
+                        readAndPublishPossessingLoadSlot();
+                        break;
+                    }
+                    synchronized (loadMonitor) {
+                        try {
+                            loadMonitor.wait(50L);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+                if (!loaded) {
+                    throw new IllegalStateException("SPM baseline store is not ready yet"
+                            + " (the baseline table has not been loaded); please retry later");
+                }
+                return;
+            }
+            final Map<Long, BaselinePlan> snapshot;
+            try {
+                snapshot = readPersistedSnapshot();
+            } catch (Throwable t) {
+                // Never pretend the local cache reflects the committed DDL: fence the
+                // (possibly pre-DDL) published rows out and surface a retryable failure.
+                invalidatePublishedStore();
+                throw new IllegalStateException("SPM baseline cache cannot be confirmed after"
+                        + " the forwarded DDL (please retry later): " + t.getMessage(), t);
+            }
+            // No writer can interleave (writerLock is held) and loads return early while
+            // loaded, so the snapshot is authoritative for this instant.
+            applyRefreshedBaselines(snapshot);
+        }
+    }
+
+    /**
      * Applies a snapshot read by a refresh IF no local mutation published since the read
      * started (the version guard). The guard is what makes a stale snapshot harmless:
      * updateStatus publishes its in-memory flip and its version bump before a refresh can

@@ -849,6 +849,13 @@ public class SPMPlanner {
             // the default mode) or the user's raw fallback text: the persisted
             // planSqlMode distinguishes them (legacy rows default to MODE_DEFAULT).
             LogicalPlan planPlan = parseStoredSelect(planSql, planSqlMode);
+            // Mirror the CREATE path (parameterizeWholeTree): every text starts its own
+            // block-numbering run. Without the reset the bind tree's nested literal
+            // advances the shared counter, the SAME nested literal of the (separately
+            // parsed) plan text gets a different block id, cannot reuse the bind
+            // placeholder, and the placeholder-residue check then rejects a baseline
+            // that worked before a refresh / restart.
+            builder.startNewTree();
             LogicalPlan parameterizedPlan = SPMPlanTreeSupport.transform(
                     planPlan, expr -> expr.accept(builder, null));
             return Pair.of(parameterizedBind, parameterizedPlan);

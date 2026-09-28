@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
@@ -82,6 +83,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAncho
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -430,6 +432,11 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(join);
         Assertions.assertTrue(sql.contains("NOT IN (SELECT"),
                 "residual conjunct forces the NOT IN subquery rewrite: " + sql);
+        Assertions.assertTrue(sql.contains("b > 1"),
+                "the OTHER conjunct must be carried INTO the subquery filter - finding the"
+                        + " key in the hash conjuncts used to skip the whole other loop and"
+                        + " silently drop it (with both keys 2 the original anti join keeps"
+                        + " the row while the replay dropped it): " + sql);
         Assertions.assertFalse(sql.contains("NULL_AWARE"), sql);
     }
 
@@ -458,6 +465,66 @@ public class SPMPlan2SQLBuilderTest {
 
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> new SPMPlan2SQLBuilder().toSQL(join));
+    }
+
+    // ==================== nested TopN / dotted table names under an outer consumer ====================
+
+    /**
+     * Filter -> TopN -> Scan: the TopN's ORDER BY / LIMIT are folded onto the scan
+     * relation, and the outer filter EMBEDS that relation. Returning its bare FROM
+     * silently dropped both clauses - the flat "... FROM t1 WHERE id = 1" returns id 1
+     * for rows 0,1, while "ORDER BY id LIMIT 1" THEN a filter id=1 returns NO row.
+     */
+    @Test
+    public void testFilterOverTopNKeepsOrderByAndLimitInsideSubquery() {
+        SlotReference id = new SlotReference("id", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(id));
+        PhysicalTopN<?> topN = mockTopN(scan, List.of(new OrderKey(id, true, true)), 1L);
+        PhysicalFilter<?> filter = mockFilter(new EqualTo(id, new IntegerLiteral(1)), topN);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(filter);
+        int limitIndex = sql.indexOf("LIMIT 1");
+        int whereIndex = sql.indexOf("WHERE");
+        Assertions.assertTrue(limitIndex > 0,
+                "the folded TopN LIMIT must survive the embedding: " + sql);
+        Assertions.assertTrue(whereIndex > limitIndex,
+                "the LIMIT must stay INSIDE the wrapped subquery, before the filter's"
+                        + " WHERE (a flat FROM re-applies the filter BEFORE the slice): " + sql);
+        Assertions.assertTrue(sql.contains("ORDER BY id ASC NULLS FIRST"),
+                "the ORDER BY must be kept as well: " + sql);
+    }
+
+    /**
+     * A table whose name is ONE quoted component containing a dot (`t.a` under
+     * enable_unicode_name_support): the flattened getNameWithFullQualifiers() would be
+     * split on every dot and render FOUR identifiers instead of the intended three-part
+     * name with `t.a` quoted as ONE component - a frozen baseline carrying that text
+     * fails re-analysis after a reload, and a frozen row has no raw fallback tree.
+     */
+    @Test
+    public void testDottedTableComponentIsQuotedSeparately() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn("t.a");
+        Mockito.when(table.getFullQualifiers())
+                .thenReturn(List.of("internal", "spm_db", "t.a"));
+        Mockito.when(table.getDatabase())
+                .thenReturn(Mockito.mock(org.apache.doris.catalog.DatabaseIf.class));
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getOutput()).thenReturn(List.copyOf(List.of(k)));
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of());
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of());
+        Mockito.when(scan.getManuallySpecifiedTabletIds()).thenReturn(List.of());
+        stubAccept(scan);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(scan);
+        Assertions.assertTrue(sql.contains("internal.spm_db.`t.a`"),
+                "the dotted component must stay ONE quoted identifier: " + sql);
+        Assertions.assertFalse(sql.contains("internal.spm_db.t.a"),
+                "the flattened four-part render is not the intended name: " + sql);
     }
 
     // ==================== GROUPING SETS (PhysicalRepeat) ====================
@@ -562,6 +629,19 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
+     * Builds a PhysicalTopN mock (one semantic TopN stage over its child).
+     */
+    private PhysicalTopN<?> mockTopN(Plan child, List<OrderKey> orderKeys, long limit) {
+        PhysicalTopN<?> topN = Mockito.mock(PhysicalTopN.class);
+        Mockito.when(topN.child(0)).thenReturn(child);
+        Mockito.when(topN.getOrderKeys()).thenReturn(List.copyOf(orderKeys));
+        Mockito.when(topN.getLimit()).thenReturn(limit);
+        Mockito.when(topN.getOffset()).thenReturn(0L);
+        stubAccept(topN);
+        return topN;
+    }
+
+    /**
      * Builds a PhysicalProject mock.
      */
     private PhysicalProject<?> mockProject(List<SlotReference> projects, Plan child) {
@@ -635,6 +715,9 @@ public class SPMPlan2SQLBuilderTest {
         }
         if (plan instanceof PhysicalLimit) {
             return builder.visitPhysicalLimit((PhysicalLimit<? extends Plan>) plan, null);
+        }
+        if (plan instanceof PhysicalTopN) {
+            return builder.visitPhysicalTopN((PhysicalTopN<? extends Plan>) plan, null);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
             return builder.visitPhysicalStorageLayerAggregate(

@@ -151,8 +151,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, Expression parent) {
-        // Rewrite the compareExpr first (its parent is the InPredicate)
-        Expression newCompare = inPredicate.getCompareExpr().accept(this, inPredicate);
+        // Rewrite the compareExpr first (its parent is the InPredicate, position 0 in
+        // InPredicate.children(); the options take positions 1..n below)
+        Expression newCompare;
+        childIndexStack.push(0);
+        try {
+            newCompare = inPredicate.getCompareExpr().accept(this, inPredicate);
+        } finally {
+            childIndexStack.pop();
+        }
 
         if (inPredicate.optionsAreLiterals()) {
             // The whole constant list -> SpmConstList. Deduplicate like a scalar
@@ -176,10 +183,22 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return placeholder;
         }
 
-        // Non-constant list (contains subqueries/expressions): rewrite each child
+        // Non-constant list (contains subqueries/expressions): rewrite each child under
+        // its OWN position. Visiting every option with the same (stale outer) child index
+        // merged repeated values - "a IN (1, b, 1)" gave the two 1 positions one
+        // placeholder id, and a structurally matching "a IN (2, b, 3)" was then rejected
+        // by the one-id-one-value rule. Positions mirror InPredicate.children().
         List<Expression> newOptions = new ArrayList<>(inPredicate.getOptions().size());
-        for (Expression option : inPredicate.getOptions()) {
-            newOptions.add(option.accept(this, inPredicate));
+        for (int i = 0; i < inPredicate.getOptions().size(); i++) {
+            Expression option = inPredicate.getOptions().get(i);
+            childIndexStack.push(i + 1);
+            Expression newOption;
+            try {
+                newOption = option.accept(this, inPredicate);
+            } finally {
+                childIndexStack.pop();
+            }
+            newOptions.add(newOption);
         }
         return new InPredicate(newCompare, newOptions);
     }

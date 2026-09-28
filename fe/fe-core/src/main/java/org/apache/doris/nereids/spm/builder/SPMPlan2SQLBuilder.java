@@ -967,6 +967,26 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return sb.toString();
     }
 
+    /**
+     * Fully-qualified name of a table with every COMPONENT quoted separately
+     * (catalog.db.table). {@code getNameWithFullQualifiers()} FLATTENS a legal quoted
+     * component such as `t.a` into "internal.db.t.a", and splitting that on every dot
+     * would emit FOUR identifiers instead of the intended three-part name with `t.a`
+     * quoted as ONE component - a manually created frozen baseline carrying that broken
+     * text then fails re-analysis after a reload, and no raw fallback tree exists for a
+     * frozen row. The metadata components are taken structurally, never re-split.
+     */
+    static String quoteQualifiedTableName(org.apache.doris.catalog.TableIf table) {
+        StringBuilder sb = new StringBuilder();
+        for (String component : table.getFullQualifiers()) {
+            if (sb.length() > 0) {
+                sb.append('.');
+            }
+            sb.append(quoteIdentifier(component));
+        }
+        return sb.toString();
+    }
+
     // ==================== Scan (wrapped as subquery or inline) ====================
 
     /**
@@ -1003,13 +1023,15 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // the same table when it is replayed from a session whose current database (or
         // catalog) differs from the one used at CREATE time (cross-db queries,
         // information_schema, ...). Tables without a database (e.g. FunctionGenTable)
-        // keep the bare name. Each component is backtick-quoted when it is not a plain
-        // identifier, so a metadata name containing operators is re-parsed as an
-        // identifier instead of an expression. Scan modifiers (partition selection,
-        // TABLESAMPLE, snapshot, scan parameters) follow the name in grammar order.
+        // keep the bare name. Every COMPONENT is backtick-quoted separately when it is
+        // not a plain identifier, so a metadata name containing operators is re-parsed
+        // as an identifier instead of an expression, and a legal quoted component such
+        // as `t.a` keeps its boundary (see quoteQualifiedTableName). Scan modifiers
+        // (partition selection, TABLESAMPLE, snapshot, scan parameters) follow the name
+        // in grammar order.
         String table = catalogRelation.getTable().getDatabase() == null
                 ? quoteIdentifier(catalogRelation.getTable().getName())
-                : quoteQualifiedName(catalogRelation.getTable().getNameWithFullQualifiers());
+                : quoteQualifiedTableName(catalogRelation.getTable());
         sqlRelation.setFrom(table + renderScanModifiers(relation));
         // Register output columns: ExprId -> real column name. Internal system columns
         // (e.g. rowid columns a join may request from the scan) are execution details
@@ -1965,6 +1987,15 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     subWhere.add(e);
                 }
             }
+        } else {
+            // The key was found among the hash conjuncts: the other conjuncts STILL have
+            // to become the subquery filter. The old `if (key == null)` guard skipped
+            // this loop entirely and silently DROPPED every residual other conjunct -
+            // NULL_AWARE_LEFT_ANTI(hash=[l.a = r.b], other=[r.b > 5]) froze as
+            // "l.a NOT IN (SELECT r.b FROM r)" without r.b > 5, so with both keys 2 the
+            // original anti join kept the row (r.b > 5 is FALSE and the NOT IN is
+            // evaluated on the join output) while the replay dropped it.
+            subWhere.addAll(other);
         }
         if (key == null) {
             throw new UnsupportedOperationException(

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -31,15 +32,20 @@ import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
 import org.apache.doris.nereids.spm.capture.AuditLogScanner;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
+import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.SpmConstList;
+import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -55,6 +61,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 
 import org.junit.jupiter.api.Assertions;
@@ -62,6 +69,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1160,5 +1168,91 @@ public class SPMMatchingSafetyTest {
         for (Expression child : expression.children()) {
             findUnboundAlias(child, found);
         }
+    }
+
+    // ==================== reload keeps bind / fallback block numbering aligned ====================
+
+    /**
+     * Reload of a DISTINCT bind / raw-fallback plan pair: both texts must start their own
+     * query-block numbering (like CREATE), otherwise the bind tree's nested literal
+     * advances the shared counter and the SAME nested literal of the fallback text gets
+     * a different block id - it can then not reuse the bind placeholder, and the
+     * placeholder-residue check rejects a baseline that worked before the reload.
+     */
+    @Test
+    public void testReloadKeepsNestedLiteralIdsAlignedAcrossTexts() {
+        String bindSql = "SELECT a FROM t1 WHERE a = 100"
+                + " AND EXISTS (SELECT 1 FROM t2 WHERE b = 5)";
+        String planSql = "select a from t1 where a = 100"
+                + " and exists (select 1 from t2 where b = 5)";
+        Assertions.assertNotEquals(bindSql, planSql, "the texts must stay distinct");
+        Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
+                bindSql, planSql, SqlModeHelper.MODE_DEFAULT);
+        Assertions.assertNotNull(trees.first);
+        Assertions.assertNotNull(trees.second);
+        Set<Long> bindIds = placeholderIds(trees.first);
+        Set<Long> planIds = placeholderIds(trees.second);
+        Assertions.assertEquals(3, bindIds.size(),
+                "a=100, the EXISTS subquery's 1 and b=5 are three literals: " + bindIds);
+        Assertions.assertEquals(bindIds, planIds,
+                "the fallback plan text must REUSE the bind placeholder ids (block"
+                        + " numbering restarts per text): bind=" + bindIds
+                        + " plan=" + planIds);
+    }
+
+    /** All placeholder ids of a plan, descending into expression-owned subquery plans. */
+    private static Set<Long> placeholderIds(LogicalPlan plan) {
+        Set<Long> ids = new HashSet<>();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                collectPlaceholderIds(expr, ids);
+            }
+        });
+        return ids;
+    }
+
+    private static void collectPlaceholderIds(Expression expr, Set<Long> ids) {
+        if (expr instanceof SpmConstVar) {
+            ids.add(((SpmConstVar) expr).getId());
+        } else if (expr instanceof SpmConstList) {
+            ids.add(((SpmConstList) expr).getId());
+        }
+        if (expr instanceof SubqueryExpr) {
+            ids.addAll(placeholderIds(((SubqueryExpr) expr).getQueryPlan()));
+        }
+        for (Expression child : expr.children()) {
+            collectPlaceholderIds(child, ids);
+        }
+    }
+
+    // ==================== dotted identifier boundaries in slot matching ====================
+
+    /**
+     * `a.b` (ONE component containing a dot) and a.b (qualifier a + column b) name
+     * different columns; the earlier dot-join kept neither the digest nor the AST check
+     * boundary, so a user query selecting b could accept a baseline captured for `a.b`
+     * and replay its captured value.
+     */
+    @Test
+    public void testDottedSlotBoundariesArePreserved() {
+        UnboundSlot dotted = new UnboundSlot(List.of("a.b"));
+        UnboundSlot qualified = new UnboundSlot(List.of("a", "b"));
+        Assertions.assertEquals("`a.b`", dotted.toDigest(),
+                "a component containing a dot must stay delimited in the digest");
+        Assertions.assertEquals("a.b", qualified.toDigest(),
+                "qualifier + column keeps the plain dotted rendering");
+        Assertions.assertNotEquals(dotted.toDigest(), qualified.toDigest());
+
+        // the AST check must reject the pair even though both texts print a.b
+        Expression bind = new EqualTo(new SpmConstVar(1L, new IntegerLiteral(1)), dotted);
+        Expression user = new EqualTo(new IntegerLiteral(1), qualified);
+        Assertions.assertFalse(new SPMAstCheckVisitor().checkExpression(bind, user,
+                new HashMap<Long, Expression>()),
+                "`a.b` must not match a.b: replay could return the captured column");
+        // control: the same reference still matches and extracts
+        Map<Long, Expression> values = new HashMap<>();
+        Assertions.assertTrue(new SPMAstCheckVisitor().checkExpression(bind,
+                new EqualTo(new IntegerLiteral(1), dotted), values));
+        Assertions.assertEquals(1, values.size());
     }
 }

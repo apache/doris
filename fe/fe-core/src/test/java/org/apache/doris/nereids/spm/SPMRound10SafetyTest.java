@@ -221,6 +221,28 @@ public class SPMRound10SafetyTest {
                 RuleType.valueOf("PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK"));
     }
 
+    /**
+     * Rules whose rewrite is justified by DataTrait uniqueness - which may come from a
+     * DECLARED UNIQUE constraint that the schema fingerprint does not capture (only
+     * table id + base columns are hashed) - must stay out of the SPM whitelist: dropping
+     * the declaration after freezing would leave the rewrite in place and produce wrong
+     * results (Window(SUM(v) PARTITION BY k) frozen as Project(v) -> Scan(t) returns
+     * 10,20 instead of 30,30 once the declaration is gone).
+     */
+    @Test
+    public void testUniquenessDependentRulesAreExcluded() {
+        for (String name : List.of("SIMPLIFY_WINDOW_EXPRESSION",
+                "AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION",
+                "PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN",
+                "PUSH_DOWN_TOP_N_DISTINCT_THROUGH_PROJECT_JOIN")) {
+            Assertions.assertTrue(SPMOptimizer.SPM_EXCLUDED_RULE_NAMES.contains(name),
+                    name + " derives its rewrite from a DECLARED UNIQUE constraint (mutable)"
+                            + " and must be excluded from frozen-plan creation");
+            Assertions.assertEquals(name, RuleType.valueOf(name).name(),
+                    "the name must stay parseable by the whitelist builder");
+        }
+    }
+
     // ==================== #11: fingerprint needs a session ====================
 
     @Test

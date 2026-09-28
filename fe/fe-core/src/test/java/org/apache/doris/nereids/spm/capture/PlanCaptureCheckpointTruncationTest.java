@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.spm.capture;
 
+import org.apache.doris.statistics.repository.ResultRow;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -97,6 +100,52 @@ public class PlanCaptureCheckpointTruncationTest {
             Assertions.assertEquals("200", params.get("pendingEnd"));
             Assertions.assertEquals(5,
                     PlanCaptureManager.decodeRetryQueue(params.get("retryQueue")).size());
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * Two cycles plus handoff: page 1 queues 70 failures (its checkpoint rewinds before
+     * page 1); a LATER cycle whose page already starts after page 1 must NOT move the
+     * durable cursor forward - the oldest entries are omitted from the persisted JSON, so
+     * on handoff they could be reached neither from the queue nor by re-scanning (the old
+     * fallback re-saved the CURRENT page start, already past them).
+     */
+    @Test
+    public void testLaterPageKeepsDurableCursorBeforeOmittedRetries() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // cycle 1: 70 failures queued from page 1 (pre-page cursor "cursor-page1")
+            manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-page1", "qid-page1",
+                    70, 50L, 999L, "cursor-page2", "qid-page2", "tail-page1", "tail-page2");
+            // cycle 2: the SAME queue still exceeds the budget, but the current page has
+            // already advanced past page 1 (seed with 0 new entries: the queue and its
+            // first-wins anchors stay, only the page state moves)
+            manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-page2", "qid-page2",
+                    0, 90L, 999L, "cursor-page3", "qid-page3", "tail-page2", "tail-page3");
+
+            Map<String, String> params = persist(manager);
+            Assertions.assertEquals("49", params.get("lastScan"),
+                    "the durable watermark must stay before PAGE 1 (the oldest omitted"
+                            + " retry), not move to the later page");
+            Assertions.assertEquals("-1", params.get("cursorQueryTime"));
+            Assertions.assertEquals("cursor-page1", params.get("cursorTime"),
+                    "the durable cursor must be the OLDEST retry's page anchor: "
+                            + params.get("cursorTime"));
+            Assertions.assertEquals("qid-page1", params.get("cursorQueryId"));
+            Assertions.assertEquals("tail-page1", params.get("cursorTail"));
+
+            // HANDOFF: the next process restores the persisted row
+            manager.resetForTest();
+            manager.applyCheckpointRow(new ResultRow(List.of("49", "100", "200", "-1",
+                    "cursor-page1", "qid-page1", params.get("failedAttempts"),
+                    params.get("retryQueue"), "tail-page1")));
+            Object[] restored = manager.checkpointFieldsForTest();
+            Assertions.assertEquals("cursor-page1", restored[4],
+                    "the handed-off cursor must still sit before the omitted retries");
+            Assertions.assertEquals("tail-page1", restored[6]);
         } finally {
             manager.resetForTest();
         }
