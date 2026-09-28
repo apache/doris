@@ -269,7 +269,12 @@ public class S3Resource extends Resource {
                 this.properties.get("provider"));
         // Preserve AWS_* ALTER compatibility before merging with stored canonical properties.
         S3ResourceCompat.convertToStdProperties(properties);
+        // Resolve aliases separately so this ALTER wins over persisted values regardless
+        // of their spelling. Within each map, nonblank gs.* values still take precedence.
+        normalizeProperties(properties, provider);
         Map<String, String> effectiveProperties = new HashMap<>(this.properties);
+        normalizeProperties(effectiveProperties, provider);
+        S3ResourceCompat.convertToStdProperties(effectiveProperties);
         for (Map.Entry<String, String> update : properties.entrySet()) {
             // Match persistence: empty updates are ignored, except when clearing a session token.
             replaceIfEffectiveValue(effectiveProperties, update.getKey(), update.getValue());
@@ -278,14 +283,6 @@ public class S3Resource extends Resource {
                 effectiveProperties.put(update.getKey(), update.getValue());
             }
         }
-        // Resolve aliases only after merging: nonblank gs.* values, including stored aliases,
-        // take precedence over s3.* values in the final configuration.
-        normalizeProperties(effectiveProperties, provider);
-        S3ResourceCompat.convertToStdProperties(effectiveProperties);
-
-        // Normalize the update keys for modification restrictions and credential-mode changes.
-        // Their values must not overwrite the configuration resolved above.
-        normalizeProperties(properties, provider);
         if (references.containsValue(ReferenceType.POLICY)) {
             // can't change, because remote fs use it info to find data.
             List<String> cantChangeProperties = Arrays.asList(S3ResourceCompat.ENDPOINT, S3ResourceCompat.REGION,

@@ -688,7 +688,7 @@ public class S3ResourceTest {
     }
 
     @Test
-    public void testGsAliasesTakePrecedenceAfterMergingAlter() throws Exception {
+    public void testAlterOverridesStoredGsAliases() throws Exception {
         Map<String, String> properties = new HashMap<>(s3Properties);
         properties.put("provider", "GCP");
         S3Resource resource = new S3Resource("gcp_resource");
@@ -697,25 +697,30 @@ public class S3ResourceTest {
         Field field = S3Resource.class.getDeclaredField("properties");
         field.setAccessible(true);
         Map<String, String> legacy = resource.getCopiedProperties();
+        legacy.put("gs.access_key", "old-access");
         legacy.put("gs.secret_key", "old-secret");
         legacy.put("gs.session_token", "old-token");
         legacy.put("gs.connection.timeout", "789");
         field.set(resource, legacy);
-        resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.SECRET_KEY, "new-secret",
+        resource.modifyProperties(ImmutableMap.of(S3ResourceCompat.ACCESS_KEY, "new-access",
+                S3ResourceCompat.SECRET_KEY, "new-secret",
                 S3ResourceCompat.SESSION_TOKEN, ""));
         Map<String, String> normalized = resource.getCopiedProperties();
         S3CompatibleFileSystemProperties connector = (S3CompatibleFileSystemProperties) StorageAdapter.of(normalized).getSpiProperties();
-        Assertions.assertEquals("old-secret", connector.getSecretKey());
-        Assertions.assertEquals("old-token", connector.getSessionToken());
+        Assertions.assertEquals("new-access", connector.getAccessKey());
+        Assertions.assertEquals("new-secret", connector.getSecretKey());
+        Assertions.assertEquals("", connector.getSessionToken());
+        Assertions.assertEquals(connector.getAccessKey(), S3ThriftAdapter.getS3TStorageParam(normalized).getAk());
         Assertions.assertEquals(connector.getSecretKey(), S3ThriftAdapter.getS3TStorageParam(normalized).getSk());
         Assertions.assertEquals(connector.getSessionToken(), S3ThriftAdapter.getS3TStorageParam(normalized).getToken());
         Assertions.assertEquals(connector.getSecretKey(), CloudObjectStoreAdapter.getObjStoreInfoPB(normalized).getSk());
         Assertions.assertEquals(789, S3ThriftAdapter.getS3TStorageParam(normalized).getConnTimeoutMs());
+        Assertions.assertFalse(normalized.containsKey("gs.access_key"));
         Assertions.assertFalse(normalized.containsKey("gs.secret_key"));
         Assertions.assertFalse(normalized.containsKey("gs.session_token"));
         Assertions.assertFalse(normalized.containsKey("gs.connection.timeout"));
 
-        // Within the same ALTER input, gs.* also takes precedence over s3.*.
+        // Within the same ALTER input, gs.* still takes precedence over s3.*.
         resource.modifyProperties(ImmutableMap.of("gs.secret_key", "updated-gs-secret",
                 S3ResourceCompat.SECRET_KEY, "ignored-s3-secret"));
         Assertions.assertEquals("updated-gs-secret", resource.getProperty(S3ResourceCompat.SECRET_KEY));
