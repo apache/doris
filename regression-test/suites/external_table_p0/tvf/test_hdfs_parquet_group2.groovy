@@ -282,12 +282,11 @@ suite("test_hdfs_parquet_group2", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group2/before_1582_timestamp_int96_dict_v2_4_6.snappy.parquet"
-            // This golden checks historical Shanghai normalization rather than raw INT96 wall time.
+            // The fixture stores the golden's INT96 wall-clock values; a catalog timezone would shift them.
             order_qt_test_36 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "parquet",
-                        "hive.parquet.time-zone" = "Asia/Shanghai") limit 10; """
+                        "format" = "parquet") limit 10; """
         } finally {
         }
     }
