@@ -181,9 +181,10 @@ suite("test_routine_load_advanced_mapping","p0") {
                 }
                 log.info("routine load job properties: ${job.JobProperties}")
                 def json = parseJson(job.JobProperties)
-                assertEquals("(k00 = 8)", json.whereExpr.toString())
+                assertEquals("(`k00` = 8)", json.whereExpr.toString())
                 break;
             }
+            count = 0
             while (true) {
                 sleep(1000)
                 def job = getRoutineLoadJob()
