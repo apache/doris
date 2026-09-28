@@ -32,6 +32,7 @@
 
 #include "common/defer.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
@@ -2106,6 +2107,117 @@ TEST(RecycleVersionedKeysTest, BatchDeleteRefCountGreaterThanOne) {
             ++count;
         }
         EXPECT_EQ(count, 0) << "recycle_rowset keys should be removed for ref_count > 1 case";
+    }
+}
+
+TEST(RecycleVersionedKeysTest, BatchDeleteSharedRowsetsRetryAfterFailure) {
+    auto meta_service = get_meta_service();
+    auto txn_kv = meta_service->txn_kv();
+    std::string instance_id = "batch_delete_shared_rowsets_retry_test_instance";
+    std::string cloud_unique_id = fmt::format("1:{}:0", instance_id);
+    ASSERT_NO_FATAL_FAILURE(create_and_refresh_instance(meta_service.get(), instance_id));
+
+    int64_t db_id = 1, table_id = 2, index_id = 3, partition_id = 4, tablet_id = 5;
+    ASSERT_NO_FATAL_FAILURE(prepare_and_commit_index(meta_service.get(), cloud_unique_id, db_id,
+                                                     table_id, index_id));
+    ASSERT_NO_FATAL_FAILURE(prepare_and_commit_partition(meta_service.get(), cloud_unique_id, db_id,
+                                                         table_id, partition_id, index_id));
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), cloud_unique_id, db_id, table_id,
+                                          index_id, partition_id, tablet_id));
+
+    // Shared load/compact rowsets release one reference before deleting the unique rowset.
+    std::vector<RowsetMetaCloudPB> rowsets = {create_rowset(1, tablet_id, partition_id, 2),
+                                              create_rowset(2, tablet_id, partition_id, 3),
+                                              create_rowset(3, tablet_id, partition_id, 4)};
+    std::vector<std::string> rowset_keys = {
+            versioned::meta_rowset_load_key({instance_id, tablet_id, 2}),
+            versioned::meta_rowset_compact_key({instance_id, tablet_id, 3}),
+            versioned::meta_rowset_load_key({instance_id, tablet_id, 4})};
+    auto accessor = std::make_shared<MockAccessor>();
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (size_t i = 0; i < rowsets.size(); ++i) {
+            auto rowset = rowsets[i];
+            txn->put(meta_rowset_key({instance_id, tablet_id, rowset.end_version()}),
+                     rowset.SerializeAsString());
+            txn->atomic_add(versioned::data_rowset_ref_count_key(
+                                    {instance_id, tablet_id, rowset.rowset_id_v2()}),
+                            i < 2 ? 2 : 1);
+            ASSERT_EQ(0, accessor->put_file(segment_path(tablet_id, rowset.rowset_id_v2(), 0),
+                                            "segment_data"));
+            ASSERT_TRUE(versioned::document_put(txn.get(), rowset_keys[i], std::move(rowset)));
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    InstanceInfoPB instance_info;
+    ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
+    RecyclerMetricsContext ctx;
+    {
+        auto sp = SyncPoint::get_instance();
+        DORIS_CLOUD_DEFER {
+            sp->disable_processing();
+            sp->clear_call_back("MockAccessor::delete_files");
+        };
+        sp->set_call_back("MockAccessor::delete_files", [](auto&& args) {
+            auto* ret = try_any_cast_ret<int>(args);
+            ret->first = -1;
+            ret->second = true;
+        });
+        sp->enable_processing();
+        auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+        ASSERT_NE(0, recycler->recycle_tablets(table_id, index_id, ctx, partition_id));
+    }
+
+    auto check_shared_rowsets = [&]() {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (size_t i = 0; i < 2; ++i) {
+            SCOPED_TRACE(rowsets[i].rowset_id_v2());
+            std::string value;
+            ASSERT_EQ(txn->get(versioned::data_rowset_ref_count_key(
+                                       {instance_id, tablet_id, rowsets[i].rowset_id_v2()}),
+                               &value),
+                      TxnErrorCode::TXN_OK);
+            int64_t ref_count = 0;
+            ASSERT_TRUE(txn->decode_atomic_int(value, &ref_count));
+            EXPECT_EQ(1, ref_count);
+            RowsetMetaCloudPB rowset;
+            Versionstamp version;
+            EXPECT_EQ(versioned::document_get(txn.get(), rowset_keys[i], &rowset, &version),
+                      TxnErrorCode::TXN_KEY_NOT_FOUND);
+            EXPECT_EQ(0, accessor->exists(segment_path(tablet_id, rowsets[i].rowset_id_v2(), 0)));
+        }
+    };
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowsets());
+
+    std::string tablet_key =
+            meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(tablet_key, &value), TxnErrorCode::TXN_OK);
+        RowsetMetaCloudPB rowset;
+        Versionstamp version;
+        ASSERT_EQ(versioned::document_get(txn.get(), rowset_keys[2], &rowset, &version),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_EQ(0, accessor->exists(segment_path(tablet_id, rowsets[2].rowset_id_v2(), 0)));
+    }
+
+    // A fresh recycler must rescan the tablet without decrementing shared references again.
+    {
+        auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
+        ASSERT_EQ(0, recycler->recycle_tablets(table_id, index_id, ctx, partition_id));
+    }
+    ASSERT_NO_FATAL_FAILURE(check_shared_rowsets());
+    EXPECT_EQ(1, accessor->exists(segment_path(tablet_id, rowsets[2].rowset_id_v2(), 0)));
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        EXPECT_EQ(txn->get(tablet_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
 }
 
