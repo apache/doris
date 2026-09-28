@@ -77,6 +77,7 @@ import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -93,6 +94,24 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testPartitionTimestampSerializationPreservesNegativeMicros() {
+        Schema schema = new Schema(Types.NestedField.optional(
+                1, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("ts").build();
+        PartitionData partitionData = new PartitionData(spec.partitionType());
+
+        for (long micros : Arrays.asList(-1_000_001L, -1L, 0L, 1L, 999L, 1_000L, 1_234_567L)) {
+            partitionData.set(0, micros);
+            String actual = IcebergUtils.getPartitionValues(partitionData, spec, "UTC").get(0);
+            String expected = LocalDateTime.ofEpochSecond(
+                    Math.floorDiv(micros, 1_000_000L),
+                    Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L),
+                    ZoneOffset.UTC).format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            Assert.assertEquals(expected, actual);
+        }
+    }
+
     @Test
     public void testSelectEffectiveStoragePropertiesPrefersOssOverGenericS3() throws UserException {
         Map<String, String> properties = new HashMap<>();
