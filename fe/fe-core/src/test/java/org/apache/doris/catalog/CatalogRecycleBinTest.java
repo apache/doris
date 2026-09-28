@@ -481,7 +481,8 @@ public class CatalogRecycleBinTest extends TestWithFeService {
                 new ReplicaAllocation((short) 3),
                 false,
                 false,
-                TInvertedIndexFileStorageFormat.SNII
+                TInvertedIndexFileStorageFormat.SNII,
+                "test_storage_policy"
         );
 
         recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
@@ -489,6 +490,48 @@ public class CatalogRecycleBinTest extends TestWithFeService {
         Assertions.assertNotNull(olapTable.getPartition(CatalogTestUtil.testPartition1));
         Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII, olapTable.getPartitionInfo()
                 .getInvertedIndexFileStorageFormat(CatalogTestUtil.testPartitionId1));
+        Assertions.assertEquals("test_storage_policy", olapTable.getPartitionInfo()
+                .getStoragePolicy(CatalogTestUtil.testPartitionId1));
+    }
+
+    @Test
+    public void testRecoverPartitionAfterImageReloadPreservesStoragePolicy() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+
+        Database db = CatalogTestUtil.createSimpleDb(
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
+        Partition partition = olapTable.getPartition(CatalogTestUtil.testPartition1);
+
+        recycleBin.recyclePartition(
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                new DataProperty(TStorageMedium.HDD),
+                new ReplicaAllocation((short) 3),
+                false,
+                false,
+                TInvertedIndexFileStorageFormat.SNII,
+                "test_storage_policy"
+        );
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        recycleBin.write(new DataOutputStream(outputStream));
+        CatalogRecycleBin reloadedBin =
+                CatalogRecycleBin.read(new DataInputStream(new ByteArrayInputStream(outputStream.toByteArray())));
+
+        reloadedBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
+        Assertions.assertEquals("test_storage_policy", olapTable.getPartitionInfo()
+                .getStoragePolicy(CatalogTestUtil.testPartitionId1));
     }
 
     @Test

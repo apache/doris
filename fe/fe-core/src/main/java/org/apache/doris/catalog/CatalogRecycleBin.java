@@ -241,13 +241,13 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                                                  DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                                  boolean isInMemory, boolean isMutable) {
         return recyclePartition(dbId, tableId, tableName, partition, range, listPartitionItem, dataProperty,
-                replicaAlloc, isInMemory, isMutable, null);
+                replicaAlloc, isInMemory, isMutable, null, null);
     }
 
     public boolean recyclePartition(long dbId, long tableId, String tableName, Partition partition,
             Range<PartitionKey> range, PartitionItem listPartitionItem, DataProperty dataProperty,
             ReplicaAllocation replicaAlloc, boolean isInMemory, boolean isMutable,
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, String storagePolicy) {
         writeLock();
         try {
             if (idToPartition.containsKey(partition.getId())) {
@@ -258,7 +258,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             // recycle partition
             RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
                     range, listPartitionItem, dataProperty, replicaAlloc, isInMemory, isMutable,
-                    invertedIndexFileStorageFormat);
+                    invertedIndexFileStorageFormat, storagePolicy);
             idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
             idToPartition.put(partition.getId(), partitionInfo);
             dbTblIdPartitionNameToIds.computeIfAbsent(Pair.of(dbId, tableId), k -> new ConcurrentHashMap<>())
@@ -1095,6 +1095,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 partitionInfo.setInvertedIndexFileStorageFormat(partitionId,
                         recoverPartitionInfo.getInvertedIndexFileStorageFormat());
             }
+            if (recoverPartitionInfo.getStoragePolicy() != null) {
+                partitionInfo.setStoragePolicy(partitionId, recoverPartitionInfo.getStoragePolicy());
+            }
 
             // remove from recycle bin
             idToPartition.remove(partitionId);
@@ -1164,6 +1167,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (recyclePartitionInfo.getInvertedIndexFileStorageFormat() != null) {
                     partitionInfo.setInvertedIndexFileStorageFormat(partitionId,
                             recyclePartitionInfo.getInvertedIndexFileStorageFormat());
+                }
+                if (recyclePartitionInfo.getStoragePolicy() != null) {
+                    partitionInfo.setStoragePolicy(partitionId, recyclePartitionInfo.getStoragePolicy());
                 }
 
                 iterator.remove();
@@ -1820,6 +1826,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         private boolean isMutable = true;
         @SerializedName("iifsf")
         private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
+        @SerializedName("sp")
+        private String storagePolicy;
 
         public RecyclePartitionInfo() {
             // for persist
@@ -1829,7 +1837,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                                     Range<PartitionKey> range, PartitionItem listPartitionItem,
                                     DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                     boolean isInMemory, boolean isMutable,
-                                    TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) {
+                                    TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat,
+                                    String storagePolicy) {
             this.dbId = dbId;
             this.tableId = tableId;
             this.partition = partition;
@@ -1840,6 +1849,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             this.isInMemory = isInMemory;
             this.isMutable = isMutable;
             this.invertedIndexFileStorageFormat = invertedIndexFileStorageFormat;
+            this.storagePolicy = storagePolicy;
         }
 
         public long getDbId() {
@@ -1880,6 +1890,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public TInvertedIndexFileStorageFormat getInvertedIndexFileStorageFormat() {
             return invertedIndexFileStorageFormat;
+        }
+
+        public String getStoragePolicy() {
+            return storagePolicy;
         }
 
         public void write(DataOutput out) throws IOException {
