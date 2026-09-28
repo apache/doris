@@ -28,6 +28,8 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/vectorized_fn_call.h"
+#include "gen_cpp/Exprs_types.h"
 
 namespace doris {
 
@@ -117,6 +119,28 @@ static Status run_array_shuffle(const std::vector<TestArray>& arrays, bool const
     return Status::OK();
 }
 
+// Builds an array_shuffle(array) call under the given function name.
+static VExprSPtr array_shuffle_call(const std::string& function_name) {
+    DataTypePtr array_type =
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_arg_types({array_type->to_thrift()});
+    fn.__set_ret_type(array_type->to_thrift());
+    fn.__set_has_var_args(true);
+
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_type(array_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(1);
+    node.__set_is_nullable(true);
+    return VectorizedFnCall::create_shared(node);
+}
+
 // Runs array_shuffle(array, seed) with a constant seed, which must succeed.
 static std::vector<std::string> shuffle_with_const_seed(const std::vector<TestArray>& arrays,
                                                         int64_t seed, bool const_array = false) {
@@ -191,6 +215,13 @@ TEST(function_array_shuffle_test, no_seed) {
     auto second = shuffle_const_array_without_seed(kLongArray, 2);
     EXPECT_NE(first[0], first[1]);
     EXPECT_NE(first[0], second[0]);
+}
+
+// Running array_shuffle again on other rows gives other orders, so it is not deterministic, and
+// a scan must not run it twice, for example as a file-local filter copy and again in the scanner.
+TEST(function_array_shuffle_test, not_deterministic) {
+    EXPECT_FALSE(array_shuffle_call("array_shuffle")->is_deterministic());
+    EXPECT_FALSE(array_shuffle_call("shuffle")->is_deterministic());
 }
 
 } // namespace doris
