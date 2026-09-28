@@ -26,41 +26,74 @@ suite("test_array_shuffle_seed") {
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    // All rows go into one block, so every row after the first must still use its own seed.
-    // Rows 9-13 use negative seeds and the BIGINT limits, which are valid seeds too.
     sql """
         INSERT INTO test_array_shuffle_seed VALUES
             (1, [1, 2, 3, 4, 5], 1),
             (2, [1, 2, 3, 4, 5], 2),
-            (3, [1, 2, 3, 4, 5], 1),
-            (4, [1, 2, 3, 4, 5], 2),
-            (5, [1, 2, 3, 4, 5], NULL),
-            (6, NULL, 1),
-            (7, [], 1),
-            (8, [1, 2, 3, 4, 5, 6, 7, 8], 1),
-            (9, [1, 2, 3, 4, 5], -1),
-            (10, [1, 2, 3, 4, 5], 4294967295),
-            (11, NULL, -1),
-            (12, [1, 2], -9223372036854775808),
-            (13, [42], 9223372036854775807)
+            (3, NULL, 1),
+            (4, [], 1),
+            (5, [42], 1)
     """
 
-    // Rows with the same seed and array give the same result.
-    order_qt_column_seed "SELECT k, s, array_shuffle(a, s), shuffle(a, s) FROM test_array_shuffle_seed"
-    // A row gives the same result as the constant call with the same seed.
-    order_qt_const_call "SELECT array_shuffle([1, 2, 3, 4, 5], 1), array_shuffle([1, 2, 3, 4, 5], 2), array_shuffle([1, 2, 3, 4, 5, 6, 7, 8], 1)"
-    order_qt_match_const """
-        SELECT k, array_shuffle(a, s) = array_shuffle([1, 2, 3, 4, 5], s)
-        FROM test_array_shuffle_seed WHERE k <= 4 OR k IN (9, 10)
+    // Rows share one random sequence that starts from the seed, so a row cannot use its own
+    // seed. A non-constant seed is rejected instead of being silently ignored.
+    test {
+        sql "SELECT k, array_shuffle(a, s) FROM test_array_shuffle_seed"
+        exception "must be a constant"
+    }
+    test {
+        sql "SELECT k, shuffle(a, k) FROM test_array_shuffle_seed"
+        exception "must be a constant"
+    }
+    test {
+        sql """
+            WITH t AS (SELECT [1, 2, 3, 4, 5] a, 1 seed UNION ALL SELECT [1, 2, 3, 4, 5], 2)
+            SELECT seed, array_shuffle(a, seed) FROM t ORDER BY seed
+        """
+        exception "must be a constant"
+    }
+    test {
+        sql "SELECT array_shuffle([1, 2, 3, 4, 5], cast(random() * 10 as bigint))"
+        exception "must be a constant"
+    }
+
+    // A constant seed gives a fixed result. A constant expression works as a seed too.
+    order_qt_const_seed """
+        SELECT array_shuffle([1, 2, 3, 4, 5], 1), array_shuffle([1, 2, 3, 4, 5], 2),
+               shuffle([1, 2, 3, 4, 5], 1), array_shuffle([1, 2, 3, 4, 5], 1 + 1)
     """
-    // A constant seed gives the same result on every row.
-    order_qt_const_seed "SELECT k, array_shuffle(a, 1) FROM test_array_shuffle_seed"
-    // All 64 bits of the seed are used, so -1 and 4294967295 (same low 32 bits) differ.
+    // Any BIGINT is a valid seed, a negative one too. Only its low 32 bits are used, so -1 and
+    // 4294967295 give the same result, and so do -9223372036854775808 and 0.
     order_qt_bigint_seed """
         SELECT array_shuffle([1, 2, 3, 4, 5], -1), array_shuffle([1, 2, 3, 4, 5], 4294967295),
                array_shuffle([1, 2, 3, 4, 5], -9223372036854775808),
+               array_shuffle([1, 2, 3, 4, 5], 0),
                array_shuffle([1, 2, 3, 4, 5], 9223372036854775807)
     """
-    // NULLIF keeps -1 under the NULL. The row must still just be NULL.
-    order_qt_nullif_seed "SELECT k, array_shuffle(a, NULLIF(s, -1)) FROM test_array_shuffle_seed"
+    // A NULL seed gives NULL.
+    order_qt_null_seed "SELECT array_shuffle([1, 2, 3, 4, 5], NULL)"
+    // Shuffling keeps the elements, so sorting them back gives a stable result.
+    order_qt_table """
+        SELECT k, array_sort(array_shuffle(a, 1)), array_size(shuffle(a, -1))
+        FROM test_array_shuffle_seed
+    """
+
+    // A constant array is still shuffled on each row, so the rows do not all get the same order.
+    order_qt_const_array """
+        SELECT count(DISTINCT cast(array_shuffle(array_range(20), 1) AS string)),
+               count(DISTINCT cast(array_shuffle(array_range(20)) AS string))
+        FROM numbers("number" = "100")
+    """
+    // array_shuffle is not folded into one constant, even when BE folds the constants.
+    order_qt_const_array_fold """
+        SELECT /*+ SET_VAR(enable_fold_constant_by_be = true) */
+               count(DISTINCT cast(array_shuffle(array_range(20)) AS string))
+        FROM numbers("number" = "100")
+    """
+    // Without a seed, each block gets its own random seed, so the blocks do not repeat the
+    // same orders.
+    order_qt_no_seed_blocks """
+        SELECT count(DISTINCT cast(array_shuffle(array_range(20 + number * 0)) AS string))
+        FROM numbers("number" = "100000")
+    """
 }

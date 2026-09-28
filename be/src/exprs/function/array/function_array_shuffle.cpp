@@ -16,10 +16,9 @@
 // under the License.
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
-#include <time.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <random>
@@ -66,30 +65,40 @@ public:
         return arguments[0];
     }
 
+    // Shuffle a constant array on each row too, so every row gets its own order.
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        // All rows share one random sequence that starts from the seed, so a row cannot use
+        // its own seed. Reject a non-constant seed instead of silently using the first one.
+        if (scope == FunctionContext::THREAD_LOCAL && context->get_num_args() == 2 &&
+            !context->is_col_constant(1)) {
+            return Status::InvalidArgument("The seed of {} must be a constant", get_name());
+        }
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const auto& src_column_array = assert_cast<const ColumnArray&>(*src_column);
 
-        ColumnPtr dest_column_ptr;
+        uint32_t seed = 0;
         if (arguments.size() == 2) {
-            const auto [seed_column, seed_const] =
-                    unpack_if_const(block.get_by_position(arguments[1]).column);
-            const auto& seeds = assert_cast<const ColumnInt64&>(*seed_column).get_data();
-            // Each row re-seeds with its own seed, so the result of a row only
-            // depends on its array and seed, not on the rows before it.
-            std::mt19937_64 g;
-            dest_column_ptr = _execute(src_column_array, [&](size_t row) -> std::mt19937_64& {
-                // Use all 64 bits of the seed, so any BIGINT works, negative too.
-                g.seed(static_cast<uint64_t>(seeds[index_check_const(row, seed_const)]));
-                return g;
-            });
+            // open() makes sure the seed is a constant, so every row has the same seed.
+            // Use its low 32 bits, so any BIGINT works, a negative one too.
+            const ColumnPtr& seed_column =
+                    unpack_if_const(block.get_by_position(arguments[1]).column).first;
+            seed = static_cast<uint32_t>(
+                    assert_cast<const ColumnInt64&>(*seed_column).get_element(0));
         } else {
-            std::mt19937_64 g(static_cast<uint64_t>(time(nullptr)));
-            dest_column_ptr =
-                    _execute(src_column_array, [&](size_t) -> std::mt19937_64& { return g; });
+            // Give each block its own random seed, so blocks do not repeat the same orders.
+            seed = std::random_device()();
         }
+
+        std::mt19937 g(seed);
+        auto dest_column_ptr = _execute(src_column_array, g);
         if (!dest_column_ptr) {
             return Status::RuntimeError(
                     fmt::format("execute failed or unsupported types for function {}({})",
@@ -101,9 +110,7 @@ public:
     }
 
 private:
-    // get_generator(row) returns the random generator used to shuffle that row.
-    template <typename GetGenerator>
-    ColumnPtr _execute(const ColumnArray& src_column_array, GetGenerator&& get_generator) const {
+    ColumnPtr _execute(const ColumnArray& src_column_array, std::mt19937& g) const {
         const auto& src_offsets = src_column_array.get_offsets();
         const auto src_nested_column = src_column_array.get_data_ptr();
 
@@ -117,12 +124,8 @@ private:
         for (size_t i = 0; i < src_offsets_size; ++i) {
             auto last_offset = src_offsets[i - 1];
             auto src_offset = src_offsets[i];
-            // An array with 0 or 1 element does not change. Skip it, so we also
-            // skip seeding the generator for it.
-            if (src_offset - last_offset < 2) {
-                continue;
-            }
-            std::shuffle(&permutation[last_offset], &permutation[src_offset], get_generator(i));
+
+            std::shuffle(&permutation[last_offset], &permutation[src_offset], g);
         }
         return ColumnArray::create(src_nested_column->permute(permutation, 0),
                                    src_column_array.get_offsets_ptr());

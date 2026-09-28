@@ -33,115 +33,156 @@ namespace doris {
 
 static const TestArray kArray = {Int32(1), Int32(2), Int32(3), Int32(4), Int32(5)};
 
-// Runs array_shuffle(array, seed) on one block and returns each result row as a string.
-// With const_seed, seeds must hold one value and the seed column is a ColumnConst.
-static std::vector<std::string> run_array_shuffle(const std::vector<TestArray>& arrays,
-                                                  const std::vector<int64_t>& seeds,
-                                                  bool const_seed) {
+// Runs array_shuffle on one block with one row per element of arrays, and puts each result row
+// as a string in results. With const_array, the arrays must all be the same and the array column
+// is a ColumnConst. An empty seeds runs array_shuffle(array), one seed is a constant seed, and
+// more seeds are a seed column with one seed per row.
+// Returns the first failed status of open() and execute().
+static Status run_array_shuffle(const std::vector<TestArray>& arrays, bool const_array,
+                                const std::vector<int64_t>& seeds,
+                                std::vector<std::string>* results) {
     auto array_type =
             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
     auto seed_type = std::make_shared<DataTypeInt64>();
     const size_t row_size = arrays.size();
+    // Empty rows make a failed call fail the checks instead of reading past the end.
+    results->assign(row_size, "");
 
     MutableColumnPtr array_column = array_type->create_column();
-    for (const auto& array : arrays) {
-        EXPECT_TRUE(insert_cell(array_column, array_type, array));
+    for (size_t i = 0; i < (const_array ? 1 : row_size); ++i) {
+        EXPECT_TRUE(insert_cell(array_column, array_type, arrays[i]));
     }
-    MutableColumnPtr seed_column = seed_type->create_column();
-    for (auto seed : seeds) {
-        EXPECT_TRUE(insert_cell(seed_column, seed_type, seed));
-    }
-    if (const_seed) {
-        EXPECT_EQ(seeds.size(), 1);
-        seed_column = ColumnConst::create(std::move(seed_column), row_size);
-    } else {
-        EXPECT_EQ(seeds.size(), row_size);
+    ColumnPtr array_ptr = std::move(array_column);
+    if (const_array) {
+        array_ptr = ColumnConst::create(array_ptr, row_size);
     }
 
     Block block;
-    block.insert({std::move(array_column), array_type, "array"});
-    block.insert({std::move(seed_column), seed_type, "seed"});
+    block.insert({array_ptr, array_type, "array"});
+    DataTypes arg_types = {array_type};
+    ColumnNumbers arguments = {0};
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols = {nullptr};
+    if (const_array) {
+        constant_cols[0] = std::make_shared<ColumnPtrWrapper>(array_ptr);
+    }
+    if (!seeds.empty()) {
+        MutableColumnPtr seed_column = seed_type->create_column();
+        for (auto seed : seeds) {
+            EXPECT_TRUE(insert_cell(seed_column, seed_type, seed));
+        }
+        ColumnPtr seed_ptr = std::move(seed_column);
+        constant_cols.push_back(nullptr);
+        if (seeds.size() == 1) {
+            seed_ptr = ColumnConst::create(seed_ptr, row_size);
+            constant_cols[1] = std::make_shared<ColumnPtrWrapper>(seed_ptr);
+        } else {
+            EXPECT_EQ(seeds.size(), row_size);
+        }
+        block.insert({seed_ptr, seed_type, "seed"});
+        arg_types.push_back(seed_type);
+        arguments.push_back(1);
+    }
 
     DataTypePtr return_type = array_type;
     FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
             "array_shuffle", block.get_columns_with_type_and_name(), return_type);
     EXPECT_NE(func, nullptr);
 
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols = {nullptr, nullptr};
-    if (const_seed) {
-        constant_cols[1] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column);
-    }
-    FunctionUtils fn_utils(return_type, {array_type, seed_type}, false);
+    FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
     auto result_idx = block.columns() - 1;
-    auto st = func->execute(fn_ctx, block, {0, 1}, result_idx, row_size);
-    EXPECT_EQ(Status::OK(), st);
+    RETURN_IF_ERROR(func->execute(fn_ctx, block, arguments, result_idx, row_size));
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
     static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
-    std::vector<std::string> results(row_size);
-    // A failed call has no result column. Return empty rows, so the test fails
-    // on the check above instead of crashing here.
-    if (!st.ok()) {
-        return results;
-    }
     const auto& result_column = *block.get_by_position(result_idx).column;
     for (size_t i = 0; i < row_size; ++i) {
-        results[i] = return_type->to_string(result_column, i);
+        (*results)[i] = return_type->to_string(result_column, i);
     }
+    return Status::OK();
+}
+
+// Runs array_shuffle(array, seed) with a constant seed, which must succeed.
+static std::vector<std::string> shuffle_with_const_seed(const std::vector<TestArray>& arrays,
+                                                        int64_t seed, bool const_array = false) {
+    std::vector<std::string> results;
+    auto st = run_array_shuffle(arrays, const_array, {seed}, &results);
+    EXPECT_TRUE(st.ok()) << st;
     return results;
 }
 
-// Each row must use its own seed, and give the same result as running that row alone.
-TEST(function_array_shuffle_test, seed_per_row) {
-    auto seed1 = run_array_shuffle({kArray}, {1}, false)[0];
-    auto seed2 = run_array_shuffle({kArray}, {2}, false)[0];
-    ASSERT_NE(seed1, seed2);
-
-    auto results = run_array_shuffle({kArray, kArray, kArray}, {1, 2, 1}, false);
-    EXPECT_EQ(results[0], seed1);
-    EXPECT_EQ(results[1], seed2);
-    EXPECT_EQ(results[2], seed1);
+// Runs array_shuffle(array) on a constant array, which must succeed.
+static std::vector<std::string> shuffle_const_array_without_seed(const TestArray& array,
+                                                                 size_t row_size) {
+    std::vector<std::string> results;
+    auto st = run_array_shuffle(std::vector<TestArray>(row_size, array), true, {}, &results);
+    EXPECT_TRUE(st.ok()) << st;
+    return results;
 }
 
-// A constant seed gives the same result on every row.
+// Rows share one random sequence that starts from the seed, so a row cannot use its own seed.
+// A non-constant seed is rejected instead of being silently ignored.
+TEST(function_array_shuffle_test, non_constant_seed) {
+    std::vector<std::string> results;
+    auto st = run_array_shuffle({kArray, kArray}, false, {1, 2}, &results);
+    EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
+    EXPECT_NE(st.to_string().find("must be a constant"), std::string::npos) << st;
+}
+
+// A constant seed gives the same result each time, and the first row gives the same result as
+// running that row alone.
 TEST(function_array_shuffle_test, const_seed) {
-    auto seed1 = run_array_shuffle({kArray}, {1}, false)[0];
-    auto results = run_array_shuffle({kArray, kArray, kArray}, {1}, true);
-    for (const auto& result : results) {
-        EXPECT_EQ(result, seed1);
-    }
+    auto seed1 = shuffle_with_const_seed({kArray}, 1);
+    auto results = shuffle_with_const_seed({kArray, kArray, kArray}, 1);
+    EXPECT_EQ(results[0], seed1[0]);
+    EXPECT_EQ(shuffle_with_const_seed({kArray, kArray, kArray}, 1), results);
+    EXPECT_NE(shuffle_with_const_seed({kArray}, 2)[0], seed1[0]);
 }
 
-// Any BIGINT is a valid seed. All 64 bits are used, so -1 and 4294967295
-// (same low 32 bits) give different results.
+// Any BIGINT is a valid seed, a negative one too. Only its low 32 bits are used.
 TEST(function_array_shuffle_test, any_bigint_seed) {
-    const std::vector<int64_t> seeds = {-1, 4294967295, std::numeric_limits<int64_t>::min(),
-                                        std::numeric_limits<int64_t>::max()};
-    auto results = run_array_shuffle({kArray, kArray, kArray, kArray}, seeds, false);
-    for (size_t i = 0; i < seeds.size(); ++i) {
-        EXPECT_EQ(results[i], run_array_shuffle({kArray}, {seeds[i]}, false)[0]);
-    }
-    EXPECT_NE(results[0], results[1]);
+    EXPECT_EQ(shuffle_with_const_seed({kArray}, -1), shuffle_with_const_seed({kArray}, 4294967295));
+    EXPECT_EQ(shuffle_with_const_seed({kArray}, 4294967301), shuffle_with_const_seed({kArray}, 5));
+    EXPECT_EQ(shuffle_with_const_seed({kArray}, std::numeric_limits<int64_t>::min()),
+              shuffle_with_const_seed({kArray}, 0));
+    EXPECT_EQ(shuffle_with_const_seed({kArray}, std::numeric_limits<int64_t>::max()),
+              shuffle_with_const_seed({kArray}, -1));
 }
 
-// Arrays with 0 or 1 element are skipped, and this does not change the other rows.
+// Arrays with 0 or 1 element stay the same.
 TEST(function_array_shuffle_test, short_arrays) {
     const TestArray empty_array = {};
     const TestArray one_element = {Int32(7)};
-    const TestArray two_elements = {Int32(1), Int32(2)};
-    auto results = run_array_shuffle({empty_array, one_element, two_elements, kArray}, {1, 1, 1, 1},
-                                     false);
+    auto results = shuffle_with_const_seed({empty_array, one_element, kArray}, 1);
     EXPECT_EQ(results[0], "[]");
     EXPECT_EQ(results[1], "[7]");
-    // Seed 1 swaps the two elements, so a 2-element array is really shuffled.
-    EXPECT_EQ(results[2], "[2, 1]");
-    EXPECT_EQ(results[3], run_array_shuffle({kArray}, {1}, false)[0]);
+}
+
+// A constant array is still shuffled on each row, so it gives the same rows as the same arrays
+// in a column, and the rows do not all get the same order.
+TEST(function_array_shuffle_test, const_array) {
+    const std::vector<TestArray> arrays(3, kArray);
+    auto from_column = shuffle_with_const_seed(arrays, 1);
+    EXPECT_EQ(shuffle_with_const_seed(arrays, 1, true), from_column);
+    EXPECT_NE(from_column[0], from_column[1]);
+}
+
+// Without a seed, each row and each call gets a new random order. Two random orders of 20
+// elements are the same only by a tiny chance.
+TEST(function_array_shuffle_test, no_seed) {
+    TestArray long_array;
+    for (int32_t i = 0; i < 20; ++i) {
+        long_array.emplace_back(Int32(i));
+    }
+    auto first = shuffle_const_array_without_seed(long_array, 2);
+    auto second = shuffle_const_array_without_seed(long_array, 2);
+    EXPECT_NE(first[0], first[1]);
+    EXPECT_NE(first[0], second[0]);
 }
 
 } // namespace doris
