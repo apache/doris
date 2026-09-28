@@ -150,7 +150,10 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     @Override
     public void invalidateDb(long catalogId, String dbName) {
         try {
-            invalidatePaimonTables(catalogId, nameMapping -> matchDb(nameMapping, dbName));
+            // The SDK cache can be populated without any Doris table entry (for example by a
+            // metadata TVF). A name-only database invalidation cannot recover the remote name
+            // from an evicted database object, so fence the SDK catalog independently.
+            tableLoader.invalidateCatalog(catalogId);
         } finally {
             super.invalidateDb(catalogId, dbName);
         }

@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
@@ -506,16 +507,21 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateDb(long catalogId, String dbName) {
-        OptionalLong dbId = getCachedDbId(catalogId, dbName);
-        invalidateDb(catalogId, dbName, dbId);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getCachedDb(catalogId, dbName);
+        if (db.isPresent()) {
+            invalidateDb(catalogId, db.get().getId(), db.get().getFullName());
+            return;
+        }
+        Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);
+        if (identity.isPresent()) {
+            invalidateDb(catalogId, identity.get().second, identity.get().first);
+        } else {
+            invalidateDb(catalogId, dbName, OptionalLong.empty(), true);
+        }
     }
 
     public void invalidateDb(long catalogId, long dbId, String dbName) {
         invalidateDb(catalogId, dbName, OptionalLong.of(dbId), true);
-    }
-
-    private void invalidateDb(long catalogId, String dbName, OptionalLong dbId) {
-        invalidateDb(catalogId, dbName, dbId, true);
     }
 
     void invalidateDb(long catalogId, long dbId, String dbName, boolean invalidateRowCountCache) {
@@ -606,9 +612,10 @@ public class ExternalMetaCacheMgr {
         }
     }
 
-    private OptionalLong getCachedDbId(long catalogId, String dbName) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = getCachedDb(catalogId, dbName);
-        return db.isPresent() ? OptionalLong.of(db.get().getId()) : OptionalLong.empty();
+    private Optional<Pair<String, Long>> getDbIdentityForReplay(long catalogId, String dbName) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        return catalog instanceof ExternalCatalog
+                ? ((ExternalCatalog) catalog).getDbIdentityForReplay(dbName, 0L) : Optional.empty();
     }
 
     private Optional<ExternalDatabase<? extends ExternalTable>> getCachedDb(long catalogId, String dbName) {
@@ -807,7 +814,12 @@ public class ExternalMetaCacheMgr {
     public void invalidateTableByNameOrWider(long catalogId, String dbName, String tableName) {
         Optional<ExternalDatabase<? extends ExternalTable>> db = getCachedDb(catalogId, dbName);
         if (!db.isPresent()) {
-            invalidateCatalog(catalogId);
+            Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);
+            if (identity.isPresent()) {
+                invalidateDb(catalogId, identity.get().second, identity.get().first);
+            } else {
+                invalidateCatalog(catalogId);
+            }
             return;
         }
         Optional<? extends ExternalTable> table = db.get().getTableForReplay(tableName);
@@ -831,7 +843,17 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateRowCountCache(long catalogId, String dbName, String tableName) {
-        invalidateTableRowCount(catalogId, getCachedDb(catalogId, dbName), tableName);
+        Optional<ExternalDatabase<? extends ExternalTable>> db = getCachedDb(catalogId, dbName);
+        if (db.isPresent()) {
+            invalidateTableRowCount(catalogId, db, tableName);
+        } else {
+            Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);
+            if (identity.isPresent()) {
+                rowCountCache.invalidateDb(catalogId, identity.get().second);
+            } else {
+                rowCountCache.invalidateCatalog(catalogId);
+            }
+        }
     }
 
     public LegacyMetaCacheFactory legacyMetaCacheFactory() {

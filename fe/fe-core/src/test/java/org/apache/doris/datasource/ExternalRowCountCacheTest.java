@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.util.concurrent.MoreExecutors;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -71,7 +73,10 @@ public class ExternalRowCountCacheTest {
 
         // An ordinary removal fences both the engine cache and this database's row counts.
         db.resetMetaToUninitialized();
-        Mockito.verify(metaCacheMgr).invalidateRowCountCache(1L, 2L);
+        org.mockito.InOrder order = Mockito.inOrder(metaCacheMgr);
+        order.verify(metaCacheMgr).invalidateRowCountCache(1L, 2L);
+        order.verify(metaCacheMgr).invalidateDb(db);
+        order.verify(metaCacheMgr).invalidateRowCountCache(1L, 2L);
     }
 
     @Test
@@ -101,7 +106,44 @@ public class ExternalRowCountCacheTest {
         Assertions.assertThrows(IllegalStateException.class, () -> db.resetMetaToUninitialized(true, true));
 
         // The independent row-count fence must still run when the routed invalidation throws.
-        Mockito.verify(metaCacheMgr).invalidateRowCountCache(1L, 2L);
+        Mockito.verify(metaCacheMgr, Mockito.times(2)).invalidateRowCountCache(1L, 2L);
+    }
+
+    @Test
+    public void testDatabaseRefreshFencesRowCountBeforeRetiringTableObjects() throws Exception {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExternalDatabase<ExternalTable> db = new ExternalDatabase<ExternalTable>(
+                catalog, 2L, "db", "db", InitDatabaseLog.Type.TEST) {
+            @Override
+            protected ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+                    ExternalCatalog externalCatalog, ExternalDatabase externalDatabase) {
+                return null;
+            }
+        };
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalTable> tableCache = Mockito.mock(MetaCache.class);
+        Mockito.when(tableCache.retireObjects()).thenReturn(() -> { });
+        Field metaCacheField = ExternalDatabase.class.getDeclaredField("metaCache");
+        metaCacheField.setAccessible(true);
+        metaCacheField.set(db, tableCache);
+
+        db.resetMetaToUninitialized();
+
+        org.mockito.InOrder order = Mockito.inOrder(cacheMgr, tableCache);
+        order.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+        order.verify(tableCache).retireObjects();
+        order.verify(cacheMgr).invalidateDb(db);
+        order.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
     }
 
     @Test

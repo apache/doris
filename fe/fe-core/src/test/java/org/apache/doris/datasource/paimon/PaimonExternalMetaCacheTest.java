@@ -3204,8 +3204,9 @@ public class PaimonExternalMetaCacheTest {
                 cache.invalidateDb(catalogId, "db1");
             }
 
-            Mockito.verify(dorisCatalog).invalidatePaimonTable(db1Table);
-            Mockito.verify(dorisCatalog, Mockito.never()).invalidatePaimonTable(db2Table);
+            // Name-only invalidation must also cover SDK-only tables not present in Doris's
+            // table entry; the SDK scope is catalog-wide when the remote DB name is unknown.
+            Mockito.verify(dorisCatalog).invalidatePaimonCatalog();
             Assert.assertNull(tableEntry.getIfPresent(db1Table));
             Assert.assertNotNull(tableEntry.getIfPresent(db2Table));
             Assert.assertNull(schemaEntry.getIfPresent(db1Schema));
@@ -3766,7 +3767,6 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 }
-
 
 
 

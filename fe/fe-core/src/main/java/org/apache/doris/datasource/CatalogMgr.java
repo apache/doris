@@ -948,6 +948,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Env currentEnv = Env.getCurrentEnv();
         ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
         try {
+            if (cacheMgr != null) {
+                // Close the old row-count generation before publishing the new catalog context.
+                // The completion fence below also retires values loaded during the reset.
+                cacheMgr.invalidateRowCountCache(externalCatalog.getId());
+            }
             externalCatalog.modifyCatalogProps(newProps);
         } catch (RuntimeException e) {
             if (!isReplay) {

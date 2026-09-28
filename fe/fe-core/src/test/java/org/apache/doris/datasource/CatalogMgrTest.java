@@ -300,8 +300,10 @@ public class CatalogMgrTest {
         }
 
         Mockito.verify(catalog, Mockito.never()).tryModifyCatalogProps(Mockito.any());
-        Mockito.verify(catalog).modifyCatalogProps(newProperties);
-        Mockito.verify(cacheMgr).onCatalogOperationalContextChanged(catalogId);
+        InOrder order = Mockito.inOrder(cacheMgr, catalog);
+        order.verify(cacheMgr).invalidateRowCountCache(catalogId);
+        order.verify(catalog).modifyCatalogProps(newProperties);
+        order.verify(cacheMgr).onCatalogOperationalContextChanged(catalogId);
     }
 
     @Test
@@ -504,7 +506,8 @@ public class CatalogMgrTest {
         ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
         Mockito.doThrow(new IllegalStateException("engine invalidation failed"))
-                .when(cacheMgr).invalidateDb(catalogId, "CanonicalDb");
+                .when(cacheMgr).invalidateDb(catalogId,
+                        Util.genIdByName("testing_catalog", "CanonicalDb"), "CanonicalDb");
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Assertions.assertThrows(IllegalStateException.class,
@@ -535,7 +538,8 @@ public class CatalogMgrTest {
 
         Mockito.verify(metaCache).invalidate("CanonicalDb",
                 Util.genIdByName("testing_catalog", "CanonicalDb"));
-        Mockito.verify(cacheMgr).invalidateDb(catalogId, "CanonicalDb");
+        Mockito.verify(cacheMgr).invalidateDb(catalogId,
+                Util.genIdByName("testing_catalog", "CanonicalDb"), "CanonicalDb");
     }
 
     @Test

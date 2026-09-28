@@ -588,6 +588,37 @@ public class ExternalMetaCacheRouteResolverTest {
     }
 
     @Test
+    public void testNameBasedInvalidationUsesKnownColdDatabaseIdentity() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        long catalogId = 29L;
+        long dbId = 30L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(catalog.getDbForReplay("coldDb")).thenReturn(Optional.empty());
+        Mockito.when(catalog.getDbIdentityForReplay("coldDb", 0L))
+                .thenReturn(Optional.of(org.apache.doris.common.Pair.of("CanonicalDb", dbId)));
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        hudi.initializedCatalogIds.add(catalogId);
+        iceberg.initializedCatalogIds.add(catalogId);
+
+        metaCacheMgr.invalidateTableByNameOrWider(catalogId, "coldDb", "tbl");
+        metaCacheMgr.invalidateRowCountCache(catalogId, "coldDb", "tbl");
+
+        Assert.assertEquals(1, hive.invalidateDbCalls);
+        Assert.assertEquals(0, hive.invalidateCatalogEntriesCalls);
+        Mockito.verify(rowCountCache, Mockito.times(2)).invalidateDb(catalogId, dbId);
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateCatalog(catalogId);
+    }
+
+    @Test
     public void testNameBasedRowCountFenceFallsBackToDatabaseWhenTableIsCold() {
         long catalogId = 22L;
         long dbId = 23L;

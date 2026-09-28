@@ -1287,8 +1287,9 @@ public abstract class ExternalCatalog
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
             return;
         }
-        metaCache.invalidate(localDbName, Util.genIdByName(name, localDbName));
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), localDbName);
+        long dbId = Util.genIdByName(name, localDbName);
+        metaCache.invalidate(localDbName, dbId);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbId, localDbName);
     }
 
     boolean shouldInvalidateRowCountOnDatabaseRemoval() {

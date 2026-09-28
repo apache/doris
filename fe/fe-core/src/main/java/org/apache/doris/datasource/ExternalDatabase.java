@@ -134,6 +134,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         MetaCache<T> cacheToInvalidate = null;
         Runnable objectInvalidation = null;
+        if (invalidateRowCountCache) {
+            // Fence readers before the table-object generation is retired. The final fence below
+            // also removes values loaded during the reset and routed engine invalidation.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(extCatalog.getId(), getId());
+        }
         try {
             synchronized (this) {
                 metadataLoadEpoch.updateAndGet(epoch -> epoch.next(epoch.catalogEpoch));
