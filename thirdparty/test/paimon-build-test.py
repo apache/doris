@@ -96,6 +96,53 @@ class PaimonBuildTest(unittest.TestCase):
     def test_complete_install_is_reused(self):
         self.check_install("Linux", None)
 
+    def archive_installer(self):
+        script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
+        return re.search(r"^install_rust_archive\(\) \{\n.*?^\}", script, re.M | re.S)[0]
+
+    def check_archive_publication(self, name):
+        source = self.write("build/" + name, "new archive")
+        source.chmod(0o644)
+        destination = self.work / "installed/lib64" / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        self.env.update(TP_INSTALL_DIR=str(self.work / "installed"),
+                        STRIP_TP_LIB="ON", KERNEL="Linux", ARCHIVE=str(source))
+        failures = {
+            "copy": 'cp() { printf partial > "${@: -1}"; return 1; }',
+            "strip": 'strip() { printf damaged > "${@: -1}"; return 1; }',
+            "publish": 'mv() { return 1; }',
+            "success": '',
+        }
+        for replacement in (False, True):
+            for stage, injection in failures.items():
+                with self.subTest(archive=name, replacement=replacement, stage=stage):
+                    if destination.exists():
+                        destination.unlink()
+                    if replacement:
+                        destination.write_text("old archive")
+                    # Execute the production publisher with failures after partial copy/strip;
+                    # neither a first install nor a replacement may expose those bytes.
+                    result = self.run_bash(self.archive_installer() +
+                                           '\nstrip() { :; }\n' + injection +
+                                           '\ninstall_rust_archive "$ARCHIVE"')
+                    if stage == "success":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(destination.read_text(), "new archive")
+                        self.assertEqual(destination.stat().st_mode & 0o777, 0o644)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        if replacement:
+                            self.assertEqual(destination.read_text(), "old archive")
+                        else:
+                            self.assertFalse(destination.exists())
+                    self.assertEqual(list(destination.parent.glob(name + ".tmp.*")), [])
+
+    def test_atomic_lance_archive_publication(self):
+        self.check_archive_publication("liblance_c.a")
+
+    def test_atomic_paimon_archive_publication(self):
+        self.check_archive_publication("libpaimon_c.a")
+
     def check_header(self, offline, inherited_offline="", cargo_override=True):
         script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
         function = re.search(r"^build_paimon_rust\(\) \{\n.*?^\}", script, re.M | re.S)[0]
@@ -130,7 +177,8 @@ printf '/* Generated test header */\n' > "$2"
             self.env["CARGO"] = str(cargo)
         if inherited_offline:
             self.env["CARGO_NET_OFFLINE"] = inherited_offline
-        result = self.run_bash("check_if_source_exist() { :; }\n" + function + "\nbuild_paimon_rust")
+        result = self.run_bash("check_if_source_exist() { :; }\n" + self.archive_installer()
+                               + "\n" + function + "\nbuild_paimon_rust")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         expected = "true" if offline.upper() == "ON" else inherited_offline or "unset"
         self.assertEqual((self.work / "metadata.log").read_text(), expected)

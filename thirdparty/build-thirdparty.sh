@@ -2372,6 +2372,24 @@ build_pugixml() {
 }
 
 # lance-c
+# Publish a complete archive with one rename. Copy/strip must not damage an installed library
+# or expose a partial first installation if either command fails or the build is interrupted.
+install_rust_archive() {
+    (
+        set -e
+        local archive="$1"
+        local destination="${TP_INSTALL_DIR}/lib64/${archive##*/}"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${archive}" "${staged}"
+        if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+            strip --strip-debug --strip-unneeded "${staged}"
+        fi
+        mv -f "${staged}" "${destination}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2446,11 +2464,7 @@ build_lance_c() {
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
-    cp -v "${BUILD_DIR}/release/liblance_c.a" "${TP_INSTALL_DIR}/lib64/"
-
-    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
-        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
-    fi
+    install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
 }
 
 build_paimon_rust() {
@@ -2575,11 +2589,7 @@ EOF
     rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
     mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
     cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
-    cp -v "${BUILD_DIR}/release/libpaimon_c.a" "${TP_INSTALL_DIR}/lib64/"
-
-    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
-        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
-    fi
+    install_rust_archive "${BUILD_DIR}/release/libpaimon_c.a"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
