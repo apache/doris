@@ -35,9 +35,9 @@
 namespace doris {
 using namespace std::chrono_literals;
 
-TEST(LoadThreadPoolTest, MultipleTokensShareOneLoadTurn) {
+TEST(LoadThreadPoolTest, GlobalPriorityAcrossTokensAndLoads) {
     std::unique_ptr<ThreadPool> pool;
-    ASSERT_TRUE(ThreadPoolBuilder("load_fifo_test").set_max_threads(1).build(&pool).ok());
+    ASSERT_TRUE(ThreadPoolBuilder("load_priority_test").set_max_threads(1).build(&pool).ok());
     auto flush = pool->new_load_token(1, LoadTaskPriority::LOW, LoadTaskType::PARENT);
     auto bitmap = pool->new_load_token(1, LoadTaskPriority::HIGHEST, LoadTaskType::PARENT);
     auto dup = pool->new_load_token(2, LoadTaskPriority::LOW, LoadTaskType::PARENT);
@@ -54,10 +54,10 @@ TEST(LoadThreadPoolTest, MultipleTokensShareOneLoadTurn) {
     EXPECT_TRUE(dup->submit_func([&] { order.push_back(2); }).ok());
     release.count_down();
     pool->wait();
-    EXPECT_EQ(order, (std::vector<int> {0, 2, 3}));
+    EXPECT_EQ(order, (std::vector<int> {0, 3, 2}));
 }
 
-TEST(LoadThreadPoolTest, TokenlessTasksKeepTheirLoadAndPriority) {
+TEST(LoadThreadPoolTest, TokenlessTasksKeepGlobalPriorityAndFifo) {
     class RecordTask : public Runnable {
     public:
         RecordTask(std::vector<int>* order, int value) : _order(order), _value(value) {}
@@ -88,7 +88,7 @@ TEST(LoadThreadPoolTest, TokenlessTasksKeepTheirLoadAndPriority) {
                         .ok());
     release.count_down();
     pool->wait();
-    EXPECT_EQ(order, (std::vector<int> {10, 23, 13}));
+    EXPECT_EQ(order, (std::vector<int> {10, 13, 23}));
 }
 
 TEST(LoadThreadPoolTest, OneLoadCanUseAllWorkers) {
@@ -130,7 +130,7 @@ TEST(LoadThreadPoolTest, CancelOnlyRemovesItsOwnTasks) {
     EXPECT_FALSE(cancelled->submit_func([] {}).ok());
     release.count_down();
     pool->wait();
-    EXPECT_EQ(order, (std::vector<int> {1, 2}));
+    EXPECT_EQ(order, (std::vector<int> {2, 1}));
 }
 
 TEST(LoadThreadPoolTest, NestedBitmapHelpsOnlyOwnTokenWithOneWorker) {

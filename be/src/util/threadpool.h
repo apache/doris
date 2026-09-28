@@ -50,7 +50,7 @@ class Thread;
 class ThreadPool;
 class ThreadPoolToken;
 
-// Priority within a load. Callers map task stages to levels; lower values run first.
+// Priority across load tasks in one pool. Lower values run first; equal priorities are FIFO.
 enum class LoadTaskPriority : uint8_t {
     HIGHEST = 0,
     HIGH = 1,
@@ -214,8 +214,8 @@ public:
     // Submits a function bound using std::bind(&FuncName, args...).
     Status submit_func(std::function<void()> f);
 
-    // Take one task per transaction turn on this pool (resource domain). Existing tokenless
-    // and SERIAL/CONCURRENT token submissions retain their original policy.
+    // Dispatch load tasks by global priority and FIFO within each priority on this pool.
+    // Existing non-load submissions retain their original policy.
     Status submit_load(std::shared_ptr<Runnable> r, int64_t load_id, LoadTaskPriority priority);
     // Leaf tokens must never wait for other work in this pool.
     std::unique_ptr<ThreadPoolToken> new_load_token(int64_t load_id, LoadTaskPriority priority,
