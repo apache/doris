@@ -487,7 +487,9 @@ void json_reader_detail::pop_back_last_inserted_value(Block& block, size_t colum
 Status NewJsonReader::_open_file_reader(bool need_schema) {
     int64_t start_offset = _range.start_offset;
     if (start_offset != 0) {
-        start_offset -= 1;
+        // Include the whole delimiter when the split starts inside it, so skipping the first
+        // partial line cannot discard the next complete JSON record.
+        start_offset -= std::min<int64_t>(start_offset, _line_delimiter_length);
     }
 
     _current_offset = start_offset;
@@ -524,8 +526,8 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
 Status NewJsonReader::_open_line_reader() {
     int64_t size = _range.size;
     if (_range.start_offset != 0) {
-        // When we fetch range doesn't start from 0, size will += 1.
-        size += 1;
+        // Preserve the original range end after moving the start backwards.
+        size += _range.start_offset - _current_offset;
         _skip_first_line = true;
     } else {
         _skip_first_line = false;

@@ -445,7 +445,9 @@ TFileRangeDesc JsonReader::_json_range() const {
 Status JsonReader::_open_file_reader() {
     _current_offset = _reader_range.start_offset;
     if (_current_offset != 0) {
-        --_current_offset;
+        // Include the whole delimiter when the split starts inside it, so skipping the first
+        // partial line cannot discard the next complete JSON record.
+        _current_offset -= std::min<int64_t>(_current_offset, _line_delimiter_length);
     }
     if (_scan_params->file_type == TFileType::FILE_STREAM) {
         if (!_stream_load_id.has_value()) {
@@ -478,9 +480,8 @@ Status JsonReader::_create_decompressor() {
 Status JsonReader::_create_line_reader() {
     int64_t size = _reader_range.size;
     if (_reader_range.start_offset != 0) {
-        // Start one byte earlier and discard the first partial line, matching split semantics used
-        // by text readers.
-        ++size;
+        // Preserve the original range end after moving the start backwards.
+        size += _reader_range.start_offset - _current_offset;
         _skip_first_line = true;
     } else {
         _skip_first_line = false;
