@@ -24,7 +24,10 @@ WrapperType create_timestamptz_wrapper(FunctionContext* context, const DataTypeP
     auto make_timestamptz_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
-        if constexpr (CastUtil::IsBaseCastFromType<FromDataType> ||
+        // Admit only the sources cast_to_timestamptz.h implements. Any other source would reach
+        // the generic CastToImpl and fail at execution instead of being rejected as unsupported.
+        if constexpr (IsStringType<FromDataType> ||
+                      std::is_same_v<FromDataType, DataTypeDateTimeV2> ||
                       IsTimeStampTzType<FromDataType> ||
                       std::is_same_v<FromDataType, DataTypeTimeStampNs>) {
             if (context->enable_strict_mode()) {
