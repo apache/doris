@@ -90,6 +90,7 @@ public:
     ThreadPool& get_thread_pool() { return *_thread_pool; }
 
 private:
+    void _submit_kinesis_scan_worker(const std::shared_ptr<KinesisLatestSequenceBatch>& batch);
     Status _run_kinesis_scan_worker(const std::shared_ptr<KinesisLatestSequenceBatch>& batch);
 
     // execute the task

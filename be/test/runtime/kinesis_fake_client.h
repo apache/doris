@@ -18,10 +18,13 @@
 #pragma once
 
 #include <aws/kinesis/KinesisClient.h>
-#include <aws/kinesis/model/GetRecordsResult.h>
-#include <aws/kinesis/model/GetShardIteratorResult.h>
-#include <aws/kinesis/model/ListShardsResult.h>
 #include <aws/kinesis/model/ChildShard.h>
+#include <aws/kinesis/model/GetRecordsRequest.h>
+#include <aws/kinesis/model/GetRecordsResult.h>
+#include <aws/kinesis/model/GetShardIteratorRequest.h>
+#include <aws/kinesis/model/GetShardIteratorResult.h>
+#include <aws/kinesis/model/ListShardsRequest.h>
+#include <aws/kinesis/model/ListShardsResult.h>
 
 #include <map>
 #include <string>

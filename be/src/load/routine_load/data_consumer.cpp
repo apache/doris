@@ -1066,10 +1066,16 @@ Status KinesisDataConsumer::
 
                 if (record_count == 0) {
                     // An empty response is not EOF while a next iterator exists.
-                    LOG(INFO) << "Shard has no records in this response: " << shard_id
-                              << " (MillisBehindLatest=" << millis_behind << ")";
+                    VLOG_NOTICE << "Shard has no records in this response: " << shard_id
+                                << " (MillisBehindLatest=" << millis_behind << ")";
                 }
-                ++it;
+                if (record_count == 0 && millis_behind == 0) {
+                    // Caught up for this batch, not EOF. Keep the iterator and do not emit a
+                    // close marker; the next task resumes from the committed sequence.
+                    it = _consuming_shard_ids.erase(it);
+                } else {
+                    ++it;
+                }
             }
 
             // Check if all shards are exhausted

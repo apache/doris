@@ -23,6 +23,7 @@
 #include <memory>
 #include <vector>
 
+#include "kinesis_fake_client.h"
 #include "load/routine_load/data_consumer.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "load/stream_load/stream_load_context.h"
@@ -105,6 +106,67 @@ TEST_F(KinesisEmptyPageReproduction, FollowsNextIteratorAfterEmptyPage) {
 
 TEST_F(KinesisEmptyPageReproduction, FollowsNextIteratorAfterMultipleEmptyPages) {
     expect_record_after_empty_pages(2);
+}
+
+TEST_F(KinesisEmptyPageReproduction, CaughtUpShardStopsBatchWithoutEof) {
+    auto ctx = StreamLoadContext::create_shared(nullptr);
+    TKinesisLoadInfo info;
+    ctx->kinesis_info = std::make_unique<KinesisLoadInfo>(info);
+    KinesisDataConsumer consumer(ctx);
+    consumer._init = true;
+    consumer._kinesis_conf = std::make_unique<KinesisConf>();
+    auto client = std::make_shared<KinesisFakeClient>();
+    client->set_records_pages("idle", {{.sequences = {},
+                                        .next_iterator = "idle-next",
+                                        .millis_behind_latest = 0,
+                                        .child_parents = {}}});
+    consumer._kinesis_client = client;
+    ASSERT_TRUE(consumer.assign_shards({{"idle", "TRIM_HORIZON"}}, "test", ctx).ok());
+    BlockingQueue<KinesisQueueItem> queue(8);
+    ASSERT_TRUE(consumer.group_consume(&queue, 5000).ok());
+    EXPECT_EQ(1, client->get_records_calls("idle"));
+    EXPECT_EQ(0, queue.get_size());
+    EXPECT_EQ("idle-next", consumer._shard_iterators.at("idle"));
+    EXPECT_TRUE(consumer._consuming_shard_ids.empty());
+    queue.shutdown();
+}
+
+TEST_F(KinesisEmptyPageReproduction, IdleShardDoesNotStopOtherShardWithBacklog) {
+    auto ctx = StreamLoadContext::create_shared(nullptr);
+    TKinesisLoadInfo info;
+    ctx->kinesis_info = std::make_unique<KinesisLoadInfo>(info);
+    KinesisDataConsumer consumer(ctx);
+    consumer._init = true;
+    consumer._kinesis_conf = std::make_unique<KinesisConf>();
+    auto client = std::make_shared<KinesisFakeClient>();
+    client->set_records_pages("idle", {{.sequences = {},
+                                        .next_iterator = "idle-next",
+                                        .millis_behind_latest = 0,
+                                        .child_parents = {}}});
+    client->set_records_pages("busy", {{.sequences = {},
+                                        .next_iterator = "busy-next",
+                                        .millis_behind_latest = 100,
+                                        .child_parents = {}},
+                                       {.sequences = {"101"},
+                                        .next_iterator = "",
+                                        .millis_behind_latest = 0,
+                                        .child_parents = {}}});
+    consumer._kinesis_client = client;
+    ASSERT_TRUE(
+            consumer.assign_shards({{"idle", "TRIM_HORIZON"}, {"busy", "100"}}, "test", ctx).ok());
+    BlockingQueue<KinesisQueueItem> queue(8);
+    ASSERT_TRUE(consumer.group_consume(&queue, 5000).ok());
+    EXPECT_EQ(1, client->get_records_calls("idle"));
+    EXPECT_EQ(2, client->get_records_calls("busy"));
+    ASSERT_EQ(2, queue.get_size());
+    KinesisQueueItem item;
+    ASSERT_TRUE(queue.blocking_get(&item));
+    EXPECT_FALSE(item.end_of_shard);
+    EXPECT_EQ("101", item.record->GetSequenceNumber());
+    ASSERT_TRUE(queue.blocking_get(&item));
+    EXPECT_TRUE(item.end_of_shard);
+    EXPECT_EQ("busy", item.shard_id);
+    queue.shutdown();
 }
 
 } // namespace doris

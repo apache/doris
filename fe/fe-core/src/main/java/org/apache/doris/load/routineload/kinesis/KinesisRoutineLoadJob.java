@@ -133,10 +133,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     // Will be updated periodically by calling hasMoreDataToConsume()
     private Map<String, Long> cachedShardWithMillsBehindLatest = Maps.newConcurrentMap();
 
-    // Compatibility views for SHOW/old unit fixtures. Topology remains the only source of truth.
-    private transient List<String> openKinesisShards = Lists.newArrayList();
-    private transient List<String> closedKinesisShards = Lists.newArrayList();
-    private transient List<String> newCurrentKinesisShards;
     // Newly discovered shard descriptors from Kinesis. This is a transient scan result; the
     // durable topology is merged under the job lock before task scheduling.
     private transient List<InternalService.PShardInfo> newCurrentKinesisShardInfos;
@@ -208,21 +204,12 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         return convertedCustomProperties;
     }
 
-    private void refreshShardViews() {
-        if (!shardTopology.getNodes().isEmpty()) {
-            openKinesisShards = shardTopology.getOpenShardIds();
-            closedKinesisShards = shardTopology.getClosedShardIds();
-        }
-    }
-
     private List<String> getOpenShardView() {
-        return shardTopology.getNodes().isEmpty()
-                ? new ArrayList<>(openKinesisShards) : shardTopology.getOpenShardIds();
+        return shardTopology.getOpenShardIds();
     }
 
     private List<String> getClosedShardView() {
-        return shardTopology.getNodes().isEmpty()
-                ? new ArrayList<>(closedKinesisShards) : shardTopology.getClosedShardIds();
+        return shardTopology.getClosedShardIds();
     }
 
     @Override
@@ -251,7 +238,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 latestSequenceShards = shards;
                 LOG.info("Resolving initial Kinesis LATEST positions, job: {}, shards: {}", id, shards);
             }
-            if (latestSequenceDeadlineNs != 0 && System.nanoTime() - latestSequenceDeadlineNs >= 0) {
+            if (!latestSequenceFetch.isDone() && latestSequenceDeadlineNs != 0
+                    && System.nanoTime() - latestSequenceDeadlineNs >= 0) {
                 resetLatestSequenceFetch();
                 throw new LoadException("Kinesis latest sequence scan timed out before reaching the shard tips");
             }
@@ -315,7 +303,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         writeLock();
         try {
             shardTopology.resolveInitialPositions(operation.getShardPositions());
-            refreshShardViews();
             operation.getShardPositions().forEach((shard, position) -> {
                 String current = ((KinesisProgress) progress).getSequenceNumberByShard(shard);
                 if (current == null || KinesisProgress.POSITION_LATEST.equalsIgnoreCase(current)
@@ -333,7 +320,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         try {
             shardTopology.mergeShardInfos(operation.getShardInfos(), operation.getDefaultPosition(),
                     operation.getInitialPositions());
-            refreshShardViews();
             updateNewShardProgress();
         } finally {
             writeUnlock();
@@ -385,7 +371,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 List<String> allShards = shardTopology.getReadyShardIds();
 
                 currentConcurrentTaskNum = Math.min(currentConcurrentTaskNum, allShards.size());
-                // Divide only ready shards, including confirmed children whose parents still drain.
+                // Divide only ready shards, including children released since the last scan.
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<String, String> taskKinesisProgress = Maps.newHashMap();
                     for (int j = i; j < allShards.size(); j = j + currentConcurrentTaskNum) {
@@ -423,9 +409,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     public int calculateCurrentConcurrentTaskNum() {
         writeLock();
         try {
-            int shardNum = shardTopology.getNodes().isEmpty()
-                    ? openKinesisShards.size() + closedKinesisShards.size()
-                    : shardTopology.getReadyShardIds().size();
+            int shardNum = shardTopology.getReadyShardIds().size();
             if (desireTaskConcurrentNum == 0) {
                 desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
             }
@@ -462,19 +446,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         return false;
     }
 
-    private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
-        // Kept for existing FE unit fixtures; production transaction callbacks always pass txnId.
-        long txnId = Long.MIN_VALUE;
-        updateProgressAndOffsetsCache(attachment, txnId);
-        shardTopology.completeVisibleShards(txnId);
-        refreshShardViews();
-    }
-
     private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment, long txnId) {
         KinesisProgress taskProgress = (KinesisProgress) attachment.getProgress();
         if (customKinesisShards.isEmpty()) {
             shardTopology.mergeChildShardInfos(taskProgress.getChildShardParentIds());
-            refreshShardViews();
         }
         taskProgress.getShardIdToMillsBehindLatest().forEach(cachedShardWithMillsBehindLatest::put);
         for (String shardId : taskProgress.getClosedShardIds()) {
@@ -491,7 +466,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         try {
             if (txnOperated) {
                 shardTopology.completeVisibleShards(txnState.getTransactionId());
-                refreshShardViews();
                 updateNewShardProgress();
             }
             super.afterVisible(txnState, txnOperated);
@@ -515,7 +489,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         writeLock();
         try {
             shardTopology.completeVisibleShards(txnState.getTransactionId());
-            refreshShardViews();
             updateNewShardProgress();
         } finally {
             writeUnlock();
@@ -629,19 +602,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     private boolean isKinesisShardsChanged() throws UserException {
-        boolean legacyScan = newCurrentKinesisShardInfos == null && newCurrentKinesisShards != null;
-        if (legacyScan) {
-            newCurrentKinesisShardInfos = new ArrayList<>();
-            for (String shardId : newCurrentKinesisShards) {
-                newCurrentKinesisShardInfos.add(InternalService.PShardInfo.newBuilder().setShardId(shardId).build());
-            }
-            for (String shardId : openKinesisShards) {
-                if (!newCurrentKinesisShards.contains(shardId)) {
-                    newCurrentKinesisShardInfos.add(InternalService.PShardInfo.newBuilder()
-                            .setShardId(shardId).setClosed(true).build());
-                }
-            }
-        }
         if (newCurrentKinesisShardInfos == null) {
             return false;
         }
@@ -658,7 +618,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 convertedDefaultPosition(), ((KinesisProgress) progress).getShardIdToSequenceNumber());
         KinesisShardTopology candidate = shardTopology.copy();
         candidate.mergeShardInfos(infos, operation.getDefaultPosition(), operation.getInitialPositions());
-        if (!candidate.toJson().equals(shardTopology.toJson())) {
+        if (!candidate.equals(shardTopology)) {
             // Persist discovery before exposing new scheduling candidates or resolving LATEST.
             Env.getCurrentEnv().getEditLog().logKinesisShardTopology(operation);
             shardTopology = candidate;
@@ -966,8 +926,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             if (resetProgress) {
                 this.progress = new KinesisProgress();
                 this.shardTopology.reset();
-                this.openKinesisShards.clear();
-                this.closedKinesisShards.clear();
                 this.cachedShardWithMillsBehindLatest.clear();
             }
             if (hasExplicitShardPositions) {

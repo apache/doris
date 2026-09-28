@@ -29,12 +29,14 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-/** Job-owned lineage and shard lifecycle. All mutations require the job write lock. */
+/** Job-owned lineage and scheduling barriers. All mutations require the job write lock. */
 public class KinesisShardTopology {
     public enum ShardState {
         DISCOVERED,
+        PENDING_PARENT,
         ACTIVE,
         DRAINING,
         COMPLETED
@@ -61,6 +63,41 @@ public class KinesisShardTopology {
         private long completionTxnId = -1;
         @SerializedName("st")
         private ShardState state = ShardState.DISCOVERED;
+
+        private ShardNode copy() {
+            ShardNode copy = new ShardNode();
+            copy.shardId = shardId;
+            copy.parentShardIds.addAll(parentShardIds);
+            copy.childShardIds.addAll(childShardIds);
+            copy.initialStartPosition = initialStartPosition;
+            copy.metadataKnown = metadataKnown;
+            copy.sourceClosed = sourceClosed;
+            copy.outsideInitialSnapshot = outsideInitialSnapshot;
+            copy.completionTxnId = completionTxnId;
+            copy.state = state;
+            return copy;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof ShardNode)) {
+                return false;
+            }
+            ShardNode node = (ShardNode) other;
+            return Objects.equals(shardId, node.shardId)
+                    && parentShardIds.equals(node.parentShardIds)
+                    && childShardIds.equals(node.childShardIds)
+                    && Objects.equals(initialStartPosition, node.initialStartPosition)
+                    && metadataKnown == node.metadataKnown && sourceClosed == node.sourceClosed
+                    && outsideInitialSnapshot == node.outsideInitialSnapshot
+                    && completionTxnId == node.completionTxnId && state == node.state;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(shardId, parentShardIds, childShardIds, initialStartPosition,
+                    metadataKnown, sourceClosed, outsideInitialSnapshot, completionTxnId, state);
+        }
 
         public String getShardId() {
             return shardId;
@@ -123,7 +160,26 @@ public class KinesisShardTopology {
     }
 
     public KinesisShardTopology copy() {
-        return GsonUtils.GSON.fromJson(toJson(), KinesisShardTopology.class);
+        KinesisShardTopology copy = new KinesisShardTopology();
+        copy.initialSnapshotFinalized = initialSnapshotFinalized;
+        copy.lineageError = lineageError;
+        nodes.forEach((id, node) -> copy.nodes.put(id, node.copy()));
+        return copy;
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (!(other instanceof KinesisShardTopology)) {
+            return false;
+        }
+        KinesisShardTopology topology = (KinesisShardTopology) other;
+        return initialSnapshotFinalized == topology.initialSnapshotFinalized
+                && Objects.equals(lineageError, topology.lineageError) && nodes.equals(topology.nodes);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(initialSnapshotFinalized, lineageError, nodes);
     }
 
     public void reset() {
@@ -185,7 +241,32 @@ public class KinesisShardTopology {
                 break;
             }
         }
+        pruneExpiredCompletedShards(presentShardIds);
         reconcileStates();
+    }
+
+    // Retain the completion evidence used by any retained shard or unfinished child hint.
+    // Removing an ancestor still named by ListShards would recreate it as DISCOVERED on
+    // the next refresh and block its children. COMMITTED-but-not-VISIBLE is never collected.
+    private void pruneExpiredCompletedShards(Set<String> presentShardIds) {
+        Set<String> referencedParents = new HashSet<>();
+        for (ShardNode node : nodes.values()) {
+            if (presentShardIds.contains(node.shardId) || node.state != ShardState.COMPLETED) {
+                referencedParents.addAll(node.parentShardIds);
+            }
+        }
+        Set<String> removed = new HashSet<>();
+        for (ShardNode node : nodes.values()) {
+            if (node.state == ShardState.COMPLETED && !presentShardIds.contains(node.shardId)
+                    && !referencedParents.contains(node.shardId)) {
+                removed.add(node.shardId);
+            }
+        }
+        nodes.keySet().removeAll(removed);
+        for (ShardNode node : nodes.values()) {
+            node.parentShardIds.removeAll(removed);
+            node.childShardIds.removeAll(removed);
+        }
     }
 
     public void mergeChildShardInfos(Map<String, Set<String>> childShardParentIds,
@@ -230,7 +311,7 @@ public class KinesisShardTopology {
         reconcileStates();
     }
 
-    /** EOF is durable at COMMITTED. Only this shard stops running until VISIBLE completes it. */
+    /** EOF is durable at COMMITTED, but neither parent nor children can run before VISIBLE. */
     public void markEndCommitted(String shardId, long txnId) {
         ShardNode node = Preconditions.checkNotNull(nodes.get(shardId), "Unknown Kinesis shard %s", shardId);
         if (node.state == ShardState.COMPLETED) {
@@ -356,8 +437,13 @@ public class KinesisShardTopology {
             node.state = ShardState.DISCOVERED;
             return;
         }
-        // Lineage records split/merge relationships; it does not constrain consumption order.
-        // A child with confirmed metadata and a resolved position can run while its parents drain.
+        for (String parentId : node.parentShardIds) {
+            ShardNode parent = nodes.get(parentId);
+            if (!parent.outsideInitialSnapshot && parent.state != ShardState.COMPLETED) {
+                node.state = ShardState.PENDING_PARENT;
+                return;
+            }
+        }
         node.state = node.sourceClosed ? ShardState.DRAINING : ShardState.ACTIVE;
     }
 }

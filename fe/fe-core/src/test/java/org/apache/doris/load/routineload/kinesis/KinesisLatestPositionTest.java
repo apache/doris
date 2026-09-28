@@ -69,8 +69,6 @@ public class KinesisLatestPositionTest {
             progress = new KinesisProgress(Map.of("shard-0", "LATEST", "shard-1", "-1", "shard-2", "900"));
             Deencapsulation.setField(job, "progress", progress);
             Deencapsulation.setField(job, "state", JobState.NEED_SCHEDULE);
-            Deencapsulation.setField(job, "openKinesisShards",
-                    new ArrayList<>(List.of("shard-0", "shard-1", "shard-2")));
             KinesisShardTopology topology = new KinesisShardTopology();
             topology.mergeShardInfos(List.of(
                     InternalService.PShardInfo.newBuilder().setShardId("shard-0").build(),
@@ -152,8 +150,6 @@ public class KinesisLatestPositionTest {
         try (Fixture f = new Fixture()) {
             f.progress.addShardPosition(Pair.of("closed-shard", "LATEST"));
             f.progress.addShardPosition(Pair.of("removed-shard", "LATEST"));
-            Deencapsulation.setField(f.job, "closedKinesisShards",
-                    new ArrayList<>(List.of("closed-shard")));
             f.scan.complete(response(Map.of("shard-0", "150", "shard-1", "TRIM_HORIZON")));
             f.job.prepare();
             f.job.divideRoutineLoadJob(1);
@@ -295,4 +291,17 @@ public class KinesisLatestPositionTest {
                     "routineLoadTaskInfoList")).isEmpty());
         }
     }
+
+    @Test
+    public void testCompletedScanSurvivesDelayedSchedulerPoll() throws Exception {
+        try (Fixture f = new Fixture()) {
+            f.job.prepare();
+            f.scan.complete(response(Map.of("shard-0", "150", "shard-1", "TRIM_HORIZON")));
+            Deencapsulation.setField(f.job, "latestSequenceDeadlineNs", System.nanoTime() - 1);
+            f.job.prepare();
+            Assertions.assertEquals("150", f.progress.getSequenceNumberByShard("shard-0"));
+            Mockito.verify(f.editLog).logKinesisLatestPosition(Mockito.any());
+        }
+    }
+
 }

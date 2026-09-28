@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload.kinesis;
 
 import org.apache.doris.persist.KinesisShardTopologyOperation;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.InternalService;
 
 import org.junit.jupiter.api.Assertions;
@@ -52,10 +53,10 @@ public class KinesisShardTopologyTest {
                 KinesisProgress.TRIM_HORIZON_VAL);
         topology.mergeShardInfos(List.of(shard("P", null, false), shard("C1", "P", false),
                 shard("C2", "P", false)), "LATEST", KinesisProgress.TRIM_HORIZON_VAL);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
                 topology.getNodes().get("C1").getState());
         Assertions.assertEquals(List.of("C1", "C2", "P"), topology.getOpenShardIds());
-        Assertions.assertEquals(List.of("C1", "C2", "P"), topology.getReadyShardIds());
+        Assertions.assertEquals(List.of("P"), topology.getReadyShardIds());
 
         topology.markDraining("P");
         Assertions.assertEquals(KinesisShardTopology.ShardState.DRAINING,
@@ -83,25 +84,15 @@ public class KinesisShardTopologyTest {
     }
 
     @Test
-    public void testCommittedParentStopsOnlyItselfUntilVisible() {
+    public void testCommittedParentDoesNotReleaseChildUntilVisible() {
         KinesisShardTopology topology = new KinesisShardTopology();
         topology.mergeShardInfos(List.of(shard("P", null, false), shard("C", "P", false)),
                 "900", "TRIM_HORIZON");
 
-        Assertions.assertEquals(List.of("C", "P"), topology.getReadyShardIds());
         topology.markEndCommitted("P", 11L);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.DRAINING,
-                topology.getNodes().get("P").getState());
-        Assertions.assertEquals(List.of("C"), topology.getReadyShardIds());
-        topology.completeVisibleShards(99L);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.DRAINING,
-                topology.getNodes().get("P").getState());
-        Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
                 topology.getNodes().get("C").getState());
         topology.completeVisibleShards(11L);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.COMPLETED,
-                topology.getNodes().get("P").getState());
-        Assertions.assertEquals(List.of("C"), topology.getReadyShardIds());
         Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
                 topology.getNodes().get("C").getState());
     }
@@ -152,7 +143,7 @@ public class KinesisShardTopologyTest {
 
     /**
      * The child lineage carried by a transaction attachment must resolve to the same start position
-     * as a shard discovered by scanning, but must wait for metadata confirmation.
+     * as a shard discovered by scanning, and must still wait for the parent's visibility barrier.
      */
     @Test
     public void testChildShardLineageUsesTrimHorizonAfterParentCompletion() {
@@ -208,13 +199,12 @@ public class KinesisShardTopologyTest {
     }
 
     @Test
-    public void testMissingUnfinishedParentReportsDataLossDespiteReadyChild() {
+    public void testMissingRuntimeParentStopsLineageInsteadOfWaitingForever() {
         KinesisShardTopology topology = new KinesisShardTopology();
         topology.mergeShardInfos(List.of(shard("P", null, false)), "900", "TRIM_HORIZON");
         topology.mergeChildShardInfos(Map.of("C", Set.of("P")), KinesisProgress.TRIM_HORIZON_VAL);
         topology.mergeShardInfos(List.of(shard("C", "P", false)), "LATEST", "TRIM_HORIZON");
         Assertions.assertTrue(topology.getLineageError().contains("P"));
-        Assertions.assertEquals(List.of("C", "P"), topology.getReadyShardIds());
     }
 
     @Test
@@ -241,28 +231,26 @@ public class KinesisShardTopologyTest {
     }
 
     @Test
-    public void testMultiGenerationMergeRunsAlongsideUnfinishedParents() {
+    public void testMultiGenerationMergeWaitsForEveryParent() {
         KinesisShardTopology topology = new KinesisShardTopology();
         topology.mergeShardInfos(List.of(shard("P", null, false), shard("C1", "P", false),
                 shard("C2", "P", false)), KinesisProgress.POSITION_TRIM_HORIZON,
                 KinesisProgress.POSITION_TRIM_HORIZON);
+        topology.markCompleted("P");
+
         topology.mergeShardInfos(List.of(shard("P", null, true), shard("C1", "P", true),
                 shard("C2", "P", true), shardWithParents("G", "C1", "C2", false)),
                 KinesisProgress.POSITION_TRIM_HORIZON, KinesisProgress.POSITION_TRIM_HORIZON);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
                 topology.getNodes().get("G").getState());
 
-        Assertions.assertEquals(List.of("C1", "C2", "G", "P"), topology.getReadyShardIds());
-        Assertions.assertEquals(Set.of("C1", "C2"), topology.getNodes().get("G").getParentShardIds());
-        Assertions.assertEquals("TRIM_HORIZON", topology.getStartPosition("G"));
         topology.markEndCommitted("C1", 21L);
         topology.completeVisibleShards(21L);
-        Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
                 topology.getNodes().get("G").getState());
 
         topology.markEndCommitted("C2", 22L);
         topology.completeVisibleShards(22L);
-        Assertions.assertEquals(List.of("G", "P"), topology.getReadyShardIds());
         Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
                 topology.getNodes().get("G").getState());
     }
@@ -289,17 +277,126 @@ public class KinesisShardTopologyTest {
     }
 
     @Test
-    public void testClosedChildDrainsAlongsideBothParents() {
+    public void testPendingChildWithClosedSourceWaitsForAllParents() {
         KinesisShardTopology topology = new KinesisShardTopology();
-        topology.mergeShardInfos(List.of(shard("P1", null, true), shard("P2", null, true),
-                shardWithParents("C", "P1", "P2", true)), "TRIM_HORIZON", "TRIM_HORIZON");
+        topology.mergeShardInfos(List.of(shard("P1", null, false), shard("P2", null, false)),
+                "TRIM_HORIZON", "TRIM_HORIZON");
+        topology.mergeChildShardInfos(Map.of("C", Set.of("P1", "P2")),
+                KinesisProgress.TRIM_HORIZON_VAL);
+        topology.markDraining("C");
+        topology.markCompleted("P1");
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
+                topology.getNodes().get("C").getState());
+        topology.markCompleted("P2");
         Assertions.assertEquals(KinesisShardTopology.ShardState.DRAINING,
                 topology.getNodes().get("C").getState());
-        Assertions.assertEquals(List.of("C", "P1", "P2"), topology.getReadyShardIds());
-        topology.markEndCommitted("C", 33L);
-        topology.completeVisibleShards(33L);
-        Assertions.assertEquals(List.of("P1", "P2"), topology.getReadyShardIds());
-        Assertions.assertEquals(KinesisShardTopology.ShardState.COMPLETED,
+    }
+
+    /**
+     * A merge child is released once every parent is accounted for, whether the parent was consumed
+     * to completion by this job or was already outside the job's initial snapshot.
+     */
+    @Test
+    public void testMergeChildIsReleasedByCompletedAndOutsideParents() {
+        KinesisShardTopology topology = new KinesisShardTopology();
+        // P2 is only referenced as a parent, so the first scan places it outside the snapshot.
+        topology.mergeShardInfos(List.of(shard("P1", null, false),
+                shardWithParents("C", "P1", "P2", false)), "TRIM_HORIZON", "TRIM_HORIZON");
+        Assertions.assertTrue(topology.getNodes().get("P2").isOutsideInitialSnapshot());
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
                 topology.getNodes().get("C").getState());
+        Assertions.assertEquals(List.of("P1"), topology.getReadyShardIds());
+
+        topology.markEndCommitted("P1", 41L);
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
+                topology.getNodes().get("C").getState());
+
+        // The only parent inside the snapshot is now COMPLETED; the outside parent never blocks.
+        topology.completeVisibleShards(41L);
+        Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
+                topology.getNodes().get("C").getState());
+        Assertions.assertEquals(List.of("C"), topology.getReadyShardIds());
+    }
+
+    /** An image round trip must preserve the pending barrier instead of releasing the child. */
+    @Test
+    public void testPendingChildSurvivesImageRoundTrip() {
+        KinesisShardTopology topology = new KinesisShardTopology();
+        topology.mergeShardInfos(List.of(shard("P", null, true), shard("C", "P", false)),
+                "900", "TRIM_HORIZON");
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
+                topology.getNodes().get("C").getState());
+
+        KinesisShardTopology restored = GsonUtils.GSON.fromJson(topology.toJson(),
+                KinesisShardTopology.class);
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
+                restored.getNodes().get("C").getState());
+        Assertions.assertEquals(Set.of("P"), restored.getNodes().get("C").getParentShardIds());
+        Assertions.assertEquals(List.of("P"), restored.getReadyShardIds());
+
+        // The restored barrier still releases on the parent's completion, not on restart alone.
+        restored.markCompleted("P");
+        Assertions.assertEquals(KinesisShardTopology.ShardState.ACTIVE,
+                restored.getNodes().get("C").getState());
+        Assertions.assertEquals(List.of("C"), restored.getReadyShardIds());
+    }
+
+    @Test
+    public void testStructuralCopyAndComparisonIgnoreDiscoveryOrder() {
+        KinesisShardTopology left = new KinesisShardTopology();
+        KinesisShardTopology right = new KinesisShardTopology();
+        // Aa/BB are colliding String hash keys. Insertion order must not affect equality.
+        left.mergeShardInfos(List.of(shard("Aa", null, true), shard("BB", null, false)), "900", Map.of());
+        right.mergeShardInfos(List.of(shard("BB", null, false), shard("Aa", null, true)), "900", Map.of());
+        Assertions.assertEquals(left, right);
+        Assertions.assertEquals(left.hashCode(), right.hashCode());
+        KinesisShardTopology copy = left.copy();
+        copy.markEndCommitted("Aa", 101L);
+        Assertions.assertNotEquals(left, copy);
+        Assertions.assertEquals(List.of("Aa", "BB"), left.getReadyShardIds());
+        copy.completeVisibleShards(101L);
+        copy.mergeChildShardInfos(Map.of("C", Set.of("Aa")));
+        Assertions.assertTrue(left.getNodes().get("Aa").getChildShardIds().isEmpty());
+    }
+
+    @Test
+    public void testPruneKeepsReferencedParentAndVisibilityBarrier() {
+        KinesisShardTopology topology = new KinesisShardTopology();
+        topology.mergeShardInfos(List.of(shard("P", null, true), shard("C", "P", false)), "900", Map.of());
+        topology.markEndCommitted("P", 101L);
+        topology.mergeShardInfos(List.of(shard("C", "P", false)), "900", Map.of());
+        Assertions.assertTrue(topology.getNodes().containsKey("P"));
+        Assertions.assertTrue(topology.getReadyShardIds().isEmpty());
+        topology.completeVisibleShards(101L);
+        topology.mergeShardInfos(List.of(shard("C", "P", false)), "900", Map.of());
+        Assertions.assertEquals(List.of("C"), topology.getReadyShardIds());
+        Assertions.assertEquals(KinesisShardTopology.ShardState.COMPLETED,
+                topology.getNodes().get("P").getState());
+
+        topology.markEndCommitted("C", 102L);
+        topology.completeVisibleShards(102L);
+        List<InternalService.PShardInfo> next = List.of(shard("G", "C", false));
+        topology.mergeShardInfos(next, "900", Map.of());
+        Assertions.assertEquals(Set.of("C", "G"), topology.getNodes().keySet());
+        Assertions.assertTrue(topology.getNodes().get("C").getParentShardIds().isEmpty());
+        Assertions.assertEquals(List.of("G"), topology.getReadyShardIds());
+        KinesisShardTopology restored = org.apache.doris.persist.gson.GsonUtils.GSON.fromJson(
+                topology.toJson(), KinesisShardTopology.class);
+        restored.mergeShardInfos(next, "900", Map.of());
+        Assertions.assertEquals(topology, restored);
+        Assertions.assertNull(restored.getLineageError());
+    }
+
+    @Test
+    public void testMissingUnfinishedShardIsNeverPruned() {
+        KinesisShardTopology topology = new KinesisShardTopology();
+        topology.mergeShardInfos(List.of(shard("P", null, true)), "900", Map.of());
+        topology.mergeShardInfos(List.of(shard("C", "P", false)), "900", Map.of());
+        Assertions.assertNotNull(topology.getLineageError());
+        Assertions.assertTrue(topology.getNodes().containsKey("P"));
+        Assertions.assertEquals(KinesisShardTopology.ShardState.PENDING_PARENT,
+                topology.getNodes().get("C").getState());
+        // The job consumes lineageError and pauses; topology still retains the draining parent.
+        Assertions.assertEquals(List.of("P"), topology.getReadyShardIds());
     }
 }

@@ -908,6 +908,11 @@ public class EditLog {
                     KinesisLatestPositionOperation operation = (KinesisLatestPositionOperation) journal.getData();
                     KinesisRoutineLoadJob job = (KinesisRoutineLoadJob)
                             env.getRoutineLoadManager().getJob(operation.getJobId());
+                    if (job == null) {
+                        LOG.warn("Skip Kinesis LATEST_POSITION replay for missing routine load job {}",
+                                operation.getJobId());
+                        break;
+                    }
                     job.replayLatestPosition(operation);
                     break;
                 }
@@ -915,6 +920,11 @@ public class EditLog {
                     KinesisShardTopologyOperation operation = (KinesisShardTopologyOperation) journal.getData();
                     KinesisRoutineLoadJob job = (KinesisRoutineLoadJob)
                             env.getRoutineLoadManager().getJob(operation.getJobId());
+                    if (job == null) {
+                        LOG.warn("Skip Kinesis SHARD_TOPOLOGY replay for missing routine load job {}",
+                                operation.getJobId());
+                        break;
+                    }
                     job.replayShardTopology(operation);
                     break;
                 }
