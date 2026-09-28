@@ -879,12 +879,14 @@ public class MTMVTask extends AbstractTask {
             throws JobException {
         // Determine which partitions need refresh, same as partition-based flow. The partitions the
         // rebuild above handled are taken out: an incremental refresh of one of them would record it as
-        // caught up while its rows are exactly what the rebuild had to replace.
+        // caught up while its rows are exactly what the rebuild had to replace. This is what the attempt
+        // may record, which is not the same question as what it has to run for; see
+        // hasRecordsHeldForTheDelta.
         Set<String> incrementalScope = Sets.newLinkedHashSet(MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
                 refreshContext, relation.getBaseTablesOneLevelAndFromView()));
         incrementalScope.removeAll(dirtyPartitions);
         recordRefreshScope(incrementalScope);
-        if (CollectionUtils.isEmpty(incrementalScope)) {
+        if (CollectionUtils.isEmpty(incrementalScope) && !hasRecordsHeldForTheDelta()) {
             LOG.info("IVM incremental refresh skipped for mv={}: all partitions are synced, taskId={}",
                     mtmv.getName(), getTaskId());
             return IvmIncrRefreshResult.success();
@@ -934,6 +936,28 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getName(), getTaskId());
         }
         return ivmResult;
+    }
+
+    /**
+     * Whether the delta is what a partition this task replaced is still waiting for: the records the rebuild
+     * held back, whose publication is the delta's to earn.
+     *
+     * <p>An attempt whose scope comes out empty is one where every partition that needs a refresh is one the
+     * rebuild above replaced -- they are taken out of the scope on purpose. Skipping the delta then would
+     * skip it for exactly the partitions it is the only repair of: what the rebuild read of a table the MV
+     * does not partition by is the image as of the stream offset, and the delta is what brings that table up
+     * to date for them. Their records stay unrecorded until it has run, so the attempt runs for them even
+     * with nothing to record -- the scope is what it records, and an empty one records nothing.
+     *
+     * <p>The delta does not need the scope to do that work: its plan is the MV's own query over the streams,
+     * and the partitions it writes are the ones the change reaches, which includes the partitions the
+     * rebuild replaced.
+     *
+     * <p>One of the two held maps answers for both: a batch holds its epochs and its snapshots together,
+     * and redeeming publishes the pair -- which is also what the two are read as.
+     */
+    private boolean hasRecordsHeldForTheDelta() {
+        return !epochsHeldUntilTheDeltaRuns.isEmpty();
     }
 
     /**
@@ -1271,15 +1295,16 @@ public class MTMVTask extends AbstractTask {
             recordRefreshCompleted(execPartitionNames);
             // What this batch may record: everything it replaced, unless the read behind it answered with a
             // base table the MV does not partition by as of an older state than that table is in now -- which
-            // a partial read does for the partitions holding data the stream offset has not consumed, and it
-            // is the delta that follows that brings the table up to date. For the partitions this batch
-            // replaced, that delta does not apply: they are kept out of its scope, so a delta computed against
-            // the rows a rebuild replaced cannot be applied twice. Recording them would say they hold the
-            // table's current state when they hold that image, and nothing would plan them again. Left
-            // unrecorded, the requirement stays, the MV keeps the snapshot it has rather than one claiming the
-            // current state, and a later refresh rebuilds them -- by then the offset has been consumed, so a
-            // rebuild reads the table as it is. What the read answered with is recorded where the read is
-            // planned; see NormalizeOlapTableStreamScan and OlapTableStreamWrapper#answersWithTheCurrentTable.
+            // a partial read does for the partitions holding data the stream offset has not consumed. For
+            // those it is the delta that follows that brings the table up to date, and it does reach them:
+            // the partitions it writes are the ones the change reaches, and they are among them. What keeps
+            // them out of the delta's scope is this attempt's recording, not the delta's work; see
+            // hasRecordsHeldForTheDelta. Recording them here would say they hold the table's current state
+            // when they hold that image, and nothing would plan them again. Left unrecorded, the requirement
+            // stays, the MV keeps the snapshot it has rather than one claiming the current state, and a later
+            // refresh rebuilds them -- by then the offset has been consumed, so a rebuild reads the table as
+            // it is. What the read answered with is recorded where the read is planned; see
+            // NormalizeOlapTableStreamScan and OlapTableStreamWrapper#answersWithTheCurrentTable.
             if (rewriteContext.map(IvmRewriteContext::isReadFromAStreamOffset).orElse(false)) {
                 // Held rather than recorded: what these partitions hold is the image the read answered with,
                 // and the delta that follows is what brings the table up to date. See redeemHeldRecords.
@@ -1839,9 +1864,16 @@ public class MTMVTask extends AbstractTask {
 
     private void after() {
         if (mtmv != null) {
+            // A copy, because this is not always the thread that fills the map: a STOP publishes from the
+            // cancel thread and `cancel(false)` does not wait for the execution to stop, so the batches the
+            // worker commits afterwards would otherwise land in a result that was already built -- and
+            // journaled, since the record is written out asynchronously -- as theirs. See
+            // getIvmCapturedEpochs for the same rule on the epochs.
+            Map<String, MTMVRefreshPartitionSnapshot> publishedSnapshots = partitionSnapshots == null
+                    ? null : Maps.newHashMap(partitionSnapshots);
             Env.getCurrentEnv()
                     .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation,
-                            partitionSnapshots);
+                            publishedSnapshots);
         }
 
     }

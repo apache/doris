@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
@@ -44,12 +45,14 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
@@ -59,6 +62,7 @@ import org.mockito.Mockito;
 
 import java.time.LocalDate;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -287,6 +291,59 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet().stream()
                 .anyMatch(expected::contains));
         Assertions.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    /**
+     * What a partition-scoped invalidation writes to the journal: the partitions it marked, as the delta they
+     * are, together with the snapshots it dropped.
+     *
+     * <p>The MV's whole state map is the wrong shape for it twice over. A partition DDL reaches a few
+     * partitions of an MV that may have very many, so a record carrying every entry copies and journals all of
+     * them, under the MV write lock, to say what one of them now requires; and a replay that replaced the map
+     * with it would drop the entries other records -- an alignment, the raise a refresh makes -- wrote in
+     * between. The delta is replayed over those entries rather than in place of them.
+     */
+    @Test
+    public void testAPartitionScopedInvalidationJournalsOnlyWhatItMarked() throws Exception {
+        String db = "ivm_invalidation_journals_the_delta";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        alignStatesOf(mtmv);
+        Map<String, MTMVPartitionState> before = mtmv.getPartitionStates();
+        Assertions.assertEquals(2, before.size());
+        Set<String> marked = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, marked.size());
+        String other = before.keySet().stream().filter(name -> !marked.contains(name)).findFirst().get();
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Maps.newHashMap();
+        for (String partitionName : before.keySet()) {
+            snapshots.put(partitionName, new MTMVRefreshPartitionSnapshot());
+        }
+
+        List<AlterMTMV> journaled = journalPartitionStates(
+                () -> executeSql("ALTER TABLE ivm_base DROP PARTITION p202001"));
+
+        Assertions.assertEquals(1, journaled.size());
+        AlterMTMV payload = journaled.get(0);
+        Assertions.assertTrue(payload.isMergePartitionStates());
+        Assertions.assertEquals(marked, payload.getPartitionStates().keySet());
+        Assertions.assertEquals(marked, payload.getRemovedSnapshotPartitions());
+        Assertions.assertEquals(2L, payload.getPartitionStates().values().iterator().next().getLatestEpoch());
+
+        // What a restart does with it: the states go back to what they were, a record that ran in between
+        // moves the partition this payload does not name, and then this one is replayed over both.
+        mtmv.replayAlterPartitionStates(before, Collections.emptySet(), false);
+        mtmv.replayAlterPartitionStates(Collections.singletonMap(other, new MTMVPartitionState(1, 4)),
+                Collections.emptySet(), true);
+        mtmv.getRefreshSnapshot().updateSnapshots(snapshots, before.keySet());
+        mtmv.replayAlterPartitionStates(payload.getPartitionStates(), payload.getRemovedSnapshotPartitions(),
+                payload.isMergePartitionStates());
+
+        // The partition it names is raised and lost its snapshot; the one it does not keeps both, which is
+        // what the merge buys -- replacing the map with the delta would have dropped its entry.
+        Assertions.assertEquals(2L, mtmv.getPartitionStates().get(marked.iterator().next()).getLatestEpoch());
+        Assertions.assertEquals(4L, mtmv.getPartitionStates().get(other).getLatestEpoch());
+        Assertions.assertEquals(Sets.newHashSet(other),
+                mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
     }
 
     /**
@@ -1183,6 +1240,37 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     /** Puts the MV back to a state where only a new invalidation can move it. */
     private void resetMvState(MTMV mtmv) {
         mtmv.alterStatus(new MTMVStatus(MTMVState.NORMAL, "reset"));
+    }
+
+    /** An action that may throw, for {@link #journalPartitionStates}. */
+    private interface JournalingAction {
+        void run() throws Exception;
+    }
+
+    /**
+     * Runs {@code action} with the edit log spied, collecting the partition-state payloads it journals. The
+     * spy delegates, so the journal the test's own DDL writes is still written.
+     */
+    private List<AlterMTMV> journalPartitionStates(JournalingAction action) throws Exception {
+        List<AlterMTMV> journaled = Lists.newArrayList();
+        Env env = Env.getCurrentEnv();
+        EditLog original = env.getEditLog();
+        EditLog spyEditLog = Mockito.spy(original);
+        Mockito.doAnswer(invocation -> {
+            Writable writable = invocation.getArgument(1);
+            if (writable instanceof AlterMTMV
+                    && ((AlterMTMV) writable).getOpType() == MTMVAlterOpType.ALTER_PARTITION_STATES) {
+                journaled.add((AlterMTMV) writable);
+            }
+            return invocation.callRealMethod();
+        }).when(spyEditLog).submitEdit(Mockito.anyShort(), Mockito.any(Writable.class));
+        env.setEditLog(spyEditLog);
+        try {
+            action.run();
+        } finally {
+            env.setEditLog(original);
+        }
+        return journaled;
     }
 
     private AlterMTMV taskResult(MTMV mtmv, TaskStatus status, long schemaChangeVersion) {

@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -291,6 +292,35 @@ public class MTMVTaskTest {
         Deencapsulation.setField(task, "ivmCapturedEpochs", null);
 
         Assertions.assertTrue(task.getIvmCapturedEpochs().isEmpty());
+    }
+
+    /**
+     * The snapshots a result publishes are handed over as a copy, for the reason the epochs are: a STOP
+     * publishes from the cancel thread and {@code cancel(false)} does not wait for the execution to stop, so
+     * the map the result is built from can still gain the batches the worker commits afterwards -- and the
+     * record is written out asynchronously, so they would be replayed as entries this result never applied.
+     */
+    @Test
+    public void testTheSnapshotsHandedOverAreNotTheMapTheWorkerKeepsFilling() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Map<String, MTMVRefreshPartitionSnapshot> live = Maps.newConcurrentMap();
+        Deencapsulation.setField(task, "partitionSnapshots", live);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("db1");
+        Mockito.when(mtmv.getName()).thenReturn("mv1");
+        Env env = Mockito.mock(Env.class);
+        ArgumentCaptor<Map<String, MTMVRefreshPartitionSnapshot>> published =
+                ArgumentCaptor.forClass(Map.class);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Deencapsulation.invoke(task, "after");
+        }
+
+        Mockito.verify(env).addMTMVTaskResult(Mockito.any(), Mockito.same(task), Mockito.any(), published.capture());
+        // A batch the worker commits after the stop: it merges into the map the task holds, and must not
+        // reach the result that was already built from it.
+        live.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Assertions.assertTrue(published.getValue().isEmpty());
     }
 
     /**
@@ -902,6 +932,76 @@ public class MTMVTaskTest {
 
         Assertions.assertEquals(Sets.newHashSet(ptwoName),
                 Deencapsulation.getField(task, "needRefreshPartitions"));
+    }
+
+    /**
+     * The delta runs for the records a partial read held back even when the attempt has nothing to record.
+     *
+     * <p>An attempt whose scope comes out empty is one where every partition that needs a refresh is one the
+     * rebuild above replaced -- which is what the retry's alignment can leave behind, since a partition it
+     * recreates joins the dirty set. Skipping the delta then would skip it for the partitions it is the only
+     * repair of: what the rebuild read of a table the MV does not partition by is the image as of the stream
+     * offset, and recording those partitions anyway would say they hold that table's current state when they
+     * hold that image.
+     */
+    @Test
+    public void testTheIncrementalAttemptRunsForTheRecordsAPartialReadHeldBack() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.same(refreshContext), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(poneName));
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
+                Mockito.same(refreshContext), Mockito.nullable(Set.class), Mockito.nullable(Set.class)))
+                .thenReturn(Collections.emptyMap());
+        // The rebuild replaced the only partition that needs a refresh, and read the joined table as of the
+        // offset, so its records are held for the delta.
+        Deencapsulation.setField(task, "epochsHeldUntilTheDeltaRuns", Maps.newHashMap(Map.of(poneName, 3L)));
+        Partition partition = partitionWithId(10L);
+        Mockito.when(mtmv.getPartition(poneName)).thenReturn(partition);
+
+        try (MockedConstruction<IvmIncrRefreshManager> construction = Mockito.mockConstruction(
+                IvmIncrRefreshManager.class, (mock, context) -> Mockito.when(mock.doRefresh(Mockito.any()))
+                        .thenReturn(IvmIncrRefreshResult.success()))) {
+            IvmIncrRefreshResult result = (IvmIncrRefreshResult) Deencapsulation.invoke(
+                    task, "executeSingleIvmAttempt", refreshContext, Sets.newHashSet(poneName));
+            Assertions.assertTrue(result.isSuccess());
+            Assertions.assertEquals(1, construction.constructed().size(),
+                    "the delta has to run for the records the rebuild held back");
+            Mockito.verify(construction.constructed().get(0)).doRefresh(Mockito.any());
+        }
+
+        // The attempt records nothing -- the scope it records is empty -- and the delta that has now run is
+        // what the caller publishes the held records with.
+        Assertions.assertTrue(
+                ((Map<?, ?>) Deencapsulation.getField(task, "ivmCapturedEpochs")).isEmpty());
+        Deencapsulation.invoke(task, "redeemHeldRecords");
+        Assertions.assertEquals(Map.of(poneName, 3L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
+    }
+
+    /**
+     * The other direction: an attempt with nothing to record and nothing held back is still skipped, which is
+     * what keeps an MV that is already current from reading its streams.
+     */
+    @Test
+    public void testTheIncrementalAttemptIsSkippedWhenThereIsNothingHeldBack() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                Mockito.same(refreshContext), Mockito.nullable(Set.class)))
+                .thenReturn(Lists.newArrayList(poneName));
+
+        try (MockedConstruction<IvmIncrRefreshManager> construction = Mockito.mockConstruction(
+                IvmIncrRefreshManager.class)) {
+            IvmIncrRefreshResult result = (IvmIncrRefreshResult) Deencapsulation.invoke(
+                    task, "executeSingleIvmAttempt", refreshContext, Sets.newHashSet(poneName));
+            Assertions.assertTrue(result.isSuccess());
+            Assertions.assertTrue(construction.constructed().isEmpty());
+        }
     }
 
     private static List<String> toNames(List<?> attempts) {

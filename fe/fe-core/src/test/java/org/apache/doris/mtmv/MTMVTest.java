@@ -923,6 +923,28 @@ public class MTMVTest {
                 mtmv.getRefreshSnapshot().getPartitionSnapshots().keySet());
     }
 
+    /**
+     * A result that publishes no snapshots must not hand its record the map the task keeps filling. The
+     * record is written out asynchronously, and a cancelled task publishes from the cancel thread while the
+     * worker goes on committing batches, so the entries that arrive after the result was built would be
+     * replayed as ones it applied -- while the leader applied none of them.
+     */
+    @Test
+    public void testAnEmptySnapshotPayloadIsNotTheMapTheTaskKeepsFilling() {
+        MTMV mtmv = Mockito.spy(buildSerializableMTMV());
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Mockito.doReturn(Sets.newHashSet("p202601")).when(mtmv).getPartitionNames();
+        Map<String, MTMVRefreshPartitionSnapshot> taskSnapshots = Maps.newConcurrentMap();
+
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, taskSnapshots, null, false, Map.of());
+
+        // The batch the worker commits after the stop merges into the map the task holds.
+        taskSnapshots.put("p202601", new MTMVRefreshPartitionSnapshot());
+
+        Assertions.assertEquals(1, journaled.size());
+        Assertions.assertTrue(journaled.get(0).getPartitionSnapshots().isEmpty());
+    }
+
     @Test
     public void testReplayIgnoresTheEpochsTheTaskCaptured() {
         MTMV mtmv = buildSerializableMTMV();
