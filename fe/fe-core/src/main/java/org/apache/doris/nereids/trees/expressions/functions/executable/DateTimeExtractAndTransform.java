@@ -2061,11 +2061,31 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
+     * Constant folding for human_readable_seconds(DoubleLiteral)
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(DoubleLiteral seconds) {
+        double val = seconds.getValue();
+        if (Double.isNaN(val) || Double.isInfinite(val)) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        double absVal = Math.abs(val);
+        if (absVal > Long.MAX_VALUE) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return formatHumanReadableSeconds(Math.round(absVal));
+    }
+
+    /**
      * Constant folding for human_readable_seconds(BigIntLiteral)
      */
     @ExecFunction(name = "human_readable_seconds")
     public static Expression humanReadableSeconds(BigIntLiteral seconds) {
-        return formatHumanReadableSeconds(seconds.getValue());
+        long val = seconds.getValue();
+        if (val == Long.MIN_VALUE) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return formatHumanReadableSeconds(Math.abs(val));
     }
 
     /**
@@ -2073,7 +2093,11 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "human_readable_seconds")
     public static Expression humanReadableSeconds(IntegerLiteral seconds) {
-        return formatHumanReadableSeconds(seconds.getValue());
+        long val = seconds.getValue();
+        if (val == Integer.MIN_VALUE) {
+            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+        }
+        return formatHumanReadableSeconds(Math.abs(val));
     }
 
     /**
@@ -2081,7 +2105,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "human_readable_seconds")
     public static Expression humanReadableSeconds(SmallIntLiteral seconds) {
-        return formatHumanReadableSeconds(seconds.getValue());
+        return formatHumanReadableSeconds(Math.abs(seconds.getValue()));
     }
 
     /**
@@ -2089,44 +2113,49 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "human_readable_seconds")
     public static Expression humanReadableSeconds(TinyIntLiteral seconds) {
-        return formatHumanReadableSeconds(seconds.getValue());
+        return formatHumanReadableSeconds(Math.abs(seconds.getValue()));
     }
 
     private static Expression formatHumanReadableSeconds(long seconds) {
-        if (seconds < 0) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
-        }
         if (seconds == 0) {
-            return new VarcharLiteral("0s");
+            return new VarcharLiteral("0 seconds");
         }
+        long weeks = seconds / 604800L;
+        seconds %= 604800L;
         long days = seconds / 86400L;
-        long rem = seconds % 86400L;
-        long hours = rem / 3600L;
-        rem %= 3600L;
-        long minutes = rem / 60L;
-        long secs = rem % 60L;
+        seconds %= 86400L;
+        long hours = seconds / 3600L;
+        seconds %= 3600L;
+        long minutes = seconds / 60L;
+        long secs = seconds % 60L;
 
         StringBuilder sb = new StringBuilder();
+        if (weeks > 0) {
+            sb.append(weeks).append(weeks == 1 ? " week" : " weeks");
+        }
         if (days > 0) {
-            sb.append(days).append('d');
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(days).append(days == 1 ? " day" : " days");
         }
         if (hours > 0) {
             if (sb.length() > 0) {
-                sb.append(' ');
+                sb.append(", ");
             }
-            sb.append(hours).append('h');
+            sb.append(hours).append(hours == 1 ? " hour" : " hours");
         }
         if (minutes > 0) {
             if (sb.length() > 0) {
-                sb.append(' ');
+                sb.append(", ");
             }
-            sb.append(minutes).append('m');
+            sb.append(minutes).append(minutes == 1 ? " minute" : " minutes");
         }
         if (secs > 0) {
             if (sb.length() > 0) {
-                sb.append(' ');
+                sb.append(", ");
             }
-            sb.append(secs).append('s');
+            sb.append(secs).append(secs == 1 ? " second" : " seconds");
         }
         return new VarcharLiteral(sb.toString());
     }

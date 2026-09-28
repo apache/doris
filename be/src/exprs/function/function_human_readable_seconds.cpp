@@ -16,9 +16,13 @@
 // under the License.
 
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "common/cast_set.h"
@@ -77,11 +81,11 @@ public:
         auto null_column = ColumnUInt8::create(input_rows_count);
 
         bool success = false;
-        if (execute_typed<ColumnInt64>(actual_col, null_map, *res_column, *null_column,
-                                       input_rows_count)) {
+        if (execute_typed<ColumnFloat64>(actual_col, null_map, *res_column, *null_column,
+                                         input_rows_count)) {
             success = true;
-        } else if (execute_typed<ColumnInt32>(actual_col, null_map, *res_column, *null_column,
-                                              input_rows_count)) {
+        } else if (execute_typed<ColumnFloat32>(actual_col, null_map, *res_column, *null_column,
+                                                input_rows_count)) {
             success = true;
         }
 
@@ -96,54 +100,68 @@ public:
     }
 
 private:
-    /**
-     * Formats seconds into human-readable format:
-     * - Omit zero values (e.g., "1d 1s" instead of "1d 0h 0m 1s")
-     * - Special case 0 -> "0s"
-     * - Stack buffer ensures zero dynamic heap allocation
-     */
-    static inline size_t format_seconds(int64_t seconds, char* buf) {
+    static inline size_t format_seconds(int64_t seconds, char* buf, char* buf_end) {
         if (seconds == 0) {
-            buf[0] = '0';
-            buf[1] = 's';
-            return 2;
+            static constexpr char zero_str[] = "0 seconds";
+            std::memcpy(buf, zero_str, sizeof(zero_str) - 1);
+            return sizeof(zero_str) - 1;
         }
 
         char* ptr = buf;
-        auto append_unit = [&ptr](int64_t val, char unit, bool need_space) {
-            if (need_space) {
+        auto append_unit = [&ptr, buf_end](int64_t val, std::string_view singular,
+                                           std::string_view plural, bool need_comma) {
+            if (need_comma) {
+                *ptr++ = ',';
                 *ptr++ = ' ';
             }
-            auto [next, _] = std::to_chars(ptr, ptr + 24, val);
+            auto [next, _] = std::to_chars(ptr, buf_end, val);
             ptr = next;
-            *ptr++ = unit;
+            *ptr++ = ' ';
+            std::string_view unit = (val == 1) ? singular : plural;
+            std::memcpy(ptr, unit.data(), unit.size());
+            ptr += unit.size();
         };
 
-        // Division and modulo by compile-time constants are converted to reciprocal multiplication by compiler
-        int64_t days = seconds / 86400;
-        int64_t rem = seconds % 86400;
-        int64_t hours = rem / 3600;
-        rem %= 3600;
-        int64_t minutes = rem / 60;
-        int64_t secs = rem % 60;
+        constexpr int64_t SECONDS_PER_MINUTE = 60;
+        constexpr int64_t SECONDS_PER_HOUR = 3600;
+        constexpr int64_t SECONDS_PER_DAY = 86400;
+        constexpr int64_t DAYS_PER_WEEK = 7;
+        constexpr int64_t SECONDS_PER_WEEK = SECONDS_PER_DAY * DAYS_PER_WEEK;
+
+        int64_t weeks = seconds / SECONDS_PER_WEEK;
+        seconds %= SECONDS_PER_WEEK;
+
+        int64_t days = seconds / SECONDS_PER_DAY;
+        seconds %= SECONDS_PER_DAY;
+
+        int64_t hours = seconds / SECONDS_PER_HOUR;
+        seconds %= SECONDS_PER_HOUR;
+
+        int64_t minutes = seconds / SECONDS_PER_MINUTE;
+        int64_t secs = seconds % SECONDS_PER_MINUTE;
 
         bool has_prev = false;
+        if (weeks > 0) {
+            append_unit(weeks, "week", "weeks", has_prev);
+            has_prev = true;
+        }
         if (days > 0) {
-            append_unit(days, 'd', has_prev);
+            append_unit(days, "day", "days", has_prev);
             has_prev = true;
         }
         if (hours > 0) {
-            append_unit(hours, 'h', has_prev);
+            append_unit(hours, "hour", "hours", has_prev);
             has_prev = true;
         }
         if (minutes > 0) {
-            append_unit(minutes, 'm', has_prev);
+            append_unit(minutes, "minute", "minutes", has_prev);
             has_prev = true;
         }
         if (secs > 0) {
-            append_unit(secs, 's', has_prev);
+            append_unit(secs, "second", "seconds", has_prev);
             has_prev = true;
         }
+
         return ptr - buf;
     }
 
@@ -160,32 +178,38 @@ private:
         auto& null_data = null_map_col.get_data();
 
         res_offsets.resize(rows);
-        // Pre-reserve memory to avoid vector reallocations
-        res_data.reserve(rows * 16);
+        res_data.reserve(rows * 32);
 
-        char buf[48];
+        char buf[128];
+        char* buf_end = buf + sizeof(buf);
 
         for (size_t i = 0; i < rows; ++i) {
-            // Propagate NULL input
             if (null_map && (*null_map)[i]) {
                 null_data[i] = 1;
                 res_offsets[i] = cast_set<UInt32>(res_data.size());
                 continue;
             }
 
-            int64_t val = static_cast<int64_t>(data[i]);
-            // Negative input values (or INT_MIN) are out-of-range, produce NULL
-            if (val < 0) {
+            auto val = data[i];
+            if (std::isnan(val) || std::isinf(val)) {
                 null_data[i] = 1;
                 res_offsets[i] = cast_set<UInt32>(res_data.size());
-            } else {
-                null_data[i] = 0;
-                size_t len = format_seconds(val, buf);
-                size_t old_size = res_data.size();
-                res_data.resize(old_size + len);
-                std::memcpy(res_data.data() + old_size, buf, len);
-                res_offsets[i] = cast_set<UInt32>(res_data.size());
+                continue;
             }
+            double abs_val = std::abs(static_cast<double>(val));
+            if (abs_val > static_cast<double>(std::numeric_limits<int64_t>::max())) {
+                null_data[i] = 1;
+                res_offsets[i] = cast_set<UInt32>(res_data.size());
+                continue;
+            }
+            int64_t seconds = std::llround(abs_val);
+
+            null_data[i] = 0;
+            size_t len = format_seconds(seconds, buf, buf_end);
+            size_t old_size = res_data.size();
+            res_data.resize(old_size + len);
+            std::memcpy(res_data.data() + old_size, buf, len);
+            res_offsets[i] = cast_set<UInt32>(res_data.size());
         }
         return true;
     }
