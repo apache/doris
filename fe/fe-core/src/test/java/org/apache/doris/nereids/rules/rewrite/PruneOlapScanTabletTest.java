@@ -47,7 +47,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
-import mockit.Mocked;
+import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -57,9 +57,9 @@ import java.util.Objects;
 class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSupported {
 
     @Test
-    void testPruneOlapScanTablet(@Mocked OlapTable olapTable,
-            @Mocked Partition partition, @Mocked MaterializedIndex index,
-            @Mocked HashDistributionInfo distributionInfo) {
+    void testPruneOlapScanTablet(@Injectable OlapTable olapTable,
+            @Injectable Partition partition, @Injectable MaterializedIndex index,
+            @Injectable HashDistributionInfo distributionInfo) {
         List<Long> tabletIds = Lists.newArrayListWithExpectedSize(300);
         for (long i = 0; i < 300; i++) {
             tabletIds.add(i);
