@@ -32,6 +32,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/allocator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -42,6 +43,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "storage/olap_define.h"
 #include "testutil/mock/mock_query_task_controller.h"
+#include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 
@@ -949,6 +951,105 @@ TEST_F(WorkloadGroupManagerTest, update_queries_limit_restores_limit_none_policy
     ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), user_set)
             << "NONE policy: mem_limit should be restored to user_set_mem_limit after memory "
                "recovery";
+}
+
+TEST_F(WorkloadGroupManagerTest, allocator_error_reports_workload_group_limit) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
+    WorkloadGroupInfo wg_info {.id = 21993,
+                               .name = "rg_test",
+                               .memory_limit = 1024L * 1024 * 50,
+                               .max_memory_percent = 25,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 128, true);
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), 1024L * 1024 * 50);
+
+    query_context->resource_ctx()->task_controller()->disable_reserve_memory();
+    SCOPED_ATTACH_TASK(query_context->resource_ctx());
+    std::string error;
+    Allocator<false, false, false> allocator;
+    EXPECT_TRUE(allocator.memory_tracker_exceed(1024L * 1024 * 51, &error));
+    EXPECT_NE(error.find("user exec_mem_limit: 128"), std::string::npos);
+    EXPECT_NE(error.find("workload group query limit: 50"), std::string::npos);
+    EXPECT_NE(error.find("limit 50"), std::string::npos);
+    EXPECT_NE(error.find("constrained by the workload group"), std::string::npos);
+    EXPECT_EQ(error.find("can `set exec_mem_limit`"), std::string::npos);
+}
+
+TEST_F(WorkloadGroupManagerTest, allocator_error_keeps_user_limit_advice) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
+    WorkloadGroupInfo wg_info {.id = 21994,
+                               .name = "rg_user_limit",
+                               .memory_limit = 1024L * 1024 * 50,
+                               .max_memory_percent = 25,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 32, true);
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), 1024L * 1024 * 32);
+
+    query_context->resource_ctx()->task_controller()->disable_reserve_memory();
+    SCOPED_ATTACH_TASK(query_context->resource_ctx());
+    std::string error;
+    Allocator<false, false, false> allocator;
+    EXPECT_TRUE(allocator.memory_tracker_exceed(1024L * 1024 * 33, &error));
+    EXPECT_NE(error.find("limit 32"), std::string::npos);
+    EXPECT_EQ(error.find("constrained by workload group"), std::string::npos);
+    EXPECT_NE(error.find("can `set exec_mem_limit`"), std::string::npos);
+}
+
+TEST_F(WorkloadGroupManagerTest, allocator_error_reports_equal_workload_group_limit) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 200);
+    WorkloadGroupInfo wg_info {.id = 21995,
+                               .name = "rg_equal_limit",
+                               .memory_limit = 1024L * 1024 * 50,
+                               .max_memory_percent = 25,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 50, true);
+    wg->refresh_memory_usage();
+    _wg_manager->refresh_workload_group_memory_state();
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), 1024L * 1024 * 50);
+
+    query_context->resource_ctx()->task_controller()->disable_reserve_memory();
+    SCOPED_ATTACH_TASK(query_context->resource_ctx());
+    std::string error;
+    Allocator<false, false, false> allocator;
+    ASSERT_TRUE(allocator.memory_tracker_exceed(1024L * 1024 * 51, &error));
+    EXPECT_NE(error.find("workload group query limit: 50"), std::string::npos);
+    EXPECT_EQ(error.find("can `set exec_mem_limit`"), std::string::npos);
+}
+
+TEST_F(WorkloadGroupManagerTest, allocator_error_avoids_user_limit_advice_for_process_cap) {
+    const int64_t original_mem_limit = MemInfo::mem_limit();
+    Defer restore_mem_limit {[&]() { MemInfo::set_mem_limit_for_test(original_mem_limit); }};
+    MemInfo::set_mem_limit_for_test(1024L * 1024 * 64);
+    WorkloadGroupInfo wg_info {.id = 21996,
+                               .name = "rg_process_limit",
+                               .memory_limit = 1024L * 1024 * 200,
+                               .max_memory_percent = 25,
+                               .slot_mem_policy = TWgSlotMemoryPolicy::NONE};
+    auto wg = _wg_manager->get_or_create_workload_group(wg_info);
+    auto query_context = _generate_on_query(wg, 1024L * 1024 * 128, true);
+    ASSERT_EQ(query_context->resource_ctx()->memory_context()->mem_limit(), 1024L * 1024 * 64);
+
+    query_context->resource_ctx()->task_controller()->disable_reserve_memory();
+    SCOPED_ATTACH_TASK(query_context->resource_ctx());
+    std::string error;
+    Allocator<false, false, false> allocator;
+    ASSERT_TRUE(allocator.memory_tracker_exceed(1024L * 1024 * 65, &error));
+    EXPECT_NE(error.find("limit 64"), std::string::npos);
+    EXPECT_NE(error.find("check the backend process memory limit"), std::string::npos);
+    EXPECT_EQ(error.find("can `set exec_mem_limit`"), std::string::npos);
 }
 
 // Test Fix 3: For DYNAMIC policy, when memory pressure eases (below low watermark),

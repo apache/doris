@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 
 #include "common/factory_creator.h"
@@ -34,6 +35,17 @@ class MemoryContext : public std::enable_shared_from_this<MemoryContext> {
     ENABLE_FACTORY_CREATOR(MemoryContext);
 
 public:
+    struct LimitSnapshot {
+        int64_t user_limit;
+        int64_t workload_group_query_limit;
+        int64_t effective_limit;
+
+        bool constrained_by_workload_group() const {
+            return workload_group_query_limit > 0 && workload_group_query_limit <= user_limit &&
+                   workload_group_query_limit == effective_limit;
+        }
+    };
+
     /*
     * 1. operate them thread-safe.
     * 2. all tasks are unified.
@@ -87,12 +99,23 @@ public:
         user_set_mem_limit_ = user_set_mem_limit;
     }
 
-    // This method is called by workload group manager to set query's memlimit using slot
-    // If user set query limit explicitly, then should use less one
-    void set_mem_limit(int64_t new_mem_limit) const { mem_tracker_->set_limit(new_mem_limit); }
+    void set_mem_limit(int64_t new_mem_limit) {
+        std::lock_guard<std::mutex> lock(limit_mutex_);
+        mem_tracker_->set_limit(new_mem_limit);
+        workload_group_query_mem_limit_ = -1;
+    }
+    void set_mem_limit_from_workload_group(int64_t effective_limit, int64_t query_mem_limit) {
+        std::lock_guard<std::mutex> lock(limit_mutex_);
+        mem_tracker_->set_limit(effective_limit);
+        workload_group_query_mem_limit_ = query_mem_limit;
+    }
     int64_t mem_limit() const { return mem_tracker_->limit(); }
 
     int64_t user_set_mem_limit() const { return user_set_mem_limit_; }
+    LimitSnapshot limit_snapshot() const {
+        std::lock_guard<std::mutex> lock(limit_mutex_);
+        return {user_set_mem_limit_, workload_group_query_mem_limit_, mem_tracker_->limit()};
+    }
 
     // The new memlimit should be less than user set memlimit.
     void set_adjusted_mem_limit(int64_t new_mem_limit) {
@@ -124,6 +147,8 @@ protected:
 
     int64_t user_set_mem_limit_ = 0;
     std::atomic<int64_t> adjusted_mem_limit_ = 0;
+    mutable std::mutex limit_mutex_;
+    int64_t workload_group_query_mem_limit_ = -1;
 };
 
 } // namespace doris

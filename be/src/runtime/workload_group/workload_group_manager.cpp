@@ -522,8 +522,9 @@ bool WorkloadGroupMgr::handle_workload_group_memory_exceeded_(
         resource_ctx->memory_context()->current_memory_bytes() + query_it->reserve_size_) {
         // The query not exceed the query limit, but exceed the expected query limit when the workload
         // group memory is not enough, use the litter memory limit to let the query exceed query limit.
-        resource_ctx->memory_context()->set_mem_limit(
-                resource_ctx->memory_context()->adjusted_mem_limit());
+        auto adjusted_mem_limit = resource_ctx->memory_context()->adjusted_mem_limit();
+        resource_ctx->memory_context()->set_mem_limit_from_workload_group(adjusted_mem_limit,
+                                                                          adjusted_mem_limit);
         resource_ctx->task_controller()->set_memory_sufficient(true);
         LOG(INFO) << "Workload group memory reserve failed because "
                   << resource_ctx->task_controller()->debug_string() << " reserve size "
@@ -904,7 +905,8 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         }
         int64_t query_weighted_mem_limit = 0;
         int64_t expected_query_weighted_mem_limit = 0;
-        if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::NONE) {
+        const auto slot_memory_policy = wg->slot_memory_policy();
+        if (slot_memory_policy == TWgSlotMemoryPolicy::NONE) {
             query_weighted_mem_limit = resource_ctx->memory_context()->user_set_mem_limit();
             // If the policy is NONE, we use the query's memory limit. but the query's memory limit
             // should not be greater than the workload group's memory limit.
@@ -912,7 +914,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                 query_weighted_mem_limit = wg_mem_limit;
             }
             expected_query_weighted_mem_limit = query_weighted_mem_limit;
-        } else if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::FIXED) {
+        } else if (slot_memory_policy == TWgSlotMemoryPolicy::FIXED) {
             // TODO, `Policy::FIXED` expects `all_query_used_slot_count < wg_total_slot_count`,
             // which is controlled when query is submitted
             // DCEHCK(total_used_slot_count <= total_slot_count);
@@ -929,7 +931,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                                   total_slot_count);
                 expected_query_weighted_mem_limit = query_weighted_mem_limit;
             }
-        } else if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::DYNAMIC) {
+        } else if (slot_memory_policy == TWgSlotMemoryPolicy::DYNAMIC) {
             // If low water mark is not reached, then use process memory limit as query memory limit.
             // It means it will not take effect.
             // If there are some query in paused list, then limit should take effect.
@@ -957,7 +959,11 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
             // low watermark).
             int64_t effective_limit = std::min(resource_ctx->memory_context()->user_set_mem_limit(),
                                                query_weighted_mem_limit);
-            resource_ctx->memory_context()->set_mem_limit(effective_limit);
+            int64_t workload_group_cap = slot_memory_policy == TWgSlotMemoryPolicy::NONE
+                                                 ? wg_mem_limit
+                                                 : query_weighted_mem_limit;
+            resource_ctx->memory_context()->set_mem_limit_from_workload_group(effective_limit,
+                                                                              workload_group_cap);
             resource_ctx->memory_context()->set_adjusted_mem_limit(
                     expected_query_weighted_mem_limit);
         }

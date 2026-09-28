@@ -31,7 +31,7 @@
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
-#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
 #include "util/mem_info.h"
 
@@ -364,17 +364,49 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
 }
 
 std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
+    MemoryContext::LimitSnapshot limits {0, -1, limit()};
+    bool has_workload_group = false;
+    if (_type == Type::QUERY || _type == Type::LOAD) {
+        auto* t_ctx = doris::thread_context();
+        if (t_ctx->is_attach_task()) {
+            auto resource_ctx = t_ctx->resource_ctx();
+            auto* memory_ctx = resource_ctx->memory_context();
+            if (memory_ctx->mem_tracker().get() == this) {
+                has_workload_group = resource_ctx->workload_group() != nullptr;
+                limits = memory_ctx->limit_snapshot();
+            }
+        }
+    }
+    const bool constrained_by_workload_group =
+            has_workload_group && limits.constrained_by_workload_group();
     std::string err_msg = fmt::format(
             "memory tracker limit exceeded, tracker label:{}, type:{}, limit "
             "{}, peak used {}, current used {}. backend {}, {}.",
-            label(), type_string(_type), PrettyPrinter::print_bytes(limit()),
+            label(), type_string(_type), PrettyPrinter::print_bytes(limits.effective_limit),
             PrettyPrinter::print_bytes(peak_consumption()),
             PrettyPrinter::print_bytes(consumption()), BackendOptions::get_localhost(),
             GlobalMemoryArbitrator::process_memory_used_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
-        err_msg += fmt::format(
-                " exec node:<{}>, can `set exec_mem_limit` to change limit, details see be.INFO.",
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label());
+        auto* t_ctx = doris::thread_context();
+        if (constrained_by_workload_group) {
+            err_msg += fmt::format(
+                    " exec node:<{}>, workload group query limit: {}, user exec_mem_limit: {}. "
+                    "The query limit is constrained by the workload group; adjust its memory "
+                    "limit or reduce query memory use, details see be.INFO.",
+                    t_ctx->thread_mem_tracker_mgr->last_consumer_tracker_label(),
+                    PrettyPrinter::print_bytes(limits.workload_group_query_limit),
+                    PrettyPrinter::print_bytes(limits.user_limit));
+        } else if (limits.effective_limit == limits.user_limit) {
+            err_msg += fmt::format(
+                    " exec node:<{}>, can `set exec_mem_limit` to change limit, details see "
+                    "be.INFO.",
+                    t_ctx->thread_mem_tracker_mgr->last_consumer_tracker_label());
+        } else {
+            err_msg += fmt::format(
+                    " exec node:<{}>, check the backend process memory limit or other active "
+                    "limits, details see be.INFO.",
+                    t_ctx->thread_mem_tracker_mgr->last_consumer_tracker_label());
+        }
     } else if (_type == Type::SCHEMA_CHANGE) {
         err_msg += fmt::format(
                 " can modify `memory_limitation_per_thread_for_schema_change_bytes` in be.conf to "
