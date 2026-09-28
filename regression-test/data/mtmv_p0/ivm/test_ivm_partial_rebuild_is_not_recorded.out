@@ -18,7 +18,7 @@ PARTIAL	["p_20260101_20260201","p_20260201_20260301"]	1
 2	2026-02-10	200	20
 
 -- !task_after_the_current_rebuild --
-PARTIAL	["p_20260101_20260201"]	1
+NONE	[]	0
 
 -- !mv_after_the_current_rebuild --
 1	2026-01-10	100	20

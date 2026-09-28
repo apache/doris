@@ -379,15 +379,21 @@ public class MTMVTaskTest {
     }
 
     /**
-     * A retry that recreated a partition of a name this task already holds a capture for drops that capture.
+     * A retry that replaced a partition with another one of the same name drops what this task holds for it.
      *
-     * <p>The retry's partition sync can drop a partition and add one of the same name back, which the alignment
-     * gives {@code {0, 1}}: it is a different, empty partition, and the rows the captures and snapshots
-     * describe are gone with the old one. Writing them back credits the new partition with what the old one
-     * held, and a partition clean at an epoch that a later change only raises to is one no refresh rebuilds.
+     * <p>The retry's partition sync can drop a partition and add one of the same name back, and the alignment
+     * gives the new one {@code {0, 1}}: it is a different, empty partition, and the rows the captures and
+     * snapshots describe are gone with the old one. Writing them back credits the new partition with what the
+     * old one held, and a partition clean at an epoch that a later change only raises to is one no refresh
+     * rebuilds.
+     *
+     * <p>Told apart by the id the capture was taken under, not by the shape of the state: a partition this
+     * task rebuilt has its rows and its capture, and its state still reads {@code {0, 1}} until the task result
+     * writes the epochs back -- so the state cannot say whether the name means the same partition, and erasing
+     * on it would leave a partition this task did rebuild unrecorded and rebuilt again.
      */
     @Test
-    public void testARetryThatRecreatedAPartitionDropsWhatThisTaskHeldForItsName() {
+    public void testARetryThatReplacedAPartitionDropsWhatThisTaskHeldForItsName() {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L, ptwoName, 2L)));
         Map<String, Long> captured = Maps.newConcurrentMap();
@@ -398,10 +404,19 @@ public class MTMVTaskTest {
         snapshots.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
         snapshots.put(ptwoName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
         Deencapsulation.setField(task, "partitionSnapshots", snapshots);
-        // p1 is the name the retry recreated; p2 is the partition the rebuild replaced, whose capture stands.
+        // Both were captured against the partition id they still carry, except p1, whose name now belongs to
+        // the partition the sync added: 11 where the capture was taken against 10.
+        Deencapsulation.setField(task, "capturedPartitionIds",
+                Maps.newHashMap(Map.of(poneName, 10L, ptwoName, 21L)));
+        Partition replaced = partitionWithId(11L);
+        Partition kept = partitionWithId(21L);
+        Mockito.when(mtmv.getPartition(poneName)).thenReturn(replaced);
+        Mockito.when(mtmv.getPartition(ptwoName)).thenReturn(kept);
+        // p1 reads as a partition that has just been aligned, and p2 as one the rebuild replaced; neither
+        // shape decides anything, the ids do.
         Mockito.when(mtmv.getPartitionStates()).thenReturn(Maps.newHashMap(Map.of(
                 poneName, MTMVPartitionState.initial(),
-                ptwoName, new MTMVPartitionState(1, 2))));
+                ptwoName, new MTMVPartitionState(0, 2))));
         Set<String> dirtyPartitions = Sets.newLinkedHashSet();
 
         Deencapsulation.invoke(task, "adoptPartitionsCreatedByTheRetry", dirtyPartitions);
@@ -409,7 +424,47 @@ public class MTMVTaskTest {
         Assertions.assertEquals(Map.of(ptwoName, 2L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
         Assertions.assertEquals(Sets.newHashSet(ptwoName),
                 ((Map<?, ?>) Deencapsulation.getField(task, "partitionSnapshots")).keySet());
+        // p2's partition is the one its capture was taken under, so what the rebuild wrote for it stands even
+        // though its state is one that has not been written back yet.
+        Assertions.assertEquals(Map.of(ptwoName, 21L), Deencapsulation.getField(task, "capturedPartitionIds"));
         Assertions.assertEquals(Sets.newHashSet(poneName, ptwoName), dirtyPartitions);
+    }
+
+    /** A partition carrying the given id, for the identity a capture is compared against. */
+    private static Partition partitionWithId(long id) {
+        Partition partition = Mockito.mock(Partition.class);
+        Mockito.when(partition.getId()).thenReturn(id);
+        return partition;
+    }
+
+    /**
+     * What a partial read held back is published once the delta that brings those tables up to date has run.
+     *
+     * <p>Holding it is right while the partitions are behind: recording them then would say they are current
+     * while they hold the image of an older table. Holding it past the delta is not: a partition left
+     * unrecorded is one the next refresh rebuilds in full, every time a table it reads keeps changing.
+     */
+    @Test
+    public void testWhatAPartialReadHeldBackIsPublishedOnceTheDeltaHasRun() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Map<String, Long> heldEpochs = Maps.newHashMap(Map.of(poneName, 5L));
+        Map<String, MTMVRefreshPartitionSnapshot> heldSnapshots = Maps.newHashMap();
+        heldSnapshots.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Deencapsulation.setField(task, "epochsHeldUntilTheDeltaRuns", heldEpochs);
+        Deencapsulation.setField(task, "snapshotsHeldUntilTheDeltaRuns", heldSnapshots);
+        Partition partition = partitionWithId(10L);
+        Mockito.when(mtmv.getPartition(poneName)).thenReturn(partition);
+
+        Deencapsulation.invoke(task, "redeemHeldRecords");
+
+        Assertions.assertEquals(Map.of(poneName, 5L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
+        Assertions.assertEquals(Sets.newHashSet(poneName),
+                ((Map<?, ?>) Deencapsulation.getField(task, "partitionSnapshots")).keySet());
+        Assertions.assertEquals(Map.of(poneName, 10L), Deencapsulation.getField(task, "capturedPartitionIds"));
+        // Published once: a second attempt of the same task has nothing left to redeem.
+        Deencapsulation.invoke(task, "redeemHeldRecords");
+        Assertions.assertTrue(
+                ((Map<?, ?>) Deencapsulation.getField(task, "epochsHeldUntilTheDeltaRuns")).isEmpty());
     }
 
     @Test

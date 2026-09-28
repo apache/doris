@@ -30,16 +30,17 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * state. Recorded anyway, it reads as caught up, as holding the table's current state, and nothing plans it
  * again: the view keeps rows the base query does not return.
  *
- * <p>So the rebuild leaves it needing one, and the passes that follow are what a partition in that state
- * takes to become current: the delta consumes the table's changes, and the next rebuild reads the table as
- * it is. Cases pinned here:
+ * <p>So the rebuild leaves it needing one, and what ends that is the delta: it is the delta that brings the
+ * table up to date, and its target covers the partitions the rebuild replaced. The rebuild's records are held
+ * until it has run, and published then -- holding them past it would rebuild the partition in full on every
+ * refresh, for as long as the table it reads keeps changing. Cases pinned here:
  * <ol>
- *   <li>the strict refresh whose delta fails: the task fails, and the partition it rebuilt is not recorded;</li>
- *   <li>the strict refresh after it: the delta consumes the dimension's change, the rebuild still reads the
- *       old image and is still not recorded -- which is the requirement having survived the first pass;</li>
- *   <li>the strict refresh after that: with nothing left behind the offset, the rebuild reads the dimension
- *       as it is, the rows land, and the partition is recorded;</li>
- *   <li>and one more refresh has nothing left to do.</li>
+ *   <li>the strict refresh whose delta fails: the task fails, and the partition it rebuilt is not recorded,
+ *       because nothing has brought the dimension up to date for it;</li>
+ *   <li>the strict refresh after it: the delta runs, the rows catch up, and the records the rebuild held back
+ *       are published with it -- so the partition is current and nothing owes a rebuild;</li>
+ *   <li>the refresh after that, and the one after it: nothing left to do, which is what says the second pass
+ *       ended the matter rather than deferring it by one.</li>
  * </ol>
  *
  * <p>All dates are literals: no current_date(), so the expectation does not depend on the run date.
@@ -162,21 +163,21 @@ suite("test_ivm_partial_rebuild_is_not_recorded", "nonConcurrent") {
     qt_failed_task taskQuery(task.TaskId.toString())
     order_qt_mv_after_the_failed_refresh """SELECT k, dt, amount, v FROM ivm_partial_rebuild_mv ORDER BY k"""
 
-    // This one's delta runs: the dimension's change is consumed, and the partition is rebuilt again -- from
-    // the same old image, because the offset it is read at has not moved for it yet. It is still not
-    // recorded, which is what the count says.
+    // This one's delta runs: it consumes the dimension's change, and the rebuild it was preceded by is
+    // recorded with it, because the delta is what brought the dimension up to date for that partition.
     sql """REFRESH MATERIALIZED VIEW ivm_partial_rebuild_mv INCREMENTAL"""
     task = waitForNewTask(task.TaskId.toString())
     qt_task_after_the_consumed_delta taskQuery(task.TaskId.toString())
     order_qt_mv_after_the_consumed_delta """SELECT k, dt, amount, v FROM ivm_partial_rebuild_mv ORDER BY k"""
 
-    // Nothing is behind the offset now, so the rebuild reads the dimension as it is: the rows land and the
-    // partition is recorded.
+    // Nothing left behind the offset and nothing left needing a rebuild: the count stays empty, which is what
+    // says the recovery is done rather than one pass away.
     sql """REFRESH MATERIALIZED VIEW ivm_partial_rebuild_mv INCREMENTAL"""
     task = waitForNewTask(task.TaskId.toString())
     qt_task_after_the_current_rebuild taskQuery(task.TaskId.toString())
     order_qt_mv_after_the_current_rebuild """SELECT k, dt, amount, v FROM ivm_partial_rebuild_mv ORDER BY k"""
 
+    // One more pass, with the same expectation: a partition left needing a rebuild would show up as one.
     sql """REFRESH MATERIALIZED VIEW ivm_partial_rebuild_mv INCREMENTAL"""
     task = waitForNewTask(task.TaskId.toString())
     qt_task_after_the_recovery taskQuery(task.TaskId.toString())

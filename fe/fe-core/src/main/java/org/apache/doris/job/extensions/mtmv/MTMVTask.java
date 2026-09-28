@@ -24,6 +24,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -285,6 +286,17 @@ public class MTMVTask extends AbstractTask {
     // which is the plain COMPLETE path -- a whole-MV rebuild replaces every partition, so whatever it read
     // is what it repaired.
     private transient Map<String, Long> ivmPlannedEpochs = Maps.newHashMap();
+    // What a partial read answered with, held back from the batch's own recording: the partitions were
+    // replaced from an image of a base table older than that table is, and the delta that follows is what
+    // brings them up to date. The incremental attempt publishes them once it has; a task whose delta does not
+    // run leaves them here, unrecorded. See executePartitionBasedRefresh and redeemHeldRecords.
+    private transient Map<String, MTMVRefreshPartitionSnapshot> snapshotsHeldUntilTheDeltaRuns = Maps.newHashMap();
+    private transient Map<String, Long> epochsHeldUntilTheDeltaRuns = Maps.newHashMap();
+    // The MV partition each captured epoch belongs to, by the name those epochs are keyed by. A retry's
+    // partition sync can replace a partition with another one of the same name, and what this task holds for
+    // that name then describes a partition that is gone; the id is how that is told apart from a partition
+    // this task rebuilt itself, whose rows are there and whose state is still the one it started with.
+    private transient Map<String, Long> capturedPartitionIds = Maps.newHashMap();
     // How many partitions this refresh rebuilt because the criterion demanded it, which a strict
     // INCREMENTAL request reports so that "the request was incremental but the work was not" is visible.
     @SerializedName("irp")
@@ -826,6 +838,10 @@ public class MTMVTask extends AbstractTask {
                 partitionSyncRetryCount < ivmAttemptLimit; partitionSyncRetryCount++) {
             ivmResult = executeSingleIvmAttempt(currentRefreshContext, dirtyPartitions);
             if (ivmResult.isSuccess()) {
+                // The delta has run, and it is what brought the tables those partitions were rebuilt from up
+                // to date: its target is the partitions the change touches, which includes the ones the
+                // rebuild replaced. What the rebuild wrote is current now, so what was held can be recorded.
+                redeemHeldRecords();
                 return AttemptResultType.SUCCESS;
             }
             if (ivmResult.getFailureReason() != IvmFailureReason.MV_PARTITION_NOT_FOUND) {
@@ -1000,16 +1016,24 @@ public class MTMVTask extends AbstractTask {
             if (entry.getValue().isDirty()) {
                 dirtyPartitions.add(entry.getKey());
             }
-            // A partition the alignment has just created -- the state an entry starts with,
-            // MTMVPartitionState.initial() -- is a
-            // partition of this name that the retry's partition sync recreated: the partition the captures and
-            // snapshots this task holds for that name describe is gone, and the one that took its name holds
-            // nothing. Writing those back would credit the new one with what the old one held, which is worse
-            // than a wrong number: a partition clean at an epoch a later change only raises to is one no
-            // refresh rebuilds, so the rows the recreation removed would be published as current.
-            if (entry.getValue().getRefreshEpoch() == 0 && entry.getValue().getLatestEpoch() == 1) {
+            // What this task holds for a name is that name's only while the partition behind it is the same
+            // one: the retry's partition sync can drop a partition and add another of the same name back, and
+            // then the captures and snapshots describe a partition that is gone. Writing them back would
+            // credit the new one with what the old one held, which is worse than a wrong number -- a partition
+            // clean at an epoch a later change only raises to is one no refresh rebuilds, so the rows the
+            // recreation removed would be published as current.
+            //
+            // Told apart by id rather than by the state: a partition this task rebuilt has its rows and its
+            // capture, and its state still reads as the one an entry starts with until the task result writes
+            // the epochs back, so the state cannot say whether the name means the same partition.
+            // A partition the sync dropped has no state to walk here, so this one is live; it could still be
+            // dropped by a concurrent DDL, which is the one case where there is nothing to compare with.
+            Partition partition = mtmv.getPartition(entry.getKey());
+            Long capturedId = capturedPartitionIds.get(entry.getKey());
+            if (partition != null && capturedId != null && capturedId.longValue() != partition.getId()) {
                 ivmCapturedEpochs.remove(entry.getKey());
                 partitionSnapshots.remove(entry.getKey());
+                capturedPartitionIds.remove(entry.getKey());
             }
         }
     }
@@ -1049,7 +1073,31 @@ public class MTMVTask extends AbstractTask {
     private void commitCapturedEpochs(Map<String, Long> capturedEpochs) {
         for (Entry<String, Long> entry : capturedEpochs.entrySet()) {
             ivmCapturedEpochs.merge(entry.getKey(), plannedCeiling(entry), Math::max);
+            Partition partition = mtmv.getPartition(entry.getKey());
+            if (partition != null) {
+                // The partition this epoch belongs to, so a later phase can tell whether the name still means
+                // the same partition; see adoptPartitionsCreatedByTheRetry.
+                capturedPartitionIds.put(entry.getKey(), partition.getId());
+            }
         }
+    }
+
+    /**
+     * Publishes what a partial read held back, once the delta that brings those tables up to date has run.
+     *
+     * <p>Before that the records are not this task's to publish: the partitions hold the image of a base table
+     * older than the table is, and recording them would say they are current while they are not. After it they
+     * are, and holding them any longer is not free -- a partition left unrecorded is one the next refresh
+     * rebuilds in full, every time a table it reads keeps changing.
+     */
+    private void redeemHeldRecords() {
+        if (epochsHeldUntilTheDeltaRuns.isEmpty()) {
+            return;
+        }
+        partitionSnapshots.putAll(snapshotsHeldUntilTheDeltaRuns);
+        commitCapturedEpochs(epochsHeldUntilTheDeltaRuns);
+        epochsHeldUntilTheDeltaRuns = Maps.newHashMap();
+        snapshotsHeldUntilTheDeltaRuns = Maps.newHashMap();
     }
 
     /**
@@ -1142,6 +1190,9 @@ public class MTMVTask extends AbstractTask {
         // callers name a scope as well, and only where they decide one and may not get here: a whole-MV
         // attempt before it reconciles the streams, and a partition plan before it judges their streams.
         recordRefreshScope(partitions);
+        // Whatever an earlier phase held back is this phase's to replace: it is about to read the same tables.
+        epochsHeldUntilTheDeltaRuns = Maps.newHashMap();
+        snapshotsHeldUntilTheDeltaRuns = Maps.newHashMap();
         // The durable half of what this phase is about to do, raised before it reads anything. An overwrite
         // commits the rows into temporary partitions and publishes them with a swap afterwards, so a refresh
         // that dies between the two leaves the live partitions holding the rows they had while the streams
@@ -1228,11 +1279,15 @@ public class MTMVTask extends AbstractTask {
             // unrecorded, the requirement stays, the MV keeps the snapshot it has rather than one claiming the
             // current state, and a later refresh rebuilds them -- by then the offset has been consumed, so a
             // rebuild reads the table as it is. What the read answered with is recorded where the read is
-            // planned; see IvmFullRefreshMTMV#readsAnOlderImage.
+            // planned; see NormalizeOlapTableStreamScan and OlapTableStreamWrapper#answersWithTheCurrentTable.
             if (rewriteContext.map(IvmRewriteContext::isReadFromAStreamOffset).orElse(false)) {
-                LOG.info("Not recording the {} partitions of mv={} as caught up: their read answered with a "
-                        + "base table as of an older state than it is in now, taskId={}",
+                // Held rather than recorded: what these partitions hold is the image the read answered with,
+                // and the delta that follows is what brings the table up to date. See redeemHeldRecords.
+                LOG.info("Holding back the {} partitions of mv={}: their read answered with a base table as of "
+                        + "an older state than it is in now, taskId={}",
                         execPartitionNames.size(), mtmv.getName(), getTaskId());
+                snapshotsHeldUntilTheDeltaRuns.putAll(execPartitionSnapshots);
+                epochsHeldUntilTheDeltaRuns.putAll(batchCapturedEpochs);
             } else {
                 partitionSnapshots.putAll(execPartitionSnapshots);
                 commitCapturedEpochs(batchCapturedEpochs);
