@@ -43,7 +43,7 @@ enum class ScalarPath {
     ANY,
     HYPERSCAN,
     RE2,
-    DYNAMIC_RE2,
+    DYNAMIC_REGEX,
     BOOST,
     ALLPASS,
     EQUALS,
@@ -74,7 +74,7 @@ void check_scalar_path(const LikeState& state, ScalarPath path) {
     case ScalarPath::BOOST:
         EXPECT_EQ(*selected, &FunctionLikeBase::constant_regex_fn);
         break;
-    case ScalarPath::DYNAMIC_RE2: {
+    case ScalarPath::DYNAMIC_REGEX: {
         using ScalarFunctionPointer = Status (*)(const LikeSearchState*, const StringRef&,
                                                  const StringRef&, unsigned char*);
         const auto* scalar = state.scalar_function.target<ScalarFunctionPointer>();
@@ -124,7 +124,7 @@ Status scalar_matches(const std::string& pattern, const std::vector<std::string>
         values->insert_data(row.data(), row.size());
     }
     auto patterns = ColumnString::create();
-    const bool dynamic_pattern = path == ScalarPath::DYNAMIC_RE2;
+    const bool dynamic_pattern = path == ScalarPath::DYNAMIC_REGEX;
     const size_t pattern_rows = dynamic_pattern ? rows.size() : 1;
     for (size_t i = 0; i < pattern_rows; ++i) {
         patterns->insert_data(pattern.data(), pattern.size());
@@ -630,62 +630,77 @@ TEST(RegexGramRecallTest, InvalidPatternsRejectAcrossEngineOptions) {
     }
 }
 
-TEST(RegexGramRecallTest, DynamicPatternRe2Execution) {
-    // A ColumnString pattern reaches vector_non_const -> scalar_function -> RE2 even
-    // with Hyperscan fallback disabled. Extended regex does not enable Boost on this path.
+TEST(RegexGramRecallTest, DynamicPatternRegexExecution) {
+    // A ColumnString pattern reaches the scalar regex function. Extended regex allows
+    // Boost when RE2 rejects a pattern, even with Hyperscan fallback disabled.
     const std::vector<RecallCase> regexp_cases = {
             {R"(ab\vcdtimeout)",
              {"ab\vcdtimeout", "ab\ncdtimeout", "ab\rcdtimeout", "unrelated"},
              {true, false, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {"(?i:ask)(?-i:timeout)",
              {"ASKtimeout", "aſktimeout", "asKtimeout", "ASKTIMEOUT", "unrelated"},
              {true, true, true, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {R"(\Qab😀\E{2}timeout)",
              {"ab😀😀timeout", "ab😀timeout", "unrelated"},
              {true, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {std::string("foo[0-9]") + '\0' + "timeout",
              {std::string("foo1") + '\0' + "timeout", "foo1", "foo1timeout", "unrelated"},
              {true, false, false, false},
-             ScalarPath::DYNAMIC_RE2,
+             ScalarPath::DYNAMIC_REGEX,
              false,
              true}};
     const std::vector<RecallCase> like_cases = {
             {"prefix_timeout",
              {"prefix😀timeout", "prefix\ntimeout", "prefixtimeout", "unrelated"},
              {true, true, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {"%prefix%\ntimeout%",
              {"prefix\ntimeout", "prefixx\ntimeout", "prefixxtimeout", "unrelated"},
              {true, true, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {R"(prefix\%timeout_)",
              {"prefix%timeoutX", "prefixxtimeoutX", "unrelated"},
              {true, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {"étimeout_",
              {"étimeout😀", "Étimeout😀", "unrelated"},
              {true, false, false},
-             ScalarPath::DYNAMIC_RE2},
+             ScalarPath::DYNAMIC_REGEX},
             {std::string("prefix_") + '\0' + "%timeout%",
              {std::string("prefix1") + '\0' + "timeout", "prefix1", "prefix1timeout", "unrelated"},
              {true, false, false, false},
-             ScalarPath::DYNAMIC_RE2,
+             ScalarPath::DYNAMIC_REGEX,
              false,
              true}};
     for (bool fallback : {false, true}) {
         for (bool extended : {false, true}) {
             check_cases(regexp_cases, fallback, extended);
             check_cases<FunctionLike>(like_cases, fallback, extended);
-            for (const auto* pattern :
-                 {R"(timeout\Z)", R"(ab\hcdtimeout)", R"(timeout\xZZ)", "timeout(?=END)"}) {
-                SCOPED_TRACE(pattern);
+            struct FallbackCase {
+                const char* pattern;
+                bool boost_valid;
+                std::vector<bool> expected;
+            };
+            const std::vector<FallbackCase> fallback_cases = {
+                    {R"(timeout\Z)", true, {false, false}},
+                    {R"(ab\hcdtimeout)", true, {false, false}},
+                    {R"(timeout\xZZ)", false, {}},
+                    {"timeout(?=END)", true, {true, false}}};
+            for (const auto& test_case : fallback_cases) {
+                SCOPED_TRACE(test_case.pattern);
                 std::vector<bool> matches;
-                auto status = scalar_matches(pattern, {"timeoutEND", "unrelated"}, &matches,
-                                             fallback, extended, ScalarPath::DYNAMIC_RE2);
-                EXPECT_FALSE(status.ok()) << "Dynamic patterns do not use Hyperscan or Boost";
+                auto status =
+                        scalar_matches(test_case.pattern, {"timeoutEND", "unrelated"}, &matches,
+                                       fallback, extended, ScalarPath::DYNAMIC_REGEX);
+                if (extended && test_case.boost_valid) {
+                    ASSERT_TRUE(status.ok()) << status;
+                    EXPECT_EQ(matches, test_case.expected);
+                } else {
+                    EXPECT_FALSE(status.ok());
+                }
             }
         }
     }
