@@ -855,11 +855,13 @@ TEST_F(SpillFileS3Test, ReadCoalescesAdjacentBlocks) {
 
         ASSERT_EQ(_read_all(spill_file), expected_values);
 
+        // The footer probe is bounded by the coalesced read size too.
+        const size_t probe = std::min(kFooterProbe, static_cast<size_t>(window));
         std::vector<size_t> expected_gets;
         if (static_cast<size_t>(window) >= object.size()) {
             expected_gets.push_back(object.size());
         } else {
-            expected_gets.push_back(kFooterProbe);
+            expected_gets.push_back(probe);
             auto reads = _coalesced_reads(offsets, window);
             expected_gets.insert(expected_gets.end(), reads.begin(), reads.end());
         }
@@ -874,12 +876,46 @@ TEST_F(SpillFileS3Test, ReadCoalescesAdjacentBlocks) {
         if (window == 1024) {
             // Every block is larger than the window, so each is read alone.
             ASSERT_EQ(expected_gets.size(), 1 + blocks.size());
+            // A window smaller than the default probe also caps the footer read.
+            ASSERT_EQ(expected_gets.front(), 1024);
+            ASSERT_EQ(total, object.size() + probe - footer_size);
         } else if (static_cast<size_t>(window) < object.size()) {
             ASSERT_LT(expected_gets.size(), 1 + blocks.size());
             // The probe re-reads only the tail blocks in front of the footer.
-            ASSERT_EQ(total, object.size() + kFooterProbe - footer_size);
+            ASSERT_EQ(total, object.size() + probe - footer_size);
         }
     }
+}
+
+// A read size smaller than the block offset array: the probe reads only its tail and one
+// more GET fetches the rest of the footer, then every block is read alone.
+TEST_F(SpillFileS3Test, FooterLargerThanProbe) {
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    _create_manager();
+    std::mt19937 rng(59);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 12; ++i) {
+        blocks.push_back(_random_string_block(rng, 64, 200));
+    }
+    Status st;
+    auto spill_file = _write_blocks("query_18/join-1-0-1", blocks, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_18/");
+    ASSERT_EQ(keys.size(), 1);
+    const std::string object = _object(keys[0]);
+    const auto offsets = _block_offsets(object);
+    const size_t footer_size = object.size() - offsets.back();
+    constexpr size_t kWindow = 64;
+    ASSERT_GT(footer_size, kWindow);
+
+    config::spill_s3_read_coalesce_bytes = kWindow;
+    _reset_get_stats();
+    ASSERT_EQ(_read_all(spill_file), _values_of(blocks));
+    std::vector<size_t> expected_gets {kWindow, footer_size - kWindow};
+    for (size_t i = 0; i + 1 < offsets.size(); ++i) {
+        expected_gets.push_back(offsets[i + 1] - offsets[i]);
+    }
+    ASSERT_EQ(_get_sizes(), expected_gets);
 }
 
 // spill_s3_read_coalesce_bytes = 0 falls back to exact reads: the footer of every part (block

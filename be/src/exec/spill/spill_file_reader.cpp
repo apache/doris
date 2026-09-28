@@ -144,13 +144,15 @@ Status SpillFileReader::_read_footer(size_t file_size, bool fetch_small_part) {
                                      _file_reader->path().native(), file_size);
     }
 
-    // Without coalescing (local disk) the footer is read exactly. Otherwise a larger tail is
-    // read in one request, or the whole part when it fits in one coalesced read.
+    // Without coalescing (local disk) the footer is read exactly. Otherwise a larger tail, bounded
+    // by the coalesced read size like every other read, is read in one request, or the whole
+    // part when it fits in one coalesced read.
     size_t probe_size = kFooterTailBytes;
     if (_coalesce_bytes > 0) {
         probe_size = fetch_small_part && file_size <= _coalesce_bytes
                              ? file_size
-                             : std::min(file_size, kRemoteFooterProbeBytes);
+                             : std::min({file_size, kRemoteFooterProbeBytes,
+                                         std::max(_coalesce_bytes, kFooterTailBytes)});
     }
     _ensure_read_buff(probe_size);
     RETURN_IF_ERROR(_read_exact(file_size - probe_size, _read_buff.data(), probe_size));
