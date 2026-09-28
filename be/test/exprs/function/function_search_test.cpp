@@ -3255,7 +3255,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeJoinedAndKeepsReaderScores) {
     EXPECT_FLOAT_EQ(1.25F, collected[2]);
 }
 
-TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledForSniiNativeExecution) {
+// The DSL cache answers a SEARCH whose fields SNII serves, as it does for CLucene fields.
+TEST_F(FunctionSearchTest, TestSearchDslCacheServesSniiNativeExecution) {
     ScopedInvertedIndexQueryCache cache_guard;
     auto index_meta = make_test_inverted_index(
             19, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
@@ -3290,8 +3291,8 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledForSniiNativeExecution) {
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, result.get_data_bitmap());
-    expect_bitmap_eq(*result.get_data_bitmap(), {0});
-    EXPECT_EQ(1, reader->query_calls);
+    expect_bitmap_eq(*result.get_data_bitmap(), {3});
+    EXPECT_EQ(0, reader->query_calls);
 }
 
 TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {

@@ -32,7 +32,6 @@
 #include <roaring/roaring.hh>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -106,50 +105,6 @@ static std::string extract_segment_prefix(
     VLOG_DEBUG << "extract_segment_prefix: no suitable inverted index reader found across "
                << iterators.size() << " iterators, caching disabled for this query";
     return "";
-}
-
-static void collect_referenced_fields(const TSearchClause& clause,
-                                      std::unordered_set<std::string>* fields) {
-    DORIS_CHECK(fields != nullptr);
-    if (clause.__isset.field_name && !clause.field_name.empty()) {
-        fields->insert(clause.field_name);
-    }
-    for (const auto& child : clause.children) {
-        collect_referenced_fields(child, fields);
-    }
-}
-
-static bool referenced_fields_contain_snii_reader(
-        const TSearchClause& root,
-        const std::unordered_map<std::string, IndexIterator*>& iterators) {
-    std::unordered_set<std::string> referenced_fields;
-    collect_referenced_fields(root, &referenced_fields);
-    for (const auto& field_name : referenced_fields) {
-        auto iterator_it = iterators.find(field_name);
-        if (iterator_it == iterators.end()) {
-            continue;
-        }
-        auto* inv_iter = dynamic_cast<InvertedIndexIterator*>(iterator_it->second);
-        if (inv_iter == nullptr) {
-            continue;
-        }
-        for (auto type : {InvertedIndexReaderType::FULLTEXT, InvertedIndexReaderType::STRING_TYPE,
-                          InvertedIndexReaderType::BKD}) {
-            IndexReaderType reader_type = type;
-            auto reader = inv_iter->get_reader(reader_type);
-            if (reader == nullptr) {
-                continue;
-            }
-            auto inv_reader = std::dynamic_pointer_cast<InvertedIndexReader>(reader);
-            DORIS_CHECK(inv_reader != nullptr);
-            auto file_reader = inv_reader->get_index_file_reader();
-            DORIS_CHECK(file_reader != nullptr);
-            if (file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
-                return true;
-            }
-        }
-    }
-    return false;
 }
 
 namespace {
@@ -615,12 +570,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     // so score() queries must execute scorers to populate CollectionSimilarity.
     const bool enable_scoring =
             index_query_context != nullptr && index_query_context->collection_similarity != nullptr;
-    // Also bypass the DSL cache when any referenced field is served by an SNII reader.
     auto* dsl_cache =
-            enable_cache && !enable_scoring &&
-                            !referenced_fields_contain_snii_reader(search_param.root, iterators)
-                    ? InvertedIndexQueryCache::instance()
-                    : nullptr;
+            enable_cache && !enable_scoring ? InvertedIndexQueryCache::instance() : nullptr;
     std::string seg_prefix;
     std::string dsl_sig;
     InvertedIndexQueryCache::CacheKey dsl_cache_key;
