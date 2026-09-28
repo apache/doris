@@ -232,7 +232,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                     adjustAggNullableConjuncts, resolver.getSubstitution());
                             ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
                             projects.addAll(project.getOutputs()).addAll(agg.getOutput());
-                            return new LogicalHaving<>(newConjuncts, new LogicalProject<>(projects.build(), agg));
+                            Plan child = new LogicalHaving<>(
+                                    newConjuncts, new LogicalProject<>(projects.build(), agg));
+                            return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), child);
                         } else {
                             LogicalProject<Plan> project = having.child();
                             Set<Slot> projectOutputSet = project.getOutputSet();

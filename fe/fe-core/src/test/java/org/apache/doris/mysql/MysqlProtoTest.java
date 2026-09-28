@@ -144,6 +144,10 @@ public class MysqlProtoTest {
     }
 
     private void mockChannel(String user, boolean sendOk) throws Exception {
+        mockChannel(user, sendOk, MysqlCapability.DEFAULT_CAPABILITY.getFlags());
+    }
+
+    private void mockChannel(String user, boolean sendOk, int clientCapabilityFlags) throws Exception {
         // mock channel
         new Expectations() {
             {
@@ -163,7 +167,7 @@ public class MysqlProtoTest {
         MysqlSerializer serializer = MysqlSerializer.newInstance();
 
         // capability
-        serializer.writeInt4(MysqlCapability.DEFAULT_CAPABILITY.getFlags());
+        serializer.writeInt4(clientCapabilityFlags);
         // max packet size
         serializer.writeInt4(1024000);
         // character set
@@ -283,6 +287,38 @@ public class MysqlProtoTest {
         context.setEnv(env);
         context.setThreadLocalInfo();
         Assert.assertTrue(MysqlProto.negotiate(context));
+    }
+
+    @Test
+    public void testNegotiateUsesClientServerCapabilityIntersection() throws Exception {
+        int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        mockChannel("user", true, clientFlags);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        new Expectations() {
+            {
+                channel.getSerializer();
+                minTimes = 0;
+                result = serializer;
+            }
+        };
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = new ConnectContext(streamConnection);
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assert.assertTrue(MysqlProto.negotiate(context));
+        Assert.assertEquals(clientFlags, context.getCapability().getFlags());
+        Assert.assertEquals(clientFlags, serializer.getCapability().getFlags());
+        new Verifications() {
+            {
+                channel.setClientDeprecatedEOF();
+                times = 0;
+            }
+        };
+        serializer.reset();
+        new MysqlOkPacket(context.getState()).writeTo(serializer);
+        Assert.assertEquals(7, serializer.toByteBuffer().remaining());
     }
 
     @Test

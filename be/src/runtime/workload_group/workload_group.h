@@ -219,6 +219,8 @@ private:
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     Status upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                                       std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+    void register_adaptive_flush_no_lock();
+    void cancel_adaptive_flush_no_lock();
     void stop_schedulers_no_lock();
     void destroy_schedulers();
 
@@ -262,6 +264,8 @@ private:
     std::unique_ptr<ScannerScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<ScannerScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
+    // Registration identity must survive normal WG ID changes and ID reuse.
+    std::string _adaptive_flush_key;
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};

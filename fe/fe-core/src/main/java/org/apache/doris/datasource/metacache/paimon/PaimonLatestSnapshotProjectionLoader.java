@@ -44,7 +44,8 @@ import java.util.Optional;
 public final class PaimonLatestSnapshotProjectionLoader {
     @FunctionalInterface
     public interface SchemaValueLoader {
-        PaimonSchemaCacheValue load(NameMapping nameMapping, long schemaId);
+        PaimonSchemaCacheValue load(
+                NameMapping nameMapping, long schemaId, long tableGeneration, Table retainedTable);
     }
 
     private final PaimonPartitionInfoLoader partitionInfoLoader;
@@ -59,7 +60,8 @@ public final class PaimonLatestSnapshotProjectionLoader {
     public PaimonSnapshotCacheValue load(NameMapping nameMapping, Table paimonTable) {
         try {
             PaimonSnapshot latestSnapshot = resolveLatestSnapshot(paimonTable, true);
-            List<Column> partitionColumns = schemaValueLoader.load(nameMapping, latestSnapshot.getSchemaId())
+            List<Column> partitionColumns = schemaValueLoader.load(
+                    nameMapping, latestSnapshot.getSchemaId(), 0L, latestSnapshot.getTable())
                     .getPartitionColumns();
             PaimonPartitionInfo partitionInfo =
                     partitionInfoLoader.load(nameMapping, latestSnapshot.getTable(), partitionColumns);
@@ -85,11 +87,21 @@ public final class PaimonLatestSnapshotProjectionLoader {
     }
 
     public PaimonSnapshotCacheValue loadAtFence(NameMapping nameMapping, PaimonSnapshot fence) {
-        return loadEffectiveAtFence(nameMapping, fence.getTable(), fence);
+        return loadAtFence(nameMapping, fence, 0L);
+    }
+
+    public PaimonSnapshotCacheValue loadAtFence(
+            NameMapping nameMapping, PaimonSnapshot fence, long tableGeneration) {
+        return loadEffectiveAtFence(nameMapping, fence.getTable(), fence, tableGeneration);
     }
 
     public PaimonSnapshotCacheValue loadEffectiveAtFence(
             NameMapping nameMapping, Table effectiveTable, PaimonSnapshot fence) {
+        return loadEffectiveAtFence(nameMapping, effectiveTable, fence, 0L);
+    }
+
+    public PaimonSnapshotCacheValue loadEffectiveAtFence(
+            NameMapping nameMapping, Table effectiveTable, PaimonSnapshot fence, long tableGeneration) {
         try {
             // The fence owns both version and table generation. Reopening the catalog here can pair
             // the old snapshot id with a newer schema or branch after invalidation.
@@ -102,12 +114,14 @@ public final class PaimonLatestSnapshotProjectionLoader {
                         latestSchemaTable.copyWithoutTimeTravel(
                                 PaimonScanParams.isolateSnapshotRead(fence.getSnapshotId())));
             }
-            List<Column> partitionColumns = schemaValueLoader.load(nameMapping, fence.getSchemaId())
+            List<Column> partitionColumns = schemaValueLoader.load(
+                    nameMapping, fence.getSchemaId(), tableGeneration, effectiveTable)
                     .getPartitionColumns();
             PaimonPartitionInfo partitionInfo =
                     partitionInfoLoader.load(nameMapping, snapshotTable, partitionColumns);
             return new PaimonSnapshotCacheValue(partitionInfo,
-                    new PaimonSnapshot(fence.getSnapshotId(), fence.getSchemaId(), snapshotTable));
+                    new PaimonSnapshot(fence.getSnapshotId(), fence.getSchemaId(), snapshotTable),
+                    false, tableGeneration);
         } catch (Exception e) {
             throw new CacheException("failed to load paimon snapshot at fence %s.%s.%s: %s",
                     e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),

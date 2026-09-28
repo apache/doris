@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -33,6 +34,8 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.util.List;
@@ -84,6 +87,17 @@ public class DropFunctionTest {
 
         functions = Env.getCurrentEnv().getGlobalFunctionMgr().getFunctions();
         Assert.assertEquals(0, functions.size());
+    }
+
+    @Test
+    public void testDropIfExistsMissingFunctionDoesNotSubmitCacheCleanup() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        try (MockedStatic<AgentTaskExecutor> mockedAgentTaskExecutor =
+                     Mockito.mockStatic(AgentTaskExecutor.class)) {
+            dropFunction("drop global function if exists missing_function(bigint)", ctx);
+
+            mockedAgentTaskExecutor.verifyNoInteractions();
+        }
     }
 
     private void createFunction(String sql, ConnectContext connectContext) throws Exception {

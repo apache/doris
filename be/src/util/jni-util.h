@@ -606,6 +606,9 @@ public:
 
     bool uninitialized() const { return _obj == nullptr; }
 
+    // Access the JNI handle without changing ownership.
+    jobject get() const { return _obj; }
+
     void reset(JNIEnv* env) {
         if (_obj == nullptr) {
             return;
@@ -1153,7 +1156,8 @@ public:
         return Status::OK();
     }
 
-    static Status clean_udf_class_load_cache(const std::string& function_signature);
+    static Status clean_udf_class_load_cache(const std::string& function_signature,
+                                             int64_t function_id);
 
     static Status Init();
 

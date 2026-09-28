@@ -29,7 +29,7 @@ namespace doris {
 /**
  * VJniFormatTransformer is a VFileFormatTransformer implementation that delegates
  * write operations to a Java-side JniWriter via JNI. It sits alongside
- * VCSVTransformer/VParquetTransformer/VOrcTransformer as a peer implementation.
+ * VCSVTransformer/VParquetWriter/VOrcTransformer as a peer implementation.
  *
  * The Java writer class must extend org.apache.doris.common.jni.JniWriter and
  * follow the same constructor signature as JniScanner: (int batchSize, Map<String,String> params).

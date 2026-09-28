@@ -50,6 +50,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
     @Getter
     protected Options catalogOptions;
+    private volatile boolean disableSdkMetadataCacheByDefault;
 
     private final AtomicReference<Map<String, String>> catalogOptionsMapRef = new AtomicReference<>();
 
@@ -103,6 +104,19 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
         catalogOptions = new Options();
         appendCatalogOptions();
         appendCustomCatalogOptions();
+        if (disableSdkMetadataCacheByDefault
+                && !catalogOptions.containsKey(CatalogOptions.CACHE_ENABLED.key())) {
+            // Doris meta cache weight governance is active for this catalog. Paimon's own
+            // CachingCatalog would retain snapshot/statistics/manifest caches on the same
+            // handles outside the Doris budget, so it is disabled unless the user explicitly
+            // re-enables it through a paimon.cache-enabled catalog property.
+            catalogOptions.set(CatalogOptions.CACHE_ENABLED.key(), "false");
+        }
+    }
+
+    /** See {@link #buildCatalogOptions()}; must be set before the catalog is initialized. */
+    public void setDisableSdkMetadataCacheByDefault(boolean disable) {
+        this.disableSdkMetadataCacheByDefault = disable;
     }
 
     protected void appendUserHadoopConfig(Configuration  conf) {

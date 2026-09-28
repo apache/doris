@@ -42,6 +42,10 @@ PhysicalResultSink
 --------------filter((mow.__DORIS_DELETE_SIGN__ = 0))
 ----------------PhysicalLazyMaterializeOlapScan[mow lazySlots:(mow.age)]
 
+-- !mow_alias_with_materialized_base_slot --
+a	\N
+b	\N
+
 -- !shape_aggkey_not_lazy --
 PhysicalResultSink
 --PhysicalProject

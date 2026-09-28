@@ -117,6 +117,27 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
+    public void testCheckFailedTxnsWithOfflineCoordinator() {
+        FakeEnv.setEnv(masterEnv);
+        for (TxnSourceType source : Lists.newArrayList(TxnSourceType.FE, TxnSourceType.BE)) {
+            TransactionState txn = new TransactionState(CatalogTestUtil.testDbId1,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), 1, "offline_coordinator", null,
+                    LoadJobSourceType.FRONTEND, new TxnCoordinator(source, Long.MAX_VALUE, "missing", 0), -1, 60000);
+            for (TransactionStatus status : Lists.newArrayList(
+                    TransactionStatus.PREPARE, TransactionStatus.PRECOMMITTED)) {
+                txn.setTransactionStatus(status);
+                Assert.assertEquals(Lists.newArrayList(txn),
+                        GlobalTransactionMgr.checkFailedTxns(Lists.newArrayList(txn)));
+            }
+            for (TransactionStatus status : Lists.newArrayList(TransactionStatus.COMMITTED,
+                    TransactionStatus.VISIBLE, TransactionStatus.ABORTED)) {
+                txn.setTransactionStatus(status);
+                Assert.assertTrue(GlobalTransactionMgr.checkFailedTxns(Lists.newArrayList(txn)).isEmpty());
+            }
+        }
+    }
+
+    @Test
     public void testBeginTransaction() throws LabelAlreadyUsedException, AnalysisException,
             BeginTransactionException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
         FakeEnv.setEnv(masterEnv);

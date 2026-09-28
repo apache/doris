@@ -151,6 +151,49 @@ suite("test_string_function_regexp") {
     qt_regexp_fn_9 'SELECT regexp(\'Hello\', \'(?i)hello\');'
     sql "set enable_extended_regex = false;"
 
+    sql "DROP TABLE IF EXISTS test_regexp_empty_pattern"
+    sql """
+        CREATE TABLE test_regexp_empty_pattern (
+            id INT,
+            value_col STRING NULL,
+            pattern_col STRING NULL
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_regexp_empty_pattern VALUES
+            (1, 'abc', ''),
+            (2, '', ''),
+            (3, 'xyz', ''),
+            (4, NULL, ''),
+            (5, 'abc', NULL),
+            (6, 'ab', ''),
+            (7, 'c', ''),
+            (8, '', ''),
+            (9, 'abc', ''),
+            (10, '', ''),
+            (11, 'xabcx', '')
+    """
+
+    qt_regexp_empty_pattern """
+        SELECT id, regexp(value_col, ''), regexp(value_col, pattern_col)
+        FROM test_regexp_empty_pattern
+        ORDER BY id
+    """
+    qt_rlike_empty_pattern """
+        SELECT id, value_col RLIKE '', value_col RLIKE pattern_col
+        FROM test_regexp_empty_pattern
+        ORDER BY id
+    """
+    qt_regexp_constant_substring_boundaries """
+        SELECT id, regexp(value_col, 'abc'), value_col RLIKE 'abc'
+        FROM test_regexp_empty_pattern
+        WHERE id >= 6
+        ORDER BY id
+    """
+
     qt_sql_utf1 """ select '皖12345' REGEXP '^[皖][0-9]{5}\$'; """
     qt_sql_utf2 """ select '皖 12345' REGEXP '^[皖] [0-9]{5}\$'; """
 

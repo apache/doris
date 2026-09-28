@@ -27,6 +27,7 @@
 #include <ranges>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -48,15 +49,34 @@
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
-#include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris::format {
+
+std::optional<std::string> TableReader::_get_int96_timezone_override(
+        const TFileScanRangeParams* params) {
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
+        params->parquet_timestamp_semantics_version < 1) {
+        return std::nullopt;
+    }
+    return std::string {};
+}
+
 namespace {
 
 std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
@@ -184,8 +204,6 @@ std::string file_format_to_string(FileFormat format) {
         return "TEXT";
     case FileFormat::JNI:
         return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
     case FileFormat::WAL:
@@ -282,6 +300,110 @@ const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr&
         return nullptr;
     }
     return field_ptr.field_ptr.get();
+}
+
+const schema::external::TField* find_external_field_by_id(
+        const schema::external::TStructField* root, int32_t field_id) {
+    if (root == nullptr || !root->__isset.fields) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : root->fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field == nullptr) {
+            continue;
+        }
+        if (field->__isset.id && field->id == field_id) {
+            return field;
+        }
+        if (!field->__isset.nestedField) {
+            continue;
+        }
+        if (field->nestedField.__isset.struct_field) {
+            if (const auto* result =
+                        find_external_field_by_id(&field->nestedField.struct_field, field_id);
+                result != nullptr) {
+                return result;
+            }
+        } else if (field->nestedField.__isset.array_field &&
+                   field->nestedField.array_field.__isset.item_field) {
+            const auto* child = get_field_ptr(field->nestedField.array_field.item_field);
+            if (child != nullptr) {
+                schema::external::TStructField child_root;
+                child_root.__set_fields({field->nestedField.array_field.item_field});
+                if (const auto* result = find_external_field_by_id(&child_root, field_id);
+                    result != nullptr) {
+                    return result;
+                }
+            }
+        } else if (field->nestedField.__isset.map_field) {
+            schema::external::TStructField child_root;
+            std::vector<schema::external::TFieldPtr> children;
+            if (field->nestedField.map_field.__isset.key_field) {
+                children.push_back(field->nestedField.map_field.key_field);
+            }
+            if (field->nestedField.map_field.__isset.value_field) {
+                children.push_back(field->nestedField.map_field.value_field);
+            }
+            child_root.__set_fields(children);
+            if (const auto* result = find_external_field_by_id(&child_root, field_id);
+                result != nullptr) {
+                return result;
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool find_external_field_path_by_id(const schema::external::TField* field, int32_t field_id,
+                                    std::vector<const schema::external::TField*>* const path) {
+    DORIS_CHECK(path != nullptr);
+    DORIS_CHECK(field != nullptr);
+    path->push_back(field);
+    if (field->__isset.id && field->id == field_id) {
+        return true;
+    }
+    if (field->__isset.nestedField && field->nestedField.__isset.struct_field &&
+        field->nestedField.struct_field.__isset.fields) {
+        for (const auto& child_ptr : field->nestedField.struct_field.fields) {
+            const auto* child = get_field_ptr(child_ptr);
+            if (child != nullptr && find_external_field_path_by_id(child, field_id, path)) {
+                return true;
+            }
+        }
+    }
+    path->pop_back();
+    return false;
+}
+
+std::optional<std::vector<const schema::external::TField*>> find_external_struct_field_path_by_id(
+        const schema::external::TSchema& schema, int32_t field_id) {
+    if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+        return std::nullopt;
+    }
+    std::vector<const schema::external::TField*> path;
+    for (const auto& field_ptr : schema.root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && find_external_field_path_by_id(field, field_id, &path)) {
+            return path;
+        }
+    }
+    return std::nullopt;
+}
+
+bool find_column_identity_path_by_id(const std::vector<ColumnDefinition>& fields, int32_t field_id,
+                                     std::vector<ColumnDefinition>* path) {
+    DORIS_CHECK(path != nullptr);
+    for (const auto& field : fields) {
+        path->push_back(field);
+        if (field.has_identifier_field_id() && field.get_identifier_field_id() == field_id) {
+            return true;
+        }
+        if (find_column_identity_path_by_id(field.children, field_id, path)) {
+            return true;
+        }
+        path->pop_back();
+    }
+    return false;
 }
 
 ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
@@ -382,9 +504,18 @@ bool external_field_matches_name(const schema::external::TField& field, const st
 }
 
 DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,
-                                                     const schema::external::TField& field) {
+                                                     const schema::external::TField& field,
+                                                     bool prefer_current_name) {
+    if (prefer_current_name && field.__isset.name) {
+        for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+            if (to_lower(field.name) == to_lower(struct_type.get_element_name(field_idx))) {
+                return struct_type.get_element(field_idx);
+            }
+        }
+    }
     for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
-        if (external_field_matches_name(field, struct_type.get_element_name(field_idx))) {
+        const auto& element_name = struct_type.get_element_name(field_idx);
+        if (external_field_matches_name(field, element_name)) {
             return struct_type.get_element(field_idx);
         }
     }
@@ -396,7 +527,13 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     if (!field.__isset.type) {
         return fallback_type;
     }
+    DORIS_CHECK(fallback_type != nullptr);
     const auto primitive_type = thrift_to_type(field.type.type);
+    if (primitive_type == TYPE_VARIANT) {
+        // TColumnType predates the execution-only variant_is_v2 marker. Reconstructing from its
+        // primitive enum would silently replace an Iceberg compute-V2 carrier with legacy VARIANT.
+        return fallback_type;
+    }
     if (is_complex_type(primitive_type)) {
         return fallback_type;
     }
@@ -404,15 +541,16 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
     // current table field. Restore that type from FE before parsing the default and let the table
     // reader apply the normal promotion cast to the delete-key type.
     return DataTypeFactory::instance().create_data_type(
-            primitive_type, false, field.type.__isset.precision ? field.type.precision : 0,
+            primitive_type, fallback_type->is_nullable(),
+            field.type.__isset.precision ? field.type.precision : 0,
             field.type.__isset.scale ? field.type.scale : 0,
             field.type.__isset.len ? field.type.len : -1);
 }
 
-ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
-                                                         DataTypePtr type) {
+ColumnDefinition build_schema_column_metadata_from_external_field(
+        const schema::external::TField& field, DataTypePtr type) {
     type = restore_current_primitive_type(field, std::move(type));
-    ColumnDefinition column {
+    return ColumnDefinition {
             .identifier = field.__isset.id ? Field::create_field<TYPE_INT>(field.id) : Field {},
             .name = field.__isset.name ? field.name : "",
             .name_mapping =
@@ -427,8 +565,21 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
                                              : std::nullopt,
             .initial_default_value_is_base64 = field.__isset.initial_default_value_is_base64 &&
                                                field.initial_default_value_is_base64,
+            .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
+                                                     : std::nullopt,
+            .timestamp_is_adjusted_to_utc =
+                    field.__isset.timestamp_is_adjusted_to_utc
+                            ? std::make_optional(field.timestamp_is_adjusted_to_utc)
+                            : std::nullopt,
             .is_partition_key = false,
     };
+}
+
+// NOLINTNEXTLINE(readability-function-size): keep recursive Iceberg type reconstruction together.
+ColumnDefinition build_schema_column_from_external_field(const schema::external::TField& field,
+                                                         DataTypePtr type,
+                                                         bool prefer_current_name) {
+    auto column = build_schema_column_metadata_from_external_field(field, std::move(type));
     if (column.type == nullptr || !field.__isset.nestedField) {
         return column;
     }
@@ -446,12 +597,13 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             if (child_field == nullptr || !child_field->__isset.name) {
                 continue;
             }
-            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field);
+            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field,
+                                                                       prefer_current_name);
             if (child_type == nullptr) {
                 continue;
             }
-            column.children.push_back(
-                    build_schema_column_from_external_field(*child_field, child_type));
+            column.children.push_back(build_schema_column_from_external_field(
+                    *child_field, child_type, prefer_current_name));
         }
         break;
     }
@@ -465,8 +617,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             return column;
         }
         const auto& array_type = assert_cast<const DataTypeArray&>(*nested_type);
-        auto child =
-                build_schema_column_from_external_field(*item_field, array_type.get_nested_type());
+        auto child = build_schema_column_from_external_field(
+                *item_field, array_type.get_nested_type(), prefer_current_name);
         child.name = "element";
         if (child.has_identifier_name()) {
             child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -483,8 +635,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
         const auto* key_field = get_field_ptr(field.nestedField.map_field.key_field);
         if (key_field != nullptr) {
-            auto child =
-                    build_schema_column_from_external_field(*key_field, map_type.get_key_type());
+            auto child = build_schema_column_from_external_field(
+                    *key_field, map_type.get_key_type(), prefer_current_name);
             child.name = "key";
             if (child.has_identifier_name()) {
                 child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -493,8 +645,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
         }
         const auto* value_field = get_field_ptr(field.nestedField.map_field.value_field);
         if (value_field != nullptr) {
-            auto child = build_schema_column_from_external_field(*value_field,
-                                                                 map_type.get_value_type());
+            auto child = build_schema_column_from_external_field(
+                    *value_field, map_type.get_value_type(), prefer_current_name);
             child.name = "value";
             if (child.has_identifier_name()) {
                 child.identifier = Field::create_field<TYPE_STRING>(child.name);
@@ -735,8 +887,9 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     if (schema_field == nullptr) {
         return Status::OK();
     }
-    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type);
     const bool use_current_semantics = supports_iceberg_scan_semantics_v1(context->scan_params);
+    context->schema_column = build_schema_column_from_external_field(*schema_field, column->type,
+                                                                     use_current_semantics);
     if (!use_current_semantics) {
         // IDs and encoded defaults predate the result-changing semantics. Strip only the new
         // default channel so an old-FE plan keeps the same generic root/nested values on every BE.
@@ -753,32 +906,219 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     return Status::OK();
 }
 
-std::optional<ColumnDefinition> TableReader::_find_current_table_column_by_field_id(
-        int32_t field_id, DataTypePtr type) const {
+std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
+        int32_t field_id, DataTypePtr type, bool include_historical_schemas) const {
     if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
         _scan_params->history_schema_info.empty()) {
         return std::nullopt;
     }
-    const auto* schema = &_scan_params->history_schema_info.front();
+    const auto find_field = [field_id](const schema::external::TSchema& schema) {
+        return schema.__isset.root_field ? find_external_field_by_id(&schema.root_field, field_id)
+                                         : nullptr;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
     if (_scan_params->__isset.current_schema_id) {
         for (const auto& candidate_schema : _scan_params->history_schema_info) {
             if (candidate_schema.__isset.schema_id &&
                 candidate_schema.schema_id == _scan_params->current_schema_id) {
-                schema = &candidate_schema;
+                current_schema = &candidate_schema;
                 break;
             }
         }
     }
-    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
-        return std::nullopt;
+    if (const auto* field = find_field(*current_schema); field != nullptr) {
+        return build_schema_column_from_external_field(
+                *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
     }
-    for (const auto& field_ptr : schema->root_field.fields) {
-        const auto* field = get_field_ptr(field_ptr);
-        if (field != nullptr && field->__isset.id && field->id == field_id) {
-            return build_schema_column_from_external_field(*field, std::move(type));
+    if (const auto* split_schema = _split_schema(); split_schema != nullptr) {
+        if (const auto* field = find_field(*split_schema); field != nullptr) {
+            return build_schema_column_from_external_field(
+                    *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
         }
     }
-    return std::nullopt;
+    if (!include_historical_schemas) {
+        return std::nullopt;
+    }
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    const schema::external::TField* latest_field = nullptr;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        const auto* candidate_field = find_field(candidate_schema);
+        if (candidate_field == nullptr) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_field = candidate_field;
+        }
+    }
+    if (latest_field == nullptr) {
+        return std::nullopt;
+    }
+    return build_schema_column_from_external_field(
+            *latest_field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
+}
+
+std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_path_by_field_id(
+        int32_t field_id, DataTypePtr leaf_type, bool include_historical_schemas) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto build_path = [&](const schema::external::TSchema& schema)
+            -> std::optional<std::vector<ColumnDefinition>> {
+        auto external_path = find_external_struct_field_path_by_id(schema, field_id);
+        if (!external_path.has_value()) {
+            return std::nullopt;
+        }
+
+        std::vector<DataTypePtr> path_types(external_path->size());
+        path_types.back() = leaf_type;
+        for (size_t index = external_path->size(); index > 1; --index) {
+            const auto* parent = (*external_path)[index - 2];
+            const auto* child = (*external_path)[index - 1];
+            DORIS_CHECK(parent != nullptr);
+            DORIS_CHECK(child != nullptr);
+            DORIS_CHECK(child->__isset.name);
+            if (!parent->__isset.nestedField || !parent->nestedField.__isset.struct_field) {
+                return std::nullopt;
+            }
+            DataTypePtr path_type = std::make_shared<DataTypeStruct>(
+                    DataTypes {path_types[index - 1]}, Strings {child->name});
+            if (parent->__isset.is_optional && parent->is_optional) {
+                path_type = make_nullable(path_type);
+            }
+            path_types[index - 2] = std::move(path_type);
+        }
+
+        std::vector<ColumnDefinition> result;
+        result.reserve(external_path->size());
+        for (size_t index = 0; index < external_path->size(); ++index) {
+            result.push_back(build_schema_column_metadata_from_external_field(
+                    *(*external_path)[index], path_types[index]));
+        }
+        // Keep metadata hierarchy aligned with the synthetic exact-ID ancestor types.
+        for (size_t index = result.size(); index > 1; --index) {
+            result[index - 2].children.push_back(result[index - 1]);
+        }
+        return result;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                current_schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (auto path = build_path(*current_schema); path.has_value()) {
+        return path;
+    }
+    if (const auto* split_schema = _split_schema(); split_schema != nullptr) {
+        if (auto path = build_path(*split_schema); path.has_value()) {
+            return path;
+        }
+    }
+    if (!include_historical_schemas) {
+        return std::nullopt;
+    }
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    std::optional<std::vector<ColumnDefinition>> latest_path;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        auto candidate_path = build_path(candidate_schema);
+        if (!candidate_path.has_value()) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_path = std::move(candidate_path);
+        }
+    }
+    return latest_path;
+}
+
+std::optional<std::vector<ColumnDefinition>>
+TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
+                                                          bool include_historical_schemas) const {
+    if (_scan_params == nullptr || !_scan_params->__isset.history_schema_info ||
+        _scan_params->history_schema_info.empty()) {
+        return std::nullopt;
+    }
+    const auto find_path = [field_id](const schema::external::TSchema& schema)
+            -> std::optional<std::vector<ColumnDefinition>> {
+        if (!schema.__isset.root_field || !schema.root_field.__isset.fields) {
+            return std::nullopt;
+        }
+        std::vector<ColumnDefinition> roots;
+        roots.reserve(schema.root_field.fields.size());
+        for (const auto& field_ptr : schema.root_field.fields) {
+            const auto* field = get_field_ptr(field_ptr);
+            if (field != nullptr) {
+                roots.push_back(build_schema_identity_from_external_field(*field));
+            }
+        }
+        std::vector<ColumnDefinition> path;
+        if (find_column_identity_path_by_id(roots, field_id, &path)) {
+            return path;
+        }
+        return std::nullopt;
+    };
+
+    const auto* current_schema = &_scan_params->history_schema_info.front();
+    if (_scan_params->__isset.current_schema_id) {
+        for (const auto& candidate_schema : _scan_params->history_schema_info) {
+            if (candidate_schema.__isset.schema_id &&
+                candidate_schema.schema_id == _scan_params->current_schema_id) {
+                current_schema = &candidate_schema;
+                break;
+            }
+        }
+    }
+    if (auto path = find_path(*current_schema); path.has_value()) {
+        return path;
+    }
+    if (const auto* split_schema = _split_schema(); split_schema != nullptr) {
+        if (auto path = find_path(*split_schema); path.has_value()) {
+            return path;
+        }
+    }
+    if (!include_historical_schemas) {
+        return std::nullopt;
+    }
+
+    const schema::external::TSchema* latest_schema = nullptr;
+    std::optional<std::vector<ColumnDefinition>> latest_path;
+    for (const auto& candidate_schema : _scan_params->history_schema_info) {
+        if (&candidate_schema == current_schema) {
+            continue;
+        }
+        auto candidate_path = find_path(candidate_schema);
+        if (!candidate_path.has_value()) {
+            continue;
+        }
+        if (latest_schema == nullptr || (candidate_schema.__isset.schema_id &&
+                                         (!latest_schema->__isset.schema_id ||
+                                          candidate_schema.schema_id > latest_schema->schema_id))) {
+            latest_schema = &candidate_schema;
+            latest_path = std::move(candidate_path);
+        }
+    }
+    return latest_path;
 }
 
 Status TableReader::init(TableReadOptions&& options) {
@@ -884,14 +1224,17 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::validate_variant_file_mappings(FileFormat format,
                                                    const std::vector<ColumnMapping>& mappings) {
-    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
+    // WAL stores Doris blocks directly and therefore supports Variant without the external-file
+    // format restrictions applied here.
+    if (format == FileFormat::PARQUET || format == FileFormat::WAL ||
+        !std::ranges::any_of(mappings, mapping_reads_variant)) {
         return Status::OK();
     }
     // Gate on a physical mapping, not the table schema: an older file may legitimately omit a
     // Variant field added by schema evolution, in which case the mapper synthesizes NULL.
     return Status::NotSupported(
-            "External Variant is supported only for Parquet files in FileScannerV2; file format "
-            "{} is not supported",
+            "Variant is supported only for Parquet files and WAL in FileScannerV2; file format {} "
+            "is not supported",
             file_format_to_string(format));
 }
 
@@ -1025,6 +1368,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
     refreshed_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+    refreshed_request->row_ids = _row_ids;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1036,6 +1380,8 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
+    RETURN_IF_ERROR(
+            refreshed_mapper->reconcile_scan_request_after_customization(refreshed_request.get()));
     if (_file_scan_request == nullptr ||
         !same_physical_scan_layout(*refreshed_request, *_file_scan_request)) {
         // A reader cannot reinterpret columns already materialized with another block layout.
@@ -1086,6 +1432,12 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     if (file_request.conjuncts.empty()) {
         return false;
     }
+    // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
+    // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
+    // and reusing an old all-false granule would silently discard matching rows.
+    if (!build_predicate_snapshot_digest(file_request.conjuncts).has_value()) {
+        return false;
+    }
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
@@ -1120,8 +1472,22 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     const auto cache_size = _condition_cache_source_range.has_value()
                                     ? _condition_cache_source_range->second
                                     : file.range_size;
+    auto cache_digest = _condition_cache_digest;
+    if (_format == FileFormat::PARQUET) {
+        const auto timezone = _get_int96_timezone_override(_scan_params);
+        if (timezone.has_value()) {
+            // A cached false granule is valid only under the same INT96 interpretation. The
+            // helper normalizes versioned omission to explicit empty; legacy absence keeps
+            // the session-based key. Do not mutate the predicate seed reused by later splits.
+            constexpr std::string_view contract_tag = "parquet-int96-timezone:";
+            cache_digest = HashUtil::xxHash64WithSeed(contract_tag.data(), contract_tag.size(),
+                                                      cache_digest);
+            cache_digest =
+                    HashUtil::xxHash64WithSeed(timezone->data(), timezone->size(), cache_digest);
+        }
+    }
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, cache_start, cache_size,
+            file.path, file.mtime, file.file_size, cache_digest, cache_start, cache_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     _condition_cache_initialized = true;
 
@@ -1315,6 +1681,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
+    const std::optional<std::string> hive_parquet_time_zone =
+            _get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
@@ -1323,7 +1691,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 _current_task->file_context, _current_task->format_split_id,
-                _current_task->format_split_id_end);
+                _current_task->format_split_id_end, hive_parquet_time_zone);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1366,11 +1734,6 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _scan_params, _current_file_range_desc, *_file_slot_descs,
                 _current_range_compress_type, _current_range_load_id);
-        return Status::OK();
-    }
-    if (_format == FileFormat::NATIVE) {
-        *reader = std::make_unique<format::native::NativeReader>(
-                _system_properties, _current_task->data_file, _io_ctx, _scanner_profile);
         return Status::OK();
     }
     return Status::NotSupported("TableReader does not support file format {}",
@@ -1431,6 +1794,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
                                      ? std::make_optional(options.current_range.load_id)
                                      : std::nullopt;
     _global_rowid_context = options.global_rowid_context;
+    _row_ids = options.row_ids;
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
@@ -1459,9 +1823,10 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     // the NULL state of a COUNT argument. Require the new FE's explicit empty argument list, which
     // means COUNT(*)/COUNT(1). A non-empty list means COUNT(col), while nullopt comes from an old FE
     // whose COUNT semantics are unknown during a BE-first rolling upgrade.
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty() && options.all_runtime_filters_applied &&
-        _conjuncts.empty() && options.current_range.__isset.table_format_params &&
+    if (!_row_ids.has_value() && _push_down_agg_type == TPushAggOp::type::COUNT &&
+        _push_down_count_columns.has_value() && _push_down_count_columns->empty() &&
+        options.all_runtime_filters_applied && _conjuncts.empty() &&
+        options.current_range.__isset.table_format_params &&
         options.current_range.table_format_params.__isset.table_level_row_count) {
         DORIS_CHECK(options.current_range.table_format_params.table_level_row_count >= -1);
         _remaining_table_level_count =

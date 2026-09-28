@@ -39,7 +39,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
@@ -358,16 +357,9 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     @Override
     public long fetchRowCount() {
-        makeSureInitialized();
-        long rowCount = 0;
-        List<Split> splits = getSysPaimonTable().newReadBuilder().newScan().plan().splits();
-        for (Split split : splits) {
-            rowCount += split.rowCount();
-        }
-        if (rowCount == 0) {
-            LOG.info("Paimon system table {} row count is 0, return -1", name);
-        }
-        return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
+        // System-table row counts cannot use the data snapshot's record count. Planning their
+        // splits can enumerate all manifests (e.g. $files), so never do it for an estimate.
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override

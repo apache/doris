@@ -25,6 +25,7 @@
 #include <barrier>
 #include <chrono>
 #include <cstddef>
+#include <future>
 #include <limits>
 #include <memory>
 #include <random>
@@ -1459,6 +1460,81 @@ TEST_F(VectorSearchTest, IVFOnDiskSaveLoadAndSearch) {
     ASSERT_TRUE(index2->ann_topn_search(query_vec.data(), 10, search_params, result).ok());
     EXPECT_GT(result.roaring->cardinality(), 0u);
     EXPECT_GT(result.ivf_on_disk_cache_miss_cnt, 0);
+}
+
+// Searching WITHOUT a list cache has to read, not recurse.
+//
+// faiss documents RandomAccessReader::borrow()'s default as "allocates a buffer
+// and calls read_at()", and CachedRandomAccessReader::read_at() is implemented by
+// calling borrow(). Falling back to the base borrow() when
+// AnnIndexIVFListCache::instance() is null is therefore unbounded mutual
+// recursion. Every other IVF-on-disk test above installs the cache first, which
+// is exactly why nothing has ever hit it.
+//
+// exec_env_init installs the cache unconditionally at BE startup, so a running BE
+// does not reach this today. It is a trap for any unit test that does not know to
+// install one -- it does not fail, it never returns -- and for any change that
+// makes the cache optional.
+//
+// The search runs on a worker with a deadline because before the fix it does not
+// return at all: called inline it would hang the whole suite instead of failing
+// this one case. Everything the worker touches is shared-owned so a hung thread
+// cannot outlive its arguments.
+TEST_F(VectorSearchTest, IVFOnDiskSearchWithoutTheListCacheStillReads) {
+    ASSERT_EQ(AnnIndexIVFListCache::instance(), nullptr)
+            << "this case is about the no-cache path, but something installed a cache";
+
+    auto builder = std::make_unique<FaissVectorIndex>();
+    FaissBuildParameter params;
+    params.dim = 32;
+    params.ivf_nlist = 4;
+    params.quantizer = FaissBuildParameter::Quantizer::FLAT;
+    params.index_type = FaissBuildParameter::IndexType::IVF_ON_DISK;
+    builder->build(params);
+
+    const int num_vectors = 200;
+    std::vector<float> vectors;
+    vectors.reserve(static_cast<size_t>(num_vectors) * params.dim);
+    for (int i = 0; i < num_vectors; i++) {
+        auto tmp = vector_search_utils::generate_random_vector(params.dim);
+        vectors.insert(vectors.end(), tmp.begin(), tmp.end());
+    }
+    ASSERT_TRUE(builder->train(num_vectors, vectors.data()).ok());
+    ASSERT_TRUE(builder->add(num_vectors, vectors.data()).ok());
+
+    auto dir = std::make_shared<lucene::store::RAMDirectory>();
+    ASSERT_TRUE(builder->save(dir.get()).ok());
+
+    auto index = std::make_shared<FaissVectorIndex>();
+    index->set_type(AnnIndexType::IVF_ON_DISK);
+    index->set_ivfdata_cache_key_prefix("ut_no_list_cache");
+    ASSERT_TRUE(index->load(dir.get()).ok());
+
+    auto query_vec = std::make_shared<std::vector<float>>(
+            vector_search_utils::generate_random_vector(params.dim));
+    auto roaring = std::make_shared<roaring::Roaring>();
+    for (int i = 0; i < num_vectors; ++i) {
+        roaring->add(i);
+    }
+    auto result = std::make_shared<IndexSearchResult>();
+
+    auto done = std::make_shared<std::promise<Status>>();
+    auto ready = done->get_future();
+    std::thread worker([index, dir, query_vec, roaring, result, done, num_vectors] {
+        IVFSearchParameters search_params;
+        search_params.nprobe = 4;
+        search_params.roaring = roaring.get();
+        search_params.rows_of_segment = num_vectors;
+        done->set_value(index->ann_topn_search(query_vec->data(), 10, search_params, *result));
+    });
+    const bool returned = ready.wait_for(std::chrono::seconds(60)) == std::future_status::ready;
+    if (!returned) {
+        worker.detach();
+        FAIL() << "the search never returned: borrow() recurses when there is no list cache";
+    }
+    worker.join();
+    ASSERT_TRUE(ready.get().ok());
+    EXPECT_GT(result->roaring->cardinality(), 0U);
 }
 
 // All threads share a single FaissVectorIndex (and thus a single

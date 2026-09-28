@@ -66,6 +66,25 @@ under the License.
         <property name="message" value="Trailing whitespace found."/>
         <property name="fileExtensions" value=".java"/>
     </module>
+    <!--
+      Best effort guard against writing credentials to the log: catches a value whose name says it
+      holds a token/password/secret/peer identity being passed straight to a log call, either as a
+      parameter or concatenated into the message. Logs are routinely shipped off the host, so a
+      credential in a log line has a far wider audience than the credential store itself.
+
+      Matching is multiline because the argument often sits on a continuation line, and [^;] bounds
+      each match to a single statement. It only recognizes the naming convention, so it is a
+      backstop and not a substitute for review: an alias that does not carry the noun (peerIdentity
+      needed to be added by hand once it turned out to be the Arrow Flight bearer token) is invisible
+      to it.
+    -->
+    <module name="RegexpMultiline">
+        <property name="format"
+                  value="LOG\.(?:info|warn|error|debug|trace)\([^;]*[,+]\s*(?![Mm]asked)(?:[A-Za-z0-9_]+\.)*(?:get)?[A-Za-z0-9_]*(?:[Tt]oken|[Pp]assword|[Ss]ecret|[Pp]eerIdentity)(?:Value|Str|String|Text)?(?:\(\))?\s*[,)+]"/>
+        <property name="message"
+                  value="Do not log credentials. Mask the value with org.apache.doris.common.util.TokenMasker (or log only a non-reversible id); if the value is not a secret, name it so."/>
+        <property name="fileExtensions" value=".java"/>
+    </module>
 
     <module name="TreeWalker">
         <!-- filter -->

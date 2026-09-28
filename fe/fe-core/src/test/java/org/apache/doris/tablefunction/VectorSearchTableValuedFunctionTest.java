@@ -20,7 +20,8 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -73,9 +74,9 @@ public class VectorSearchTableValuedFunctionTest {
         Schema schema = new Schema(Arrays.asList(
                 Field.nullable("Category", ArrowType.Utf8.INSTANCE),
                 Field.nullable("category", ArrowType.Utf8.INSTANCE)));
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42, schema,
-                Collections.emptyList(), Collections.emptyMap());
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, schema,
+                Collections.emptyList());
 
         AnalysisException duplicate = Assert.assertThrows(AnalysisException.class,
                 () -> VectorSearchTableValuedFunction.buildOutputColumns(metadata));
@@ -87,9 +88,9 @@ public class VectorSearchTableValuedFunctionTest {
     public void testRejectReservedGlobalRowIdPrefixInFrontend() {
         Schema schema = new Schema(Collections.singletonList(
                 Field.nullable(Column.GLOBAL_ROWID_COL + "payload", ArrowType.Utf8.INSTANCE)));
-        LanceTableMetadata metadata = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42, schema,
-                Collections.emptyList(), Collections.emptyMap());
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, schema,
+                Collections.emptyList());
 
         AnalysisException reserved = Assert.assertThrows(AnalysisException.class,
                 () -> VectorSearchTableValuedFunction.buildOutputColumns(metadata));
@@ -101,17 +102,16 @@ public class VectorSearchTableValuedFunctionTest {
     public void testRequireLanceFieldIdAfterResolvingVectorColumn() throws Exception {
         Field vector = Field.nullable("vector", ArrowType.Utf8.INSTANCE);
         Schema schema = new Schema(Collections.singletonList(vector));
-        LanceTableMetadata metadata = LanceTableMetadata.withIndexSegments(
-                "s3://bucket/table.lance", 42, schema, Collections.emptyList(),
-                Collections.singletonMap("vector", 9), Collections.emptyList(),
-                Collections.emptyMap());
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, schema, Collections.emptyList(),
+                Collections.singletonMap("vector", 9), Collections.emptyList());
 
         Assert.assertEquals(9,
                 VectorSearchTableValuedFunction.requireLanceFieldId(metadata, vector));
 
-        LanceTableMetadata missingFieldId = LanceTableMetadata.withoutIndexSegments(
-                "s3://bucket/table.lance", 42, schema,
-                Collections.emptyList(), Collections.emptyMap());
+        LanceTableMetadata missingFieldId = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 42, schema,
+                Collections.emptyList());
         AnalysisException exception = Assert.assertThrows(AnalysisException.class,
                 () -> VectorSearchTableValuedFunction.requireLanceFieldId(
                         missingFieldId, vector));

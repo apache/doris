@@ -189,6 +189,10 @@ public:
         _row_lineage_columns = std::move(row_lineage_columns);
     }
 
+    void set_duplicate_file_column_aliases(std::unordered_set<std::string> aliases) {
+        _duplicate_file_column_aliases = std::move(aliases);
+    }
+
     bool count_read_rows() override { return true; }
 
 protected:
@@ -339,6 +343,9 @@ private:
     //sequence in file, need to read
     std::vector<std::string> _read_table_columns;
     std::vector<std::string> _read_file_columns;
+    // Only explicitly registered Iceberg raw carriers may share a physical root with another
+    // logical table column. Generic and row-id readers retain one logical mapping per file column.
+    std::unordered_set<std::string> _duplicate_file_column_aliases;
     // The set of file columns to be read; only columns within this set will be filtered using the min-max predicate.
     std::set<std::string> _read_table_columns_set;
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.

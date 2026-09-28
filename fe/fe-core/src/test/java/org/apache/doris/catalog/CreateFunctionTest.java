@@ -19,9 +19,11 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -34,9 +36,11 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -173,6 +177,37 @@ public class CreateFunctionTest {
     }
 
     @Test
+    public void testDropFunctionReturnsCurrentGenerationId() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database drop_function_id_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("drop_function_id_db");
+        Assert.assertNotNull(db);
+
+        Function firstGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(firstGeneration, false);
+        Assert.assertEquals(ImmutableList.of(firstGeneration.getId()),
+                db.dropFunction(searchDesc(firstGeneration), false));
+
+        Function secondGeneration = createJavaUdf("drop_function_id_db", "generation_fn", Type.INT);
+        db.addFunction(secondGeneration, false);
+        Assert.assertNotEquals(firstGeneration.getId(), secondGeneration.getId());
+        Assert.assertEquals(ImmutableList.of(secondGeneration.getId()),
+                db.dropFunction(searchDesc(secondGeneration), false));
+    }
+
+    @Test
+    public void testDropGlobalFunctionReturnsCurrentGenerationId() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        Function function = createJavaUdf(null, "drop_global_function_id_fn", Type.INT);
+        FunctionSearchDesc functionDesc = searchDesc(function);
+        globalFunctionMgr.dropFunction(functionDesc, true);
+
+        globalFunctionMgr.addFunction(function, false);
+        Assert.assertEquals(ImmutableList.of(function.getId()),
+                globalFunctionMgr.dropFunction(functionDesc, false));
+    }
+
+    @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
@@ -274,5 +309,15 @@ public class CreateFunctionTest {
             }
         }
         throw new AssertionError("function not found: " + functionName);
+    }
+
+    private Function createJavaUdf(String dbName, String functionName, Type... argTypes) throws Exception {
+        return ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF,
+                new FunctionName(dbName, functionName), argTypes, Type.INT, false,
+                URI.create("file:///tmp/" + functionName + ".jar"), "evaluate", null, null);
+    }
+
+    private FunctionSearchDesc searchDesc(Function function) {
+        return new FunctionSearchDesc(function.getFunctionName(), function.getArgs(), function.hasVarArgs());
     }
 }

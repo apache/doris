@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableComma
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCompactTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCreateClusterSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCommand;
@@ -228,6 +229,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexNormalizerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenFilterCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexTokenizerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLanceIndexJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
@@ -432,6 +435,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminCompactTableCommand(AdminCompactTableCommand adminCompactTableCommand, C context) {
         return visitCommand(adminCompactTableCommand, context);
+    }
+
+    default R visitAdminCompactTabletCommand(AdminCompactTabletCommand adminCompactTabletCommand, C context) {
+        return visitCommand(adminCompactTabletCommand, context);
     }
 
     default R visitAdminCleanTrashCommand(AdminCleanTrashCommand adminCleanTrashCommand, C context) {
@@ -676,6 +683,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateRepositoryCommand(ShowCreateRepositoryCommand showCreateRepositoryCommand, C context) {
         return visitCommand(showCreateRepositoryCommand, context);
+    }
+
+    default R visitShowLanceIndexJobCommand(ShowLanceIndexJobCommand showLanceIndexJobCommand, C context) {
+        return visitCommand(showLanceIndexJobCommand, context);
+    }
+
+    default R visitShowLanceIndexJobsCommand(ShowLanceIndexJobsCommand showLanceIndexJobsCommand, C context) {
+        return visitCommand(showLanceIndexJobsCommand, context);
     }
 
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {

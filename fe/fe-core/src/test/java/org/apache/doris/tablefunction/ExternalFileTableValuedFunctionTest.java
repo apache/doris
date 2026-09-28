@@ -23,15 +23,25 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.LanceFileFormatProperties;
 import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.arrow.vector.types.TimeUnit;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -41,6 +51,56 @@ public class ExternalFileTableValuedFunctionTest {
         FileFormatProperties properties = FileFormatProperties.createFileFormatProperties("LaNcE");
         Assert.assertTrue(properties instanceof LanceFileFormatProperties);
         Assert.assertEquals(TFileFormatType.FORMAT_LANCE, properties.getFileFormatType());
+    }
+
+    @Test
+    public void testHiveParquetTimeZoneIsCanonicalizedAndRemovedFromStorageProperties()
+            throws AnalysisException {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "8:00");
+
+        Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
+
+        Assert.assertEquals("+08:00", tvf.getHiveParquetTimeZone());
+        Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
+    }
+
+    @Test
+    public void testHiveParquetTimeZoneRejectsAmbiguousShortAlias() {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "CST");
+
+        AnalysisException exception = Assert.assertThrows(
+                AnalysisException.class, () -> tvf.parseCommonProperties(properties));
+
+        Assert.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
+
+    @Test
+    public void testTvfVarbinaryMappingRemainsExplicit() throws AnalysisException {
+        ExternalFileTableValuedFunction defaultTvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> defaultProperties = Maps.newHashMap();
+        defaultProperties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+
+        defaultTvf.parseCommonProperties(defaultProperties);
+
+        Assert.assertFalse(defaultTvf.fileFormatProperties.enableMappingVarbinary);
+
+        ExternalFileTableValuedFunction enabledTvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Map<String, String> enabledProperties = Maps.newHashMap(defaultProperties);
+        enabledProperties.put(FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "true");
+
+        enabledTvf.parseCommonProperties(enabledProperties);
+
+        Assert.assertTrue(enabledTvf.fileFormatProperties.enableMappingVarbinary);
     }
 
     @Test
@@ -125,5 +185,59 @@ public class ExternalFileTableValuedFunctionTest {
             e.printStackTrace();
             Assert.fail();
         }
+    }
+
+    // Verifies a shared-storage Lance TVF executes on the backend that provided its schema.
+    @Test
+    public void testLocalLanceExecutionUsesSchemaBackend() throws Exception {
+        LocalTableValuedFunction tvf =
+                Mockito.mock(LocalTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        setLongField(tvf, "backendId", -1L);
+        setLongField(tvf, "backendIdForRequest", 23L);
+
+        Mockito.doReturn(true).when(tvf).isLanceFormat();
+        Assert.assertEquals(23L, tvf.getBackendIdForExecution());
+
+        Mockito.doReturn(false).when(tvf).isLanceFormat();
+        Assert.assertEquals(-1L, tvf.getBackendIdForExecution());
+    }
+
+    // Verifies S3 Lance metadata records which columns require the current BE reader.
+    @Test
+    public void testLanceMetadataTracksCurrentReaderColumns() throws Exception {
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Field jsonField = new Field(
+                "json_value",
+                new FieldType(true, ArrowType.Utf8.INSTANCE, null,
+                        Collections.singletonMap("ARROW:extension:name", "arrow.json")),
+                Collections.emptyList());
+        LanceTableMetadata metadata = LanceTableMetadata.createBasicSnapshot(
+                new LanceTableAccess("s3://bucket/table.lance", Collections.emptyMap()), 1L,
+                new Schema(Arrays.asList(
+                        jsonField,
+                        Field.nullable("null_value", ArrowType.Null.INSTANCE),
+                        Field.nullable("duration_value",
+                                new ArrowType.Duration(TimeUnit.MILLISECOND)),
+                        Field.nullable("ordinary", ArrowType.Utf8.INSTANCE))),
+                Collections.emptyList());
+
+        java.lang.reflect.Field csvSchema = ExternalFileTableValuedFunction.class.getDeclaredField("csvSchema");
+        csvSchema.setAccessible(true);
+        csvSchema.set(tvf, Collections.emptyList());
+        tvf.setLanceTableMetadata(metadata);
+
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("JSON_VALUE"));
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("null_value"));
+        Assert.assertTrue(tvf.requiresCurrentLanceReader("DURATION_VALUE"));
+        Assert.assertFalse(tvf.requiresCurrentLanceReader("ordinary"));
+    }
+
+    // Sets a private long field without invoking the table function's environment-dependent constructor.
+    private static void setLongField(Object target, String fieldName, long value) throws Exception {
+        java.lang.reflect.Field field =
+                LocalTableValuedFunction.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.setLong(target, value);
     }
 }

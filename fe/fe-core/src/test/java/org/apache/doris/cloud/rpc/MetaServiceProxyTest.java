@@ -45,6 +45,7 @@ public class MetaServiceProxyTest {
     private long originReconnectIntervalMs;
     private long originRetryCnt;
     private boolean originRateLimitEnabled;
+    private boolean originRateLimitDryRun;
     private int originRateLimitDefaultQpsPerCore;
     private String originRateLimitQpsPerCoreConfig;
     private int originRateLimitBurstSeconds;
@@ -56,6 +57,7 @@ public class MetaServiceProxyTest {
         originReconnectIntervalMs = Config.meta_service_rpc_reconnect_interval_ms;
         originRetryCnt = Config.meta_service_rpc_retry_cnt;
         originRateLimitEnabled = Config.meta_service_rpc_rate_limit_enabled;
+        originRateLimitDryRun = Config.meta_service_rpc_rate_limit_dry_run;
         originRateLimitDefaultQpsPerCore = Config.meta_service_rpc_rate_limit_default_qps_per_core;
         originRateLimitQpsPerCoreConfig = Config.meta_service_rpc_rate_limit_qps_per_core_config;
         originRateLimitBurstSeconds = Config.meta_service_rpc_rate_limit_burst_seconds;
@@ -65,6 +67,7 @@ public class MetaServiceProxyTest {
         Config.meta_service_rpc_reconnect_interval_ms = 0;
         Config.meta_service_rpc_retry_cnt = 1;
         Config.meta_service_rpc_rate_limit_enabled = false;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = 10;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = "";
         Config.meta_service_rpc_rate_limit_burst_seconds = 1;
@@ -78,6 +81,7 @@ public class MetaServiceProxyTest {
         Config.meta_service_rpc_reconnect_interval_ms = originReconnectIntervalMs;
         Config.meta_service_rpc_retry_cnt = originRetryCnt;
         Config.meta_service_rpc_rate_limit_enabled = originRateLimitEnabled;
+        Config.meta_service_rpc_rate_limit_dry_run = originRateLimitDryRun;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = originRateLimitDefaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = originRateLimitQpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = originRateLimitBurstSeconds;
@@ -524,6 +528,7 @@ public class MetaServiceProxyTest {
     private void enableRateLimit(int defaultQpsPerCore, String qpsPerCoreConfig, int burstSeconds,
             long waitTimeoutMs) {
         Config.meta_service_rpc_rate_limit_enabled = true;
+        Config.meta_service_rpc_rate_limit_dry_run = false;
         Config.meta_service_rpc_rate_limit_default_qps_per_core = defaultQpsPerCore;
         Config.meta_service_rpc_rate_limit_qps_per_core_config = qpsPerCoreConfig;
         Config.meta_service_rpc_rate_limit_burst_seconds = burstSeconds;

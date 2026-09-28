@@ -64,6 +64,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
@@ -492,25 +493,40 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
             Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMaximum()]), zone_map);
 }
 
-DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int32_t nanos_tail,
-                                                             const cctz::time_zone& timezone) {
+std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
+        int64_t millis, int32_t nanos_tail, const cctz::time_zone& timezone) {
     int64_t seconds = millis / 1000;
     int64_t millis_remainder = millis % 1000;
     if (millis_remainder < 0) {
         --seconds;
         millis_remainder += 1000;
     }
-    const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
-    const auto microseconds = cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / 1000);
+    // The tail is a sub-millisecond remainder. Malformed statistics must not prune valid rows.
+    if (nanos_tail < 0 || nanos_tail >= 1000000) {
+        return std::nullopt;
+    }
+    orc_serde_utils::RoundedOrcTimestamp rounded;
+    if (!orc_serde_utils::round_orc_timestamp_to_microseconds(
+                 seconds, millis_remainder * 1000000 + nanos_tail, &rounded)
+                 .ok()) {
+        return std::nullopt;
+    }
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(seconds, timezone);
-    value.set_microsecond(microseconds);
+    if (!orc_serde_utils::orc_timestamp_to_datetime(rounded.seconds, rounded.microseconds, timezone,
+                                                    false, &value)
+                 .ok()) {
+        return std::nullopt;
+    }
     return value;
 }
 
-TimestampTzValue timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail) {
+std::optional<TimestampTzValue> timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail) {
     static const auto utc_time_zone = cctz::utc_time_zone();
-    return TimestampTzValue(datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone));
+    auto value = datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone);
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    return TimestampTzValue(*value);
 }
 
 bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
@@ -530,27 +546,30 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         return false;
     }
     if (use_timestamp_tz) {
-        return set_validated_zone_map(
-                Field::create_field<TYPE_TIMESTAMPTZ>(
-                        timestamp_tz_from_orc_millis(timestamp_statistics->getMinimum(),
-                                                     timestamp_statistics->getMinimumNanos())),
-                Field::create_field<TYPE_TIMESTAMPTZ>(
-                        timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
-                                                     timestamp_statistics->getMaximumNanos())),
-                zone_map);
+        auto min_value = timestamp_tz_from_orc_millis(timestamp_statistics->getMinimum(),
+                                                      timestamp_statistics->getMinimumNanos());
+        auto max_value = timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
+                                                      timestamp_statistics->getMaximumNanos());
+        if (!min_value.has_value() || !max_value.has_value()) {
+            return false;
+        }
+        return set_validated_zone_map(Field::create_field<TYPE_TIMESTAMPTZ>(*min_value),
+                                      Field::create_field<TYPE_TIMESTAMPTZ>(*max_value), zone_map);
     }
     if (!format::utc_timestamp_range_is_monotonic(
                 format::floor_epoch_seconds(timestamp_statistics->getMinimum(), 1000),
                 format::floor_epoch_seconds(timestamp_statistics->getMaximum(), 1000), timezone)) {
         return false;
     }
-    return set_validated_zone_map(Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-                                          timestamp_statistics->getMinimum(),
-                                          timestamp_statistics->getMinimumNanos(), timezone)),
-                                  Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-                                          timestamp_statistics->getMaximum(),
-                                          timestamp_statistics->getMaximumNanos(), timezone)),
-                                  zone_map);
+    auto min_value = datetime_v2_from_orc_millis(timestamp_statistics->getMinimum(),
+                                                 timestamp_statistics->getMinimumNanos(), timezone);
+    auto max_value = datetime_v2_from_orc_millis(timestamp_statistics->getMaximum(),
+                                                 timestamp_statistics->getMaximumNanos(), timezone);
+    if (!min_value.has_value() || !max_value.has_value()) {
+        return false;
+    }
+    return set_validated_zone_map(Field::create_field<TYPE_DATETIMEV2>(*min_value),
+                                  Field::create_field<TYPE_DATETIMEV2>(*max_value), zone_map);
 }
 
 int32_t decimal_scale_for_orc_type(const ::orc::Type& type) {
@@ -755,6 +774,7 @@ struct OrcReaderScanState {
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
     bool stripe_pruning_applied = false;
+    size_t next_row_id = 0;
 
     bool row_reader_created = false;
 };
@@ -929,8 +949,15 @@ Status OrcReader::init(RuntimeState* state) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 return Status::EndOfFile("stop");
             }
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            const std::string err_msg = e.what();
+            if (err_msg.find("No such file or directory") != std::string::npos ||
+                err_msg.find("NoSuchKey") != std::string::npos) {
+                return Status::NotFound(err_msg);
+            }
             return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
-                                         e.what());
+                                         err_msg);
         }
         return Status::OK();
     };
@@ -1285,6 +1312,7 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
         return Status::Uninitialized("OrcReader is not open");
     }
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
+    _state->next_row_id = 0;
 
     if (_request->local_positions.empty()) {
         size_t next_position = 0;
@@ -1342,6 +1370,16 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _apply_current_stripe_range();
 
     RETURN_IF_ERROR(_create_row_reader());
+    if (_request->row_ids.has_value()) {
+        for (const int64_t row_id : *_request->row_ids) {
+            if (static_cast<uint64_t>(row_id) < _state->row_reader_range_first_row ||
+                static_cast<uint64_t>(row_id) >= _state->row_reader_range_end_row) {
+                return Status::InvalidArgument(
+                        "ORC row id {} is outside the current split row range [{}, {})", row_id,
+                        _state->row_reader_range_first_row, _state->row_reader_range_end_row);
+            }
+        }
+    }
     _eof = get_total_rows() == 0;
     return Status::OK();
 }
@@ -1757,7 +1795,12 @@ Status OrcReader::_create_row_reader() {
                 _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
-        _state->batch = _state->row_reader->createRowBatch(DEFAULT_ORC_READ_BATCH_SIZE);
+        // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
+        // of also returning the sequential rows that follow the requested position.
+        const uint64_t batch_size = _request != nullptr && _request->row_ids.has_value()
+                                            ? 1
+                                            : DEFAULT_ORC_READ_BATCH_SIZE;
+        _state->batch = _state->row_reader->createRowBatch(batch_size);
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
@@ -1865,6 +1908,8 @@ void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
     }
     if (target_row > _state->condition_cache_next_row) {
         DORIS_CHECK(target_row <= file_total_rows);
+        DBUG_EXECUTE_IF("OrcReader._skip_condition_cache_false_granules.before_seek_to_row",
+                        DBUG_RUN_CALLBACK());
         _state->row_reader->seekToRow(target_row);
         if (_io_ctx != nullptr) {
             _io_ctx->condition_cache_filtered_rows += target_row - _state->condition_cache_next_row;
@@ -2052,16 +2097,33 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     bool has_next = false;
+    std::optional<uint64_t> fetched_row_id;
     while (true) {
-        _skip_condition_cache_false_granules(rows, eof);
-        if (*eof) {
-            return Status::OK();
-        }
         try {
+            if (_request->row_ids.has_value()) {
+                if (_state->next_row_id >= _request->row_ids->size()) {
+                    _eof = true;
+                    *eof = true;
+                    return Status::OK();
+                }
+                fetched_row_id = static_cast<uint64_t>((*_request->row_ids)[_state->next_row_id]);
+                _state->row_reader->seekToRow(*fetched_row_id);
+            }
+            // Condition-cache seeks can perform I/O, so keep them in the same cancellation
+            // boundary as next().
+            if (!_request->row_ids.has_value()) {
+                _skip_condition_cache_false_granules(rows, eof);
+            }
+            if (*eof) {
+                return Status::OK();
+            }
             _state->orc_lazy_selection_valid = false;
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;
             has_next = _state->row_reader->next(*_state->batch);
+            if (_request->row_ids.has_value() && has_next) {
+                ++_state->next_row_id;
+            }
         } catch (const std::exception& e) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 file_block->clear_column_data(file_block->columns());
@@ -2082,6 +2144,10 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             }
             break;
         }
+        if (_request->row_ids.has_value()) {
+            return Status::InternalError("ORC row id {} could not be read from the current split",
+                                         *fetched_row_id);
+        }
         bool advanced = false;
         RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
         if (!advanced) {
@@ -2092,7 +2158,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
-    const auto batch_first_row = _state->row_reader->getRowNumber();
+    const auto batch_first_row = fetched_row_id.value_or(_state->row_reader->getRowNumber());
     _state->current_batch_first_row = batch_first_row;
     _state->condition_cache_next_row = _state->current_batch_first_row + batch_rows;
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());
@@ -2256,6 +2322,16 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             _state->reader->getWriterVersion() < ::orc::WriterVersion_ORC_135) {
             return Status::NotSupported(
                     "ORC TIMESTAMP min/max statistics are unsafe before writer version ORC-135");
+        }
+        if (leaf_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT &&
+            !_enable_mapping_timestamp_tz) {
+            // Raw timestamp order does not preserve local DATETIMEV2 order across a DST fold.
+            int32_t fixed_offset_seconds = 0;
+            if (!TimezoneUtils::try_get_fixed_offset_seconds(_state->timezone_obj,
+                                                             &fixed_offset_seconds)) {
+                return Status::NotSupported(
+                        "ORC timestamp min/max pushdown requires a fixed-offset timezone");
+            }
         }
 
         auto& aggregate_column = result->columns[column_idx];

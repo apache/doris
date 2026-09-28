@@ -17,6 +17,9 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -28,13 +31,99 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
 namespace {
+
+size_t trim_right_spaces(const char* value, size_t length) {
+    while (length > 0 && value[length - 1] == ' ') {
+        --length;
+    }
+    return length;
+}
+
+Status append_orc_string_ref(const ::orc::Type& file_type, const char* data, int64_t length,
+                             std::vector<StringRef>& binary_values) {
+    if (length < 0) {
+        return Status::Corruption("Invalid negative ORC string length {}", length);
+    }
+    auto value_length = static_cast<size_t>(length);
+    if (file_type.getKind() == ::orc::TypeKind::CHAR) {
+        value_length = trim_right_spaces(data, value_length);
+    }
+    binary_values.emplace_back(value_length == 0 ? "" : data, value_length);
+    return Status::OK();
+}
+
+Status decode_string_orc_values(const DataTypeSerDe& serde, IColumn& column,
+                                const OrcDecodedColumnView& orc_view) {
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    if (const auto* encoded_batch =
+                dynamic_cast<const ::orc::EncodedStringVectorBatch*>(orc_view.batch);
+        encoded_batch != nullptr && encoded_batch->isEncoded) {
+        if (encoded_batch->dictionary == nullptr) {
+            return Status::InternalError("Encoded ORC string batch has no dictionary");
+        }
+        auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::BINARY);
+        NullMap null_map;
+        orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                                   orc_view.selected_rows, &null_map);
+        view.null_map = null_map.empty() ? nullptr : null_map.data();
+        const auto output_rows =
+                orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+        std::vector<StringRef> binary_values;
+        binary_values.reserve(output_rows);
+        for (size_t row = 0; row < output_rows; ++row) {
+            const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+            if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+                binary_values.emplace_back("", 0);
+                continue;
+            }
+            char* data = nullptr;
+            int64_t length = 0;
+            encoded_batch->dictionary->getValueByIndex(encoded_batch->index[source_row], data,
+                                                       length);
+            RETURN_IF_ERROR(
+                    append_orc_string_ref(*orc_view.file_type, data, length, binary_values));
+        }
+        view.binary_values = &binary_values;
+        RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+        return Status::OK();
+    }
+
+    const auto* orc_batch = dynamic_cast<const ::orc::StringVectorBatch*>(orc_view.batch);
+    if (orc_batch == nullptr) {
+        return Status::InternalError("Unexpected ORC string batch type {}",
+                                     orc_view.batch->toString());
+    }
+    auto view = orc_serde_utils::make_orc_decoded_view(orc_view, DecodedValueKind::BINARY);
+    NullMap null_map;
+    orc_serde_utils::fill_orc_decoded_null_map(*orc_view.batch, orc_view.rows,
+                                               orc_view.selected_rows, &null_map);
+    view.null_map = null_map.empty() ? nullptr : null_map.data();
+    const auto output_rows =
+            orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
+    std::vector<StringRef> binary_values;
+    binary_values.reserve(output_rows);
+    for (size_t row = 0; row < output_rows; ++row) {
+        const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
+        if (orc_serde_utils::orc_row_is_null(*orc_view.batch, source_row)) {
+            binary_values.emplace_back("", 0);
+            continue;
+        }
+        RETURN_IF_ERROR(append_orc_string_ref(*orc_view.file_type, orc_batch->data[source_row],
+                                              orc_batch->length[source_row], binary_values));
+    }
+    view.binary_values = &binary_values;
+    RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
+    return Status::OK();
+}
 
 template <typename ColumnType>
 Status read_string_decoded_values(IColumn& column, const DecodedColumnView& view) {
@@ -123,6 +212,14 @@ private:
 } // namespace
 
 namespace {
+
+bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
+    if (!field->HasMetadata()) {
+        return false;
+    }
+    const auto value = field->metadata()->Get("originalType");
+    return value.ok() && value.ValueUnsafe() == "uuid";
+}
 
 int hex_value(char c) {
     if (c >= '0' && c <= '9') {
@@ -465,6 +562,41 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
 }
 
 template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (!is_iceberg_uuid_field(field)) {
+        // Keep the existing CHAR/STRING fixed-binary binding until external type mappings change.
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    if (!is_string_type(type->get_primitive_type()) ||
+        array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
+        return Status::InvalidArgument(
+                "Iceberg UUID writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+    const int byte_width =
+            assert_cast<const arrow::FixedSizeBinaryType&>(*builder.type()).byte_width();
+    if (byte_width != 16) {
+        return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}", byte_width);
+    }
+    const auto& strings = assert_cast<const ColumnType&>(column);
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+            continue;
+        }
+        std::array<uint8_t, 16> bytes;
+        RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(strings.get_data_at(row), &bytes));
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+    }
+    return Status::OK();
+}
+
+template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         IColumn& column, const arrow::Array* arrow_array, int64_t start, int64_t end,
         const cctz::time_zone& ctz) const {
@@ -762,14 +894,31 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
-    // CHAR(N) writes through OlapColumnDataConvertorChar are zero-padded to
-    // the declared schema length, so the serialized OLAP string carries
-    // trailing '\0' bytes. strnlen() drops that padding to surface the
-    // logical character content in the Field. VARCHAR / STRING never write
-    // trailing '\0' through this path, so strnlen is a no-op for them.
-    size_t len = strnlen(str.data(), str.size());
+    // CHAR(N) is zero-padded to the declared schema length before it is written, so its
+    // stored bytes carry trailing '\0' and stop at the first one. The page read path cuts
+    // CHAR values the same way (see BinaryPlainPageCharStripPreDecoder), so a bound built
+    // like this stays comparable with the rows it describes.
+    //
+    // VARCHAR and STRING keep every byte they were given, '\0' included. Cutting such a
+    // value at an embedded '\0' would give a bound the data never held, and a zone map
+    // built from it prunes rows that match.
+    size_t len = _type == TYPE_CHAR ? strnlen(str.data(), str.size()) : str.size();
     field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
+        IColumn& column, const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    const auto kind = view.file_type->getKind();
+    DORIS_CHECK(kind == ::orc::TypeKind::STRING || kind == ::orc::TypeKind::BINARY ||
+                kind == ::orc::TypeKind::VARCHAR || kind == ::orc::TypeKind::CHAR);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_string_orc_values(*this, column, view);
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;

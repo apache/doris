@@ -17,6 +17,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <memory>
 
@@ -140,5 +141,84 @@ TEST_F(WalReaderWriterTest, TestWriteAndRead1) {
     }
     static_cast<void>(wal_reader.finalize());
     EXPECT_EQ(3, block_count);
+}
+
+TEST_F(WalReaderWriterTest, TestReadIncompleteLastRecord) {
+    PBlock first_block;
+    PBlock last_block;
+    generate_block(first_block, 0);
+    generate_block(last_block, block_rows);
+
+    const size_t first_record_size =
+            WalWriter::LENGTH_SIZE + first_block.ByteSizeLong() + WalWriter::CHECKSUM_SIZE;
+    const size_t last_block_end =
+            first_record_size + WalWriter::LENGTH_SIZE + last_block.ByteSizeLong();
+    const std::array<size_t, 6> truncated_sizes = {
+            first_record_size + WalWriter::LENGTH_SIZE / 2,
+            first_record_size + WalWriter::LENGTH_SIZE + last_block.ByteSizeLong() / 2,
+            last_block_end,
+            last_block_end + 1,
+            last_block_end + 2,
+            last_block_end + 3};
+
+    for (size_t i = 0; i < truncated_sizes.size(); ++i) {
+        std::string file_name = _s_test_data_path + "/incomplete_last_record_" + std::to_string(i);
+        auto wal_writer = WalWriter(file_name);
+        ASSERT_TRUE(wal_writer.init(io::global_local_filesystem()).ok());
+        ASSERT_TRUE(wal_writer.append_blocks({&first_block, &last_block}).ok());
+        ASSERT_TRUE(wal_writer.finalize().ok());
+        ASSERT_NO_THROW(std::filesystem::resize_file(file_name, truncated_sizes[i]));
+
+        auto wal_reader = WalFileReader(file_name);
+        ASSERT_TRUE(wal_reader.init().ok());
+        PBlock block;
+        EXPECT_TRUE(wal_reader.read_block(block).ok());
+        auto st = wal_reader.read_block(block);
+        if (i < 2) {
+            EXPECT_TRUE(st.is<ErrorCode::END_OF_FILE>());
+        } else {
+            EXPECT_TRUE(st.ok());
+            Block deserialized_block;
+            size_t uncompressed_size = 0;
+            int64_t uncompressed_time = 0;
+            EXPECT_TRUE(
+                    deserialized_block.deserialize(block, &uncompressed_size, &uncompressed_time)
+                            .ok());
+            EXPECT_EQ(block_rows, deserialized_block.rows());
+            EXPECT_TRUE(wal_reader.read_block(block).is<ErrorCode::END_OF_FILE>());
+        }
+        EXPECT_TRUE(wal_reader.finalize().ok());
+    }
+}
+
+TEST_F(WalReaderWriterTest, TestReadIncompleteHeader) {
+    const std::string column_ids = "1,2";
+    const size_t version_header_size = k_wal_magic_length + WalWriter::VERSION_SIZE;
+    const size_t fixed_header_size = version_header_size + WalWriter::LENGTH_SIZE;
+    const std::array<size_t, 8> truncated_sizes = {0,
+                                                   k_wal_magic_length - 1,
+                                                   k_wal_magic_length,
+                                                   version_header_size - 1,
+                                                   version_header_size,
+                                                   fixed_header_size - 1,
+                                                   fixed_header_size,
+                                                   fixed_header_size + column_ids.size() - 1};
+
+    for (size_t i = 0; i < truncated_sizes.size(); ++i) {
+        std::string file_name = _s_test_data_path + "/incomplete_header_" + std::to_string(i);
+        auto wal_writer = WalWriter(file_name);
+        ASSERT_TRUE(wal_writer.init(io::global_local_filesystem()).ok());
+        ASSERT_TRUE(wal_writer.append_header(column_ids).ok());
+        ASSERT_TRUE(wal_writer.finalize().ok());
+        ASSERT_NO_THROW(std::filesystem::resize_file(file_name, truncated_sizes[i]));
+
+        auto wal_reader = WalFileReader(file_name);
+        ASSERT_TRUE(wal_reader.init().ok());
+        uint32_t version = 0;
+        std::string actual_column_ids;
+        EXPECT_TRUE(wal_reader.read_header(version, actual_column_ids)
+                            .is<ErrorCode::DATA_QUALITY_ERROR>());
+        EXPECT_TRUE(wal_reader.finalize().ok());
+    }
 }
 } // namespace doris

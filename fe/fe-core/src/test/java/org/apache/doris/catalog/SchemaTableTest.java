@@ -84,6 +84,7 @@ public class SchemaTableTest {
         SchemaTable sqlBlockRuleStatus = (SchemaTable) SchemaTable.TABLE_MAP.get("sql_block_rule_status");
         Assertions.assertTrue(sqlBlockRuleStatus.shouldFetchAllFe());
         Assertions.assertTrue(sqlBlockRuleStatus.shouldAddAgg());
+        Assertions.assertEquals("REQUIRE_PARTITION_FILTER", sqlBlockRuleStatus.getFullSchema().get(8).getName());
 
         SchemaTable processlist = (SchemaTable) SchemaTable.TABLE_MAP.get("processlist");
         Assertions.assertTrue(processlist.shouldFetchAllFe());

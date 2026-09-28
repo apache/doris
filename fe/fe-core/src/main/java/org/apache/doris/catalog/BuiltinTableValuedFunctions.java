@@ -23,12 +23,14 @@ import org.apache.doris.nereids.trees.expressions.functions.table.CdcStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
+import org.apache.doris.nereids.trees.expressions.functions.table.FullTextSearch;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.LanceIndexEntries;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -67,6 +69,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Partitions.class, "partitions"),
             tableValued(Jobs.class, "jobs"),
+            tableValued(LanceIndexEntries.class, "lance_index_entries"),
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),
@@ -77,7 +80,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
             tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
             tableValued(CdcStream.class, "cdc_stream"),
-            tableValued(VectorSearch.class, "vector_search")
+            tableValued(VectorSearch.class, "vector_search"),
+            tableValued(FullTextSearch.class, "full_text_search")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

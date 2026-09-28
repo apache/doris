@@ -62,6 +62,7 @@ import java.util.Optional;
  */
 public class MysqlConnectProcessor extends ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(MysqlConnectProcessor.class);
+    private static final int CURSOR_TYPE_READ_ONLY = 0x01;
 
     private ByteBuffer packetBuf;
 
@@ -127,12 +128,14 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         String stmtStr = "";
         try {
             StatementContext statementContext = prepCtx.statementContext;
+            if (!ctx.isProxy()) {
+                // An empty buffer still identifies a zero-parameter COM_STMT_EXECUTE when forwarding.
+                ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
+                ctx.setPrepareExecuteTypeCodes(null);
+            }
             if (paramCount > 0) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("execute param buf: {}, array: {}", packetBuf, getHexStr(packetBuf));
-                }
-                if (!ctx.isProxy()) {
-                    ctx.setPrepareExecuteBuffer(packetBuf.duplicate());
                 }
                 byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
                 packetBuf.get(nullbitmapData);
@@ -150,6 +153,15 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     // rewrite with new prepared statment with type info in placeholders
                     prepCtx.command = prepareCommand.withPlaceholders(typedPlaceholders);
                     prepareCommand = (PrepareCommand) prepCtx.command;
+                } else if (!ctx.isProxy()) {
+                    // A new master proxy cannot reuse the follower's statement-local type cache.
+                    int[] typeCodes = new int[paramCount];
+                    for (int i = 0; i < paramCount; i++) {
+                        Placeholder parameter = prepareCommand.getPlaceholders().get(i);
+                        typeCodes[i] = parameter.getMysqlColType().getCode()
+                                | (parameter.isUnsigned() ? MysqlColType.UNSIGNED_MASK : 0);
+                    }
+                    ctx.setPrepareExecuteTypeCodes(typeCodes);
                 }
                 // parse param data
                 for (int i = 0; i < paramCount; ++i) {
@@ -211,8 +223,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
         // parse stmt_id, flags, params
         int stmtId = packetBuf.getInt();
-        // flag
-        packetBuf.get();
+        int flags = Byte.toUnsignedInt(packetBuf.get());
+        ctx.setCursorFetchRequested((flags & CURSOR_TYPE_READ_ONLY) != 0);
         // iteration_count always 1,
         packetBuf.getInt();
         if (LOG.isDebugEnabled()) {

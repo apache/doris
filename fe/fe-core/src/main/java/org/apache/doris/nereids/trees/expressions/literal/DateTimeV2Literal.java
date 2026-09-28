@@ -409,7 +409,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
-    public Expression plusMicroSeconds(long microSeconds) {
+    public DateTimeV2Literal plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
@@ -474,7 +474,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     /**
      * convert java LocalDateTime object to DateTimeV2Literal object.
      */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+    public static DateTimeV2Literal fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());

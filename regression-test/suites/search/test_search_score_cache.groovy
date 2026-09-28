@@ -43,6 +43,11 @@ suite("test_search_score_cache", "p0") {
         """)
     }
 
+    // Keep v.host materialized as an indexed scalar subcolumn so score() can collect BM25.
+    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set default_variant_max_subcolumns_count = 0 """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
         CREATE TABLE ${tableName} (

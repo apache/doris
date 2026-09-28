@@ -111,4 +111,28 @@ public class JdbcExternalCatalogTest {
                 exceptione3.getMessage());
 
     }
+
+    @Test
+    public void testDriverUrlSecurityRule() throws DdlException {
+        Assert.assertThrows(DdlException.class,
+                () -> JdbcExternalCatalog.checkDriverUrlSecurityRule("../evil.jar"));
+        Assert.assertThrows(DdlException.class,
+                () -> JdbcExternalCatalog.checkDriverUrlSecurityRule("sub/dir/driver.jar"));
+        Assert.assertThrows(DdlException.class,
+                () -> JdbcExternalCatalog.checkDriverUrlSecurityRule("driver.jar; rm -rf /"));
+        Assert.assertThrows(DdlException.class,
+                () -> JdbcExternalCatalog.checkDriverUrlSecurityRule(
+                        "file:///opt/doris/plugins/jdbc_drivers/../../etc/evil.jar"));
+        Assert.assertThrows(DdlException.class,
+                () -> JdbcExternalCatalog.checkDriverUrlSecurityRule("http://host/a/../b.jar"));
+        Assert.assertThrows(DdlException.class,
+                () -> JdbcExternalCatalog.checkDriverUrlSecurityRule(
+                        "file:///opt/doris/plugins/jdbc_drivers/%2e%2e/%2e%2e/etc/evil.jar"));
+
+        JdbcExternalCatalog.checkDriverUrlSecurityRule("mysql-connector-j-8.4.0.jar");
+        JdbcExternalCatalog.checkDriverUrlSecurityRule(
+                "https://bucket.s3.amazonaws.com/regression/jdbc_driver/mysql-connector-j-8.4.0.jar");
+        JdbcExternalCatalog.checkDriverUrlSecurityRule(
+                "file:///opt/doris/plugins/jdbc_drivers/mysql-connector-j-8.4.0.jar");
+    }
 }

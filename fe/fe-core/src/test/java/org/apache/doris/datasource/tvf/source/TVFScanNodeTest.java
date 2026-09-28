@@ -17,19 +17,30 @@
 
 package org.apache.doris.datasource.tvf.source;
 
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionGenTable;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.FileTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -41,6 +52,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
@@ -203,5 +215,154 @@ public class TVFScanNodeTest {
         node.setScanParams(range, split);
         Assert.assertEquals(0L, range.getTableFormatParams().getLanceParams().getVersion());
         Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetFragmentIds());
+    }
+
+    // Verifies local Lance execution is restricted to the backend that provided its schema.
+    @Test
+    public void testLocalLancePinsExecutionToSchemaBackend() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        LocalTableValuedFunction tvf = Mockito.mock(LocalTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.getBackendIdForExecution()).thenReturn(101L);
+        desc.setTable(table);
+
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        FederationBackendPolicy backendPolicy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(backendPolicy.numBackends()).thenReturn(1);
+        Field backendPolicyField = ExternalScanNode.class.getDeclaredField("backendPolicy");
+        backendPolicyField.setAccessible(true);
+        backendPolicyField.set(node, backendPolicy);
+
+        node.initBackendPolicy();
+
+        Mockito.verify(backendPolicy).initWithBackendId(101L);
+        Mockito.verify(backendPolicy, Mockito.never()).init();
+    }
+
+    // Verifies S3 Lance projections reject a smooth-upgrade source BE.
+    @Test
+    public void testS3LanceAdditionalTypesRejectSmoothUpgradeSource() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc);
+        slot.setColumn(new Column("json_value", Type.JSONB));
+        desc.addSlot(slot);
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf =
+                Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.isLanceFormat()).thenReturn(true);
+        Mockito.when(tvf.requiresCurrentLanceReader("json_value")).thenReturn(true);
+        Mockito.when(tvf.getBackendIdForExecution()).thenCallRealMethod();
+        desc.setTable(table);
+
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(102L);
+        FederationBackendPolicy backendPolicy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(backendPolicy.getBackends())
+                .thenReturn(Collections.singletonList(smoothUpgradeSource));
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        Field backendPolicyField = ExternalScanNode.class.getDeclaredField("backendPolicy");
+        backendPolicyField.setAccessible(true);
+        backendPolicyField.set(node, backendPolicy);
+
+        UserException exception =
+                Assert.assertThrows(UserException.class, node::initBackendPolicy);
+
+        Assert.assertTrue(exception.getMessage().contains("102"));
+    }
+
+    @Test
+    public void testFileS3LanceNestedNullRejectsSmoothUpgradeSource() throws Exception {
+        S3TableValuedFunction delegate = Mockito.mock(S3TableValuedFunction.class);
+        Mockito.when(delegate.isLanceFormat()).thenReturn(true);
+        Mockito.when(delegate.getBackendIdForExecution()).thenCallRealMethod();
+        Mockito.when(delegate.requiresCurrentLanceReader("nested_null")).thenReturn(true);
+        FileTableValuedFunction tvf = wrapFileTvf(delegate);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc);
+        slot.setColumn(new Column("nested_null", ArrayType.create(Type.NULL, true)));
+        desc.addSlot(slot);
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        desc.setTable(table);
+
+        Backend source = Mockito.mock(Backend.class);
+        Mockito.when(source.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(source.getId()).thenReturn(102L);
+        FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(policy.getBackends()).thenReturn(Collections.singletonList(source));
+        TVFScanNode node = new TVFScanNode(
+                new PlanNodeId(0), desc, false, new SessionVariable(), ScanContext.EMPTY);
+        setBackendPolicy(node, policy);
+
+        UserException exception = Assert.assertThrows(UserException.class, node::initBackendPolicy);
+        Assert.assertTrue(exception.getMessage().contains("102"));
+
+        // An ordinary projection must remain usable while an unrelated root needs the new reader.
+        slot.setColumn(new Column("ordinary", Type.INT));
+        node.initBackendPolicy();
+        Mockito.verify(policy, Mockito.times(2)).init();
+    }
+
+    @Test
+    public void testFileLocalLancePinsExecutionToSchemaBackendDuringUpgrade() throws Exception {
+        LocalTableValuedFunction delegate = Mockito.mock(LocalTableValuedFunction.class);
+        Mockito.when(delegate.isLanceFormat()).thenReturn(true);
+        Mockito.when(delegate.getBackendIdForExecution()).thenCallRealMethod();
+        Field backendId = LocalTableValuedFunction.class.getDeclaredField("backendId");
+        backendId.setAccessible(true);
+        backendId.set(delegate, -1L);
+        Field requestBackend = LocalTableValuedFunction.class.getDeclaredField("backendIdForRequest");
+        requestBackend.setAccessible(true);
+        requestBackend.set(delegate, 101L);
+        Field sharedStorage = LocalTableValuedFunction.class.getDeclaredField("sharedStorage");
+        sharedStorage.setAccessible(true);
+        sharedStorage.set(delegate, true);
+        FileTableValuedFunction tvf = wrapFileTvf(delegate);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        desc.setTable(table);
+
+        Backend source = Mockito.mock(Backend.class);
+        Mockito.when(source.isSmoothUpgradeSrc()).thenReturn(true);
+        FederationBackendPolicy policy = Mockito.mock(FederationBackendPolicy.class);
+        Mockito.when(policy.getBackends()).thenReturn(Collections.singletonList(source));
+        Mockito.when(policy.numBackends()).thenReturn(1);
+        TVFScanNode node = new TVFScanNode(
+                new PlanNodeId(0), desc, false, new SessionVariable(), ScanContext.EMPTY);
+        setBackendPolicy(node, policy);
+
+        node.initBackendPolicy();
+        Mockito.verify(policy).initWithBackendId(101L);
+        Mockito.verify(policy, Mockito.never()).init();
+
+        // Shared non-Lance files still allow distributed execution through the same wrapper.
+        Mockito.when(delegate.isLanceFormat()).thenReturn(false);
+        node.initBackendPolicy();
+        Mockito.verify(policy).init();
+    }
+
+    private static FileTableValuedFunction wrapFileTvf(ExternalFileTableValuedFunction delegate)
+            throws Exception {
+        // Avoid storage discovery while exercising the real wrapper methods used by FunctionGenTable.
+        FileTableValuedFunction wrapper = Mockito.mock(FileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Field delegateField = FileTableValuedFunction.class.getDeclaredField("delegateTvf");
+        delegateField.setAccessible(true);
+        delegateField.set(wrapper, delegate);
+        Field columns = ExternalFileTableValuedFunction.class.getDeclaredField("lanceCurrentReaderColumns");
+        columns.setAccessible(true);
+        columns.set(wrapper, Collections.emptySet());
+        return wrapper;
+    }
+
+    private static void setBackendPolicy(TVFScanNode node, FederationBackendPolicy policy) throws Exception {
+        Field field = ExternalScanNode.class.getDeclaredField("backendPolicy");
+        field.setAccessible(true);
+        field.set(node, policy);
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectPoolMgr;
@@ -67,8 +68,10 @@ public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
                 // RootAllocator.close() marks the allocator closed before it reports outstanding
                 // bytes. The error is actionable, but session teardown must still release the
                 // coordinator, transaction and pool/token bookkeeping below.
+                // For an Arrow Flight SQL connection the peer identity IS the bearer token, so it is
+                // logged as a masked id, the same one FlightTokenManagerImpl uses.
                 LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
-                        ctx.getConnectionId(), ctx.getPeerIdentity(), t);
+                        ctx.getConnectionId(), TokenMasker.tokenId(ctx.getPeerIdentity()), t);
             }
         }
         // Finalize any Arrow Flight query whose coordinator was kept alive across the

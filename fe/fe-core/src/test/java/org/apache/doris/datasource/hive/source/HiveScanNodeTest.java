@@ -32,6 +32,7 @@ import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
@@ -40,6 +41,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -433,6 +435,32 @@ public class HiveScanNodeTest {
         method.setAccessible(true);
         long target = (long) method.invoke(node, caches, false);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testSelectedPartitionsCarryPartitionPredicateFlag() {
+        SelectedPartitions selectedPartitions = new SelectedPartitions(3, ImmutableMap.of(), true, true);
+        Assert.assertTrue(selectedPartitions.hasPartitionPredicate);
+    }
+
+    @Test
+    public void testHiveScanNodeExposePartitionPredicateFlag() {
+        HiveScanNode node = createHiveScanNode();
+        node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, true));
+        Assert.assertTrue(node.hasPartitionPredicate());
+    }
+
+    @Test
+    public void testHiveScanNodeExposePartitionedTableFlag() {
+        HiveScanNode node = createHiveScanNode(true);
+        Assert.assertTrue(node.isPartitionedTable());
+    }
+
+    @Test
+    public void testHiveScanNodeExposeMissingPartitionPredicateFlag() {
+        HiveScanNode node = createHiveScanNode();
+        node.setSelectedPartitions(new SelectedPartitions(3, ImmutableMap.of(), true, false));
+        Assert.assertFalse(node.hasPartitionPredicate());
     }
 
     @Test

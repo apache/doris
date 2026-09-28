@@ -32,6 +32,7 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -95,6 +96,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Set;
@@ -172,6 +174,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<RelationId, Long> consumerIdToLimitRows = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
@@ -201,6 +204,11 @@ public class StatementContext implements Closeable {
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
+    // Resources that must outlive planning and remain valid until the statement itself finishes.
+    // Keep these separate from plannerResources: NereidsPlanner releases planner resources as soon as
+    // physical planning completes, while external split planning can still use statement-scoped objects.
+    private final Map<Object, CloseableResource> statementResources = new LinkedHashMap<>();
+    private boolean statementResourcesClosed;
 
     // placeholder params for prepared statement
     private List<Placeholder> placeholders = new ArrayList<>();
@@ -237,7 +245,6 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
-
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
     // replaced,
@@ -278,6 +285,10 @@ public class StatementContext implements Closeable {
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
+
+    // Present while analyzing an Iceberg INSERT, UPDATE, or MERGE so DEFAULT(column)
+    // resolves from the statement-pinned Iceberg write schema.
+    private Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext = Optional.empty();
 
     private boolean privChecked;
 
@@ -375,6 +386,53 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+    }
+
+    /**
+     * Create a fresh StatementContext for the next EXECUTE of a prepared statement.
+     *
+     * <p>A prepared statement keeps its StatementContext inside {@code PreparedStatementContext}
+     * for the whole lifetime of the connection. Reusing the same object across executions makes
+     * its per-statement state (bound tables, CTE maps, statistics, snapshots, connector scope,
+     * ...) accumulate and it is only released when the connection closes, which can OOM
+     * long-lived connections. Instead of clearing in place, allocate a brand-new context per
+     * EXECUTE and copy over only the state that must survive between executions, so the previous
+     * context becomes unreachable and is promptly GC'd.
+     *
+     * <p>Carried over:
+     * <ul>
+     *   <li>id generator positions, so ids generated during this execution never collide with
+     *       ids already present in the cached analyzed plan from PREPARE;</li>
+     *   <li>the placeholder real expressions bound by this EXECUTE (the protocol layer fills
+     *       them on the previous context before this method runs) and the placeholder list;</li>
+     *   <li>the placeholder to comparison-slot registry used by the short-circuit fast path;</li>
+     *   <li>the short-circuit and nondeterministic flags that gate the short-circuit fast path
+     *       before this execution re-plans.</li>
+     * </ul>
+     * Everything else (tables, CTEs, statistics, snapshots, planner resources, connector
+     * scope, ...) starts empty/fresh on the new context.
+     */
+    public StatementContext createNextExecuteContext() {
+        // Continue the id generators from the previous context. The cached analyzed plan from
+        // PREPARE (and every prior execution) already consumed ids from them, so a fresh
+        // generator starting at 0 would collide with those ids during this execution's planning.
+        StatementContext next = new StatementContext(connectContext, originStatement,
+                exprIdGenerator.getCurrentId());
+        next.objectIdGenerator.resetId(objectIdGenerator.getCurrentId());
+        next.relationIdGenerator.resetId(relationIdGenerator.getCurrentId());
+        next.cteIdGenerator.resetId(cteIdGenerator.getCurrentId());
+        next.talbeIdGenerator.resetId(talbeIdGenerator.getCurrentId());
+        next.placeHolderIdGenerator.resetId(placeHolderIdGenerator.getCurrentId());
+        // Placeholder bindings of this EXECUTE, and the comparison-slot registry used to replace
+        // conjuncts on the cached short-circuit plan without re-planning.
+        next.idToPlaceholderRealExpr.putAll(idToPlaceholderRealExpr);
+        next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.placeholders = new ArrayList<>(placeholders);
+        // Short-circuit gating flags are computed by the previous execution's planning and gate
+        // the fast path of this execution before any re-planning happens.
+        next.isShortCircuitQuery = isShortCircuitQuery;
+        next.hasNondeterministic = hasNondeterministic;
+        return next;
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -669,6 +727,10 @@ public class StatementContext implements Closeable {
         return consumerIdToFilters;
     }
 
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return consumerIdToLimitRows;
+    }
+
     public PlaceholderId getNextPlaceholderId() {
         return placeHolderIdGenerator.getNextId();
     }
@@ -693,6 +755,18 @@ public class StatementContext implements Closeable {
         return rewrittenCteConsumer;
     }
 
+    /** Clear CTE-related rewrite and memo state before rebuilding it from a new plan tree. */
+    public void clearCteEnvironment() {
+        cteIdToConsumers.clear();
+        cteIdToOutputIds.clear();
+        cteIdToProducer.clear();
+        consumerIdToFilters.clear();
+        consumerIdToLimitRows.clear();
+        cteIdToConsumerGroup.clear();
+        rewrittenCteProducer.clear();
+        rewrittenCteConsumer.clear();
+    }
+
     /**
      * Snapshot current CTE-related environment for temporary rewrite/optimization.
      */
@@ -702,6 +776,7 @@ public class StatementContext implements Closeable {
                 copyMapOfSets(cteIdToOutputIds),
                 new HashMap<>(cteIdToProducer),
                 copyMapOfSets(consumerIdToFilters),
+                new HashMap<>(consumerIdToLimitRows),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
                 new HashMap<>(rewrittenCteConsumer));
@@ -720,6 +795,9 @@ public class StatementContext implements Closeable {
 
         consumerIdToFilters.clear();
         consumerIdToFilters.putAll(snapshot.consumerIdToFilters);
+
+        consumerIdToLimitRows.clear();
+        consumerIdToLimitRows.putAll(snapshot.consumerIdToLimitRows);
 
         cteIdToConsumerGroup.clear();
         cteIdToConsumerGroup.putAll(snapshot.cteIdToConsumerGroup);
@@ -753,6 +831,7 @@ public class StatementContext implements Closeable {
         private final Map<CTEId, Set<Slot>> cteIdToOutputIds;
         private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer;
         private final Map<RelationId, Set<Expression>> consumerIdToFilters;
+        private final Map<RelationId, Long> consumerIdToLimitRows;
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
         private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
@@ -765,6 +844,7 @@ public class StatementContext implements Closeable {
                 Map<CTEId, Set<Slot>> cteIdToOutputIds,
                 Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer,
                 Map<RelationId, Set<Expression>> consumerIdToFilters,
+                Map<RelationId, Long> consumerIdToLimitRows,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
                 Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
@@ -772,6 +852,7 @@ public class StatementContext implements Closeable {
             this.cteIdToOutputIds = cteIdToOutputIds;
             this.cteIdToProducer = cteIdToProducer;
             this.consumerIdToFilters = consumerIdToFilters;
+            this.consumerIdToLimitRows = consumerIdToLimitRows;
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
             this.rewrittenCteConsumer = rewrittenCteConsumer;
@@ -904,11 +985,56 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * Returns one closeable resource per statement key and closes it when this statement is closed.
+     * The supplier is invoked at most once for a key. This is intentionally independent from planner locks,
+     * whose lifetime ends at the end of Nereids planning.
+     */
+    @SuppressWarnings("unchecked")
+    public synchronized <T extends Closeable> T getOrRegisterStatementResource(
+            Object resourceKey, java.util.function.Supplier<T> supplier) {
+        if (statementResourcesClosed) {
+            throw new IllegalStateException("Statement resources are already closed");
+        }
+        CloseableResource existing = statementResources.get(resourceKey);
+        if (existing != null) {
+            return (T) existing.resource;
+        }
+        T resource = supplier.get();
+        statementResources.put(resourceKey, new CloseableResource(
+                String.valueOf(resourceKey), Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, resource));
+        return resource;
+    }
+
+    private synchronized void releaseStatementResources() {
+        if (statementResourcesClosed) {
+            return;
+        }
+        statementResourcesClosed = true;
+        Throwable throwable = null;
+        List<CloseableResource> resources = new ArrayList<>(statementResources.values());
+        statementResources.clear();
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            try {
+                resources.get(i).close();
+            } catch (Throwable t) {
+                if (throwable == null) {
+                    throwable = t;
+                }
+            }
+        }
+        if (throwable != null) {
+            Throwables.throwIfInstanceOf(throwable, RuntimeException.class);
+            throw new IllegalStateException("Release statement resource failed", throwable);
+        }
+    }
+
     // CHECKSTYLE OFF
     @Override
     protected void finalize() throws Throwable {
-        if (!plannerResources.isEmpty()) {
-            String msg = "Resources leak: " + plannerResources;
+        if (!plannerResources.isEmpty() || !statementResources.isEmpty()) {
+            String msg = "Resources leak: planner=" + plannerResources + ", statement=" + statementResources;
             LOG.error(msg);
             throw new IllegalStateException(msg);
         }
@@ -918,7 +1044,11 @@ public class StatementContext implements Closeable {
     @Override
     public void close() {
         clearExternalScanTasks();
-        releasePlannerResources();
+        try {
+            releaseStatementResources();
+        } finally {
+            releasePlannerResources();
+        }
     }
 
     public List<Placeholder> getPlaceholders() {
@@ -1024,6 +1154,7 @@ public class StatementContext implements Closeable {
         ExternalScanTaskCache oldCache = externalScanTaskCache;
         externalScanTaskCache = new ExternalScanTaskCache();
         oldCache.invalidate();
+        icebergWriteSchemaContext = Optional.empty();
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1367,6 +1498,10 @@ public class StatementContext implements Closeable {
         this.icebergRewriteFileScanTasks = tasks;
     }
 
+    public List<org.apache.iceberg.FileScanTask> getIcebergRewriteFileScanTasks() {
+        return icebergRewriteFileScanTasks;
+    }
+
     /**
      * Get and consume file scan tasks for Iceberg rewrite operations.
      * Returns the tasks and clears the field to prevent reuse.
@@ -1683,5 +1818,15 @@ public class StatementContext implements Closeable {
 
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {
+        return icebergWriteSchemaContext;
+    }
+
+    public void setIcebergWriteSchemaContext(
+            Optional<IcebergWriteSchemaContext> icebergWriteSchemaContext) {
+        this.icebergWriteSchemaContext = Objects.requireNonNull(
+                icebergWriteSchemaContext, "icebergWriteSchemaContext should not be null");
     }
 }

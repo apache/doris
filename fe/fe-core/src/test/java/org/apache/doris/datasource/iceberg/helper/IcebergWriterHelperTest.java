@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.helper;
 
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -28,6 +29,7 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.MetadataColumns;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -47,6 +49,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Test for IcebergWriterHelper DeleteFile conversion
@@ -105,6 +108,40 @@ public class IcebergWriterHelperTest {
         Assertions.assertTrue(dataFile.nullValueCounts() == null || dataFile.nullValueCounts().isEmpty());
         Assertions.assertTrue(dataFile.lowerBounds() == null || dataFile.lowerBounds().isEmpty());
         Assertions.assertTrue(dataFile.upperBounds() == null || dataFile.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void testConvertToWriterResultUsesPinnedMetadataAfterTableEvolution() {
+        PartitionSpec pinnedSpec = PartitionSpec.builderFor(schema).identity("id").build();
+        SortOrder pinnedSortOrder = SortOrder.builderFor(schema).desc("age").build();
+        Map<String, String> pinnedProperties = ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "orc",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "full");
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                schema, 2, pinnedSpec, pinnedSortOrder, FileFormat.ORC,
+                MetricsConfig.fromProperties(pinnedProperties), "zlib",
+                "file:///tmp/pinned/data", pinnedProperties, true, true);
+
+        ByteBuffer ageBound = Conversions.toByteBuffer(Types.IntegerType.get(), 42);
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setLowerBounds(ImmutableMap.of(3, ageBound));
+        columnStats.setUpperBounds(ImmutableMap.of(3, ageBound));
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/pinned-data.orc");
+        commitData.setPartitionValues(ImmutableList.of("7"));
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(
+                context, ImmutableList.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals(pinnedSpec.specId(), dataFile.specId());
+        Assertions.assertEquals(pinnedSortOrder.orderId(), dataFile.sortOrderId());
+        Assertions.assertEquals(FileFormat.ORC, dataFile.format());
+        Assertions.assertEquals(7, dataFile.partition().get(0, Integer.class));
+        Assertions.assertEquals(ageBound, dataFile.lowerBounds().get(3));
+        Assertions.assertEquals(ageBound, dataFile.upperBounds().get(3));
     }
 
     @Test

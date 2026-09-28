@@ -73,7 +73,13 @@ std::string FileScanRequest::debug_string() const {
         }
         out << column_id << ":" << block_position;
     }
-    out << "}, conjunct_count=" << conjuncts.size() << ", residual_predicate_columns="
+    out << "}, row_ids=";
+    if (row_ids.has_value()) {
+        out << join_debug_strings(*row_ids, [](int64_t row_id) { return std::to_string(row_id); });
+    } else {
+        out << "nullopt";
+    }
+    out << ", conjunct_count=" << conjuncts.size() << ", residual_predicate_columns="
         << join_debug_strings(
                    residual_predicate_columns,
                    [](LocalColumnId column_id) { return std::to_string(column_id.value()); })

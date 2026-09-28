@@ -56,7 +56,9 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format_v2/table/lance_reader.h"
@@ -78,6 +80,7 @@
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
 #include "util/jsonb/serialize.h"
+#include "util/pretty_printer.h"
 
 namespace doris {
 
@@ -345,6 +348,28 @@ struct IteratorItem {
     StorageReadOptions storage_read_options;
 };
 
+static void set_slot_access_paths(const SlotDescriptor& slot, const TabletSchema& schema,
+                                  StorageReadOptions& storage_read_options) {
+    int32_t unique_id = slot.col_unique_id();
+    const int field_index =
+            unique_id >= 0 ? schema.field_index(unique_id) : schema.field_index(slot.col_name());
+    if (field_index >= 0) {
+        const auto& column = schema.column(field_index);
+        unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
+    }
+    if (unique_id < 0) {
+        return;
+    }
+
+    if (!slot.all_access_paths().empty()) {
+        storage_read_options.all_access_paths[unique_id] = slot.all_access_paths();
+    }
+
+    if (!slot.predicate_access_paths().empty()) {
+        storage_read_options.predicate_access_paths[unique_id] = slot.predicate_access_paths();
+    }
+}
+
 struct SegItem {
     BaseTabletSPtr tablet;
     BetaRowsetSharedPtr rowset;
@@ -472,6 +497,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_id, column, iterator_item.storage_read_options,
                     iterator_item.iterator));
@@ -724,6 +750,11 @@ const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunn
 const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgTime";
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
+const std::string RowIdStorageReader::LanceDatasetOpenTimeProfile = "LanceDatasetOpenTime";
+const std::string RowIdStorageReader::LanceRowIdTakeReadTimeProfile = "LanceRowIdTakeReadTime";
+const std::string RowIdStorageReader::LanceArrowToDorisBlockTimeProfile =
+        "LanceArrowToDorisBlockTime";
+const std::string RowIdStorageReader::LanceRowIdFetchTotalTimeProfile = "LanceRowIdFetchTotalTime";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
         "TopNLazyMaterializationSecondPhaseLocalIOCount";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
@@ -746,6 +777,69 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead
         "TopNLazyMaterializationSecondPhaseRowsRead";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
         "TopNLazyMaterializationSecondPhaseSegmentsRead";
+
+bool RowIdStorageReader::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    const TFileScanRangeParams& scan_params,
+                                                    const TFileRangeDesc& range) {
+    const auto format_type =
+            range.__isset.format_type ? range.format_type : scan_params.format_type;
+    // Phase two inherits the query options, including the Thrift presence bit. Reuse phase one's
+    // policy so disabling V2 (or an older payload omitting the option) also keeps row fetches on V1.
+    return FileScanLocalState::should_use_file_scanner_v2(query_options, false, scan_params) &&
+           (format_type == TFileFormatType::FORMAT_PARQUET ||
+            format_type == TFileFormatType::FORMAT_ORC) &&
+           FileScannerV2::is_supported(scan_params, range);
+}
+
+TFileRangeDesc RowIdStorageReader::build_external_fetch_range(const TFileRangeDesc& source_range) {
+    // Rows were selected after delete filtering. Preserve the original path and row lineage
+    // needed by virtual columns, and do not mutate the FileMapping shared by other fetches.
+    auto range = source_range;
+    range.table_format_params.iceberg_params.__set_delete_files({});
+    range.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+    return range;
+}
+
+TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
+        const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+        const std::vector<SlotDescriptor>& scan_slots,
+        const std::vector<uint32_t>& scan_column_idxs) {
+    DORIS_CHECK(scan_slots.size() == scan_column_idxs.size());
+    auto params = source_params;
+    params.required_slots.clear();
+    params.column_idxs.clear();
+    params.slot_name_to_schema_pos.clear();
+    const std::set partition_names(range.columns_from_path_keys.begin(),
+                                   range.columns_from_path_keys.end());
+    for (size_t slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
+        const auto& slot = scan_slots[slot_idx];
+        const auto column_idx = scan_column_idxs[slot_idx];
+        TFileScanSlotInfo slot_info;
+        slot_info.__set_slot_id(slot.id());
+        // Hive V2 checks the Thrift presence bit before trusting is_file_slot. Without it,
+        // partition columns consume physical file indexes and invalidate the rebuilt projection.
+        bool is_file_slot = !partition_names.contains(slot.col_name());
+        if (source_params.__isset.column_name_to_category) {
+            // Lazy metadata slots may be absent from phase one's required_slots and have new
+            // slot IDs here. The pinned schema's name map preserves their original categories.
+            const auto it = source_params.column_name_to_category.find(slot.col_name());
+            const auto category = it != source_params.column_name_to_category.end()
+                                          ? it->second
+                                          : TColumnCategory::REGULAR;
+            slot_info.__set_category(category);
+            is_file_slot =
+                    category == TColumnCategory::REGULAR || category == TColumnCategory::GENERATED;
+        }
+        slot_info.__set_is_file_slot(is_file_slot);
+        if (is_file_slot) {
+            params.column_idxs.emplace_back(column_idx);
+        }
+        params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
+        params.required_slots.emplace_back(slot_info);
+        params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
+    }
+    return params;
+}
 
 Status RowIdStorageReader::read_lance_rows_by_row_ids(
         const TFileRangeDesc& scan_range_desc, const std::vector<uint64_t>& row_ids,
@@ -784,7 +878,18 @@ Status RowIdStorageReader::read_lance_rows_by_row_ids(
     RETURN_IF_ERROR(scope_timer_run(
             [&]() { return reader.read_by_row_ids(scan_range_desc, row_ids, block); },
             &fetch_statistics->get_block_ms));
-    return reader.close();
+    RETURN_IF_ERROR(reader.close());
+
+    const auto collect_lance_fetch_time = [&](const std::string& timer_name) {
+        if (const auto* counter = runtime_profile->get_counter(timer_name); counter != nullptr) {
+            fetch_statistics->lance_fetch_times_ns.emplace(timer_name, counter->value());
+        }
+    };
+    collect_lance_fetch_time(LanceDatasetOpenTimeProfile);
+    collect_lance_fetch_time(LanceRowIdTakeReadTimeProfile);
+    collect_lance_fetch_time(LanceArrowToDorisBlockTimeProfile);
+    collect_lance_fetch_time(LanceRowIdFetchTotalTimeProfile);
+    return Status::OK();
 }
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
@@ -811,13 +916,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     scan_blocks[idx] = Block(slots, read_ids.size());
 
     auto& external_info = file_mapping->get_external_file_info();
-    auto& scan_range_desc = external_info.scan_range_desc;
-
-    // Clear to avoid reading iceberg position delete file...
-    scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
-
-    // Clear to avoid reading hive transactional delete delta file...
-    scan_range_desc.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+    auto scan_range_desc = build_external_fetch_range(external_info.scan_range_desc);
 
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
@@ -828,9 +927,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
                 scan_range_desc, read_ids, slots, runtime_state.get(), sub_runtime_profile.get(),
                 rpc_scan_params, &scan_blocks[idx], &fetch_statistics[idx]));
     } else {
-        // Parquet/ORC row IDs are consumed as row ordinals within the exact physical file range
-        // recorded by phase one. Keep using FileScanner so the format reader can resolve those
-        // ordinals against that range; unlike Lance, ranges cannot be merged at dataset level.
+        // Parquet/ORC IDs remain signed physical file positions; Lance keeps native uint64 IDs.
         std::list<int64_t> legacy_read_ids;
         for (const auto row_id : read_ids) {
             if (row_id > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
@@ -839,18 +936,29 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
             }
             legacy_read_ids.emplace_back(static_cast<int64_t>(row_id));
         }
-        std::unique_ptr<FileScanner> vfile_scanner_ptr =
-                FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
-                                           &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+        if (should_use_file_scanner_v2(runtime_state->query_options(), rpc_scan_params,
+                                       scan_range_desc)) {
+            auto file_scanner = FileScannerV2::create_unique(
+                    runtime_state.get(), sub_runtime_profile.get(), &rpc_scan_params,
+                    &colname_to_slot_id, &tuple_desc);
+            RETURN_IF_ERROR(file_scanner->read_by_rows(
+                    scan_range_desc, legacy_read_ids, &scan_blocks[idx],
+                    &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+        } else {
+            // Keep phase two on V1 whenever the rollout policy or table format requires it.
+            std::unique_ptr<FileScanner> file_scanner =
+                    FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                               &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
 
-        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
-        RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
-                scan_range_desc, legacy_read_ids, &scan_blocks[idx], external_info,
-                &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+            RETURN_IF_ERROR(file_scanner->prepare_for_read_lines(scan_range_desc));
+            RETURN_IF_ERROR(file_scanner->read_lines_from_range(
+                    scan_range_desc, legacy_read_ids, &scan_blocks[idx], external_info,
+                    &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+        }
     }
 
     auto file_read_bytes_counter =
-            sub_runtime_profile->get_counter(FileScanner::FileReadBytesProfile);
+            sub_runtime_profile->get_counter(FileScannerV2::FileReadBytesProfile);
 
     if (file_read_bytes_counter != nullptr) {
         fetch_statistics[idx].file_read_bytes = PrettyPrinter::print(
@@ -858,7 +966,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_times_counter =
-            sub_runtime_profile->get_counter(FileScanner::FileReadTimeProfile);
+            sub_runtime_profile->get_counter(FileScannerV2::FileReadTimeProfile);
     if (file_read_times_counter != nullptr) {
         fetch_statistics[idx].file_read_times = PrettyPrinter::print(
                 file_read_times_counter->value(), file_read_times_counter->type());
@@ -907,30 +1015,16 @@ Status RowIdStorageReader::read_batch_external_row(
             }
         }
 
-        rpc_scan_params.required_slots.clear();
-        rpc_scan_params.column_idxs.clear();
-        rpc_scan_params.slot_name_to_schema_pos.clear();
-
-        std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
-                                    first_scan_range_desc.columns_from_path_keys.end());
-        for (auto slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+        std::vector<uint32_t> scan_column_idxs;
+        scan_column_idxs.reserve(slots.size());
+        for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
             auto& slot = slots[slot_idx];
             tuple_desc.add_slot(&slot);
             colname_to_slot_id.emplace(slot.col_name(), slot.id());
-            TFileScanSlotInfo slot_info;
-            slot_info.slot_id = slot.id();
-            auto column_idx = request_block_desc.column_idxs(slot_idx);
-            if (partition_name_set.contains(slot.col_name())) {
-                //This is partition column.
-                slot_info.is_file_slot = false;
-            } else {
-                rpc_scan_params.column_idxs.emplace_back(column_idx);
-                slot_info.is_file_slot = true;
-            }
-            rpc_scan_params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
-            rpc_scan_params.required_slots.emplace_back(slot_info);
-            rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
+            scan_column_idxs.emplace_back(request_block_desc.column_idxs(slot_idx));
         }
+        rpc_scan_params = build_external_scan_params(rpc_scan_params, first_scan_range_desc, slots,
+                                                     scan_column_idxs);
 
         const auto& query_options = id_file_map->get_query_options();
         const auto& query_globals = id_file_map->get_query_globals();
@@ -1108,13 +1202,17 @@ Status RowIdStorageReader::read_batch_external_row(
         fmt::memory_buffer file_read_times_buffer;
         format_to(file_read_times_buffer, "[");
 
+        std::map<std::string, int64_t> lance_fetch_times_ns;
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
-            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
+            *init_reader_avg_ms += fetch_statistics[idx].init_reader_ms;
             *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
             format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
+            for (const auto& [time_name, time_value] : fetch_statistics[idx].lance_fetch_times_ns) {
+                lance_fetch_times_ns[time_name] += time_value;
+            }
             idx++;
         }
 
@@ -1127,13 +1225,17 @@ Status RowIdStorageReader::read_batch_external_row(
         runtime_profile->add_info_string(InitReaderAvgTimeProfile,
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(GetBlockAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
+                                         std::to_string(*get_block_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
-        runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
+        runtime_profile->add_info_string(FileScannerV2::FileReadBytesProfile,
                                          fmt::to_string(file_read_bytes_buffer));
-        runtime_profile->add_info_string(FileScanner::FileReadTimeProfile,
+        runtime_profile->add_info_string(FileScannerV2::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
+        for (const auto& [time_name, time_value] : lance_fetch_times_ns) {
+            runtime_profile->add_info_string(time_name,
+                                             PrettyPrinter::print(time_value, TUnit::TIME_NS));
+        }
     }
 
     runtime_profile->to_proto(pprofile, 2);
@@ -1258,6 +1360,7 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
             }
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             for (auto row_id : row_ids) {
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                         full_read_schema, &slots[x], row_id, column,

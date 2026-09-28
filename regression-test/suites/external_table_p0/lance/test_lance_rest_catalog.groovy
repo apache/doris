@@ -70,6 +70,14 @@ suite("test_lance_rest_catalog", "p0,external") {
             FROM `${catalogName}`.`default`.`${tableName}`
         """
 
+        // The same dataset, described by a namespace that spells the vended credentials without
+        // the aws_ prefix. Lance accepts either alias, so both have to reach the BE; a client that
+        // recognizes only one silently scans with no credentials at all.
+        qt_rest_scan_unprefixed_credentials """
+            SELECT count(*), count(DISTINCT row_id), min(row_id), max(row_id), sum(row_id)
+            FROM `${catalogName}`.`default`.`all_types_unprefixed`
+        """
+
         String pushedQuery =
                 """SELECT row_id FROM `${catalogName}`.`default`.`${tableName}` WHERE int32_col = 10 ORDER BY row_id"""
         explain {

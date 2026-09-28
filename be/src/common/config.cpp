@@ -691,7 +691,7 @@ DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // request cdc client timeout
-DEFINE_mInt32(request_cdc_client_timeout_ms, "60000");
+DEFINE_mInt32(request_cdc_client_timeout_ms, "120000");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -1066,6 +1066,10 @@ DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 
 // Max size of parquet page header in bytes
 DEFINE_mInt32(parquet_header_max_size_mb, "1");
+// Max size of parquet file metadata in bytes
+DEFINE_mInt64(parquet_metadata_size_limit, "268435456");
+DEFINE_Validator(parquet_metadata_size_limit,
+                 [](const int64_t config) -> bool { return config > 0; });
 // Max buffer size for parquet row group
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
@@ -1206,8 +1210,33 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
+// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
+// can be shared by all Lance dataset readers.
+DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
+DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_data_cache, "true");
+DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
+DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
+DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+
+// I/O buffering budget per Lance scanner, not a cap on its total memory usage.
+// Runtime changes apply to newly created scanners.
+DEFINE_mInt64(lance_io_buffer_size_bytes, "2147483648"); // 2 GiB
+DEFINE_Validator(lance_io_buffer_size_bytes, [](int64_t value) { return value > 0; });
+
+// Read-ahead limits per Lance scanner. Runtime changes apply to newly created scanners.
+DEFINE_mInt32(lance_batch_readahead, "5");
+DEFINE_Validator(lance_batch_readahead, [](int32_t value) { return value > 0; });
+DEFINE_mInt32(lance_fragment_readahead, "5");
+DEFINE_Validator(lance_fragment_readahead, [](int32_t value) { return value > 0; });
+
 // block file cache
-DEFINE_Bool(enable_file_cache, "false");
+DEFINE_Bool(enable_file_cache, "true");
+// ATTENTION: For test only. Keep this enabled in production.
+// Whether S3 storage write paths populate file cache while writing data to object storage.
+// Disable this for tests that need load and compaction output to bypass file cache while keeping
+// query-side file cache writes enabled.
+DEFINE_mBool(enable_file_cache_write_from_s3_file_writer, "true");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
@@ -1289,6 +1318,22 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
+// async file cache write
+DEFINE_mBool(enable_async_file_cache_write, "false");
+DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
+// A positive value is the BE-wide queued+active task ownership limit. The successfully initialized
+// cache instances receive equal shares. -1 selects max(1 GiB, 1% of the BE memory limit) before
+// that split.
+DEFINE_mInt64(async_file_cache_write_max_pending_bytes, "-1");
+DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
+DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
+DEFINE_Validator(async_file_cache_write_workers_per_disk,
+                 [](int32_t value) { return value > 0 && value <= 128; });
+DEFINE_Validator(async_file_cache_write_max_pending_bytes,
+                 [](int64_t value) { return value == -1 || value > 0; });
+DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
+                 [](int32_t value) { return value > 0; });
+
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 DEFINE_mBool(enable_write_index_searcher_cache, "false");
@@ -1323,6 +1368,11 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DEFINE_mBool(inverted_index_skip_norms_for_variant, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1341,6 +1391,8 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+// When file cache is enabled, the configured bytes must be divisible by
+// file_cache_each_block_size so every non-EOF HDFS cache block is canonical.
 DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
@@ -1423,6 +1475,12 @@ DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
+// Remove pre-rowset delete bitmaps in [end_version, end_version] before writing aggregated delete
+// bitmaps. True: point delete; false: range delete.
+DEFINE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys, "true");
+// Remove pre-rowset delete bitmaps in [start_version, end_version). True: point delete; false:
+// range delete.
+DEFINE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
@@ -1612,41 +1670,6 @@ DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
 DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
                  [](int64_t bytes) -> bool { return bytes > 0; });
-
-// URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
-// Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
-// local, hdfs, s3, http, broker.
-DEFINE_Strings(paimon_file_system_scheme_mappings,
-               "file=local,hdfs=hdfs,viewfs=hdfs,local=hdfs,jfs=hdfs,"
-               "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
-               "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
-               "ofs=broker,gfs=broker");
-DEFINE_Validator(paimon_file_system_scheme_mappings,
-                 ([](const std::vector<std::string>& mappings) -> bool {
-                     doris::StringCaseUnorderedSet seen_schemes;
-                     static const doris::StringCaseUnorderedSet supported_types = {
-                             "local", "hdfs", "s3", "http", "broker"};
-                     for (const auto& raw_entry : mappings) {
-                         std::string_view entry = doris::trim(raw_entry);
-                         size_t separator = entry.find('=');
-                         if (separator == std::string_view::npos) {
-                             return false;
-                         }
-                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
-                         std::string file_type =
-                                 std::string(doris::trim(entry.substr(separator + 1)));
-                         if (scheme.empty() || file_type.empty()) {
-                             return false;
-                         }
-                         if (supported_types.find(file_type) == supported_types.end()) {
-                             return false;
-                         }
-                         if (!seen_schemes.insert(scheme).second) {
-                             return false;
-                         }
-                     }
-                     return true;
-                 }));
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
@@ -2210,6 +2233,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
+        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2219,7 +2243,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
-        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \

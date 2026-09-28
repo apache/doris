@@ -22,12 +22,18 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -61,6 +67,103 @@ public class IcebergMergeSinkTest {
         Assertions.assertEquals(1, thriftSink.getRewritableDeleteFileSetsSize());
         Assertions.assertTrue(thriftSink.isSetRequireMergeCardinalityCheck());
         Assertions.assertTrue(thriftSink.isRequireMergeCardinalityCheck());
+    }
+
+    @Test
+    public void testTableAndMergeSinksUseExactPinnedSchemaJson() throws Exception {
+        Schema pinnedSchema = new Schema(70,
+                Collections.singletonList(Types.NestedField.required(
+                        1, "pinned_id", Types.IntegerType.get())));
+        Schema currentSchema = new Schema(71,
+                Collections.singletonList(Types.NestedField.required(
+                        1, "current_id", Types.IntegerType.get())));
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                pinnedSchema, 3, true, true);
+        IcebergExternalTable table = mockIcebergExternalTable(
+                3, currentSchema, Collections.emptyMap());
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+
+        IcebergTableSink tableSink = new IcebergTableSink(table, Optional.of(context));
+        tableSink.bindDataSink(Optional.of(insertContext));
+        Assertions.assertEquals(context.getSchemaJson(),
+                tableSink.tDataSink.getIcebergTableSink().getSchemaJson());
+
+        IcebergMergeSink mergeSink = new IcebergMergeSink(
+                table, new DeleteCommandContext(), Optional.of(context));
+        mergeSink.bindDataSink(Optional.of(insertContext));
+        Assertions.assertEquals(context.getMergeSchemaJson(),
+                mergeSink.tDataSink.getIcebergMergeSink().getSchemaJson());
+        Assertions.assertNotEquals(currentSchema.asStruct(), context.getSchema().asStruct());
+    }
+
+    @Test
+    public void testMergeSinkUsesCompletePinnedWriterMetadata() throws Exception {
+        Schema pinnedSchema = new Schema(72,
+                Collections.singletonList(Types.NestedField.required(
+                        1, "pinned_id", Types.IntegerType.get())));
+        PartitionSpec pinnedSpec = PartitionSpec.builderFor(pinnedSchema)
+                .withSpecId(7)
+                .identity("pinned_id")
+                .build();
+        SortOrder pinnedSortOrder = SortOrder.builderFor(pinnedSchema).asc("pinned_id").build();
+        Map<String, String> pinnedProperties = ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "orc",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none");
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                pinnedSchema, 3, pinnedSpec, pinnedSortOrder, FileFormat.ORC,
+                MetricsConfig.fromProperties(pinnedProperties), "zlib",
+                "file:///tmp/pinned/data", pinnedProperties, true, true);
+        IcebergExternalTable table = mockIcebergExternalTable(
+                3, pinnedSchema, ImmutableMap.of(
+                        TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                        TableProperties.PARQUET_COMPRESSION, "snappy",
+                        TableProperties.WRITE_DATA_LOCATION, "file:///tmp/current/data",
+                        TableProperties.DEFAULT_WRITE_METRICS_MODE, "full"));
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+
+        IcebergMergeSink mergeSink = new IcebergMergeSink(
+                table, new DeleteCommandContext(), Optional.of(context));
+        mergeSink.bindDataSink(Optional.of(insertContext));
+
+        TIcebergMergeSink thriftSink = mergeSink.tDataSink.getIcebergMergeSink();
+        Assertions.assertEquals(pinnedSpec.specId(), thriftSink.getPartitionSpecId());
+        Assertions.assertEquals(
+                context.getPartitionSpecJson(),
+                thriftSink.getPartitionSpecsJson().get(pinnedSpec.specId()));
+        Assertions.assertEquals(pinnedSpec.specId(), thriftSink.getPartitionSpecIdForDelete());
+        Assertions.assertEquals(TFileFormatType.FORMAT_ORC, thriftSink.getFileFormat());
+        Assertions.assertEquals(TFileCompressType.ZLIB, thriftSink.getCompressionType());
+        Assertions.assertEquals("file:///tmp/pinned/data", thriftSink.getOriginalOutputPath());
+        Assertions.assertFalse(thriftSink.isCollectColumnStats());
+        Assertions.assertEquals(1, thriftSink.getSortFieldsSize());
+        Assertions.assertEquals(1, thriftSink.getSortFields().get(0).getSourceColumnId());
+    }
+
+    @Test
+    public void testMergeSinkPinsUnpartitionedSpecIdForDelete() throws Exception {
+        Schema pinnedSchema = new Schema(73,
+                Collections.singletonList(Types.NestedField.required(
+                        1, "pinned_id", Types.IntegerType.get())));
+        PartitionSpec pinnedSpec = PartitionSpec.builderFor(pinnedSchema)
+                .withSpecId(9)
+                .build();
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(
+                pinnedSchema, 3, pinnedSpec, SortOrder.unsorted(), FileFormat.PARQUET,
+                MetricsConfig.getDefault(), "snappy",
+                "file:///tmp/pinned/data", ImmutableMap.of(), true, true);
+        IcebergExternalTable table = mockIcebergExternalTable(3, pinnedSchema, ImmutableMap.of());
+        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+        insertContext.setWriteSchemaContext(Optional.of(context));
+
+        IcebergMergeSink mergeSink = new IcebergMergeSink(
+                table, new DeleteCommandContext(), Optional.of(context));
+        mergeSink.bindDataSink(Optional.of(insertContext));
+
+        TIcebergMergeSink thriftSink = mergeSink.tDataSink.getIcebergMergeSink();
+        Assertions.assertFalse(thriftSink.isSetPartitionSpecId());
+        Assertions.assertEquals(pinnedSpec.specId(), thriftSink.getPartitionSpecIdForDelete());
     }
 
     @Test

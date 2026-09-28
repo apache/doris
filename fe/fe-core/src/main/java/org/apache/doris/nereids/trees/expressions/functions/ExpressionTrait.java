@@ -21,7 +21,6 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.types.DataType;
 
@@ -52,38 +51,14 @@ public interface ExpressionTrait extends TreeNode<Expression> {
      * getArguments.
      */
     default List<Expression> getArguments() {
-        boolean hasVariableArg = false;
-        for (Expression arg : children()) {
-            if (arg instanceof Variable) {
-                hasVariableArg = true;
-                break;
-            }
-        }
-        if (hasVariableArg) {
-            ImmutableList.Builder<Expression> arguments = ImmutableList.builder();
-            for (Expression arg : children()) {
-                if (arg instanceof Variable) {
-                    arguments.add(((Variable) arg).getRealExpression());
-                } else {
-                    arguments.add(arg);
-                }
-            }
-            return arguments.build();
-        } else {
-            return children();
-        }
+        return children();
     }
 
     /**
      * getArgument.
      */
     default Expression getArgument(int index) {
-        Expression arg = child(index);
-        if (arg instanceof Variable) {
-            return ((Variable) arg).getRealExpression();
-        } else {
-            return arg;
-        }
+        return child(index);
     }
 
     default List<DataType> getArgumentsTypes() {

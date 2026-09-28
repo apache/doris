@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg.helper;
 
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergColumnStats;
@@ -65,9 +66,6 @@ public class IcebergWriterHelper {
     public static WriteResult convertToWriterResult(
             Table table,
             List<TIcebergCommitData> commitDataList) {
-        List<DataFile> dataFiles = new ArrayList<>();
-
-        // Get table specification information
         PartitionSpec spec = table.spec();
         FileFormat fileFormat = IcebergUtils.getFileFormat(table);
         MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -76,7 +74,22 @@ public class IcebergWriterHelper {
             // Rewrite and merge writers emit v3 lineage columns that are absent from the table schema.
             schema = IcebergUtils.appendRowLineageFieldsForV3(schema);
         }
+        return convertToWriterResult(
+                spec, fileFormat, metricsConfig, schema, table.sortOrder(), commitDataList);
+    }
 
+    public static WriteResult convertToWriterResult(
+            IcebergWriteSchemaContext context,
+            List<TIcebergCommitData> commitDataList) {
+        return convertToWriterResult(
+                context.getPartitionSpec(), context.getFileFormat(), context.getMetricsConfig(),
+                context.getMergeSchema(), context.getSortOrder(), commitDataList);
+    }
+
+    private static WriteResult convertToWriterResult(
+            PartitionSpec spec, FileFormat fileFormat, MetricsConfig metricsConfig,
+            Schema schema, SortOrder sortOrder, List<TIcebergCommitData> commitDataList) {
+        List<DataFile> dataFiles = new ArrayList<>();
         for (TIcebergCommitData commitData : commitDataList) {
             //get the files path
             String location = commitData.getFilePath();
@@ -100,7 +113,7 @@ public class IcebergWriterHelper {
                 partitionData = Optional.of(convertToPartitionData(partitionValues, spec));
             }
             DataFile dataFile = genDataFile(fileFormat, location, spec, partitionData, stat, metrics,
-                    table.sortOrder());
+                    sortOrder);
             dataFiles.add(dataFile);
         }
         return WriteResult.builder()

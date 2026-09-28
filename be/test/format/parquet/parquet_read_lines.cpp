@@ -42,6 +42,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "orc/sargs/SearchArgument.hh"
@@ -317,6 +318,153 @@ TEST_F(ParquetReadLinesTest, test4) {
             "|                      s-row8|                    c-row8|\n"
             "+----------------------------+--------------------------+\n";
     read_parquet_lines(numeric_types, types, read_lines, block_dump);
+}
+
+TEST_F(ParquetReadLinesTest, iceberg_row_id_fetch_materializes_readded_missing_column) {
+    TDescriptorTable thrift_desc;
+    TTableDescriptor table_desc;
+    table_desc.__set_id(0);
+    table_desc.__set_tableType(TTableType::OLAP_TABLE);
+    table_desc.__set_numCols(0);
+    table_desc.__set_numClusteringCols(0);
+    thrift_desc.tableDescriptors.push_back(table_desc);
+    thrift_desc.__isset.tableDescriptors = true;
+
+    const std::vector<std::tuple<std::string, int32_t, TPrimitiveType::type>> columns {
+            {"new_name", 2, TPrimitiveType::STRING},
+            {"data", 3, TPrimitiveType::STRING},
+            {"id", 4, TPrimitiveType::INT},
+    };
+    for (size_t index = 0; index < columns.size(); ++index) {
+        const auto& [name, field_id, primitive_type] = columns[index];
+        TTypeNode type_node;
+        type_node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(primitive_type);
+        type_node.__set_scalar_type(scalar_type);
+        TTypeDesc type;
+        type.types.push_back(type_node);
+
+        TSlotDescriptor slot;
+        slot.__set_id(cast_set<int32_t>(index));
+        slot.__set_parent(0);
+        slot.__set_slotType(type);
+        slot.__set_columnPos(cast_set<int32_t>(index));
+        slot.__set_byteOffset(0);
+        slot.__set_nullIndicatorByte(0);
+        slot.__set_nullIndicatorBit(cast_set<int32_t>(index));
+        slot.__set_colName(name);
+        slot.__set_slotIdx(cast_set<int32_t>(index));
+        slot.__set_isMaterialized(true);
+        slot.__set_col_unique_id(field_id);
+        thrift_desc.slotDescriptors.push_back(slot);
+    }
+    thrift_desc.__isset.slotDescriptors = true;
+
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    tuple.__set_byteSize(16);
+    tuple.__set_numNullBytes(1);
+    tuple.__set_tableId(0);
+    tuple.__isset.tableId = true;
+    thrift_desc.tupleDescriptors.push_back(tuple);
+
+    ObjectPool object_pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&object_pool, thrift_desc, &desc_tbl).ok());
+    auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+    ASSERT_NE(tuple_desc, nullptr);
+
+    const auto make_field = [](const std::string& name, int32_t field_id,
+                               TPrimitiveType::type primitive_type, bool optional) {
+        auto field = std::make_shared<schema::external::TField>();
+        field->__set_name(name);
+        field->__set_id(field_id);
+        field->__set_is_optional(optional);
+        TColumnType type;
+        type.__set_type(primitive_type);
+        field->__set_type(type);
+        schema::external::TFieldPtr field_ptr;
+        field_ptr.__set_field_ptr(std::move(field));
+        return field_ptr;
+    };
+    schema::external::TStructField root;
+    root.__set_fields({make_field("new_new_id", 1, TPrimitiveType::INT, false),
+                       make_field("new_name", 2, TPrimitiveType::STRING, true),
+                       make_field("data", 3, TPrimitiveType::STRING, false),
+                       make_field("id", 4, TPrimitiveType::INT, true)});
+    schema::external::TSchema schema;
+    schema.__set_schema_id(4);
+    schema.__set_root_field(root);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_num_of_columns_from_file(cast_set<int32_t>(columns.size()));
+    scan_params.__set_current_schema_id(4);
+    scan_params.__set_history_schema_info({schema});
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    for (size_t index = 0; index < columns.size(); ++index) {
+        const auto* slot = tuple_desc->slots()[index];
+        TFileScanSlotInfo slot_info;
+        slot_info.__set_slot_id(slot->id());
+        slot_info.__set_is_file_slot(true);
+        scan_params.required_slots.push_back(slot_info);
+        scan_params.default_value_of_src_slot.emplace(slot->id(), TExpr {});
+        scan_params.column_idxs.push_back(cast_set<int32_t>(index + 1));
+        scan_params.slot_name_to_schema_pos.emplace(slot->col_name(), cast_set<int32_t>(index + 1));
+    }
+    scan_params.__isset.required_slots = true;
+    scan_params.__isset.default_value_of_src_slot = true;
+    scan_params.__isset.column_idxs = true;
+    scan_params.__isset.slot_name_to_schema_pos = true;
+
+    const std::string path =
+            "./docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/iceberg/"
+            "equality_delete_par_1/data/"
+            "00000-0-bd4d0a30-cdf6-48d7-933d-91e860870eb9-00001.parquet";
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(path, &file_reader).ok());
+    TFileRangeDesc range;
+    range.__set_path(path);
+    range.__set_start_offset(0);
+    range.__set_size(file_reader->size());
+    range.__set_file_size(file_reader->size());
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    table_format.__set_iceberg_params(TIcebergFileDesc {});
+    range.__set_table_format_params(table_format);
+
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_desc_tbl(desc_tbl);
+    std::unordered_map<std::string, int> colname_to_slot_id;
+    Block block;
+    for (const auto* slot : tuple_desc->slots()) {
+        colname_to_slot_id.emplace(slot->col_name(), slot->id());
+        block.insert(
+                {slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
+    }
+    RuntimeProfile profile("ExternalRowIDFetcher");
+    auto scanner = FileScanner::create_unique(&runtime_state, &profile, &scan_params,
+                                              &colname_to_slot_id, tuple_desc);
+    ASSERT_TRUE(scanner->prepare_for_read_lines(range).ok());
+    ExternalFileMappingInfo external_info(0, range, false);
+    int64_t init_reader_ms = 0;
+    int64_t get_block_ms = 0;
+    const auto status = scanner->read_lines_from_range(range, {0}, &block, external_info,
+                                                       &init_reader_ms, &get_block_ms);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(block.rows(), 1);
+    EXPECT_EQ(block.get_by_position(block.get_position_by_name("new_name"))
+                      .column->get_data_at(0)
+                      .to_string(),
+              "bob");
+    EXPECT_EQ(block.get_by_position(block.get_position_by_name("data"))
+                      .column->get_data_at(0)
+                      .to_string(),
+              "e");
+    EXPECT_TRUE(block.get_by_position(block.get_position_by_name("id")).column->is_null_at(0));
 }
 
 } // namespace doris

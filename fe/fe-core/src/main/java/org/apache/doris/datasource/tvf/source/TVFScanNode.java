@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.tvf.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -31,16 +30,16 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplit.FileSplitCreator;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
+import org.apache.doris.datasource.lance.source.LanceSplitBuilder;
+import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
-import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -48,6 +47,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.Lists;
@@ -55,7 +55,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -81,22 +80,22 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     protected void initBackendPolicy() throws UserException {
-        List<String> preferLocations = new ArrayList<>();
-        if (tableValuedFunction instanceof LocalTableValuedFunction) {
-            // For local tvf, the backend was specified by backendId
-            Long backendId = ((LocalTableValuedFunction) tableValuedFunction).getBackendId();
-            if (backendId != -1) {
-                // User has specified the backend, only use that backend
-                // Otherwise, use all backends for shared storage.
-                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null) {
-                    throw new UserException("Backend " + backendId + " does not exist");
-                }
-                preferLocations.add(backend.getHost());
-            }
+        long backendId = tableValuedFunction.getBackendIdForExecution();
+        if (backendId != -1) {
+            backendPolicy.initWithBackendId(backendId);
+            numNodes = backendPolicy.numBackends();
+            return;
         }
-        backendPolicy.init(preferLocations);
+        backendPolicy.init();
         numNodes = backendPolicy.numBackends();
+        if (tableValuedFunction.isLanceFormat()) {
+            boolean requiresCurrentReader = desc.getSlots().stream()
+                    .anyMatch(slot -> slot.getColumn() != null
+                            && tableValuedFunction.requiresCurrentLanceReader(
+                                    slot.getColumn().getName()));
+            LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                    requiresCurrentReader, backendPolicy.getBackends());
+        }
     }
 
     @Override
@@ -123,6 +122,22 @@ public class TVFScanNode extends FileQueryScanNode {
     @Override
     public Map<String, String> getLocationProperties() {
         return tableValuedFunction.getBackendConnectProperties();
+    }
+
+    @Override
+    public void createScanRangeLocations() throws UserException {
+        super.createScanRangeLocations();
+        if (tableValuedFunction.isLanceFormat()) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            // Set at ScanNode level so credentials are not serialized once per fragment split.
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
+                    tableValuedFunction.getFilePath(),
+                    Collections.singletonList(tableValuedFunction.getStorageProperties()));
+            if (!lanceStorageOptions.isEmpty()) {
+                params.setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+            }
+        }
     }
 
     @Override
@@ -185,7 +200,7 @@ public class TVFScanNode extends FileQueryScanNode {
             // A local dataset is visible to its selected BE, not to FE. Keep exactly one
             // whole-dataset split; BE resolves version zero to latest when it opens the dataset.
             return Collections.singletonList(
-                    LanceSplit.wholeDatasetAtLatest(tableValuedFunction.getFilePath()));
+                    LanceSplit.scanLatestDataset(tableValuedFunction.getFilePath()));
         }
 
         long version = tableValuedFunction.getLanceDatasetVersion();
@@ -193,21 +208,8 @@ public class TVFScanNode extends FileQueryScanNode {
             throw new UserException(
                     "S3 Lance TVF metadata was not initialized with a fixed dataset version");
         }
-        List<LanceFragmentInfo> fragments = tableValuedFunction.getLanceFragments();
-        // Mirror LanceScanNode: use the largest fragment as one standard split so smaller fragments
-        // keep their relative physical-row weight, keeping the catalog and S3/file TVF paths in sync.
-        long targetRows = 1;
-        for (LanceFragmentInfo fragment : fragments) {
-            targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
-        }
-        List<Split> splits = new ArrayList<>(fragments.size());
-        for (LanceFragmentInfo fragment : fragments) {
-            LanceSplit split = LanceSplit.forFragment(tableValuedFunction.getFilePath(), version,
-                    fragment.getId(), fragment.getPhysicalRows());
-            split.setTargetSplitSize(targetRows);
-            splits.add(split);
-        }
-        return splits;
+        return LanceSplitBuilder.buildFragmentSplits(tableValuedFunction.getFilePath(), version,
+                tableValuedFunction.getLanceFragments(), 1);
     }
 
     private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {

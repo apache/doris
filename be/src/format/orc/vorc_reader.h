@@ -195,6 +195,11 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
+    const orc::Type* get_file_root_type() const {
+        DORIS_CHECK(_reader != nullptr);
+        return &_reader->getType();
+    }
+
     void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
@@ -369,7 +374,8 @@ private:
                                        const DataTypePtr& data_type,
                                        std::shared_ptr<TableSchemaChangeHelper::Node> root_node,
                                        const orc::Type* orc_column_type,
-                                       const orc::ColumnVectorBatch* cvb, size_t num_values);
+                                       const orc::ColumnVectorBatch* cvb, size_t num_values,
+                                       const orc::ColumnVectorBatch* parent_cvb = nullptr);
 
     template <PrimitiveType PType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
@@ -772,6 +778,9 @@ private:
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
+    // Hold the resolved type with the one-row value so equivalent complex types reconstructed for
+    // later Blocks reuse the same Iceberg field-ID entry outside the batch conversion path.
+    std::unordered_map<int32_t, std::pair<DataTypePtr, ColumnPtr>> _nested_initial_default_values;
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;

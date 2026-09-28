@@ -22,25 +22,36 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
+import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.schema.external.TSchema;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.storage.StoragePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -48,6 +59,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -260,12 +272,166 @@ public class HudiScanNodeTest {
         Assertions.assertEquals(Collections.singletonList("p=1"), duplicateSplit.getPartitionValues());
     }
 
+    @Test
+    public void testIncrementalPlanningDoesNotAcquireUnusedFsView() throws Exception {
+        AtomicInteger loads = new AtomicInteger();
+        IncrementalRelation relation = incrementalRelation(
+                "10", "20", ImmutableMap.of("hoodie.datasource.query.type", "incremental"),
+                loads, "incremental.parquet");
+        Mockito.when(relation.fallbackFullTableScan()).thenReturn(false);
+        HudiScanNode node = incrementalScanNode(
+                new StatementContext.ExternalScanTaskCache(), relation, true);
+        setField(node, HudiScanNode.class, "incrementalRead", true);
+
+        List<Split> splits = node.getSplits(1);
+
+        Assertions.assertEquals(1, loads.get());
+        Assertions.assertEquals(1, splits.size());
+        Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
+    }
+
+    @Test
+    public void testEmptyMorIncrementalPlanningDoesNotAcquireUnusedFsView() throws Exception {
+        IncrementalRelation relation = Mockito.mock(IncrementalRelation.class);
+        Mockito.when(relation.fallbackFullTableScan()).thenReturn(false);
+        Mockito.when(relation.collectFileSlices()).thenReturn(Collections.emptyList());
+        HudiScanNode node = incrementalScanNode(
+                new StatementContext.ExternalScanTaskCache(), relation, false);
+        HoodieTableMetaClient metaClient = Mockito.mock(HoodieTableMetaClient.class, Answers.RETURNS_DEEP_STUBS);
+        Mockito.when(metaClient.getTableConfig().getPartitionFields()).thenReturn(Option.empty());
+        setField(node, HudiScanNode.class, "hudiClient", metaClient);
+        setField(node, HudiScanNode.class, "incrementalRead", true);
+
+        List<Split> splits = node.getSplits(1);
+
+        Assertions.assertTrue(splits.isEmpty());
+        Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
+    }
+
+    @Test
+    public void testEmptyFullScanDoesNotAcquireUnusedFsView() throws Exception {
+        HudiScanNode node = incrementalScanNode(
+                new StatementContext.ExternalScanTaskCache(), Mockito.mock(IncrementalRelation.class), true);
+        setField(node, HudiScanNode.class, "partitionInit", true);
+        setField(node, HudiScanNode.class, "prunedPartitions", Collections.emptyList());
+
+        List<Split> splits = node.getSplits(1);
+
+        Assertions.assertTrue(splits.isEmpty());
+        Assertions.assertNull(getField(node, HudiScanNode.class, "fsViewLease"));
+    }
+
+    @Test
+    public void testSchemaResolutionRejectsRetiredHmsGenerationBeforeDescriptorPublication() throws Exception {
+        HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        AtomicLong runtimeGeneration = new AtomicLong(1L);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getRuntimeGeneration()).thenAnswer(invocation -> runtimeGeneration.get());
+        setField(node, HiveScanNode.class, "hmsTable", table);
+        setField(node, HudiScanNode.class, "hmsRuntimeGeneration", 1L);
+        setField(node, HudiScanNode.class, "queryInstant", "20260831120000");
+        setField(node, HudiScanNode.class, "hudiClient", Mockito.mock(HoodieTableMetaClient.class));
+
+        HudiSplit split = new HudiSplit(
+                LocationPath.of("file:///table/fileid_1-0-1_20260831120000.parquet"),
+                0, 10, 10, new String[0], Collections.emptyList());
+        split.setTableFormatType(TableFormatType.HUDI);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        HudiSchemaCacheValue schemaValue = Mockito.mock(HudiSchemaCacheValue.class);
+        Mockito.when(schemaValue.isEnableSchemaEvolution()).thenReturn(true);
+        Mockito.when(schemaValue.getCommitInstantInternalSchema(Mockito.any(), Mockito.anyLong()))
+                .thenAnswer(invocation -> {
+                    runtimeGeneration.incrementAndGet();
+                    return Mockito.mock(InternalSchema.class);
+                });
+
+        try (MockedStatic<HudiUtils> mockedHudiUtils = Mockito.mockStatic(HudiUtils.class)) {
+            mockedHudiUtils.when(() -> HudiUtils.getSchemaCacheValue(table, "20260831120000"))
+                    .thenReturn(schemaValue);
+            Method method = HudiScanNode.class.getDeclaredMethod(
+                    "setHudiParams", TFileRangeDesc.class, HudiSplit.class);
+            method.setAccessible(true);
+            InvocationTargetException exception = Assertions.assertThrows(
+                    InvocationTargetException.class, () -> method.invoke(node, rangeDesc, split));
+            Assertions.assertInstanceOf(IllegalStateException.class, exception.getCause());
+        }
+        Mockito.verify(schemaValue).getCommitInstantInternalSchema(Mockito.any(), Mockito.anyLong());
+        Assertions.assertFalse(rangeDesc.isSetTableFormatParams());
+    }
+
+    @Test
+    public void testDeferredMorParquetAdvertisesContractBeforeListingRanges() throws Exception {
+        for (boolean forceJni : new boolean[] {false, true}) {
+            for (String format : Arrays.asList("Parquet", "Orc", "HFile")) {
+                HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
+                HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Answers.RETURNS_DEEP_STUBS);
+                SessionVariable session = new SessionVariable();
+                session.setForceJniScanner(forceJni);
+                Mockito.when(table.getRemoteTable().getSd().getInputFormat())
+                        .thenReturn("org.apache.hudi.hadoop.realtime.Hoodie" + format + "RealtimeInputFormat");
+                TFileScanRangeParams params = new TFileScanRangeParams();
+                setField(node, FileQueryScanNode.class, "params", params);
+                setField(node, FileQueryScanNode.class, "sessionVariable", session);
+                setField(node, HiveScanNode.class, "hmsTable", table);
+                setField(node, HudiScanNode.class, "isCowTable", false);
+                Assertions.assertEquals(TFileFormatType.FORMAT_JNI, node.getFileFormatType());
+                Assertions.assertEquals(!forceJni && format.equals("Parquet"),
+                        params.isContainsNativeParquet());
+            }
+        }
+    }
+
+    @Test
+    public void testHybridNativeParquetSignalSurvivesLaterOrcAndJniRanges() throws Exception {
+        HudiScanNode node = partitionScanNode(new StatementContext.ExternalScanTaskCache(),
+                Mockito.mock(HoodieTableFileSystemView.class), "20260831120000", true, false);
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        params.setFormatType(TFileFormatType.FORMAT_JNI);
+        setField(node, FileQueryScanNode.class, "params", params);
+        setField(node, HudiScanNode.class, "currentQuerySchema", new java.util.concurrent.ConcurrentHashMap<>());
+        HMSExternalTable table = (HMSExternalTable) getField(node, HiveScanNode.class, "hmsTable");
+        HudiSchemaCacheValue schemaValue = Mockito.mock(HudiSchemaCacheValue.class);
+        InternalSchema schema = Mockito.mock(InternalSchema.class);
+        Mockito.when(schemaValue.isEnableSchemaEvolution()).thenReturn(true);
+        Mockito.when(schemaValue.getCommitInstantInternalSchema(Mockito.any(), Mockito.anyLong())).thenReturn(schema);
+        try (MockedStatic<HudiUtils> utils = Mockito.mockStatic(HudiUtils.class)) {
+            utils.when(() -> HudiUtils.getSchemaCacheValue(table, "20260831120000")).thenReturn(schemaValue);
+            utils.when(() -> HudiUtils.getSchemaInfo(schema)).thenReturn(new TSchema());
+            for (String suffix : Arrays.asList("orc", "parquet", "orc", "parquet")) {
+                HudiSplit split = new HudiSplit(
+                        LocationPath.of("file:///table/fileid_1-0-1_20260831120000." + suffix),
+                        0, 10, 10, new String[0], Collections.emptyList());
+                split.setTableFormatType(TableFormatType.HUDI);
+                split.setDataFilePath(split.getPathString());
+                split.setHudiDeltaLogs(Collections.emptyList());
+                TFileRangeDesc range = new TFileRangeDesc();
+                range.setFormatType(TFileFormatType.FORMAT_JNI);
+                boolean alreadyMarked = params.isContainsNativeParquet();
+                node.setScanParams(range, split);
+                Assertions.assertEquals(suffix.equals("parquet")
+                        ? TFileFormatType.FORMAT_PARQUET : TFileFormatType.FORMAT_ORC, range.getFormatType());
+                Assertions.assertEquals(alreadyMarked || suffix.equals("parquet"), params.isContainsNativeParquet());
+                // A real JNI range must neither claim native Parquet nor erase an earlier claim.
+                split.setHudiDeltaLogs(Collections.singletonList("delta.log"));
+                range.setFormatType(TFileFormatType.FORMAT_JNI);
+                node.setScanParams(range, split);
+                Assertions.assertEquals(TFileFormatType.FORMAT_JNI, range.getFormatType());
+                Assertions.assertEquals(alreadyMarked || suffix.equals("parquet"), params.isContainsNativeParquet());
+            }
+        }
+    }
+
     private static HudiScanNode partitionScanNode(
             StatementContext.ExternalScanTaskCache cache, HoodieTableFileSystemView fsView,
             String queryInstant, boolean nativeReader, boolean runtimePrune) throws Exception {
         HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Answers.RETURNS_DEEP_STUBS);
-        Mockito.when(table.getCatalog().getId()).thenReturn(1L);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
         Mockito.when(table.getId()).thenReturn(2L);
         Mockito.when(table.getStoragePropertiesMap()).thenReturn(Collections.emptyMap());
         SessionVariable sessionVariable = new SessionVariable();
@@ -302,7 +468,9 @@ public class HudiScanNodeTest {
             boolean nativeReader) throws Exception {
         HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Answers.RETURNS_DEEP_STUBS);
-        Mockito.when(table.getCatalog().getId()).thenReturn(1L);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getId()).thenReturn(1L);
         Mockito.when(table.getId()).thenReturn(2L);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setForceJniScanner(!nativeReader);
@@ -314,6 +482,7 @@ public class HudiScanNodeTest {
         setField(node, HudiScanNode.class, "isCowTable", true);
         setField(node, HudiScanNode.class, "incrementalRelation", relation);
         setField(node, HudiScanNode.class, "noLogsSplitNum", new AtomicLong());
+        setField(node, HudiScanNode.class, "fsViewReleased", new AtomicBoolean());
         return node;
     }
 
@@ -387,12 +556,12 @@ public class HudiScanNodeTest {
             throws Exception {
         Class<?> keyClass = Class.forName(HudiScanNode.class.getName() + "$HudiFileScanTaskCacheKey");
         Constructor<?> constructor = keyClass.getDeclaredConstructor(
-                long.class, long.class, String.class, boolean.class, boolean.class,
+                long.class, long.class, long.class, String.class, boolean.class, boolean.class,
                 String.class, String.class, String.class, List.class, List.class, List.class,
                 String.class, HivePartition.class);
         constructor.setAccessible(true);
         return constructor.newInstance(
-                1L, 2L, instant, nativeReader, runtimePrune,
+                1L, 2L, 3L, instant, nativeReader, runtimePrune,
                 "file:///table", "parquet", serdeLib,
                 Collections.singletonList("id"), Collections.singletonList("int"),
                 partitionColumnNames, storagePropertiesFingerprint, partition);
@@ -420,5 +589,11 @@ public class HudiScanNodeTest {
         Field field = owner.getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static Object getField(Object target, Class<?> owner, String name) throws Exception {
+        Field field = owner.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
     }
 }

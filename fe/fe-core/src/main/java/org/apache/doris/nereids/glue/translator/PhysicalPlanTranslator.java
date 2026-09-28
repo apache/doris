@@ -621,7 +621,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         IcebergTableSink sink = new IcebergTableSink(
                 (IcebergExternalTable) icebergTableSink.getTargetTable(),
-                icebergTableSink.getTargetIcebergTable());
+                icebergTableSink.getTargetIcebergTable(),
+                icebergTableSink.getWriteSchemaContext());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
         return rootFragment;
@@ -697,7 +698,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 icebergMergeSink.getTargetIcebergTable(),
                 icebergMergeSink.getDeleteContext(),
                 icebergMergeSink.isWritesDataFiles(),
-                icebergMergeSink.isRequireMergeCardinalityCheck());
+                icebergMergeSink.isRequireMergeCardinalityCheck(),
+                icebergMergeSink.getWriteSchemaContext());
         rootFragment.setSink(sink);
         return rootFragment;
     }
@@ -917,6 +919,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        scanNode.setHasPartitionPredicate(fileScan.hasPartitionPredicate());
         scanNode.setPushDownCountSlotIds(context.getRelationPushCountArgumentExprIds(fileScan.getRelationId())
                 .stream()
                 .map(exprId -> Objects.requireNonNull(context.findSlotRef(exprId),
@@ -1078,6 +1081,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableName, olapTable);
         tupleDescriptor.setRef(tableRefInfo);
         olapScanNode.setSelectedPartitionIds(olapScan.getSelectedPartitionIds());
+        olapScanNode.setHasPartitionPredicate(olapScan.hasPartitionPredicate());
         olapScanNode.setNereidsPrunedTabletIds(new LinkedHashSet<>(olapScan.getSelectedTabletIds()));
         if (olapScan.getTableSample().isPresent()) {
             olapScanNode.setTableSample(new TableSample(olapScan.getTableSample().get().isPercent,
@@ -1253,6 +1257,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        if (scanNode instanceof LanceScanNode && tvfRelation instanceof PhysicalLazyMaterializeTVFScan) {
+            for (Slot slot : ((PhysicalLazyMaterializeTVFScan) tvfRelation).getLazySlots()) {
+                ((LanceScanNode) scanNode).addLazyMaterializedColumn(
+                        ((SlotReference) slot).getOriginalColumn().map(Column::getName).orElse(slot.getName()));
+            }
+        }
         scanNode.setNereidsId(tvfRelation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(tvfRelation.getId(), scanNode.getId());
         Utils.execWithUncheckedException(scanNode::init);
@@ -2966,40 +2976,38 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             useRowStore = olapTable.storeRowColumn()
                     && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
         }
-        return useRowStore && canUseRowStoreForLazySlots(lazySlots);
+        return useRowStore && canUseRowStoreForLazySlots(lazySlots)
+                && !hasNestedAccessPaths(rel, lazySlots);
+    }
+
+    private boolean hasNestedAccessPaths(Relation rel, List<Slot> lazySlots) {
+        Set<Integer> lazyColumnUniqueIds = new HashSet<>();
+        for (Slot lazySlot : lazySlots) {
+            SlotReference slotReference = (SlotReference) lazySlot;
+            lazyColumnUniqueIds.add(slotReference.getOriginalColumn().get().getUniqueId());
+        }
+        for (Slot outputSlot : rel.getOutput()) {
+            if (outputSlot instanceof SlotReference) {
+                SlotReference slotReference = (SlotReference) outputSlot;
+                if (slotReference.getOriginalColumn().isPresent()
+                        && lazyColumnUniqueIds.contains(slotReference.getOriginalColumn().get().getUniqueId())
+                        && hasNestedAccessPaths(slotReference)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasNestedAccessPaths(SlotReference slotReference) {
+        return slotReference.getAllAccessPaths().map(paths -> !paths.isEmpty()).orElse(false)
+                || slotReference.getPredicateAccessPaths().map(paths -> !paths.isEmpty()).orElse(false);
     }
 
     @Override
     public PlanFragment visitPhysicalLazyMaterializeTVFScan(PhysicalLazyMaterializeTVFScan tvfRelation,
             PlanTranslatorContext context) {
-        List<Slot> slots = tvfRelation.getOutput();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getFunction().getTable(), context);
-
-        TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
-        SessionVariable sv = ConnectContext.get().getSessionVariable();
-        ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
-        scanNode.setNereidsId(tvfRelation.getId());
-        context.getNereidsIdToPlanNodeIdMap().put(tvfRelation.getId(), scanNode.getId());
-        Utils.execWithUncheckedException(scanNode::init);
-        context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getContext().getTargetListByScan(tvfRelation)
-                        .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
-                        )
-        );
-        context.addScanNode(scanNode, tvfRelation);
-
-        // TODO: it is weird update label in this way
-        // set label for explain
-        for (Slot slot : slots) {
-            String tableColumnName = TableValuedFunctionIf.TVF_TABLE_PREFIX + tvfRelation.getFunction().getName()
-                    + "." + slot.getName();
-            context.findSlotRef(slot.getExprId()).setLabel(tableColumnName);
-        }
-
-        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, tvfRelation);
-        context.addPlanFragment(planFragment);
-        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), tvfRelation);
-        return planFragment;
+        return visitPhysicalTVFRelation(tvfRelation, context);
     }
 
     @Override

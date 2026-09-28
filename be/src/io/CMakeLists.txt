@@ -34,6 +34,10 @@ if(ENABLE_TDE)
 endif()
 
 list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
+# Standalone tool with its own main(); must not be an archive member of libIO.a,
+# otherwise it can be linked into the main BE binary through libIO.a.
+list(REMOVE_ITEM IO_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/cache/benchmark/async_file_cache_write_microbench.cpp")
 
 add_library(IO STATIC ${IO_FILES})
 

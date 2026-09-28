@@ -76,6 +76,11 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Properties is not set");
         }
 
+        if (tableName != null && !InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl())) {
+            validateExternalTableProperties();
+            return;
+        }
+
         if (properties.size() != 1
                 && !TableProperty.isSamePrefixProperties(
                         properties, DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)
@@ -359,16 +364,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
             // do nothing, will be analyzed when creating alter job
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
-            String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
-            if (analyzePolicy != null
-                    && !analyzePolicy.equals(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY)
-                    && !analyzePolicy.equals(PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY)
-                    && !analyzePolicy.equals(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
-                throw new AnalysisException(
-                        "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
-                                + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
-                                + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
-            }
+            validateAutoAnalyzePolicy();
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
@@ -383,6 +379,31 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
         analyzeForMTMV();
+    }
+
+    private void validateExternalTableProperties() throws AnalysisException {
+        this.needTableStable = false;
+        this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            return;
+        }
+        if (properties.size() != 1) {
+            throw new AnalysisException("auto_analyze_policy cannot be set with external table properties");
+        }
+        validateAutoAnalyzePolicy();
+    }
+
+    private void validateAutoAnalyzePolicy() throws AnalysisException {
+        String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
+        if (analyzePolicy != null
+                && !analyzePolicy.equals(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY)
+                && !analyzePolicy.equals(PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY)
+                && !analyzePolicy.equals(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+            throw new AnalysisException(
+                    "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
+                            + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
+                            + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
+        }
     }
 
     @Override

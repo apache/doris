@@ -70,6 +70,18 @@ public class HdfsPropertiesTest {
     }
 
     @Test
+    public void testConfigResourcesRejectParentDirectoryTraversal() {
+        Map<String, String> origProps = createBaseHdfsProperties();
+        origProps.put("hadoop.config.resources", "../outside.xml");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> StorageProperties.createAll(origProps));
+
+        Assertions.assertTrue(exception.getMessage().contains("parent-directory references"),
+                exception.getMessage());
+    }
+
+    @Test
     public void testBasicHdfsPropertiesCreateByConfigFile() throws UserException {
         // Test 1: Check loading of config resources
         Map<String, String> origProps = createBaseHdfsProperties();

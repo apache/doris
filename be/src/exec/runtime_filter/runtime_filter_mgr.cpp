@@ -43,6 +43,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/query_context.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
@@ -76,6 +77,28 @@ std::vector<RuntimeFilterPublishTarget> build_runtime_filter_publish_targets(
     return publish_targets;
 }
 
+class RuntimeFilterRelayRpcClosure final : public google::protobuf::Closure {
+public:
+    RuntimeFilterRelayRpcClosure(std::shared_ptr<PPublishFilterRequestV2> request,
+                                 std::weak_ptr<QueryContext> query_ctx)
+            : _request(std::move(request)),
+              _callback(HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(
+                      std::move(query_ctx))) {}
+
+    void Run() override {
+        std::unique_ptr<RuntimeFilterRelayRpcClosure> self(this);
+        _callback->call();
+    }
+
+    brpc::Controller* cntl() { return _callback->cntl_.get(); }
+    PPublishFilterRequestV2* request() { return _request.get(); }
+    PPublishFilterResponse* response() { return _callback->response_.get(); }
+
+private:
+    std::shared_ptr<PPublishFilterRequestV2> _request;
+    std::shared_ptr<HandleErrorBrpcCallback<PPublishFilterResponse>> _callback;
+};
+
 Status send_runtime_filter_relay_rpc(const RuntimeFilterPublishTask& task,
                                      const butil::IOBuf& request_attachment, int timeout_ms,
                                      std::weak_ptr<QueryContext> query_ctx) {
@@ -88,21 +111,17 @@ Status send_runtime_filter_relay_rpc(const RuntimeFilterPublishTask& task,
                                      task.receiver.addr.hostname(), task.receiver.addr.port());
     }
 
-    auto closure =
-            AutoReleaseClosure<PPublishFilterRequestV2, DummyBrpcCallback<PPublishFilterResponse>>::
-                    create_unique(std::make_shared<PPublishFilterRequestV2>(task.request),
-                                  DummyBrpcCallback<PPublishFilterResponse>::create_shared(),
-                                  query_ctx);
+    // brpc calls Run() exactly once; RuntimeFilterRelayRpcClosure deletes itself there.
+    auto* closure = new RuntimeFilterRelayRpcClosure(
+            std::make_shared<PPublishFilterRequestV2>(task.request), std::move(query_ctx));
     if (!request_attachment.empty()) {
-        closure->cntl_->request_attachment().append(request_attachment);
+        closure->cntl()->request_attachment().append(request_attachment);
     }
-    closure->cntl_->set_timeout_ms(timeout_ms);
+    closure->cntl()->set_timeout_ms(timeout_ms);
     if (config::execution_ignore_eovercrowded) {
-        closure->cntl_->ignore_eovercrowded();
+        closure->cntl()->ignore_eovercrowded();
     }
-    stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
-                         closure.get());
-    closure.release();
+    stub->apply_filterv2(closure->cntl(), closure->request(), closure->response(), closure);
     return Status::OK();
 }
 
@@ -456,9 +475,9 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     Status st = Status::OK();
     // After all runtime filters' size are collected, we should send response to all producers.
     if (cnt_val.merger->add_rf_size(request->filter_size())) {
-        auto ctx = query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
-                                                            : query_ctx;
-        for (auto addr : cnt_val.source_addrs) {
+        cnt_val.sync_size_callbacks.resize(cnt_val.source_addrs.size());
+        for (size_t i = 0; i < cnt_val.source_addrs.size(); ++i) {
+            auto& addr = cnt_val.source_addrs[i];
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
             if (stub == nullptr) {
@@ -471,10 +490,14 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
             auto sync_request = std::make_shared<PSyncFilterSizeRequest>();
             sync_request->set_stage(cnt_val.stage);
 
-            auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
-                                              DummyBrpcCallback<PSyncFilterSizeResponse>>::
-                    create_unique(sync_request,
-                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
+            auto callback = HandleErrorBrpcCallback<PSyncFilterSizeResponse>::create_shared(
+                    query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
+                                                             : query_ctx->weak_from_this());
+            cnt_val.sync_size_callbacks[i] = callback;
+            auto closure = AutoReleaseClosure<
+                    PSyncFilterSizeRequest,
+                    HandleErrorBrpcCallback<PSyncFilterSizeResponse>>::create_unique(sync_request,
+                                                                                     callback);
 
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(query_ctx->query_id().hi);
@@ -487,7 +510,6 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val.merger->get_received_sum_size());
-
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
                                    closure->response_.get(), closure.get());
             closure.release();
@@ -669,11 +691,14 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(
     }
 
     auto st = Status::OK();
-    for (auto& target : targets) {
+    cnt_val.publish_callbacks.resize(targets.size());
+    for (size_t i = 0; i < targets.size(); ++i) {
+        auto& target = targets[i];
+        auto callback = HandleErrorBrpcCallback<PPublishFilterResponse>::create_shared(ctx);
+        cnt_val.publish_callbacks[i] = callback;
         auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
-                                          DummyBrpcCallback<PPublishFilterResponse>>::
-                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
-                              DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
+                                          HandleErrorBrpcCallback<PPublishFilterResponse>>::
+                create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request), callback);
 
         if (has_attachment) {
             closure->cntl_->request_attachment().append(request_attachment);
@@ -717,6 +742,8 @@ Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     merger->increase_expected_producer_num(producer_size);
     arrive_id.clear();
     source_addrs.clear();
+    sync_size_callbacks.clear();
+    publish_callbacks.clear();
     done = false;
     stage++;
     // Keep the Merger's own stage in sync for consistent debug output.

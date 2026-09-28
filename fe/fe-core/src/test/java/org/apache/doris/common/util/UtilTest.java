@@ -17,8 +17,13 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.AnalysisException;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class UtilTest {
 
@@ -101,5 +106,27 @@ public class UtilTest {
 
         Assertions.assertEquals(result, Util.sha256long(testStr),
                 "Same input should produce same output");
+    }
+
+    @Test
+    public void strictBooleanPropertyParsesAndDefaults() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("flag_true", "TRUE");
+        properties.put("flag_false", "false");
+
+        Assertions.assertTrue(Util.getBooleanPropertyOrDefault(properties, "flag_true", false));
+        Assertions.assertFalse(Util.getBooleanPropertyOrDefault(properties, "flag_false", true));
+        Assertions.assertTrue(Util.getBooleanPropertyOrDefault(properties, "missing_flag", true));
+        Assertions.assertNull(Util.getOptionalBooleanProperty(properties, "missing_optional_flag"));
+    }
+
+    @Test
+    public void strictBooleanPropertyRejectsInvalidValue() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("flag", "not_a_bool");
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> Util.getBooleanPropertyOrDefault(properties, "flag", false));
+        Assertions.assertEquals("flag should be a boolean", exception.getDetailMessage());
     }
 }

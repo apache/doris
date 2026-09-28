@@ -49,7 +49,7 @@ If build doris use `sh build.sh --fe --be --cloud` **without do any change on th
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
-The Dockerfile default use JDK 17, for doris 2.1, 3.0, master, they all default use JDK 17.
+The Dockerfile defaults to `bellsoft/liberica-openjdk-debian:17`, which provides Debian 12 (bookworm) and Liberica JDK 17 for Doris 2.1, 3.0 and master.
 
 But doris 2.0 still use JDK 8, for build 2.0 image, user need specific use JDK 8 with arg `JDK_IMAGE=openjdk:8u342-jdk`. Here is build 2.0 image command:
 

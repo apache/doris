@@ -76,7 +76,6 @@
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
@@ -166,12 +165,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
 
 static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
-
-bthread_key_t btls_key;
-
-static void thread_context_deleter(void* d) {
-    delete static_cast<ThreadContext*>(d);
-}
 
 static int32_t resolved_brpc_peer_fetch_pool_threads() {
     return config::brpc_peer_fetch_pool_threads != -1 ? config::brpc_peer_fetch_pool_threads
@@ -293,7 +286,6 @@ PInternalService::PInternalService(ExecEnv* exec_env)
 
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
 
-    CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
@@ -322,7 +314,6 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
 
-    CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
@@ -893,11 +884,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
             break;
         }
-        case TFileFormatType::FORMAT_NATIVE: {
-            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
-                                                 nullptr);
-            break;
-        }
         case TFileFormatType::FORMAT_JSON: {
             reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
                                                   fetch_schema_batch_size, io_ctx.get(), io_ctx);
@@ -923,7 +909,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             for (const auto& col_type : col_types) {
                 DORIS_CHECK(col_type != nullptr);
                 PTypeDesc* type_desc = result->add_column_types();
-                if (col_type->get_primitive_type() == INVALID_TYPE) {
+                if (col_type->is_null_literal()) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::NULL_TYPE);
+                } else if (col_type->get_primitive_type() == INVALID_TYPE) {
                     PTypeNode* node = type_desc->add_types();
                     node->set_type(TTypeNodeType::SCALAR);
                     node->mutable_scalar_type()->set_type(TPrimitiveType::UNSUPPORTED);

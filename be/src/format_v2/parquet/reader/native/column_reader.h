@@ -23,6 +23,7 @@
 
 #include <list>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <unordered_map>
 #include <vector>
@@ -243,16 +244,16 @@ public:
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
     }
 
-    static Status create(io::FileReaderSPtr file, NativeFieldSchema* field,
-                         const tparquet::RowGroup& row_group, const RowRanges& row_ranges,
-                         const cctz::time_zone* ctz, io::IOContext* io_ctx,
-                         std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
-                         const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets,
-                         RuntimeState* state, bool in_collection = false,
-                         const std::set<uint64_t>& column_ids = {},
-                         const std::set<uint64_t>& filter_column_ids = {},
-                         const std::string& page_cache_file_key = {},
-                         const ParquetReaderCompat& compat = {}, bool enable_strict_mode = false);
+    static Status create(
+            io::FileReaderSPtr file, NativeFieldSchema* field, const tparquet::RowGroup& row_group,
+            const RowRanges& row_ranges, const cctz::time_zone* ctz, io::IOContext* io_ctx,
+            std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
+            const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets, RuntimeState* state,
+            bool in_collection = false, const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {},
+            const std::string& page_cache_file_key = {}, const ParquetReaderCompat& compat = {},
+            bool enable_strict_mode = false,
+            std::optional<const cctz::time_zone*> int96_timezone_override = std::nullopt);
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;

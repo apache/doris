@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecIcebergTableSinkHashPartitioned;
@@ -37,6 +38,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.types.Types;
 
@@ -50,6 +53,7 @@ import java.util.TreeMap;
 /** physical iceberg sink */
 public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final Table targetIcebergTable;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
 
     /**
      * constructor
@@ -63,7 +67,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
         this(database, targetTable, targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+                PhysicalProperties.GATHER, null, Optional.empty(), child);
     }
 
     /**
@@ -79,10 +83,28 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
+        this(database, targetTable, targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties,
+                physicalProperties, statistics, Optional.empty(), child);
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public PhysicalIcebergTableSink(IcebergExternalDatabase database,
+                                    IcebergExternalTable targetTable,
+                                    Table targetIcebergTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    PhysicalProperties physicalProperties,
+                                    Statistics statistics,
+                                    Optional<IcebergWriteSchemaContext> writeSchemaContext,
+                                    CHILD_TYPE child) {
         super(PlanType.PHYSICAL_ICEBERG_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
         this.targetIcebergTable = Objects.requireNonNull(
                 targetIcebergTable, "targetIcebergTable != null in PhysicalIcebergTableSink");
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
     }
 
     @Override
@@ -90,7 +112,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
                 targetIcebergTable, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, writeSchemaContext, children.get(0));
     }
 
     @Override
@@ -102,7 +124,9 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(), child());
+                targetIcebergTable, cols, outputExprs,
+                groupExpression, getLogicalProperties(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, child());
     }
 
     @Override
@@ -110,19 +134,26 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties.get(), children.get(0));
+                targetIcebergTable, cols, outputExprs,
+                groupExpression, logicalProperties.get(), PhysicalProperties.GATHER, null,
+                writeSchemaContext, children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+                targetIcebergTable, cols, outputExprs,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                writeSchemaContext, child());
     }
 
     public Table getTargetIcebergTable() {
         return targetIcebergTable;
+    }
+
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
     }
 
     /**
@@ -139,7 +170,10 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             return PhysicalProperties.GATHER;
         }
 
-        if (targetIcebergTable.spec().isPartitioned()) {
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElse(targetIcebergTable.spec());
+        if (partitionSpec.isPartitioned()) {
             if (Config.be_exec_version
                     < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION) {
                 return PhysicalProperties.GATHER;
@@ -157,6 +191,12 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     }
 
     private DistributionSpecIcebergTableSinkHashPartitioned buildPartitionDistributionSpec() {
+        PartitionSpec partitionSpec = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getPartitionSpec)
+                .orElse(targetIcebergTable.spec());
+        Schema schema = writeSchemaContext
+                .map(IcebergWriteSchemaContext::getSchema)
+                .orElse(targetIcebergTable.schema());
         Map<String, Slot> outputSlotsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (Slot outputSlot : child().getOutput()) {
             if (outputSlotsByName.put(outputSlot.getName(), outputSlot) != null) {
@@ -166,8 +206,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
 
         List<ExprId> sourceExprIds = new ArrayList<>();
         List<String> transforms = new ArrayList<>();
-        for (PartitionField field : targetIcebergTable.spec().fields()) {
-            Types.NestedField sourceField = targetIcebergTable.schema().findField(field.sourceId());
+        for (PartitionField field : partitionSpec.fields()) {
+            Types.NestedField sourceField = schema.findField(field.sourceId());
             if (sourceField == null) {
                 return null;
             }

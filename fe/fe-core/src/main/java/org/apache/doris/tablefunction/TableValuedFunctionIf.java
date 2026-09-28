@@ -75,6 +75,8 @@ public abstract class TableValuedFunctionIf {
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:
                 return new TasksTableValuedFunction(params);
+            case LanceIndexEntriesTableValuedFunction.NAME:
+                return new LanceIndexEntriesTableValuedFunction(params);
             case ParquetMetadataTableValuedFunction.NAME:
                 return new ParquetMetadataTableValuedFunction(params);
             case ParquetMetadataTableValuedFunction.NAME_FILE_METADATA: {
@@ -104,6 +106,8 @@ public abstract class TableValuedFunctionIf {
                 return new HttpTableValuedFunction(params);
             case VectorSearchTableValuedFunction.NAME:
                 return new VectorSearchTableValuedFunction(params);
+            case FullTextSearchTableValuedFunction.NAME:
+                return new FullTextSearchTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }
@@ -114,6 +118,10 @@ public abstract class TableValuedFunctionIf {
     public abstract List<Column> getTableColumns() throws AnalysisException;
 
     public abstract ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv);
+
+    public String getHiveParquetTimeZone() {
+        return "";
+    }
 
     public void checkAuth(ConnectContext ctx) {
 

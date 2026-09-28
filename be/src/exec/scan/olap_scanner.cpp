@@ -138,7 +138,14 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.write_cache_io_timer != 0 || stats.bytes_write_into_cache != 0 ||
            stats.num_skip_cache_io_total != 0 || stats.read_cache_file_directly_timer != 0 ||
            stats.cache_get_or_set_timer != 0 || stats.lock_wait_timer != 0 ||
-           stats.get_timer != 0 || stats.set_timer != 0 ||
+           stats.get_timer != 0 || stats.set_timer != 0 || stats.async_cache_write_submitted != 0 ||
+           stats.async_cache_write_rejected != 0 ||
+           stats.async_cache_write_buffer_alloc_fail != 0 ||
+           stats.async_cache_write_drop_stale_epoch != 0 ||
+           stats.inflight_write_buffer_index_hit != 0 ||
+           stats.inflight_write_buffer_index_miss != 0 || stats.probe_downloaded_hit != 0 ||
+           stats.probe_downloading_hit != 0 || stats.probe_miss != 0 ||
+           stats.block_wait_success != 0 || stats.block_wait_timeout != 0 ||
            stats.inverted_index_num_local_io_total != 0 ||
            stats.inverted_index_num_remote_io_total != 0 ||
            stats.inverted_index_num_peer_io_total != 0 ||
@@ -285,7 +292,7 @@ Status OlapScanner::prepare() {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
         auto io_ctx = build_score_runtime_collection_io_context(
-                _state, ReaderType::READER_QUERY, tablet->ttl_seconds(),
+                _state, ReaderType::READER_QUERY, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(

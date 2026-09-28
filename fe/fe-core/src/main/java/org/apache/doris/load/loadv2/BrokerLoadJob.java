@@ -53,6 +53,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -91,6 +92,9 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
     protected boolean enableProfile = false;
+
+    // Runtime-only selection result recorded by a loading task's coordinator.
+    private transient volatile String loadBackendSelectionSummary;
 
     private boolean enableMemTableOnSinkNode = false;
     private int batchSize = 0;
@@ -150,27 +154,33 @@ public class BrokerLoadJob extends BulkLoadJob {
             // before transactionId was assigned (e.g. edit log write failure), and the pending
             // task retry would otherwise burn all retries on this exception and cancel the job
             // with a misleading "Label has already been used".
-            Long ownTxnId = findSelfPreparedTxnByLabel();
-            if (ownTxnId == null) {
+            TransactionState ownTxn = findSelfTxnByLabel();
+            if (ownTxn == null) {
                 throw e;
             }
-            LOG.info("broker load job {} adopts its own prepared txn {} for label {} on pending task retry",
-                    id, ownTxnId, label);
-            transactionId = ownTxnId;
+            transactionId = ownTxn.getTransactionId();
+            if (ownTxn.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                LOG.info("broker load job {} recovers its own visible txn {} for label {}",
+                        id, transactionId, label);
+                afterVisible(ownTxn, true);
+            } else {
+                LOG.info("broker load job {} adopts its own prepared txn {} for label {} on pending task retry",
+                        id, transactionId, label);
+            }
         }
     }
 
-    private Long findSelfPreparedTxnByLabel() {
+    private TransactionState findSelfTxnByLabel() {
         try {
-            Long txnId = Env.getCurrentGlobalTransactionMgr().getTransactionIdByLabel(dbId, label,
-                    Lists.newArrayList(TransactionStatus.PREPARE));
+            Long txnId = Env.getCurrentGlobalTransactionMgr().getTransactionId(dbId, label);
             if (txnId == null) {
                 return null;
             }
             TransactionState existingTxn = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, txnId);
             if (existingTxn != null && existingTxn.getCallbackId() == id
-                    && existingTxn.getTransactionStatus() == TransactionStatus.PREPARE) {
-                return txnId;
+                    && (existingTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                        || existingTxn.getTransactionStatus() == TransactionStatus.VISIBLE)) {
+                return existingTxn;
             }
         } catch (Exception lookupException) {
             LOG.warn("broker load job {} failed to look up txn by label {}", id, label, lookupException);
@@ -297,6 +307,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         context.setComputeGroup(computeGroup);
+        BackendSelectionManager.restoreLoadSelection(context, getLoadBackendSelectionHint());
     }
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
@@ -309,6 +320,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize);
+        task.setLoadBackendSelectionHint(getLoadBackendSelectionHint());
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -317,6 +329,10 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            recordLoadBackendSelectionSummary(context.getBackendSelectionProfile().getLoadSummary());
+        }
         task.settWorkloadGroups(tWorkloadGroups);
         return task;
     }
@@ -504,6 +520,17 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     protected void afterCommit() throws DdlException {}
 
+    void recordLoadBackendSelectionSummary(String summary) {
+        if (StringUtils.isEmpty(summary) || loadBackendSelectionSummary != null) {
+            return;
+        }
+        synchronized (this) {
+            if (loadBackendSelectionSummary == null) {
+                loadBackendSelectionSummary = summary;
+            }
+        }
+    }
+
     protected LoadJobFinalOperation getLoadJobFinalOperation() {
         return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp, state,
                 failMsg);
@@ -530,6 +557,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         builder.defaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);
+        if (loadBackendSelectionSummary != null) {
+            builder.loadBackendSelection(loadBackendSelectionSummary);
+        }
         return builder.build();
     }
 

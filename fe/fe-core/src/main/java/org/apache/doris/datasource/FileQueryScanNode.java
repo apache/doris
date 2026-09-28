@@ -36,6 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -51,6 +52,7 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
@@ -247,9 +249,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-        // Set enable_mapping_varbinary from catalog or TVF
         params.setEnableMappingVarbinary(getEnableMappingVarbinary());
         params.setEnableMappingTimestampTz(getEnableMappingTimestampTz());
+        // The marker makes an omitted timezone an explicit wall-clock choice while old FE plans
+        // remain distinguishable during a BE-first rolling upgrade.
+        params.setParquetTimestampSemanticsVersion(FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (hiveParquetTimeZone != null && !hiveParquetTimeZone.isEmpty()) {
+            params.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
     }
 
     private void updateRequiredSlots() throws UserException {
@@ -276,12 +284,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
     }
 
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        return classifyColumn(slot.getColumn().getName(), partitionKeys);
+    }
+
     /**
-     * Classify a column's category for the BE reader.
+     * Classify projected and lazy columns with the same connector-specific rules.
      * Subclasses override this for format-specific classification.
      */
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (partitionKeys.contains(slot.getColumn().getName())) {
+    protected TColumnCategory classifyColumn(String columnName, List<String> partitionKeys) {
+        if (partitionKeys.contains(columnName)) {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
@@ -337,6 +349,25 @@ public abstract class FileQueryScanNode extends FileScanNode {
         Map<String, Integer> columnNameMap = new HashMap<>(columnNames.size());
         for (int i = 0; i < columnNames.size(); i++) {
             columnNameMap.putIfAbsent(columnNames.get(i), i);
+        }
+
+        boolean needsRowIdFetch = desc.getSlots().stream()
+                .anyMatch(slot -> slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL));
+        if (needsRowIdFetch) {
+            // Lazy slots are absent from the scan tuple. Use the relation's full schema so
+            // metadata categories survive pruning without changing physical file positions.
+            List<Column> columns = desc.getTable() instanceof ExternalTable
+                    ? ((ExternalTable) desc.getTable()).getFullSchema(getRelationSnapshot())
+                    : desc.getTable().getFullSchema();
+            List<String> partitionKeys = getPathPartitionKeys();
+            Map<String, TColumnCategory> columnCategories = new HashMap<>();
+            for (Column column : columns) {
+                TColumnCategory category = classifyColumn(column.getName(), partitionKeys);
+                if (category != TColumnCategory.REGULAR) {
+                    columnCategories.put(column.getName(), category);
+                }
+            }
+            params.setColumnNameToCategory(columnCategories);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {
@@ -823,6 +854,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     e.getMessage());
         }
         return false;
+    }
+
+    protected String getHiveParquetTimeZone() throws UserException {
+        TableIf table = getTargetTable();
+        if (table instanceof ExternalTable) {
+            return ((ExternalTable) table).getHiveParquetTimeZone();
+        }
+        if (table instanceof FunctionGenTable) {
+            FunctionGenTable functionGenTable = (FunctionGenTable) table;
+            TableValuedFunctionIf tvf = functionGenTable.getTvf();
+            return tvf.getHiveParquetTimeZone();
+        }
+        return "";
     }
 
     protected abstract List<String> getPathPartitionKeys() throws UserException;

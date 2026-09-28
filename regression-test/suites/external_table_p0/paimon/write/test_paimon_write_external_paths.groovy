@@ -46,6 +46,19 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
             'data-file.external-paths.strategy' = 'round-robin'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_round_robin_roll;
+        CREATE TABLE paimon.${dbName}.t_round_robin_roll (
+            id INT, payload STRING
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1',
+            'write-only' = 'true',
+            'target-file-size' = '1 kb',
+            'data-file.external-paths' = '${pathRoot}/round-roll-a,${pathRoot}/round-roll-b',
+            'data-file.external-paths.strategy' = 'round-robin'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_weight_robin;
         CREATE TABLE paimon.${dbName}.t_weight_robin (
             id INT, payload STRING
@@ -122,22 +135,48 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
             assertSparkDorisResultEquals(sparkRows, dorisRows)
         }
 
-        // Separate statements force separate writer lifecycles. The selected
-        // path must therefore be refreshed for every Doris commit.
+        // Separate statements force separate writer lifecycles.
         sql """INSERT INTO t_round_robin VALUES ('p1', 1, 'one')"""
         sql """INSERT INTO t_round_robin VALUES ('p1', 2, 'two')"""
         sql """INSERT INTO t_round_robin VALUES ('p2', 3, 'three')"""
         sql """INSERT INTO t_round_robin VALUES ('p2', 4, 'four')"""
-        sql """
-            INSERT INTO t_round_robin
-            SELECT 'p-bulk', CAST(number + 100 AS INT), repeat('x', 2048)
-            FROM numbers("number" = "16")
-        """
         def oldRoundFiles = dataFiles("t_round_robin")
-        assertTrue(oldRoundFiles.any { it.startsWith("${pathRoot}/round-a/") })
-        assertTrue(oldRoundFiles.any { it.startsWith("${pathRoot}/round-b/") })
+        assertFalse(oldRoundFiles.isEmpty())
+        // Each lifecycle randomly initializes its round-robin position, so independent
+        // statements need not hit both paths. Only membership in the configured set is stable.
+        assertTrue(oldRoundFiles.every {
+            it.startsWith("${pathRoot}/round-a/") ||
+                    it.startsWith("${pathRoot}/round-b/")
+        })
         assertDorisSparkRows("external_round_robin_initial", "t_round_robin",
                 "pt, id, length(payload)", "ORDER BY pt, id")
+
+        // Isolate the round-robin oracle from the independent writers above. One fixed bucket and
+        // one pipeline task keep all rows in a single Paimon writer. Paimon checks file rolling
+        // every 1000 rows; 4000 deterministic high-entropy rows leave enough margin to roll
+        // repeatedly and therefore visit both roots regardless of its random start.
+        sql """SET parallel_pipeline_task_num = 1"""
+        try {
+            sql """
+                INSERT INTO t_round_robin_roll
+                SELECT CAST(number AS INT),
+                        concat(md5(CAST(number AS STRING)),
+                               md5(CAST(number + 100000 AS STRING)))
+                FROM numbers("number" = "4000")
+            """
+        } finally {
+            sql """SET parallel_pipeline_task_num = 0"""
+        }
+        def rolledFiles = dataFiles("t_round_robin_roll")
+        assertTrue(rolledFiles.size() >= 2)
+        assertTrue(rolledFiles.every {
+            it.startsWith("${pathRoot}/round-roll-a/") ||
+                    it.startsWith("${pathRoot}/round-roll-b/")
+        })
+        assertTrue(rolledFiles.any { it.startsWith("${pathRoot}/round-roll-a/") })
+        assertTrue(rolledFiles.any { it.startsWith("${pathRoot}/round-roll-b/") })
+        assertDorisSparkRows("external_round_robin_roll", "t_round_robin_roll",
+                "count(*), sum(id), min(length(payload)), max(length(payload))", "")
 
         spark_paimon """
             ALTER TABLE paimon.${dbName}.t_round_robin SET TBLPROPERTIES (

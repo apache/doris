@@ -26,6 +26,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
@@ -37,6 +38,60 @@
 namespace doris {
 class Arena;
 #include "common/compile_check_begin.h"
+
+namespace {
+
+Status decode_map_orc_values(const DataTypeSerDeSPtr& key_serde,
+                             const DataTypeSerDeSPtr& value_serde, IColumn& nested_column,
+                             const OrcDecodedColumnView& orc_view) {
+    const auto* orc_map = dynamic_cast<const ::orc::MapVectorBatch*>(orc_view.batch);
+    if (orc_map == nullptr) {
+        return Status::InternalError("Unexpected ORC map batch type {}",
+                                     orc_view.batch->toString());
+    }
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type != nullptr);
+    DORIS_CHECK(orc_view.file_type->getSubtypeCount() == 2);
+    DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == 2);
+    DORIS_CHECK(orc_map->keys != nullptr);
+    DORIS_CHECK(orc_map->elements != nullptr);
+    auto& map_column = assert_cast<ColumnMap&>(nested_column);
+    size_t element_size = 0;
+    std::vector<size_t> element_selection;
+    RETURN_IF_ERROR(orc_serde_utils::append_orc_offsets(
+            map_column.get_offsets(), orc_map->offsets, orc_view.rows, &element_size,
+            orc_view.selected_rows, &element_selection));
+    const auto* file_key_type = orc_view.file_type->getSubtype(0);
+    const auto* selected_key_type = orc_view.selected_type->getSubtype(0);
+    DORIS_CHECK(file_key_type != nullptr);
+    DORIS_CHECK(selected_key_type != nullptr);
+    const auto child_rows = orc_view.selected_rows == nullptr
+                                    ? element_size
+                                    : static_cast<size_t>(orc_map->keys->numElements);
+    const auto* child_selection = orc_view.selected_rows == nullptr ? nullptr : &element_selection;
+    auto key_column = map_column.get_keys_ptr()->assert_mutable();
+    auto key_view =
+            orc_serde_utils::make_child_orc_view(orc_view, file_key_type, selected_key_type,
+                                                 orc_map->keys.get(), child_rows, child_selection);
+    RETURN_IF_ERROR(orc_serde_utils::read_orc_child_column(key_serde, key_column, key_view));
+    map_column.get_keys_ptr() = std::move(key_column);
+    const auto* file_value_type = orc_view.file_type->getSubtype(1);
+    const auto* selected_value_type = orc_view.selected_type->getSubtype(1);
+    DORIS_CHECK(file_value_type != nullptr);
+    DORIS_CHECK(selected_value_type != nullptr);
+    auto value_column = map_column.get_values_ptr()->assert_mutable();
+    auto value_view = orc_serde_utils::make_child_orc_view(
+            orc_view, file_value_type, selected_value_type, orc_map->elements.get(),
+            orc_view.selected_rows == nullptr ? element_size
+                                              : static_cast<size_t>(orc_map->elements->numElements),
+            child_selection);
+    RETURN_IF_ERROR(orc_serde_utils::read_orc_child_column(value_serde, value_column, value_view));
+    map_column.get_values_ptr() = std::move(value_column);
+    return Status::OK();
+}
+
+} // namespace
+
 Status DataTypeMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                   int64_t end_idx, BufferWritable& bw,
                                                   FormatOptions& options) const {
@@ -386,6 +441,108 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
     return Status::OK();
 }
 
+namespace {
+
+template <typename WriteKey, typename WriteValue>
+Status write_map_column_to_target(const IColumn& column, const NullMap* null_map,
+                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                  WriteKey&& write_key, WriteValue&& write_value) {
+    auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    DCHECK(nested_keys_column.is_nullable());
+    DCHECK(nested_values_column.is_nullable());
+    const auto* keys_nullmap_data =
+            check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
+    const auto& offsets = map_column.get_offsets();
+    auto* key_builder = builder.key_builder();
+    auto* value_builder = builder.item_builder();
+
+    for (size_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+            continue;
+        }
+        if (simd::contain_one(keys_nullmap_data + offsets[row - 1],
+                              offsets[row] - offsets[row - 1])) {
+            return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                 "Can not write null value of map key to arrow.");
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
+        RETURN_IF_ERROR(write_key(nested_keys_column, key_builder, offsets[row - 1], offsets[row]));
+        RETURN_IF_ERROR(
+                write_value(nested_values_column, value_builder, offsets[row - 1], offsets[row]));
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeMapSerDe::write_column_to_paimon_arrow(const std::shared_ptr<const IDataType>& type,
+                                                      const IColumn& column,
+                                                      const NullMap* null_map,
+                                                      const std::shared_ptr<arrow::Field>& field,
+                                                      arrow::ArrayBuilder* array_builder,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
+    // Reject an incompatible target before casting its nested schema or builder.
+    if (field->type()->id() != arrow::Type::MAP ||
+        array_builder->type()->id() != arrow::Type::MAP) {
+        return Status::InvalidArgument("Paimon map writer requires an Arrow map field");
+    }
+    const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+    const auto& arrow_map_type = assert_cast<const arrow::MapType&>(*field->type());
+    const auto& key_field = arrow_map_type.key_field();
+    const auto& value_field = arrow_map_type.item_field();
+    return write_map_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const IColumn& nested_keys, arrow::ArrayBuilder* key_builder, int64_t nested_start,
+                int64_t nested_end) {
+                return key_serde->write_column_to_paimon_arrow(map_type.get_key_type(), nested_keys,
+                                                               nullptr, key_field, key_builder,
+                                                               nested_start, nested_end, ctz);
+            },
+            [&](const IColumn& nested_values, arrow::ArrayBuilder* value_builder,
+                int64_t nested_start, int64_t nested_end) {
+                return value_serde->write_column_to_paimon_arrow(
+                        map_type.get_value_type(), nested_values, nullptr, value_field,
+                        value_builder, nested_start, nested_end, ctz);
+            });
+}
+
+Status DataTypeMapSerDe::write_column_to_iceberg_arrow(const std::shared_ptr<const IDataType>& type,
+                                                       const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       const std::shared_ptr<arrow::Field>& field,
+                                                       arrow::ArrayBuilder* array_builder,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
+    // Reject an incompatible target before casting its nested schema or builder.
+    if (field->type()->id() != arrow::Type::MAP ||
+        array_builder->type()->id() != arrow::Type::MAP) {
+        return Status::InvalidArgument("Iceberg map writer requires an Arrow map field");
+    }
+    const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+    const auto& arrow_map_type = assert_cast<const arrow::MapType&>(*field->type());
+    const auto& key_field = arrow_map_type.key_field();
+    const auto& value_field = arrow_map_type.item_field();
+    return write_map_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const IColumn& nested_keys, arrow::ArrayBuilder* key_builder, int64_t nested_start,
+                int64_t nested_end) {
+                return key_serde->write_column_to_iceberg_arrow(
+                        map_type.get_key_type(), nested_keys, nullptr, key_field, key_builder,
+                        nested_start, nested_end, ctz);
+            },
+            [&](const IColumn& nested_values, arrow::ArrayBuilder* value_builder,
+                int64_t nested_start, int64_t nested_end) {
+                return value_serde->write_column_to_iceberg_arrow(
+                        map_type.get_value_type(), nested_values, nullptr, value_field,
+                        value_builder, nested_start, nested_end, ctz);
+            });
+}
+
 Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                 int64_t start, int64_t end,
                                                 const cctz::time_zone& ctz) const {
@@ -488,8 +645,8 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
                                                      packed_nested_size, arena, options));
     // String batches borrow their source bytes, but the packed columns are local to this call;
     // keep only those borrowed leaves in the write Arena until Writer::add() consumes them.
-    copy_orc_string_data_to_arena(cur_batch->keys.get(), arena);
-    copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(cur_batch->keys.get(), arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
     cur_batch->keys->numElements = packed_nested_size;
     cur_batch->elements->numElements = packed_nested_size;
 
@@ -639,7 +796,7 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
         auto key_str = key_string_column->get_data_at(i);
         // check key size
         if (key_str.size > std::numeric_limits<uint8_t>::max()) {
-            return Status::InternalError("key size exceeds max limit {} ", key_str.to_string());
+            return Status::InvalidArgument("key size exceeds max limit {} ", key_str.to_string());
         }
         // write key
         if (!writer.writeKey(key_str.data, (uint8_t)key_str.size)) {
@@ -724,6 +881,17 @@ bool DataTypeMapSerDe::write_column_to_hive_text(const IColumn& column, BufferWr
     bw.write("}", 1);
 
     return true;
+}
+
+Status DataTypeMapSerDe::read_column_from_orc(IColumn& column,
+                                              const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::MAP);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_map_orc_values(key_serde, value_serde, column, view);
 }
 
 } // namespace doris

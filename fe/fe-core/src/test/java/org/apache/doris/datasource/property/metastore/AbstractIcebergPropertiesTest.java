@@ -122,4 +122,34 @@ public class AbstractIcebergPropertiesTest {
         TestIcebergProperties properties = new TestIcebergProperties(new HashMap<>(), mockCatalog);
         Assertions.assertNotNull(properties.executionAuthenticator);
     }
+
+    @Test
+    void testWeightGovernanceSkipsSdkManifestCacheAutoEnable() {
+        Catalog mockCatalog = Mockito.mock(Catalog.class);
+        // Without weight governance, enabling the Doris manifest entry auto-enables the SDK
+        // manifest content cache.
+        Map<String, String> plain = new HashMap<>();
+        plain.put("meta.cache.iceberg.manifest.enable", "true");
+        TestIcebergProperties ungoverned = new TestIcebergProperties(plain, mockCatalog);
+        ungoverned.initializeCatalog("c1", Collections.emptyList());
+        Assertions.assertEquals("true",
+                ungoverned.getCapturedCatalogProps().get("io.manifest.cache-enabled"));
+
+        // Under weight governance the SDK cache would retain manifests outside the Doris
+        // budget, so the auto-enable is skipped.
+        Map<String, String> governed = new HashMap<>(plain);
+        governed.put("meta.cache.max-weight", "128MB");
+        TestIcebergProperties weightGoverned = new TestIcebergProperties(governed, mockCatalog);
+        weightGoverned.initializeCatalog("c2", Collections.emptyList());
+        Assertions.assertNull(
+                weightGoverned.getCapturedCatalogProps().get("io.manifest.cache-enabled"));
+
+        // An explicit user choice always wins.
+        Map<String, String> explicit = new HashMap<>(governed);
+        explicit.put("io.manifest.cache-enabled", "true");
+        TestIcebergProperties userConfigured = new TestIcebergProperties(explicit, mockCatalog);
+        userConfigured.initializeCatalog("c3", Collections.emptyList());
+        Assertions.assertEquals("true",
+                userConfigured.getCapturedCatalogProps().get("io.manifest.cache-enabled"));
+    }
 }

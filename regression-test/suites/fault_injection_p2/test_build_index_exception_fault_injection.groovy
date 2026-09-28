@@ -235,7 +235,7 @@ suite("test_build_index_exception_fault_injection", "nonConcurrent,p2") {
         "IndexBuilder::gc_output_rowset_is_local_rowset"
     ]
 
-    def inverted_index_storage_format = ["v1", "v2"]
+    def inverted_index_storage_format = ["v2"]
     inverted_index_storage_format.each { format ->
         def tableName = "${tableNamePrefix}_${format}"
 

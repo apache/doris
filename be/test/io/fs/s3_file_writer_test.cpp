@@ -315,6 +315,42 @@ public:
     }
 };
 
+TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
+    bool upload_called = false;
+    bool cache_allocator_called = false;
+    bool completion_called = false;
+    bool original_enable_file_cache = config::enable_file_cache;
+    bool original_enable_file_cache_write = config::enable_file_cache_write_from_s3_file_writer;
+    Defer restore_config {[&]() {
+        config::enable_file_cache = original_enable_file_cache;
+        config::enable_file_cache_write_from_s3_file_writer = original_enable_file_cache_write;
+    }};
+    config::enable_file_cache = true;
+    config::enable_file_cache_write_from_s3_file_writer = false;
+
+    OperationState state(
+            [&completion_called](Status status) {
+                EXPECT_TRUE(status.ok()) << status;
+                completion_called = true;
+                return false;
+            },
+            [] { return false; });
+    UploadFileBuffer buffer([&upload_called](UploadFileBuffer&) { upload_called = true; },
+                            std::move(state), 0,
+                            [&cache_allocator_called]() -> FileBlocksHolderPtr {
+                                cache_allocator_called = true;
+                                return nullptr;
+                            });
+
+    std::string data = "test data";
+    ASSERT_TRUE(buffer.append_data(Slice(data)).ok());
+    buffer.on_upload();
+
+    EXPECT_TRUE(upload_called);
+    EXPECT_TRUE(completion_called);
+    EXPECT_FALSE(cache_allocator_called);
+}
+
 TEST_F(S3FileWriterTest, multi_part_io_error) {
     mock_client = std::make_shared<MockS3Client>();
     doris::io::FileWriterOptions state;
@@ -1493,6 +1529,10 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
 }
 
 TEST_F(S3FileWriterTest, test_empty_file) {
+    bool enable_file_cache = config::enable_file_cache;
+    config::enable_file_cache = false;
+    Defer defer {[&]() { config::enable_file_cache = enable_file_cache; }};
+
     std::vector<StorePath> paths;
     paths.emplace_back(std::string("tmp_dir"), 1024000000);
     auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -1501,11 +1541,13 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     doris::io::FileWriterOptions opts;
     io::FileWriterPtr file_writer;
     auto st = s3_fs->create_file("test_empty_file.idx", &file_writer, &opts);
-    EXPECT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(st.ok()) << st;
     auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
     holder->_client = mock_client;
     dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
+    auto* s3_writer = file_writer.get();
+    const auto file_path = s3_writer->path().native();
     auto fs = io::global_local_filesystem();
     std::string index_path = "/tmp/empty_index_file_test";
     std::string rowset_id = "1234567890";
@@ -1513,8 +1555,20 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     auto index_file_writer = std::make_unique<segment_v2::IndexFileWriter>(
             fs, index_path, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer), false);
-    EXPECT_TRUE(index_file_writer->begin_close().ok());
-    EXPECT_TRUE(index_file_writer->finish_close().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    EXPECT_EQ(s3_writer->state(), io::FileWriter::State::ASYNC_CLOSING);
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+    EXPECT_EQ(s3_writer->state(), io::FileWriter::State::CLOSED);
+    EXPECT_EQ(s3_writer->bytes_appended(), 0);
+    // Idempotent: a retried finish must not PUT a second object.
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+    index_file_writer.reset();
+    // An empty remote index file is one zero-byte object, not a multipart upload
+    // and not a missing key.
+    EXPECT_EQ(mock_client->put_object_count, 1);
+    EXPECT_EQ(mock_client->upload_part_count, 0);
+    ASSERT_EQ(mock_client->objects.count(file_path), 1);
+    EXPECT_TRUE(mock_client->objects.at(file_path).empty());
 }
 
 } // namespace doris

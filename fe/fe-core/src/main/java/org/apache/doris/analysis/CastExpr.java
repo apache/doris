@@ -114,12 +114,12 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    protected void treeToThriftHelper(TExpr container) {
+    protected void treeToThriftHelper(TExpr container, ExprVisitor visitor) {
         if (noOp) {
-            getChild(0).treeToThriftHelper(container);
+            getChild(0).treeToThriftHelper(container, visitor);
             return;
         }
-        super.treeToThriftHelper(container);
+        super.treeToThriftHelper(container, visitor);
     }
 
     @Override

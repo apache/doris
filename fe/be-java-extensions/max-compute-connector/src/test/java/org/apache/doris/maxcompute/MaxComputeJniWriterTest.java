@@ -17,6 +17,16 @@
 
 package org.apache.doris.maxcompute;
 
+import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.table.arrow.ArrowReader;
+import com.aliyun.odps.table.arrow.ArrowReaderFactory;
+import com.aliyun.odps.table.arrow.ArrowWriter;
+import com.aliyun.odps.table.arrow.ArrowWriterFactory;
+import com.aliyun.odps.table.configuration.CompressionCodec;
+import com.aliyun.odps.table.configuration.ReaderOptions;
+import com.aliyun.odps.table.configuration.WriterOptions;
+import com.aliyun.odps.table.enviroment.Credentials;
+import com.aliyun.odps.table.enviroment.EnvironmentSettings;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
@@ -24,9 +34,51 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.Collections;
 
 public class MaxComputeJniWriterTest {
+    @Test
+    public void testZstdArrowRoundTrip() throws Exception {
+        EnvironmentSettings settings = EnvironmentSettings.newBuilder()
+                .withCredentials(Credentials.newBuilder()
+                        .withAccount(new AliyunAccount("test-access-key", "test-secret-key")).build())
+                .build();
+        WriterOptions writerOptions = WriterOptions.newBuilder().withSettings(settings)
+                .withCompressionCodec(CompressionCodec.ZSTD).build();
+        try (BufferAllocator allocator = new RootAllocator();
+                VectorSchemaRoot root = VectorSchemaRoot.of(new IntVector("c", allocator))) {
+            IntVector vector = (IntVector) root.getVector(0);
+            vector.allocateNew(1024);
+            for (int i = 0; i < 1024; i++) {
+                vector.set(i, i % 7);
+            }
+            vector.setNull(5);
+            root.setRowCount(1024);
+
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (ArrowWriter writer = ArrowWriterFactory.getRecordBatchWriter(bytes, writerOptions)) {
+                writer.writeBatch(root);
+            }
+
+            ReaderOptions readerOptions = ReaderOptions.newBuilder().withSettings(settings)
+                    .withBufferAllocator(allocator).withCompressionCodec(CompressionCodec.ZSTD)
+                    .withReuseBatch(true).build();
+            try (ArrowReader reader = ArrowReaderFactory.getRecordBatchReader(
+                    new ByteArrayInputStream(bytes.toByteArray()), readerOptions)) {
+                Assert.assertTrue(reader.nextBatch());
+                VectorSchemaRoot decoded = reader.getCurrentValue();
+                Assert.assertEquals(root.getRowCount(), decoded.getRowCount());
+                IntVector decodedVector = (IntVector) decoded.getVector(0);
+                for (int i = 0; i < root.getRowCount(); i++) {
+                    Assert.assertEquals(vector.getObject(i), decodedVector.getObject(i));
+                }
+                Assert.assertFalse(reader.nextBatch());
+            }
+        }
+    }
+
     @Test
     public void testPrefixBufferBytesMeasuresLeadingRowsWithoutRebuild() {
         try (BufferAllocator allocator = new RootAllocator();

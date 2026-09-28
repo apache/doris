@@ -121,14 +121,6 @@ public class Checkpoint extends MasterDaemon {
             if (imageVersion < checkPointVersion) {
                 LOG.info("Trigger checkpoint since last checkpoint journal id: {} is less than "
                         + "current finalized journal id: {}", imageVersion, checkPointVersion);
-            } else if (Config.isCloudMode() && Config.cloud_checkpoint_image_stale_threshold_seconds > 0
-                    && latestImageCreateTime > 0 && ((System.currentTimeMillis() - latestImageCreateTime)
-                    >= Config.cloud_checkpoint_image_stale_threshold_seconds * 1000L)) {
-                // No new finalized journals beyond the latest image.
-                // But in cloud mode, we may still want to force a checkpoint if the latest image file is expired.
-                // This helps that image can keep the newer table version, partition version, tablet stats.
-                LOG.info("Trigger checkpoint in cloud mode because latest image is expired. "
-                        + "latestImageSeq: {}, latestImageCreateTime: {}", imageVersion, latestImageCreateTime);
             } else {
                 return;
             }

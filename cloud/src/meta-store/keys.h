@@ -428,6 +428,7 @@ void job_check_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in, std::string* out);
 void job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in, std::string* out);
 static inline std::string job_check_key(const JobRecycleKeyInfo& in) { std::string s; job_check_key(in, &s); return s; }
+static inline std::string job_recycle_key(const JobRecycleKeyInfo& in) { std::string s; job_recycle_key(in, &s); return s; }
 static inline std::string job_snapshot_data_migrator_key(const JobSnapshotDataMigratorKeyInfo& in) { std::string s; job_snapshot_data_migrator_key(in, &s); return s; }
 static inline std::string job_snapshot_chain_compactor_key(const JobSnapshotChainCompactorKeyInfo& in) { std::string s; job_snapshot_chain_compactor_key(in, &s); return s; }
 void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);

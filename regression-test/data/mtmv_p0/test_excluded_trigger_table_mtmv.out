@@ -4,12 +4,18 @@
 
 -- !true_table --
 1	1
+2	2
 
 -- !true_db_table --
 1	1
+2	2
+3	3
 
 -- !true_ctl_db_table --
 1	1
+2	2
+3	3
+4	4
 
 -- !false_ctl_db_table --
 1	1

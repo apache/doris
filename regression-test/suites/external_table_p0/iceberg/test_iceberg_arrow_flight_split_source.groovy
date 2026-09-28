@@ -81,6 +81,12 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
             "s3.region" = "us-east-1"
         );"""
 
+    // #67503: the idle reaper for a deferred batch-mode scan (see below). Set the bound low, and
+    // restore the FE's original value afterwards.
+    int idleTimeoutS = 10
+    def origIdleTimeout = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'arrow_flight_deferred_query_idle_timeout_second' """
+    assert origIdleTimeout.size() == 1 : "arrow_flight_deferred_query_idle_timeout_second not found in FE config"
+
     Connection flightConn = null
     try {
         // Baseline over the MySQL protocol (works regardless of the bug).
@@ -120,7 +126,74 @@ suite("test_iceberg_arrow_flight_split_source", "p0,external") {
         // deferred coordinator when the next query starts.
         def flightLimited = flightSql """ select * from ${table} limit 10 """
         assert flightLimited.size() > 0 && flightLimited.size() <= 10 : "unexpected row count: ${flightLimited.size()}"
+
+        // #67503, the other side of the deferral gate: the SAME external table scanned WITHOUT
+        // batch mode is not deferred. Its coordinator, and with it the query's workload group queue
+        // slot and its active_queries entry, is released at the end of GetFlightInfo, before the
+        // client pulls anything. That is the case the gate actually moved, so it needs its own
+        // coverage here: every other Flight query in this suite runs in batch mode.
+        flightSql """ set enable_external_table_batch_mode = false """
+
+        // Negative control, mirroring the batch assertion above: "(approximate)" is emitted only
+        // when isBatchMode(), so its absence proves this really is the synchronous split path and
+        // the assertions below cannot silently pass on the batch path.
+        def explainNonBatch = flightSql """ explain select * from ${table} """
+        boolean stillBatch = explainNonBatch.any { row ->
+            row.any { cell -> cell != null && cell.toString().contains("approximate") }
+        }
+        assert !stillBatch : "expected the non-batch split path in the Arrow Flight plan, got: ${explainNonBatch}"
+
+        // The scan must still be complete: the FE closed the coordinator at the end of
+        // GetFlightInfo, and the BE buffers the result independently of it.
+        def flightNonBatch = flightSql """ select * from ${table} """
+        assertEquals(expectedRows, (flightNonBatch.size() as long))
+
+        // ... and the release really was eager, unlike the batch-mode scan below. A distinct limit
+        // keeps this query's text apart from the other scans, and the LIKE pattern is assembled
+        // with CONCAT so that the probe statement's own text does not match it. No polling is
+        // needed: finalizeQuery() runs inside GetFlightInfo, so it has already happened by the time
+        // the client has the rows.
+        def flightNonBatchLimited = flightSql """ select * from ${table} limit 17 """
+        assertEquals(17, flightNonBatchLimited.size())
+        def nonBatchRegistered = sql """ select QUERY_ID from information_schema.active_queries
+                where SQL like CONCAT('%from ${table} limit', ' 17%') """
+        assert nonBatchRegistered.isEmpty() : "a non-batch Flight query must release its coordinator at the end of GetFlightInfo, still registered: ${nonBatchRegistered}"
+
+        // Back to batch mode: the idle reaper below needs a deferred coordinator to release.
+        flightSql """ set enable_external_table_batch_mode = true """
+
+        // #67503: a batch-mode scan keeps its coordinator (and with it the query's workload group
+        // queue slot and its active_queries entry) alive after GetFlightInfo, until the session
+        // runs its next query or is closed. A client that does neither would hold them until
+        // wait_timeout, so the FE releases the coordinator once the session has been idle for
+        // arrow_flight_deferred_query_idle_timeout_second, never before the query's own execution
+        // timeout, and without killing the session.
+        sql """ ADMIN SET FRONTEND CONFIG ('arrow_flight_deferred_query_idle_timeout_second' = '${idleTimeoutS}') """
+        flightSql """ set query_timeout = ${idleTimeoutS} """
+        def flightReap = flightSql """ select * from ${table} limit 13 """
+        assertEquals(13, flightReap.size())
+
+        // The LIKE pattern is assembled with CONCAT so that this statement's own text does not
+        // match it.
+        def deferredQuery = { ->
+            sql """ select QUERY_ID from information_schema.active_queries
+                    where SQL like CONCAT('%from ${table} limit', ' 13%') """
+        }
+        // Right after the scan the query is still registered: its coordinator is deferred.
+        assert deferredQuery().size() == 1 : "expected the batch-mode Flight query to stay registered until the idle reaper releases it"
+
+        // Once the session has been idle for the bound, the reaper releases it ...
+        long deadline = System.currentTimeMillis() + 60_000L
+        while (!deferredQuery().isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(1000)
+        }
+        assert deferredQuery().isEmpty() : "the idle reaper did not release the deferred Flight query within 60s"
+
+        // ... and the session survives: it still runs queries.
+        def afterReap = flightSql """ select * from ${table} limit 1 """
+        assertEquals(1, afterReap.size())
     } finally {
+        sql """ ADMIN SET FRONTEND CONFIG ('arrow_flight_deferred_query_idle_timeout_second' = '${origIdleTimeout[0][1]}') """
         // Close our own connection (best effort) so a dead endpoint cannot mask the real failure,
         // then drop the catalog over the reliable MySQL connection.
         if (flightConn != null) {

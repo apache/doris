@@ -29,4 +29,19 @@ suite("test_having_project") {
     qt_having_project_with_having_count_1_and_slot_from_project """
         SELECT 1 AS c1 FROM t HAVING count(1) > 0 OR c1 IS NOT NULL
     """
+
+    sql "INSERT INTO t VALUES (1)"
+
+    qt_scalar_subquery_having_true """
+        SELECT (SELECT 1 FROM t HAVING SUM(id) > 0) AS scalar_value
+    """
+
+    qt_scalar_subquery_having_false """
+        SELECT (SELECT 1 FROM t HAVING SUM(id) < 0) AS scalar_value
+    """
+
+    test {
+        sql "SELECT (SELECT 1, 2 FROM t HAVING SUM(id) > 0)"
+        exception "Multiple columns returned by subquery are not yet supported. Found 2"
+    }
 }

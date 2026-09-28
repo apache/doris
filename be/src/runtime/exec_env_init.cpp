@@ -63,6 +63,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
@@ -100,6 +101,7 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/cache/page_cache.h"
 #include "storage/id_manager.h"
@@ -519,6 +521,12 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 config::file_cache_each_block_size, config::s3_write_buffer_size);
         exit(-1);
     }
+    auto hdfs_batch_status = io::validate_hdfs_write_batch_buffer_size(
+            config::hdfs_write_batch_buffer_size_mb, config::file_cache_each_block_size);
+    if (!hdfs_batch_status.ok()) {
+        LOG_FATAL("{}", hdfs_batch_status.to_string());
+        exit(-1);
+    }
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
         throw Exception(
@@ -843,6 +851,12 @@ void ExecEnv::destroy() {
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
     SAFE_STOP(_stream_load_recorder_manager);
+    // Adaptive callbacks borrow WG/global flush pools and the S3 upload pool.
+    // Drain them before any of these dependencies can be destroyed.
+    if (_storage_engine) {
+        _storage_engine->adaptive_thread_controller()->stop();
+    }
+
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
     // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still

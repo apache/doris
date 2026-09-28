@@ -38,6 +38,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.datasource.mapping.IdentifierMapping;
 import org.apache.doris.datasource.mapping.JdbcIdentifierMapping;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionRequest;
 import org.apache.doris.proto.InternalService.PJdbcTestConnectionResult;
@@ -103,6 +104,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
+        checkDriverUrlSecurityRule(catalogProperty.getProperties().get(JdbcResource.DRIVER_URL));
 
         JdbcResource.checkBooleanProperty(JdbcResource.ONLY_SPECIFIED_DATABASE, getOnlySpecifiedDatabase());
         JdbcResource.checkBooleanProperty(ExternalCatalog.LOWER_CASE_META_NAMES, getLowerCaseMetaNames());
@@ -116,6 +118,18 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
         // check function rules
         ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
+    }
+
+    /**
+     * Enforce the mandatory driver URL rule on user-facing CREATE and ALTER CATALOG validation.
+     * Catalog replay does not call {@link #checkProperties()}, so existing catalogs remain compatible.
+     */
+    static void checkDriverUrlSecurityRule(String driverUrl) throws DdlException {
+        try {
+            JdbcDriverUrlSecurity.check(driverUrl);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     @Override

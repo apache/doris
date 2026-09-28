@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
+
 import java.util.List;
 
 public class IcebergPartition {
@@ -29,10 +31,19 @@ public class IcebergPartition {
     private final long lastUpdateTime;
     private final long lastSnapshotId;
     private final List<String> transforms;
+    private final long retainedPayloadBytes;
 
     public IcebergPartition(String partitionName, int specId, long recordCount, long fileSizeInBytes, long fileCount,
                             long lastUpdateTime, long lastSnapshotId, List<String> partitionValues,
                             List<String> transforms) {
+        this(partitionName, specId, recordCount, fileSizeInBytes, fileCount, lastUpdateTime,
+                lastSnapshotId, partitionValues, transforms,
+                estimateRetainedPayloadBytes(partitionName, partitionValues, transforms));
+    }
+
+    public IcebergPartition(String partitionName, int specId, long recordCount, long fileSizeInBytes, long fileCount,
+                            long lastUpdateTime, long lastSnapshotId, List<String> partitionValues,
+                            List<String> transforms, long retainedPayloadBytes) {
         this.partitionName = partitionName;
         this.specId = specId;
         this.recordCount = recordCount;
@@ -42,6 +53,7 @@ public class IcebergPartition {
         this.lastSnapshotId = lastSnapshotId;
         this.partitionValues = partitionValues;
         this.transforms = transforms;
+        this.retainedPayloadBytes = retainedPayloadBytes;
     }
 
     public String getPartitionName() {
@@ -78,5 +90,27 @@ public class IcebergPartition {
 
     public List<String> getTransforms() {
         return transforms;
+    }
+
+    public long getRetainedPayloadBytes() {
+        return retainedPayloadBytes;
+    }
+
+    private static long estimateRetainedPayloadBytes(
+            String partitionName, List<String> partitionValues, List<String> transforms) {
+        long bytes = MetaCacheWeightUtils.estimatedStringBytes(partitionName);
+        bytes = addStrings(bytes, partitionValues);
+        return addStrings(bytes, transforms);
+    }
+
+    private static long addStrings(long bytes, List<String> values) {
+        if (values == null) {
+            return bytes;
+        }
+        for (String value : values) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
+                    MetaCacheWeightUtils.estimatedStringBytes(value));
+        }
+        return bytes;
     }
 }

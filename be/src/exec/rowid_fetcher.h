@@ -22,8 +22,10 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <map>
 #include <memory>
 #include <semaphore>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -38,6 +40,7 @@ namespace doris {
 class DorisNodesInfo;
 class RuntimeProfile;
 class RuntimeState;
+class TQueryOptions;
 class TupleDescriptor;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
@@ -101,6 +104,10 @@ public:
     static const std::string InitReaderAvgTimeProfile;
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
+    static const std::string LanceDatasetOpenTimeProfile;
+    static const std::string LanceRowIdTakeReadTimeProfile;
+    static const std::string LanceArrowToDorisBlockTimeProfile;
+    static const std::string LanceRowIdFetchTotalTimeProfile;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
     static const std::string TopNLazyMaterializationSecondPhaseLocalIOBytes;
     static const std::string TopNLazyMaterializationSecondPhaseRemoteIOCount;
@@ -116,7 +123,17 @@ public:
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
+    static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                           const TFileScanRangeParams& scan_params,
+                                           const TFileRangeDesc& range);
+
 private:
+    friend class RowIdStorageReaderTest;
+    static TFileRangeDesc build_external_fetch_range(const TFileRangeDesc& source_range);
+    static TFileScanRangeParams build_external_scan_params(
+            const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+            const std::vector<SlotDescriptor>& scan_slots,
+            const std::vector<uint32_t>& scan_column_idxs);
     struct ExternalFetchStatistics;
 
     static Status read_doris_format_row(
@@ -165,6 +182,7 @@ private:
     struct ExternalFetchStatistics {
         int64_t init_reader_ms = 0;
         int64_t get_block_ms = 0;
+        std::map<std::string, int64_t> lance_fetch_times_ns;
         std::string file_read_bytes;
         std::string file_read_times;
     };

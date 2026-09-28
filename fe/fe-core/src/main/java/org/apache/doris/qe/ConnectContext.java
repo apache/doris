@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.IntLiteral;
@@ -67,6 +68,9 @@ import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
@@ -240,6 +244,7 @@ public class ConnectContext {
 
     // The FE ip current connected
     private String currentConnectedFEIp = "";
+    private transient String connectingFeLocalResourceGroup = "";
 
     private InsertResult insertResult;
 
@@ -255,6 +260,13 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private boolean isGroupCommit;
+    private BackendSelection.SelectionHint queryBackendSelectionDecision;
+    private BackendSelection.SelectionHint loadBackendSelectionDecision;
+    // A replayed async load owns this hint independently of the statement lifecycle. The
+    // statement-level decision is reset by setStartTime(), but the persisted load intent must
+    // remain available while the load planner is being rebuilt.
+    private BackendSelection.SelectionHint loadBackendSelectionHint;
+    private final BackendSelectionProfile backendSelectionProfile = new BackendSelectionProfile();
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -278,6 +290,14 @@ public class ConnectContext {
     @Getter
     @Setter
     private ByteBuffer prepareExecuteBuffer;
+
+    // Snapshot of cached types omitted by the current COM_STMT_EXECUTE packet.
+    @Getter
+    @Setter
+    private int[] prepareExecuteTypeCodes;
+
+    // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
+    private boolean cursorFetchRequested;
 
     private MysqlHandshakePacket mysqlHandshakePacket;
 
@@ -501,6 +521,14 @@ public class ConnectContext {
         this.connectAttributes = new HashMap<>(connectAttributes);
     }
 
+    public boolean isCursorFetchRequested() {
+        return cursorFetchRequested;
+    }
+
+    public void setCursorFetchRequested(boolean cursorFetchRequested) {
+        this.cursorFetchRequested = cursorFetchRequested;
+    }
+
     public boolean isTxnModel() {
         return txnEntry != null && txnEntry.isTxnModel();
     }
@@ -674,6 +702,8 @@ public class ConnectContext {
                 return Literal.of(((FloatLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof DecimalLiteral) {
                 return Literal.of(((DecimalLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof DateLiteral) {
+                return Literal.fromLegacyLiteral(literalExpr, literalExpr.getType());
             } else if (literalExpr instanceof StringLiteral) {
                 return Literal.of(((StringLiteral) literalExpr).getValue());
             } else if (literalExpr instanceof NullLiteral) {
@@ -806,6 +836,51 @@ public class ConnectContext {
     public void setStartTime() {
         startTime = System.currentTimeMillis();
         returnRows = 0;
+        queryBackendSelectionDecision = null;
+        loadBackendSelectionDecision = null;
+        backendSelectionProfile.reset();
+    }
+
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
+        if (queryBackendSelectionDecision == null) {
+            queryBackendSelectionDecision = BackendSelectionManager.getQuerySelectionHint(this);
+        }
+        return queryBackendSelectionDecision;
+    }
+
+    // Audit runs for every statement type, so it must not create a query selection hint.
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecisionForAudit() {
+        return queryBackendSelectionDecision == null
+                ? BackendSelection.SelectionHint.noSelection()
+                : queryBackendSelectionDecision;
+    }
+
+    // Load hints are resolved at several scheduling sites (sink, coordinator, group commit);
+    // each records the statement-level hint here so the audit reflects the load decision
+    // instead of the scan-side query decision.
+    public void recordLoadBackendSelectionDecision(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionDecision = hint;
+    }
+
+    public void recordLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionHint = hint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionHint() {
+        return loadBackendSelectionHint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecision() {
+        return loadBackendSelectionDecision;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecisionForAudit() {
+        return loadBackendSelectionDecision != null
+                ? loadBackendSelectionDecision : loadBackendSelectionHint;
+    }
+
+    public BackendSelectionProfile getBackendSelectionProfile() {
+        return backendSelectionProfile;
     }
 
     public void updateReturnRows(int returnRows) {
@@ -966,6 +1041,9 @@ public class ConnectContext {
     public void clear() {
         executor = null;
         statementContext = null;
+        loadBackendSelectionDecision = null;
+        loadBackendSelectionHint = null;
+        cursorFetchRequested = false;
     }
 
     public PlSqlOperation getPlSqlOperation() {
@@ -982,7 +1060,9 @@ public class ConnectContext {
     // held by the coordinator's scan nodes), so closing the coordinator at the end of
     // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
     // with "Split source X is released". These executors are finalized when the next query starts
-    // on this connection, or when the connection is torn down. See #62259.
+    // on this connection, when the connection is torn down, or by the idle reaper in checkTimeout
+    // once the connection has been sleeping for arrow_flight_deferred_query_idle_timeout_second.
+    // See #62259 and #67503.
     private final List<StmtExecutor> flightSqlDeferredExecutors = new ArrayList<>();
 
     public void addFlightSqlDeferredExecutor(StmtExecutor executor) {
@@ -1007,6 +1087,45 @@ public class ConnectContext {
                 LOG.warn("failed to finalize deferred arrow flight executor", t);
             }
         }
+    }
+
+    /**
+     * How long, in seconds, a sleeping connection may keep its deferred Arrow Flight executors
+     * before the timeout checker finalizes them without killing the connection
+     * (Config.arrow_flight_deferred_query_idle_timeout_second). A Flight client that opens a
+     * session per query and never closes it would otherwise pin each deferred query's query queue
+     * slot and query registration until wait_timeout (8h by default). The bound is never shorter
+     * than the execution timeout the deferred query was run with: the client may still be pulling
+     * that query's results from the BE, which still needs the batch split source the coordinator
+     * holds. Returns -1 when the bound is disabled or nothing is deferred.
+     */
+    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
+        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
+        if (configTimeoutS <= 0) {
+            return -1;
+        }
+        long execTimeoutS = -1;
+        synchronized (flightSqlDeferredExecutors) {
+            if (flightSqlDeferredExecutors.isEmpty()) {
+                return -1;
+            }
+            for (StmtExecutor deferredExecutor : flightSqlDeferredExecutors) {
+                execTimeoutS = Math.max(execTimeoutS, deferredExecutor.getDeferredExecTimeoutS());
+            }
+        }
+        return Math.max(configTimeoutS, execTimeoutS);
+    }
+
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
+    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
+        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
+        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+            return;
+        }
+        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
+                        + "idle: {}ms, idle timeout: {}s",
+                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
+        closeFlightSqlDeferredExecutors();
     }
 
     /**
@@ -1281,6 +1400,8 @@ public class ConnectContext {
                 // Need kill this connection.
                 killFlag = true;
                 killConnection = true;
+            } else {
+                reapIdleFlightSqlDeferredExecutors(delta);
             }
         } else {
             String timeoutTag = "query";
@@ -1325,6 +1446,14 @@ public class ConnectContext {
 
     public String getCurrentConnectedFEIp() {
         return currentConnectedFEIp;
+    }
+
+    public void setConnectingFeLocalResourceGroup(String connectingFeLocalResourceGroup) {
+        this.connectingFeLocalResourceGroup = Strings.nullToEmpty(connectingFeLocalResourceGroup);
+    }
+
+    public String getConnectingFeLocalResourceGroup() {
+        return connectingFeLocalResourceGroup;
     }
 
     /**
@@ -1483,6 +1612,11 @@ public class ConnectContext {
     }
 
     public void setCloudCluster(String cluster) {
+        // A compute group only exists in cloud mode. Swallowing the call here instead of making
+        // every caller wrap it in `if (Config.isCloudMode())` keeps that check in one place.
+        if (!Config.isCloudMode()) {
+            return;
+        }
         this.getSessionVariable().setCloudCluster(cluster);
     }
 

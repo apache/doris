@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 
@@ -24,6 +26,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.LongConsumer;
 
 /**
  * Engine-level abstraction for external metadata cache.
@@ -40,6 +43,34 @@ public interface ExternalMetaCache {
      * Additional engine aliases accepted by the manager.
      */
     Collection<String> aliases();
+
+    /** Validate cache properties in this engine's canonical namespace. */
+    default void validateCatalogProperties(Map<String, String> catalogProperties) {
+    }
+
+    /**
+     * Drop the properties in this engine's namespace that runtime initialization would ignore
+     * (unknown entries, obsolete or unparsable options), returning what the engine will honor.
+     */
+    default Map<String, String> sanitizeCatalogPropertiesForRuntime(Map<String, String> catalogProperties) {
+        return catalogProperties;
+    }
+
+    /**
+     * Validate cache properties with the semantics initialization applies to persisted state:
+     * entry weights must fit their catalog bound, but the catalog bound is not compared with this
+     * FE's local global bound (runtime clamps it instead).
+     */
+    default void validateCatalogPropertiesForRuntime(Map<String, String> catalogProperties) {
+    }
+
+    /**
+     * Bind the callback that (re)prepares a catalog group under the manager's lifecycle fence.
+     * A lookup that finds no group (the catalog was retired by a concurrent cache-policy ALTER
+     * after the caller prepared it) uses it once before failing.
+     */
+    default void bindCatalogPreparer(LongConsumer catalogPreparer) {
+    }
 
     /**
      * Initialize all registered entries for one catalog under current engine.
@@ -70,6 +101,13 @@ public interface ExternalMetaCache {
     boolean isCatalogInitialized(long catalogId);
 
     /**
+     * Whether invalidation also releases state owned outside this engine's catalog entry group.
+     */
+    default boolean supportsInvalidationWithoutCatalogEntries() {
+        return false;
+    }
+
+    /**
      * Typed schema cache access that hides entry-name and class plumbing from callers.
      */
     @SuppressWarnings("unchecked")
@@ -82,6 +120,16 @@ public interface ExternalMetaCache {
      * Invalidate all entries under one catalog in current engine cache.
      */
     void invalidateCatalog(long catalogId);
+
+    /**
+     * The catalog id was permanently dropped and will never be reused. Unlike
+     * {@link #invalidateCatalog}, which also serves same-id policy rebuilds, this hook lets an
+     * engine release side state (such as monotonic generation counters) that must survive
+     * rebuilds but would otherwise accumulate for the FE lifetime. It is invoked even when the
+     * engine's entry group was already retired.
+     */
+    default void onCatalogPermanentlyRemoved(long catalogId) {
+    }
 
     /**
      * Invalidate cached data under one catalog but keep the catalog entry group initialized.
@@ -99,9 +147,23 @@ public interface ExternalMetaCache {
     void invalidateDb(long catalogId, String dbName);
 
     /**
+     * Invalidate a database while preserving its resolved remote identity for engine caches.
+     */
+    default void invalidateDb(ExternalDatabase<?> database) {
+        invalidateDb(database.getCatalog().getId(), database.getFullName());
+    }
+
+    /**
      * Invalidate all entries related to a table.
      */
     void invalidateTable(long catalogId, String dbName, String tableName);
+
+    /**
+     * Invalidate a table while preserving its resolved remote identity for engine caches.
+     */
+    default void invalidateTable(ExternalTable table) {
+        invalidateTable(table.getCatalog().getId(), table.getDbName(), table.getName());
+    }
 
     /**
      * Invalidate all entries related to specific partitions.

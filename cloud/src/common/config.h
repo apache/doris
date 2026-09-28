@@ -204,7 +204,9 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
-CONF_mBool(enable_ms_rate_limit, "false");
+CONF_mBool(enable_ms_rate_limit, "true");
+// Collect rate-limit trigger metrics independently of rate-limit enforcement.
+CONF_mBool(enable_ms_rate_limit_dry_run, "true");
 // Fault injection: randomly return meta service rate limit error for testing.
 // ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_ms_rate_limit_injection, "false");
@@ -342,6 +344,10 @@ CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 // reserve 1MB of buffer, so setting the default value to 7MB is
 // more reasonable.
 CONF_mInt64(max_txn_commit_byte, "7340032");
+
+// true: scan txn_running_key entries and fetch transaction info via the corresponding txn_info_key.
+// false: scan txn_info_key entries directly; these usually far outnumber txn_running_key entries.
+CONF_mBool(enable_get_prepare_txn_by_coordinator_by_running_key, "true");
 
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");

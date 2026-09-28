@@ -31,6 +31,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+// Binary IO does not enable hash computation; inherit IColumn's unsupported methods.
 class ColumnVarbinary final : public COWHelper<IColumn, ColumnVarbinary> {
 private:
     using Self = ColumnVarbinary;
@@ -189,6 +190,11 @@ public:
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                       size_t max_length) override;
+
+    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
+                                            size_t num) override;
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
+                               size_t data_num, uint32_t dict_num = 0) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

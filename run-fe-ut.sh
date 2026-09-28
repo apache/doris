@@ -181,6 +181,13 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
+# Prepare JNI in the source resources so Maven's initialize-phase auto-clean cannot remove it.
+# Maven copies it to test-classes, which takes precedence over the Lance dependency JAR.
+. "${DORIS_HOME}/docker/thirdparties/lance-jni-helpers.sh"
+LANCE_JAVA_VERSION=$(sed -n 's/.*<lance.version>\([^<]*\)<\/lance.version>.*/\1/p' "${DORIS_HOME}/fe/pom.xml")
+lance_jni_prepare_test_resources "${DORIS_HOME}/fe/fe-core/src/test/resources" \
+    "${DORIS_THIRDPARTY}" "${LANCE_JAVA_VERSION}" "${TARGET_SYSTEM}" "${TARGET_ARCH}"
+
 if [[ "${RUN}" -eq 1 ]]; then
     echo "Run the specified class: $1"
     # eg:

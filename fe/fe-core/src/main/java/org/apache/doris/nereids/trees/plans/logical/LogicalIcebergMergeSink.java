@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -51,6 +52,7 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
     private final Table targetIcebergTable;
     private final DeleteCommandContext deleteContext;
     private final boolean writesDataFiles;
+    private final Optional<IcebergWriteSchemaContext> writeSchemaContext;
     private final boolean requireMergeCardinalityCheck;
 
     /**
@@ -67,6 +69,24 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
+        this(database, targetTable, targetIcebergTable, cols, outputExprs, deleteContext,
+                writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties, Optional.empty(), child);
+    }
+
+    /** Constructor with a statement-pinned Iceberg write schema. */
+    public LogicalIcebergMergeSink(IcebergExternalDatabase database,
+                                   IcebergExternalTable targetTable,
+                                   Table targetIcebergTable,
+                                   List<Column> cols,
+                                   List<NamedExpression> outputExprs,
+                                   DeleteCommandContext deleteContext,
+                                   boolean writesDataFiles,
+                                   boolean requireMergeCardinalityCheck,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   Optional<IcebergWriteSchemaContext> writeSchemaContext,
+                                   CHILD_TYPE child) {
         super(PlanType.LOGICAL_ICEBERG_MERGE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergMergeSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergMergeSink");
@@ -79,19 +99,19 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         }
         this.deleteContext = Objects.requireNonNull(deleteContext, "deleteContext != null in LogicalIcebergMergeSink");
         this.writesDataFiles = writesDataFiles;
+        this.writeSchemaContext = Objects.requireNonNull(
+                writeSchemaContext, "writeSchemaContext should not be null");
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
-    /**
-     * Replace the child and derive sink outputs from the new child.
-     */
+    /** Replace the child and derive sink outputs from the new child. */
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalIcebergMergeSink<>(database, targetTable, targetIcebergTable, cols, output,
                 deleteContext, writesDataFiles, requireMergeCardinalityCheck,
-                Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), writeSchemaContext, child);
     }
 
     @Override
@@ -99,13 +119,13 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergMergeSink only accepts one child");
         return new LogicalIcebergMergeSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, writesDataFiles, requireMergeCardinalityCheck,
-                Optional.empty(), Optional.empty(), children.get(0));
+                Optional.empty(), Optional.empty(), writeSchemaContext, children.get(0));
     }
 
     public LogicalIcebergMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalIcebergMergeSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, writesDataFiles, requireMergeCardinalityCheck,
-                Optional.empty(), Optional.empty(), child());
+                Optional.empty(), Optional.empty(), writeSchemaContext, child());
     }
 
     public IcebergExternalDatabase getDatabase() {
@@ -131,6 +151,10 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
         return writesDataFiles;
     }
 
+    public Optional<IcebergWriteSchemaContext> getWriteSchemaContext() {
+        return writeSchemaContext;
+    }
+
     public boolean isRequireMergeCardinalityCheck() {
         return requireMergeCardinalityCheck;
     }
@@ -153,13 +177,14 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
                 && Objects.equals(deleteContext, that.deleteContext)
                 && writesDataFiles == that.writesDataFiles
                 && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck
-                && Objects.equals(cols, that.cols);
+                && Objects.equals(cols, that.cols)
+                && Objects.equals(writeSchemaContext, that.writeSchemaContext);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), database, targetTable, targetIcebergTable, cols, deleteContext,
-                writesDataFiles, requireMergeCardinalityCheck);
+                writesDataFiles, requireMergeCardinalityCheck, writeSchemaContext);
     }
 
     @Override
@@ -183,7 +208,7 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalIcebergMergeSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, writesDataFiles, requireMergeCardinalityCheck,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), writeSchemaContext, child());
     }
 
     @Override
@@ -191,6 +216,6 @@ public class LogicalIcebergMergeSink<CHILD_TYPE extends Plan> extends LogicalTab
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalIcebergMergeSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, writesDataFiles, requireMergeCardinalityCheck,
-                groupExpression, logicalProperties, children.get(0));
+                groupExpression, logicalProperties, writeSchemaContext, children.get(0));
     }
 }

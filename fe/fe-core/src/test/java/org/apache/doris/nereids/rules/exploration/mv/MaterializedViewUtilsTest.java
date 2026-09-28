@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -935,6 +936,17 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 TableScanParams.OPTIONS,
                 ImmutableMap.of("scan.snapshot-id", "1"),
                 Collections.emptyList())));
+
+        Assertions.assertTrue(MaterializedViewUtils.TableQueryOperatorChecker.INSTANCE
+                .visitLogicalRelation(fileScan, null));
+    }
+
+    @Test
+    public void containTableQueryOperatorWithTableSnapshotTest() {
+        LogicalFileScan fileScan = Mockito.mock(LogicalFileScan.class);
+        Mockito.when(fileScan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(fileScan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(fileScan.getTableSnapshot()).thenReturn(Optional.of(TableSnapshot.versionOf("1")));
 
         Assertions.assertTrue(MaterializedViewUtils.TableQueryOperatorChecker.INSTANCE
                 .visitLogicalRelation(fileScan, null));

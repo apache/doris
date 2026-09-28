@@ -200,6 +200,10 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     private String getStringValueInSessionTimeZone() {
         ZoneId sessionZone = DateUtils.getTimeZone();
         ZonedDateTime localDateTime = toJavaDateType().atZone(ZoneId.of("UTC")).withZoneSameInstant(sessionZone);
+        if (localDateTime.getYear() < 0 || localDateTime.getYear() > 9999) {
+            // Defer to BE in both modes; CastException would incorrectly fold non-strict casts to NULL.
+            throw new AnalysisException("TIMESTAMPTZ local year is outside [0, 9999]");
+        }
         String offset = localDateTime.getOffset().getId();
         if ("Z".equals(offset)) {
             offset = "+00:00";
@@ -418,7 +422,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
-    public Expression plusMicroSeconds(long microSeconds) {
+    public TimestampTzLiteral plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
@@ -511,7 +515,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     /**
      * convert java LocalDateTime object to TimeStampTzTypeLiteral object.
      */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+    public static TimestampTzLiteral fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, TimeStampTzType.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());

@@ -63,9 +63,11 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -255,6 +257,17 @@ public class MTMVTask extends AbstractTask {
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
+            try {
+                // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
+                // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
+                // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
+                context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+            } catch (Exception e) {
+                // Preloading is only a batching optimization. Retrying through the existing per-group load below
+                // preserves completed-group progress when a later chunk of the union fails.
+                LOG.warn("Failed to preload partition snapshots for mv={}, taskId={}; "
+                        + "falling back to per-group loading", mtmv.getName(), getTaskId(), e);
+            }
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                     % refreshPartitionNum) > 0 ? 1 : 0);
@@ -332,12 +345,14 @@ public class MTMVTask extends AbstractTask {
             Map<TableIf, String> tableWithPartKey, ConnectContext taskContext)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(
+                ctx, new OriginStatement(mtmv.getQuerySql(), 0));
         ctx.setStatementContext(statementContext);
         executor = null;
         try {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
+            checkComputeGroupBeforeTask(ctx);
             installTaskSnapshots(statementContext);
             TUniqueId queryId = generateQueryId();
             lastQueryId = DebugUtil.printId(queryId);
@@ -345,7 +360,7 @@ public class MTMVTask extends AbstractTask {
             UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                     .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                             ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-            executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            executor = createExecutor(ctx, command, statementContext);
             ctx.setExecutor(executor);
             ctx.setQueryId(queryId);
             ctx.getState().setNereids(true);
@@ -369,6 +384,14 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    private static StmtExecutor createExecutor(ConnectContext ctx, UpdateMvByPartitionCommand command,
+            StatementContext statementContext) {
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, statementContext);
+        // StmtExecutor copies the adapter origin back into StatementContext during construction.
+        adapter.setOrigStmt(statementContext.getOriginStatement());
+        return new StmtExecutor(ctx, adapter);
+    }
+
     private static void closeExecutionContext(ConnectContext ctx) {
         closeExecutionContext(ctx, null);
     }
@@ -376,6 +399,10 @@ public class MTMVTask extends AbstractTask {
     private ConnectContext createTaskContext() {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
                 mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        // The planning done on this context (base table resolution, partition calculation) must see
+        // the same compute group the refresh will execute in, otherwise the workload group would be
+        // looked up in a different namespace.
+        setComputeGroup(ctx);
         ctx.setStatementContext(new StatementContext());
         return ctx;
     }
@@ -405,10 +432,39 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void setComputeGroup(ConnectContext ctx) {
-        String taskComputeGroup = taskContext.getComputeGroup();
-        if (Config.isCloudMode() && !Strings.isNullOrEmpty(taskComputeGroup)) {
-            ctx.setCloudCluster(taskComputeGroup);
+        // A compute group declared on the MV pins every refresh, automatic or manual, to that group.
+        // Only when the MV declares nothing does a manual REFRESH keep borrowing the session's group,
+        // which is the behaviour every existing MV keeps.
+        String declared = mtmv == null ? null : mtmv.getComputeGroup().orElse(null);
+        String effective = declared;
+        // A task read back from meta carries no taskContext, which the class already tolerates
+        // elsewhere, so the session's group is only consulted when there is one.
+        if (Strings.isNullOrEmpty(effective) && taskContext != null) {
+            effective = taskContext.getComputeGroup();
         }
+        if (!Strings.isNullOrEmpty(effective)) {
+            ctx.setCloudCluster(effective);
+        }
+    }
+
+    /**
+     * Re-checks the declared compute group before the refresh runs: it can be dropped and its
+     * privileges revoked while the MV exists, and without this the refresh would fail later with an
+     * unrelated message.
+     *
+     * <p>The identity used here is whatever the refresh actually runs as, which today is the
+     * hardcoded {@code admin} (see {@link MTMVPlanUtil#createBasicMvContext}). That makes the
+     * privilege half of the check always pass; the existence half is what has teeth right now. Once
+     * an MV carries a real owner, passing that owner here is the only change needed.
+     */
+    private void checkComputeGroupBeforeTask(ConnectContext ctx) throws UserException {
+        if (mtmv == null) {
+            return;
+        }
+        // Only the explicitly declared compute group is re-checked; an MV that declares none borrows
+        // the session's group, which the user never chose for it.
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(ctx.getCurrentUserIdentity(),
+                mtmv.getComputeGroup().orElse(null));
     }
 
     private void recordComputeGroup(ConnectContext ctx) {
@@ -686,6 +742,13 @@ public class MTMVTask extends AbstractTask {
         }
         // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
+            return Lists.newArrayList(mtmv.getPartitionNames());
+        }
+        // A baseline that was invalidated as a whole cannot be checked by isMTMVSync, because the current
+        // exclude rules may skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it
+        // with a full refresh. A partition that partition sync has just added is not such a case: it has no
+        // snapshot yet but is still compared per partition below, so only the new partition gets refreshed.
+        if (!mtmv.hasRefreshSnapshot()) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
         // check if data is fresh

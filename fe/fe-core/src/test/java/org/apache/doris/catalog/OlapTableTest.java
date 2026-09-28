@@ -637,7 +637,7 @@ public class OlapTableTest {
 
         new MockUp<VersionHelper>() {
             @Mock
-            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req) {
+            public Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req, int maxAttempts) {
                 Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
                 builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                         .setCode(Cloud.MetaServiceCode.OK).build());

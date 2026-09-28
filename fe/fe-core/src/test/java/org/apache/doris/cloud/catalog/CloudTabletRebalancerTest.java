@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.AbstractMap;
@@ -92,6 +93,36 @@ public class CloudTabletRebalancerTest {
         Method m = CloudTabletRebalancer.class.getDeclaredMethod(method, types);
         m.setAccessible(true);
         return (T) m.invoke(obj, args);
+    }
+
+    @Test
+    public void testInfightTaskPreservesSelectedBoxedTabletId() throws Exception {
+        TestRebalancer rebalancer = new TestRebalancer();
+        Long tabletId = Long.valueOf(50_001L);
+        Class<?> taskClass = Class.forName(CloudTabletRebalancer.class.getName() + "$InfightTask");
+        Constructor<?> constructor = taskClass.getDeclaredConstructor(CloudTabletRebalancer.class);
+        constructor.setAccessible(true);
+        Object task = constructor.newInstance(rebalancer);
+        Field tabletIdField = taskClass.getDeclaredField("pickedTabletId");
+        tabletIdField.setAccessible(true);
+
+        tabletIdField.set(task, tabletId);
+
+        Assertions.assertSame(tabletId, tabletIdField.get(task));
+    }
+
+    @Test
+    public void testWarmupTaskPreservesSelectedBoxedTabletId() throws Exception {
+        Long tabletId = Long.valueOf(50_001L);
+        Class<?> taskClass = Class.forName(CloudTabletRebalancer.class.getName() + "$WarmupTabletTask");
+        Constructor<?> constructor = taskClass.getDeclaredConstructors()[0];
+        constructor.setAccessible(true);
+
+        Object task = constructor.newInstance(tabletId, 1L, 2L, "cluster-a");
+        Field tabletIdField = taskClass.getDeclaredField("pickedTabletId");
+        tabletIdField.setAccessible(true);
+
+        Assertions.assertSame(tabletId, tabletIdField.get(task));
     }
 
     @Test

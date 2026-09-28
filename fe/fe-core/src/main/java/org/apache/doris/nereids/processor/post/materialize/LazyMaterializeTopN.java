@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
@@ -77,7 +78,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         if (hasMaterialized) {
             return topN;
         }
-        if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
+        SessionVariable sessionVariable = ctx.getConnectContext().getSessionVariable();
+        boolean enableOtherTables = sessionVariable.topNLazyMaterializationThreshold > 0
+                && topN.getLimit() <= sessionVariable.topNLazyMaterializationThreshold;
+        if (!sessionVariable.enableLanceLazyMaterialization && !enableOtherTables) {
             return topN;
         }
         /*
@@ -91,7 +95,10 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         List<Slot> materializedSlots = new ArrayList<>();
         // find the slots which can be lazy materialized
         for (Slot slot : topN.getOutput()) {
-            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot);
+            // Decide per source so a Lance relation does not bypass the threshold for other tables.
+            Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot)
+                    .filter(candidate -> MaterializeProbeVisitor.isLanceExternalSearch(candidate.relation)
+                            ? sessionVariable.enableLanceLazyMaterialization : enableOtherTables);
             if (source.isPresent()) {
                 SlotReference baseSlot = source.get().baseSlot;
                 if (source.get().baseSlot.hasSubColPath()) {
@@ -102,6 +109,16 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 materializedSlots.add(slot);
             }
         }
+        // A lazy alias can share its base slot with another output that must be materialized for TopN.
+        // Keep the alias materialized too, otherwise LazySlotPruning removes the base slot needed by that output.
+        List<Slot> requiredOutputSlots = collectRequiredOutputSlots(
+                materializeMap, new HashSet<>(materializedSlots));
+        for (Slot slot : requiredOutputSlots) {
+            if (materializeMap.remove(slot) != null) {
+                materializedSlots.add(slot);
+            }
+        }
+
         // find out the slots which are worth doing lazy materialization
         List<Slot> lazyMaterializeSlots = filterSlotsForLazyMaterialization(materializeMap);
         if (lazyMaterializeSlots.isEmpty()) {
@@ -212,6 +229,18 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         }
         result = new PhysicalProject(originOutput, null, result);
         return result;
+    }
+
+    @VisibleForTesting
+    static List<Slot> collectRequiredOutputSlots(Map<Slot, MaterializeSource> materializeMap,
+            Set<Slot> materializedSlots) {
+        List<Slot> requiredOutputSlots = new ArrayList<>();
+        for (Map.Entry<Slot, MaterializeSource> entry : materializeMap.entrySet()) {
+            if (materializedSlots.contains(entry.getValue().baseSlot)) {
+                requiredOutputSlots.add(entry.getKey());
+            }
+        }
+        return requiredOutputSlots;
     }
 
     /*

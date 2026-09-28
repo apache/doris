@@ -134,16 +134,16 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
         input_block.insert(block->get_by_position(child_column_idxs[i]));
     }
     int64_t input_rows = block->rows();
-    std::shared_ptr<arrow::Schema> input_schema;
     std::shared_ptr<arrow::RecordBatch> input_batch;
-    RETURN_IF_ERROR(get_arrow_schema_from_block(input_block, &input_schema,
-                                                TimezoneUtils::default_time_zone));
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
+                                        _timezone_obj);
+    RETURN_IF_ERROR(converter.init());
     if (child_column_idxs.empty()) {
-        RETURN_IF_ERROR(make_zero_column_arrow_batch(input_schema, input_rows, &input_batch));
+        RETURN_IF_ERROR(
+                make_zero_column_arrow_batch(converter.arrow_schema(), input_rows, &input_batch));
     } else {
-        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, input_schema,
-                                               arrow::default_memory_pool(), &input_batch,
-                                               _timezone_obj));
+        RETURN_IF_ERROR(converter.convert_to_arrow(input_block, arrow::default_memory_pool(),
+                                                   &input_batch));
     }
 
     // Step 3: Call Python UDTF to evaluate all rows at once (similar to Java UDTF's JNI call)

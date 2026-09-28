@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -45,9 +46,10 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.TableFormatType;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
-import org.apache.doris.datasource.lance.LanceTypeConverter;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTypeConverter;
+import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
@@ -81,6 +83,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
@@ -137,9 +140,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected Optional<String> resourceName = Optional.empty();
 
     public FileFormatProperties fileFormatProperties;
+    private String hiveParquetTimeZone = "";
     private long tableId;
     private long lanceDatasetVersion = -1;
     private List<LanceFragmentInfo> lanceFragments = Collections.emptyList();
+    private Set<String> lanceCurrentReaderColumns = Collections.emptySet();
+
+    /** Return the only backend that may execute this TVF, or -1 when execution may be distributed. */
+    public long getBackendIdForExecution() {
+        return -1;
+    }
 
     public abstract TFileType getTFileType();
 
@@ -167,8 +177,21 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return lanceFragments;
     }
 
+    /** Returns whether a Lance column needs the current BE materialization logic. */
+    public boolean requiresCurrentLanceReader(String columnName) {
+        return lanceCurrentReaderColumns.contains(columnName.toLowerCase(Locale.ROOT));
+    }
+
     public Map<String, String> getBackendConnectProperties() {
         return backendConnectProperties;
+    }
+
+    /**
+     * The typed storage configuration this function was analyzed with. Prefer this over
+     * {@link #getBrokerDesc()}, which builds a fresh {@link StorageProperties} on every call.
+     */
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
     }
 
     public List<String> getPathPartitionKeys() {
@@ -232,6 +255,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
         fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
 
+        String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");
+        try {
+            this.hiveParquetTimeZone = FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties
@@ -264,6 +295,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public List<TBrokerFileStatus> getFileStatuses() {
         return fileStatuses;
+    }
+
+    @Override
+    public String getHiveParquetTimeZone() {
+        return hiveParquetTimeZone;
     }
 
     public TFileAttributes getFileAttributes() {
@@ -375,10 +411,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         List<Column> lanceColumns = new ArrayList<>(metadata.getSchema().getFields().size());
         Set<String> columnLowerNames = new HashSet<>();
+        Set<String> currentReaderColumns = new HashSet<>();
         for (Field field : metadata.getSchema().getFields()) {
             String lowerName = field.getName().toLowerCase(Locale.ROOT);
             if (!columnLowerNames.add(lowerName)) {
                 throw new NotSupportedException("Repeated lowercase column names: " + lowerName);
+            }
+            if (LanceTypeConverter.requiresCurrentBeReader(field)) {
+                currentReaderColumns.add(lowerName);
             }
             Type type;
             try {
@@ -393,6 +433,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         lanceDatasetVersion = metadata.getVersion();
         lanceFragments = Collections.unmodifiableList(fragments);
+        lanceCurrentReaderColumns = Collections.unmodifiableSet(currentReaderColumns);
         columns = lanceColumns;
     }
 
@@ -527,12 +568,26 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
+                    filePath, Collections.singletonList(storageProperties));
+            if (!lanceStorageOptions.isEmpty()) {
+                fileScanRangeParams.setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(lanceStorageOptions));
+            }
+        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
-        // table function fetch schema, whether to enable mapping varbinary
         fileScanRangeParams.setEnableMappingVarbinary(fileFormatProperties.enableMappingVarbinary);
         fileScanRangeParams.setEnableMappingTimestampTz(fileFormatProperties.enableMappingTimestampTz);
+        fileScanRangeParams.setParquetTimestampSemanticsVersion(
+                FileFormatUtils.PARQUET_TIMESTAMP_SEMANTICS_VERSION);
+        String hiveParquetTimeZone = getHiveParquetTimeZone();
+        if (hiveParquetTimeZone != null && !hiveParquetTimeZone.isEmpty()) {
+            fileScanRangeParams.setHiveParquetTimeZone(hiveParquetTimeZone);
+        }
 
         if (getTFileType() == TFileType.FILE_STREAM) {
             fileStatuses.add(new TBrokerFileStatus("", false, -1, true));

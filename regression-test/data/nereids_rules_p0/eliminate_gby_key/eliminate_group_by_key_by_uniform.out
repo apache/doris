@@ -8,6 +8,21 @@
 
 -- !tranform_to_scalar_agg_not_null_column --
 
+-- !nullable_count_not_uniform --
+7	0	1	0
+7	1	1	1
+
+-- !nullable_ndv_not_uniform --
+7	0	1	0
+7	1	1	1
+
+-- !multi_argument_count_not_uniform --
+7	0	1
+7	1	1
+
+-- !non_nullable_count_uniform --
+7	1	2
+
 -- !project_const --
 \N	1
 \N	1

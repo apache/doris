@@ -228,6 +228,12 @@ public class CloudPartition extends Partition {
     // Return the visible version in order of the specified partition ids
     public static List<Long> getSnapshotVisibleVersionFromMs(
             List<CloudPartition> partitions, boolean waitForPendingTxns) throws RpcException {
+        return getSnapshotVisibleVersionFromMs(
+                partitions, waitForPendingTxns, Config.metaServiceRpcRetryTimes());
+    }
+
+    public static List<Long> getSnapshotVisibleVersionFromMs(
+            List<CloudPartition> partitions, boolean waitForPendingTxns, int maxAttempts) throws RpcException {
         if (partitions.isEmpty()) {
             return new ArrayList<>();
         }
@@ -243,7 +249,7 @@ public class CloudPartition extends Partition {
         }
 
         List<Long> versions = getSnapshotVisibleVersion(
-                dbIds, tableIds, partitionIds, versionUpdateTimesMs, waitForPendingTxns);
+                dbIds, tableIds, partitionIds, versionUpdateTimesMs, waitForPendingTxns, maxAttempts);
 
         // Cache visible version, see hasData() for details.
         int size = versions.size();
@@ -290,8 +296,10 @@ public class CloudPartition extends Partition {
             return Collections.emptyList();
         }
 
-        long cloudPartitionVersionCacheTtlMs = ConnectContext.get() == null ? 0
-                : ConnectContext.get().getSessionVariable().cloudPartitionVersionCacheTtlMs;
+        ConnectContext ctx = ConnectContext.get();
+        long cloudPartitionVersionCacheTtlMs = ctx == null
+                ? VariableMgr.getDefaultSessionVariable().cloudPartitionVersionCacheTtlMs
+                : ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs;
         if (cloudPartitionVersionCacheTtlMs <= 0) { // No cached versions will be used
             return getSnapshotVisibleVersionFromMs(partitions, false);
         }
@@ -345,7 +353,7 @@ public class CloudPartition extends Partition {
     //
     // Return the visible version in order of the specified partition ids
     private static List<Long> getSnapshotVisibleVersion(List<Long> dbIds, List<Long> tableIds, List<Long> partitionIds,
-            List<Long> versionUpdateTimesMs, boolean waitForPendingTxns)
+            List<Long> versionUpdateTimesMs, boolean waitForPendingTxns, int maxAttempts)
             throws RpcException {
         assert dbIds.size() == partitionIds.size() :
                 "partition ids size: " + partitionIds.size() + " should equals to db ids size: " + dbIds.size();
@@ -367,7 +375,7 @@ public class CloudPartition extends Partition {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersion use CloudPartition {}", partitionIds.toString());
         }
-        Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(req);
+        Cloud.GetVersionResponse resp = VersionHelper.getVersionFromMeta(req, maxAttempts);
         if (resp.getStatus().getCode() != MetaServiceCode.OK) {
             throw new RpcException("get visible version", "unexpected status " + resp.getStatus());
         }

@@ -83,6 +83,13 @@ Status WalFileReader::read_block(PBlock& block) {
     if (_offset >= file_reader->size()) {
         return Status::EndOfFile("end of wal file");
     }
+    const size_t file_size = file_reader->size();
+    if (file_size - _offset < WalWriter::LENGTH_SIZE) {
+        LOG(WARNING) << "ignore incomplete wal tail, path=" << _file_name
+                     << ", file_size=" << file_size << ", read_offset=" << _offset
+                     << ", expected_length_bytes=" << WalWriter::LENGTH_SIZE;
+        return Status::EndOfFile("end of wal file");
+    }
     size_t bytes_read = 0;
     uint8_t row_len_buf[WalWriter::LENGTH_SIZE];
     RETURN_IF_ERROR(
@@ -92,18 +99,34 @@ Status WalFileReader::read_block(PBlock& block) {
     if (block_len == 0) {
         return Status::DataQualityError("fail to read wal {} ,block is empty", _file_name);
     }
-    if (_offset == file_reader->size()) {
-        LOG(WARNING) << "need read block with length=" << block_len << ", but offset=" << _offset
-                     << " reached end of WAL (path=" << _file_name
-                     << ", size=" << file_reader->size() << ")";
+    const size_t remaining_bytes = file_size - _offset;
+    if (block_len > remaining_bytes) {
+        LOG(WARNING) << "ignore incomplete wal tail, path=" << _file_name
+                     << ", file_size=" << file_size << ", read_offset=" << _offset
+                     << ", block_bytes=" << block_len << ", available_bytes=" << remaining_bytes;
         return Status::EndOfFile("end of wal file");
     }
     // read block
     std::string block_buf;
     block_buf.resize(block_len);
     RETURN_IF_ERROR(file_reader->read_at(_offset, {block_buf.c_str(), block_len}, &bytes_read));
+    if (bytes_read != block_len) {
+        LOG(WARNING) << "ignore incomplete wal tail, path=" << _file_name
+                     << ", file_size=" << file_size << ", read_offset=" << _offset
+                     << ", block_bytes=" << block_len << ", read_block_bytes=" << bytes_read;
+        return Status::EndOfFile("end of wal file");
+    }
     RETURN_IF_ERROR(_deserialize(block, block_buf, block_len, bytes_read));
     _offset += block_len;
+    const size_t checksum_bytes = file_size - _offset;
+    if (checksum_bytes < WalWriter::CHECKSUM_SIZE) {
+        LOG(WARNING) << "replay wal block without complete checksum, path=" << _file_name
+                     << ", file_size=" << file_size << ", read_offset=" << _offset
+                     << ", block_bytes=" << block_len << ", checksum_bytes=" << checksum_bytes
+                     << ", expected_checksum_bytes=" << WalWriter::CHECKSUM_SIZE;
+        _offset = file_size;
+        return Status::OK();
+    }
     // checksum
     uint8_t checksum_len_buf[WalWriter::CHECKSUM_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {checksum_len_buf, WalWriter::CHECKSUM_SIZE},
@@ -115,33 +138,60 @@ Status WalFileReader::read_block(PBlock& block) {
 }
 
 Status WalFileReader::read_header(uint32_t& version, std::string& col_ids) {
-    if (file_reader->size() == 0) {
-        return Status::DataQualityError("empty file");
-    }
+    const size_t file_size = file_reader->size();
+    auto incomplete_header = [&](const char* field, size_t expected_bytes, size_t actual_bytes) {
+        LOG(WARNING) << "ignore incomplete wal header, path=" << _file_name
+                     << ", file_size=" << file_size << ", read_offset=" << _offset
+                     << ", field=" << field << ", expected_bytes=" << expected_bytes
+                     << ", actual_bytes=" << actual_bytes;
+        return Status::DataQualityError(
+                "incomplete wal header {}, field={}, expected_bytes={}, actual_bytes={}",
+                _file_name, field, expected_bytes, actual_bytes);
+    };
     size_t bytes_read = 0;
+    if (file_size - _offset < k_wal_magic_length) {
+        return incomplete_header("magic", k_wal_magic_length, file_size - _offset);
+    }
     std::string magic_str;
     magic_str.resize(k_wal_magic_length);
     RETURN_IF_ERROR(file_reader->read_at(_offset, magic_str, &bytes_read));
+    if (bytes_read != k_wal_magic_length) {
+        return incomplete_header("magic", k_wal_magic_length, bytes_read);
+    }
     if (strcmp(magic_str.c_str(), k_wal_magic) != 0) {
         return Status::Corruption("Bad wal file {}: magic number not match", _file_name);
     }
     _offset += k_wal_magic_length;
+    if (file_size - _offset < WalWriter::VERSION_SIZE) {
+        return incomplete_header("version", WalWriter::VERSION_SIZE, file_size - _offset);
+    }
     uint8_t version_buf[WalWriter::VERSION_SIZE];
     RETURN_IF_ERROR(
             file_reader->read_at(_offset, {version_buf, WalWriter::VERSION_SIZE}, &bytes_read));
+    if (bytes_read != WalWriter::VERSION_SIZE) {
+        return incomplete_header("version", WalWriter::VERSION_SIZE, bytes_read);
+    }
     _offset += WalWriter::VERSION_SIZE;
     version = decode_fixed32_le(version_buf);
+    if (file_size - _offset < WalWriter::LENGTH_SIZE) {
+        return incomplete_header("column_ids_length", WalWriter::LENGTH_SIZE, file_size - _offset);
+    }
     uint8_t len_buf[WalWriter::LENGTH_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
+    if (bytes_read != WalWriter::LENGTH_SIZE) {
+        return incomplete_header("column_ids_length", WalWriter::LENGTH_SIZE, bytes_read);
+    }
     _offset += WalWriter::LENGTH_SIZE;
     size_t len = decode_fixed64_le(len_buf);
+    if (len > file_size - _offset) {
+        return incomplete_header("column_ids", len, file_size - _offset);
+    }
     col_ids.resize(len);
     RETURN_IF_ERROR(file_reader->read_at(_offset, col_ids, &bytes_read));
-    _offset += len;
     if (len != bytes_read) {
-        return Status::InternalError("failed to read header expected= " + std::to_string(len) +
-                                     ",actually=" + std::to_string(bytes_read));
+        return incomplete_header("column_ids", len, bytes_read);
     }
+    _offset += len;
     return Status::OK();
 }
 

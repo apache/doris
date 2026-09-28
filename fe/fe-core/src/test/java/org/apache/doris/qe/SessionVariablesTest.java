@@ -196,6 +196,20 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testFileScannerV2StaysEnabledInFuzzyMode() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+
+        Field field = SessionVariable.class.getDeclaredField("enableFileScannerV2");
+        VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
+        Assertions.assertFalse(varAttr.fuzzy());
+
+        sessionVar.enableFileScannerV2 = false;
+        sessionVar.initFuzzyModeVariables();
+        Assertions.assertTrue(sessionVar.enableFileScannerV2);
+    }
+
+    @Test
     public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
 
@@ -334,5 +348,16 @@ public class SessionVariablesTest extends TestWithFeService {
         TQueryOptions queryOptions = variable.toThrift();
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
+    }
+
+    @Test
+    public void testHyperscanFallbackPropagatesToBackends() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        Assertions.assertTrue(variable.toThrift().isEnableHyperscanFallback());
+
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_HYPERSCAN_FALLBACK, new StringLiteral("false")));
+
+        Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
     }
 }

@@ -58,9 +58,10 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 Status VIcebergSortWriter::write(Block& block) {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
 
+    // FullSorter consumes the input block, so derive the spill batch size before append_block().
+    _update_spill_block_batch_row_count(block);
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));
-    _update_spill_block_batch_row_count(block);
 
     // When accumulated data size reaches the target file size threshold,
     // sort the data in memory and flush it directly to a Parquet/ORC file.
@@ -82,7 +83,21 @@ size_t VIcebergSortWriter::data_size() const {
 
 size_t VIcebergSortWriter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
-    return _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
+    size_t reserve_size = _sorter == nullptr ? 0 : _sorter->get_reserve_mem_size(state, eos);
+    if (eos && !_sorted_spill_files.empty()) {
+        const size_t buffer_size = static_cast<size_t>(state->spill_buffer_size_bytes());
+        const size_t merge_limit = static_cast<size_t>(state->spill_sort_merge_mem_limit_bytes());
+        const size_t max_fan_in = std::max<size_t>(2, merge_limit / buffer_size);
+        // Reservation is computed before sink(), so a non-empty EOS can add one final spill run.
+        const size_t selected_streams = std::min(_sorted_spill_files.size(), max_fan_in - 1) + 1;
+        // Every selected cursor eagerly owns one input block. A multiway merge also builds a
+        // separate output block while those inputs remain live.
+        const size_t merge_buffer_count = selected_streams + (selected_streams > 1 ? 1 : 0);
+        DORIS_CHECK(buffer_size <= std::numeric_limits<size_t>::max() / merge_buffer_count);
+        const size_t merge_reserve_size = merge_buffer_count * buffer_size;
+        reserve_size = std::max({reserve_size, merge_limit, merge_reserve_size});
+    }
+    return reserve_size;
 }
 
 Status VIcebergSortWriter::trigger_spill() {
@@ -390,8 +405,12 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
 }
 
 Status VIcebergSortWriter::_create_final_merger() {
-    // Final merger uses the runtime batch size and merges all remaining streams
-    return _create_merger(true, _runtime_state->batch_size(), 1);
+    // Keep the final output within both the normal runtime batch and the spill-buffer estimate.
+    return _create_merger(true, _final_merge_batch_row_count(), 1);
+}
+
+size_t VIcebergSortWriter::_final_merge_batch_row_count() const {
+    return std::min<size_t>(_runtime_state->batch_size(), _spill_block_batch_row_count);
 }
 
 void VIcebergSortWriter::_cleanup_spill_streams() {

@@ -20,6 +20,8 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.common.util.Util;
 
 public class HMSClientException extends RuntimeException {
+    private HmsPartitionBatchStats partitionBatchStats;
+
     public HMSClientException(String format, Throwable cause, Object... msg) {
         super(String.format(format, msg) + (cause == null ? "" : ". reason: " + Util.getRootCauseMessage(cause)),
                 cause);
@@ -27,5 +29,14 @@ public class HMSClientException extends RuntimeException {
 
     public HMSClientException(String format, Object... msg) {
         super(String.format(format, msg));
+    }
+
+    public HmsPartitionBatchStats getPartitionBatchStats() {
+        return partitionBatchStats;
+    }
+
+    HMSClientException withPartitionBatchStats(HmsPartitionBatchStats stats) {
+        this.partitionBatchStats = stats;
+        return this;
     }
 }

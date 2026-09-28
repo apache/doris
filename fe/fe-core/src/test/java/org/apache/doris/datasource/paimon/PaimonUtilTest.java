@@ -26,8 +26,10 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
@@ -36,6 +38,7 @@ import org.apache.paimon.data.BinaryRowWriter;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.manifest.PartitionEntry;
+import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -45,6 +48,8 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TSerializer;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -57,6 +62,34 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonUtilTest {
+    @Test
+    public void testTimestampSemanticsSurviveNestedWireRoundTrip() throws Exception {
+        RowType row = DataTypes.ROW(
+                DataTypes.FIELD(1, "wall", DataTypes.TIMESTAMP(9)),
+                DataTypes.FIELD(2, "instant", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)),
+                DataTypes.FIELD(3, "nested", DataTypes.ARRAY(DataTypes.MAP(DataTypes.STRING(),
+                        DataTypes.ROW(DataTypes.FIELD(4, "value", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)))))));
+        for (boolean mapping : new boolean[] {false, true}) {
+            TField field = PaimonUtil.getSchemaInfo(row, false, mapping);
+            TField decoded = new TField();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(field));
+            List<TFieldPtr> fields = decoded.getNestedField().getStructField().getFields();
+            TField wall = fields.get(0).getFieldPtr();
+            Assert.assertTrue(wall.isSetTimestampIsAdjustedToUtc());
+            Assert.assertFalse(wall.isTimestampIsAdjustedToUtc());
+            TField instant = fields.get(1).getFieldPtr();
+            Assert.assertTrue(instant.isSetTimestampIsAdjustedToUtc());
+            Assert.assertTrue(instant.isTimestampIsAdjustedToUtc());
+            TField nested = fields.get(2).getFieldPtr().getNestedField().getArrayField().getItemField()
+                    .getFieldPtr().getNestedField().getMapField().getValueField().getFieldPtr()
+                    .getNestedField().getStructField().getFields().get(0).getFieldPtr();
+            Assert.assertTrue(nested.isSetTimestampIsAdjustedToUtc());
+            Assert.assertTrue(nested.isTimestampIsAdjustedToUtc());
+            Assert.assertEquals(mapping ? TPrimitiveType.TIMESTAMPTZ : TPrimitiveType.DATETIMEV2,
+                    nested.getType().getType());
+        }
+    }
+
     private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
 
     private static Table mockPartitionTable(Map<String, String> options, DataField... partitionFields) {
@@ -85,6 +118,19 @@ public class PaimonUtilTest {
 
     private static PartitionEntry partitionEntry(BinaryRow partition, long sequence) {
         return new PartitionEntry(partition, sequence, sequence, sequence, sequence, 1);
+    }
+
+    @Test
+    public void testCompatibilityConstructorDerivesRetainedPartitionPayload() {
+        String largeValue = repeatedCharacter('x', 64 * 1024);
+        Partition partition = new Partition(
+                Collections.singletonMap("part", largeValue),
+                1L, 1L, 1L, 1L, 1, false);
+
+        PaimonPartitionInfo info = new PaimonPartitionInfo(
+                Collections.emptyMap(), Collections.singletonMap("part=" + largeValue, partition));
+
+        Assert.assertTrue(info.getRetainedPayloadBytes() >= largeValue.length() * 2L);
     }
 
     @Test
@@ -247,6 +293,7 @@ public class PaimonUtilTest {
         Assert.assertEquals(1, partitionInfo.getNameToPartitionItem().size());
         String partitionName = "source=dataset%2Fteam-a%2Fsegment-01"
                 + "/part_str=%2Fymd%3D20260701%2Fhour%3D%5B0-9%5D%5B0-9%5D%2F%2A.jsonl/pass=s1";
+        Assert.assertTrue(partitionInfo.getRetainedPayloadBytes() > partitionName.length());
         Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
         PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().values().iterator().next();
         List<String> actualValues = ((ListPartitionItem) partitionItem).getItems().get(0)
@@ -255,6 +302,22 @@ public class PaimonUtilTest {
                 "dataset/team-a/segment-01",
                 "/ymd=20260701/hour=[0-9][0-9]/*.jsonl",
                 "s1"), actualValues);
+    }
+
+    @Test
+    public void testRetainedPayloadCounterTracksSkewedPartitionValues() {
+        List<Column> partitionColumns = Collections.singletonList(new Column("part", Type.STRING));
+        Table table = mockPartitionTable(Collections.emptyMap(),
+                DataTypes.FIELD(0, "part", DataTypes.STRING()));
+        PaimonPartitionInfo small = PaimonUtil.generatePartitionInfo(table, partitionColumns,
+                Collections.singletonList(partitionEntry(stringPartitionRow("x"), 1L)));
+        String largeValue = repeatedCharacter('x', 64 * 1024);
+        PaimonPartitionInfo large = PaimonUtil.generatePartitionInfo(table, partitionColumns,
+                Collections.singletonList(partitionEntry(stringPartitionRow(largeValue), 1L)));
+
+        Assert.assertTrue(large.getRetainedPayloadBytes() - small.getRetainedPayloadBytes()
+                >= MetaCacheWeightUtils.estimatedStringBytes(largeValue)
+                        - MetaCacheWeightUtils.estimatedStringBytes("x"));
     }
 
     @Test
@@ -531,5 +594,11 @@ public class PaimonUtilTest {
         Assert.assertEquals("rowkind", fields.get(0).getFieldPtr().getName());
         Assert.assertEquals("id", fields.get(1).getFieldPtr().getName());
         Assert.assertEquals("name", fields.get(2).getFieldPtr().getName());
+    }
+
+    private static String repeatedCharacter(char character, int count) {
+        char[] characters = new char[count];
+        Arrays.fill(characters, character);
+        return new String(characters);
     }
 }

@@ -250,6 +250,9 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
                 return make_cloud_committed_rs_visible_callback(engine, task);
             });
 
+    _workers[TTaskType::CLEAN_UDF_CACHE] = std::make_unique<TaskWorkerPool>(
+            "CLEAN_UDF_CACHE", 1, [](auto&& task) { return clean_udf_cache_callback(task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
             [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));

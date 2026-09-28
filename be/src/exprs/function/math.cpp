@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+#include <cfenv>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -643,6 +645,27 @@ private:
             auto& a = column_left_ptr->get_data();
             auto& c = column_result->get_data();
             size_t size = a.size();
+            if constexpr (std::is_same_v<Impl, PowImpl>) {
+                if (column_right_ptr->template get_value<Impl::type>() == 2.0 &&
+                    std::fegetround() == FE_TONEAREST) {
+                    // Integer bases up to 2^26 have exact binary64 squares (at most 2^52).
+                    // Other bases can differ by one ULP between multiplication and libm.
+                    // Stop checking at the first unsafe value rather than checking the whole block.
+                    const auto exact_end = std::ranges::find_if_not(a, [](double value) {
+                        return std::abs(value) <= 0x1p26 && value == std::trunc(value);
+                    });
+                    const auto exact_rows = static_cast<size_t>(exact_end - a.begin());
+                    for (size_t i = 0; i < exact_rows; ++i) {
+                        c[i] = a[i] * a[i];
+                    }
+                    // Keep the remaining rows on libm, not compiler-folded pow(x, 2).
+                    volatile double exponent = 2.0;
+                    for (size_t i = exact_rows; i < size; ++i) {
+                        c[i] = Impl::apply(a[i], exponent);
+                    }
+                    return column_result;
+                }
+            }
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::type>());
             }

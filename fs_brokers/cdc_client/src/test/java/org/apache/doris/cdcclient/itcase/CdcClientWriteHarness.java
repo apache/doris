@@ -22,9 +22,11 @@ import org.apache.doris.cdcclient.service.PipelineCoordinator;
 import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -447,6 +449,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
         req.setTaskId(String.valueOf(taskSeq.incrementAndGet()));
         req.setTargetDb(targetDb);
         req.setToken("test-token");
+        req.setDorisUser("cdc_job_user");
         req.setMaxInterval(3);
         req.setTaskTimeoutMs(60_000);
         req.setRebuildReader(rebuildReaderOnNextWrite);
@@ -471,6 +474,15 @@ final class CdcClientWriteHarness implements AutoCloseable {
 
     String committedTableSchemas() {
         return lastTableSchemas;
+    }
+
+    long sourceLogLagBytes() throws Exception {
+        Map<String, String> referenceOffset = committedBinlogOffset();
+        FetchEndOffsetRequest request =
+                new FetchEndOffsetRequest(jobId, dataSource, config, null, referenceOffset);
+        SourceReader reader = openReader();
+        FetchEndOffsetResult result = reader.fetchEndOffset(request);
+        return result.getLagBytes();
     }
 
     @Override

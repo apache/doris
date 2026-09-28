@@ -50,4 +50,16 @@ inline bool schema_has_all_field_ids(const std::vector<ColumnDefinition>& schema
     return true;
 }
 
+inline bool schema_has_any_authoritative_name_mapping(const std::vector<ColumnDefinition>& schema) {
+    for (const auto& field : schema) {
+        if (field.column_type != ColumnType::DATA_COLUMN) {
+            continue;
+        }
+        if (field.has_name_mapping || schema_has_any_authoritative_name_mapping(field.children)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace doris::format::iceberg

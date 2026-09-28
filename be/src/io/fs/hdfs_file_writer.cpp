@@ -22,6 +22,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <limits>
 #include <ostream>
 #include <random>
 #include <string>
@@ -59,6 +60,31 @@ static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
 #endif
+
+Status validate_hdfs_write_batch_buffer_size(int64_t batch_buffer_size_mb,
+                                             int64_t file_cache_block_size) {
+    constexpr int64_t bytes_per_mib = 1024 * 1024;
+    if (batch_buffer_size_mb <= 0 ||
+        batch_buffer_size_mb > std::numeric_limits<int64_t>::max() / bytes_per_mib) {
+        return Status::InvalidArgument(
+                "hdfs_write_batch_buffer_size_mb {} must be a positive valid size",
+                batch_buffer_size_mb);
+    }
+    if (file_cache_block_size <= 0) {
+        return Status::InvalidArgument("file_cache_each_block_size {} must be positive",
+                                       file_cache_block_size);
+    }
+    const int64_t batch_buffer_size = batch_buffer_size_mb * bytes_per_mib;
+    if (batch_buffer_size < file_cache_block_size ||
+        batch_buffer_size % file_cache_block_size != 0) {
+        return Status::InvalidArgument(
+                "file_cache_each_block_size {} must be less than or equal to the HDFS write "
+                "batch buffer size {} and must divide it exactly; "
+                "hdfs_write_batch_buffer_size_mb={}",
+                file_cache_block_size, batch_buffer_size, batch_buffer_size_mb);
+    }
+    return Status::OK();
+}
 
 inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(

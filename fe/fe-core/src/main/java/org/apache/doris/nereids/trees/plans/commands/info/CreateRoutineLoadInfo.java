@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
@@ -93,6 +94,7 @@ public class CreateRoutineLoadInfo {
     public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
     public static final String UNIQUE_KEY_UPDATE_MODE = "unique_key_update_mode";
     public static final String WORKLOAD_GROUP = "workload_group";
+    public static final String COMPUTE_GROUP = "compute_group";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
@@ -129,6 +131,7 @@ public class CreateRoutineLoadInfo {
             .add(PARTIAL_UPDATE_NEW_KEY_POLICY)
             .add(UNIQUE_KEY_UPDATE_MODE)
             .add(WORKLOAD_GROUP)
+            .add(COMPUTE_GROUP)
             .add(FileFormatProperties.PROP_FORMAT)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
@@ -167,6 +170,16 @@ public class CreateRoutineLoadInfo {
     private FileFormatProperties fileFormatProperties;
 
     private String workloadGroupName;
+
+    private String computeGroupName;
+
+    // Set only by the metadata load path (RoutineLoadJob#gsonPostProcess), which re-parses the
+    // stored statement to rebuild the RoutineLoadDesc rather than to admit a new job. Resource
+    // existence must not be re-checked there: a compute group can be dropped, renamed or scaled to
+    // zero backends while a job exists, and an exception during metadata load is turned into
+    // JobState.CANCELLED, which is final and cannot be undone by RESUME. Such a job has to be
+    // paused by the per task check instead, which is recoverable.
+    private boolean isReplay = false;
 
     /**
      * support partial columns load(Only Unique Key Columns)
@@ -380,6 +393,19 @@ public class CreateRoutineLoadInfo {
 
     public String getWorkloadGroupName() {
         return workloadGroupName;
+    }
+
+    public String getComputeGroupName() {
+        return computeGroupName;
+    }
+
+    /**
+     * Marks this info object as rebuilt from persisted metadata instead of parsed from a user
+     * statement, so that {@link #validate(ConnectContext)} skips checks against resources that may
+     * legitimately have disappeared since the job was created.
+     */
+    public void setReplay(boolean isReplay) {
+        this.isReplay = isReplay;
     }
 
     /**
@@ -609,13 +635,30 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
             LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
+        String inputComputeGroupStr = jobProperties.get(COMPUTE_GROUP);
+        if (!StringUtils.isEmpty(inputComputeGroupStr)) {
+            // The name is always adopted, because the workload group check below resolves in its
+            // namespace, but it is only validated when a user is actually declaring it. On the
+            // metadata load path the declared group may have been dropped long ago, and failing
+            // there would cancel the job permanently instead of pausing it - see isReplay.
+            if (!isReplay) {
+                ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), inputComputeGroupStr);
+            }
+            this.computeGroupName = inputComputeGroupStr;
+        }
+
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
             tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
             tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
             if (Config.isCloudMode()) {
-                tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
+                // A workload group lives in the namespace of a compute group: the same name under a
+                // different compute group is a different group. So this existence check must be done
+                // against the compute group the job will actually run in, not the session's one.
+                tmpCtx.setCloudCluster(StringUtils.isEmpty(this.computeGroupName)
+                        ? ConnectContext.get().getCloudCluster()
+                        : this.computeGroupName);
             }
             List<WorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroup(tmpCtx);

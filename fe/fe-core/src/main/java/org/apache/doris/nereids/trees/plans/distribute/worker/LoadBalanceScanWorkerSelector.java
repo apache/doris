@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.distribute.worker;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
@@ -30,6 +32,9 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -56,10 +61,15 @@ import java.util.function.BiFunction;
 /** LoadBalanceScanWorkerSelector */
 public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
     private final DistributedPlanWorkerManager workerManager;
+    private final ConnectContext context;
+    private final boolean useLoadBackendSelection;
     private final Map<DistributedPlanWorker, WorkerWorkload> workloads = Maps.newLinkedHashMap();
 
-    public LoadBalanceScanWorkerSelector(DistributedPlanWorkerManager workerManager) {
+    public LoadBalanceScanWorkerSelector(DistributedPlanWorkerManager workerManager,
+            ConnectContext context, boolean useLoadBackendSelection) {
         this.workerManager = workerManager;
+        this.context = context;
+        this.useLoadBackendSelection = useLoadBackendSelection;
     }
 
     @Override
@@ -101,6 +111,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
 
             WorkerScanRanges assigned = selectScanReplicaAndMinWorkloadWorker(
                     onePartitionOneScanRangeLocation, bytes, orderedScanRangeLocations, scanNode.getCatalogId());
+            recordQuerySelection(scanNode, assigned.worker.id());
             UninstancedScanSource scanRanges = workerScanRanges.computeIfAbsent(
                     assigned.worker,
                     w -> new UninstancedScanSource(
@@ -243,6 +254,12 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
     private WorkerScanRanges selectScanReplicaAndMinWorkloadWorker(
             TScanRangeLocations tabletLocation, long tabletBytes, boolean orderedScanRangeLocations, long catalogId) {
         List<TScanRangeLocation> replicaLocations = tabletLocation.getLocations();
+        if (orderedScanRangeLocations) {
+            replicaLocations = Lists.newArrayList(replicaLocations);
+            Collections.sort(replicaLocations);
+        }
+        replicaLocations = orderLoadReplicas(replicaLocations, catalogId);
+
         if (replicaLocations.size() == 1) {
             TScanRangeLocation replicaLocation = replicaLocations.get(0);
             DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
@@ -254,18 +271,36 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             return new WorkerScanRanges(worker, scanRanges);
         }
 
-        if (orderedScanRangeLocations) {
-            replicaLocations = Lists.newArrayList(replicaLocations);
-            Collections.sort(replicaLocations);
+        BackendSelection.CandidateSelection<TScanRangeLocation> selection =
+                partitionPreferredReplicas(replicaLocations, catalogId);
+        if (selection != null && !selection.getPreferredCandidates().isEmpty()) {
+            WorkerScanRanges selected = selectMinWorkloadWorkerInTier(
+                    tabletLocation, tabletBytes, selection.getPreferredCandidates(), catalogId);
+            if (selected != null) {
+                return selected;
+            }
+            selected = selectMinWorkloadWorkerInTier(
+                    tabletLocation, tabletBytes, selection.getFallbackCandidates(), catalogId);
+            if (selected != null) {
+                return selected;
+            }
+        } else {
+            WorkerScanRanges selected = selectMinWorkloadWorkerInTier(
+                    tabletLocation, tabletBytes, replicaLocations, catalogId);
+            if (selected != null) {
+                return selected;
+            }
         }
+        throw new AnalysisException("No available workers");
+    }
 
-        int replicaNum = replicaLocations.size();
+    private WorkerScanRanges selectMinWorkloadWorkerInTier(TScanRangeLocations tabletLocation, long tabletBytes,
+            List<TScanRangeLocation> replicaLocations, long catalogId) {
         WorkerWorkload minWorkload = new WorkerWorkload(Integer.MAX_VALUE, Long.MAX_VALUE);
         DistributedPlanWorker minWorkLoadWorker = null;
         TScanRangeLocation selectedReplicaLocation = null;
 
-        for (int i = 0; i < replicaNum; i++) {
-            TScanRangeLocation replicaLocation = replicaLocations.get(i);
+        for (TScanRangeLocation replicaLocation : replicaLocations) {
             DistributedPlanWorker worker = workerManager.getWorker(catalogId, replicaLocation.getBackendId());
             if (!worker.available()) {
                 continue;
@@ -279,15 +314,82 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             }
         }
         if (minWorkLoadWorker == null) {
-            throw new AnalysisException("No available workers");
-        } else {
-            minWorkload.recordOneScanTask(tabletBytes);
-            ScanRanges scanRanges = new ScanRanges();
-            TScanRangeParams scanReplicaParams =
-                    ScanWorkerSelector.buildScanReplicaParams(tabletLocation, selectedReplicaLocation);
-            scanRanges.addScanRange(scanReplicaParams, tabletBytes);
-            return new WorkerScanRanges(minWorkLoadWorker, scanRanges);
+            return null;
         }
+        minWorkload.recordOneScanTask(tabletBytes);
+        ScanRanges scanRanges = new ScanRanges();
+        TScanRangeParams scanReplicaParams =
+                ScanWorkerSelector.buildScanReplicaParams(tabletLocation, selectedReplicaLocation);
+        scanRanges.addScanRange(scanReplicaParams, tabletBytes);
+        return new WorkerScanRanges(minWorkLoadWorker, scanRanges);
+    }
+
+    private BackendSelection.CandidateSelection<TScanRangeLocation> partitionPreferredReplicas(
+            List<TScanRangeLocation> replicaLocations, long catalogId) {
+        try {
+            if (useLoadBackendSelection) {
+                BackendSelection.SelectionHint hint = BackendSelectionManager.resolveLoadSelectionHint(context);
+                List<Backend> candidates = Lists.newArrayListWithCapacity(replicaLocations.size());
+                for (TScanRangeLocation location : replicaLocations) {
+                    candidates.add(((BackendWorker) workerManager.getWorker(catalogId, location.getBackendId()))
+                            .getBackend());
+                }
+                BackendSelection.CandidateSelection<Backend> selection =
+                        BackendSelectionManager.partitionPreferredLoadCandidates(hint, candidates);
+                if (selection == null) {
+                    return null;
+                }
+                Map<Long, TScanRangeLocation> locationsByBackendId = Maps.newHashMap();
+                for (TScanRangeLocation location : replicaLocations) {
+                    locationsByBackendId.put(location.getBackendId(), location);
+                }
+                return new BackendSelection.CandidateSelection<>(
+                        toLocations(selection.getPreferredCandidates(), locationsByBackendId),
+                        toLocations(selection.getFallbackCandidates(), locationsByBackendId));
+            }
+            if (context == null) {
+                return null;
+            }
+            BackendSelection.SelectionHint hint = context.getQueryBackendSelectionDecision();
+            return BackendSelectionManager.partitionPreferredQueryCandidates(
+                    hint, replicaLocations, location -> ((BackendWorker) workerManager.getWorker(
+                            catalogId, location.getBackendId())).getBackend().getLocationTag());
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    private List<TScanRangeLocation> toLocations(List<Backend> backends,
+            Map<Long, TScanRangeLocation> locationsByBackendId) {
+        List<TScanRangeLocation> locations = Lists.newArrayListWithCapacity(backends.size());
+        for (Backend backend : backends) {
+            locations.add(locationsByBackendId.get(backend.getId()));
+        }
+        return locations;
+    }
+
+    List<TScanRangeLocation> orderLoadReplicas(List<TScanRangeLocation> locations, long catalogId) {
+        if (!useLoadBackendSelection || Config.isCloudMode()
+                || !BackendSelectionManager.hasLoadSelectionPreference(context)) {
+            return locations;
+        }
+        Map<Long, TScanRangeLocation> locationByBackendId = Maps.newHashMap();
+        List<Backend> candidates = Lists.newArrayList();
+        for (TScanRangeLocation location : locations) {
+            BackendWorker worker = (BackendWorker) workerManager.getWorker(catalogId, location.getBackendId());
+            Backend backend = worker.getBackend();
+            candidates.add(backend);
+            locationByBackendId.put(backend.getId(), location);
+        }
+        List<TScanRangeLocation> orderedLocations = Lists.newArrayList();
+        try {
+            for (Backend backend : BackendSelectionManager.orderLoadCandidates(context, candidates)) {
+                orderedLocations.add(locationByBackendId.get(backend.getId()));
+            }
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        return orderedLocations;
     }
 
     private List<Pair<TScanRangeParams, Long>> filterReplicaByWorkerInBucket(
@@ -305,6 +407,7 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
                                 onePartitionOneTabletLocation, replicaLocation);
                         Long replicaSize = ((OlapScanNode) scanNode).getTabletSingleReplicaSize(tabletId);
                         selectedReplicasInOneBucket.add(Pair.of(scanReplicaParams, replicaSize));
+                        recordQuerySelection(scanNode, replicaLocation.getBackendId());
                         foundTabletInThisWorker = true;
                         break;
                     }
@@ -324,6 +427,21 @@ public class LoadBalanceScanWorkerSelector implements ScanWorkerSelector {
             }
         }
         return selectedReplicasInOneBucket;
+    }
+
+    private void recordQuerySelection(ScanNode scanNode, long backendId) {
+        if (!(scanNode instanceof OlapScanNode) || context == null) {
+            return;
+        }
+        DistributedPlanWorker worker = workerManager.getWorker(scanNode.getCatalogId(), backendId);
+        if (!(worker instanceof BackendWorker)) {
+            return;
+        }
+        Backend backend = ((BackendWorker) worker).getBackend();
+        BackendSelection.SelectionHint hint = context.getQueryBackendSelectionDecision();
+        BackendSelection.QuerySelectionResult result = BackendSelectionManager.classifyQuerySelection(
+                hint, Collections.singletonList(backend), Backend::getLocationTag);
+        context.getBackendSelectionProfile().recordQuerySelection(hint, result);
     }
 
     private Map<Integer, Long> computeEachBucketScanBytes(

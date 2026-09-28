@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -47,8 +47,9 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
     private static final String WAP_ID_PROP = "wap.id";
 
     public IcebergPublishChangesAction(Map<String, String> properties,
-            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition) {
-        super("publish_changes", properties, partitionNamesInfo, whereCondition);
+            Optional<PartitionNamesInfo> partitionNamesInfo, Optional<Expression> whereCondition,
+            IcebergMetadataOps metadataOps) {
+        super("publish_changes", properties, partitionNamesInfo, whereCondition, metadataOps);
     }
 
     @Override
@@ -65,8 +66,7 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         String targetWapId = namedArguments.getString(WAP_ID);
 
         // Find the target WAP snapshot

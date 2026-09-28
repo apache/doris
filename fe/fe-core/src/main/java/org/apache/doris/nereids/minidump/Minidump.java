@@ -19,14 +19,9 @@ package org.apache.doris.nereids.minidump;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
-
-import org.json.JSONObject;
 
 import java.util.HashMap;
 import java.util.List;
@@ -109,36 +104,5 @@ public class Minidump {
 
     public Map<String, Histogram> getTotalHistogramMap() {
         return totalHistogramMap;
-    }
-
-    /** Nereids minidump entry, argument should be absolute address of minidump path */
-    public static void main(String[] args) {
-        assert (args.length == 1);
-        Minidump minidump = null;
-        try {
-            minidump = MinidumpUtils.loadMinidumpInputs(args[0]);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        StatementContext statementContext = new StatementContext(ConnectContext.get(),
-                new OriginStatement(minidump.getSql(), 0));
-        statementContext.setTables(minidump.getTables());
-        ConnectContext.get().setStatementContext(statementContext);
-        JSONObject resultPlan = MinidumpUtils.executeSql(minidump.getSql());
-        JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());
-
-        List<String> differences = MinidumpUtils.compareJsonObjects(minidumpResult, resultPlan, "");
-
-        if (differences.isEmpty()) {
-            System.out.println(minidump.sql);
-        } else {
-            System.out.println(minidump.sql + "\n" + "Result plan are not expected. Differences:");
-            System.out.println("----------------------------Result plan--------------------------");
-            System.out.println(resultPlan + "\n");
-            System.out.println("----------------------------Minidump plan--------------------------");
-            System.out.println(minidumpResult + "\n");
-        }
-        System.exit(0);
     }
 }

@@ -136,6 +136,7 @@ protected:
         auto probe = probe_rowset(rowset.value());
         EXPECT_TRUE(probe.has_value()) << probe.error();
         if (probe.has_value()) {
+            // The schema owns the index, so a null array still leaves an index file.
             expect_index_files(probe.value(), true);
         }
         return rowset.value();

@@ -21,6 +21,8 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
@@ -33,7 +35,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -43,6 +49,7 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
 
     private final String functionName;
     private final Properties properties;
+    private final Map<String, Placeholder> propertyParameters;
 
     public UnboundTVFRelation(RelationId id, String functionName, Properties properties) {
         this(id, functionName, properties, Optional.empty(), Optional.empty());
@@ -50,7 +57,19 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
 
     public UnboundTVFRelation(RelationId id, String functionName, Properties properties,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        this(id, functionName, properties, ImmutableMap.of(), groupExpression, logicalProperties);
+    }
+
+    public UnboundTVFRelation(RelationId id, String functionName, Properties properties,
+            Map<String, Placeholder> propertyParameters) {
+        this(id, functionName, properties, propertyParameters, Optional.empty(), Optional.empty());
+    }
+
+    private UnboundTVFRelation(RelationId id, String functionName, Properties properties,
+            Map<String, Placeholder> propertyParameters, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties);
+        this.propertyParameters = ImmutableMap.copyOf(propertyParameters);
         this.functionName = Objects.requireNonNull(functionName, "functionName can not be null");
         this.properties = Objects.requireNonNull(properties, "properties can not be null");
     }
@@ -61,6 +80,15 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
 
     public Properties getProperties() {
         return properties;
+    }
+
+    public Map<String, Placeholder> getPropertyParameters() {
+        return propertyParameters;
+    }
+
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.copyOf(propertyParameters.values());
     }
 
     @Override
@@ -85,14 +113,15 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression,
+        return new UnboundTVFRelation(relationId, functionName, properties, propertyParameters, groupExpression,
                 Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression, logicalProperties);
+        return new UnboundTVFRelation(relationId, functionName, properties, propertyParameters,
+                groupExpression, logicalProperties);
     }
 
     @Override

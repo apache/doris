@@ -112,6 +112,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
+    tablet->fetch_add_approximate_cumu_num_deltas(1);
 
     // TODO(liaoxin) delete operator don't send calculate delete bitmap task from fe,
     //  then we don't need to set_txn_related_info here.

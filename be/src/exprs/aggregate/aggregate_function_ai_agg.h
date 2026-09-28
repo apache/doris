@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 
+#include <cstdlib>
 #include <memory>
 
 #include "common/status.h"
@@ -130,9 +131,13 @@ public:
         THROW_IF_ERROR(
                 _ai_adapter->build_request_payload(inputs, system_prompt.c_str(), request_body));
         THROW_IF_ERROR(send_request_to_ai(request_body, response));
-        THROW_IF_ERROR(_ai_adapter->parse_response(response, results));
+        THROW_IF_ERROR(_ai_adapter->parse_response(response, results, false /* expand_batch */));
 
-        return results[0];
+        if (results.size() != 1) [[unlikely]] {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "AI aggregate expected one result but got {}", results.size());
+        }
+        return results.front();
     }
 
     // init task and ai related parameters
@@ -166,7 +171,8 @@ private:
     Status send_request_to_ai(const std::string& request_body, std::string& response) const {
         // Mock path for testing
 #ifdef BE_TEST
-        response = "this is a mock response";
+        const char* test_result = std::getenv("AI_TEST_RESULT");
+        response = test_result != nullptr ? test_result : "this is a mock response";
         return Status::OK();
 #endif
 

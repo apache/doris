@@ -31,14 +31,19 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
+import mockit.Verifications;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.Assert;
 import org.junit.Before;
@@ -103,6 +108,10 @@ public class MTMVTaskTest {
                 mtmvRefreshInfo.getRefreshMethod();
                 minTimes = 0;
                 result = RefreshMethod.COMPLETE;
+
+                mtmv.hasRefreshSnapshot();
+                minTimes = 0;
+                result = true;
             }
         };
     }
@@ -148,6 +157,53 @@ public class MTMVTaskTest {
     }
 
     @Test
+    public void testCalculateNeedRefreshPartitionsSystemInvalidatedRefreshSnapshot() throws AnalysisException {
+        new Expectations() {
+            {
+                mtmvRefreshInfo.getRefreshMethod();
+                minTimes = 0;
+                result = RefreshMethod.AUTO;
+
+                mtmv.hasRefreshSnapshot();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(allPartitionNames, result);
+        new Verifications() {
+            {
+                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any,
+                        (Set<TableName>) any);
+                times = 0;
+            }
+        };
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsManualPartitionsInvalidatedRefreshSnapshot()
+            throws AnalysisException {
+        new Expectations() {
+            {
+                mtmv.hasRefreshSnapshot();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
+                false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(Lists.newArrayList(poneName), result);
+    }
+
+    @Test
     public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException {
         new Expectations() {
             {
@@ -185,6 +241,52 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(Lists.newArrayList(ptwoName), result);
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsKeepsSyncedPartitionsWhenOneHasNoSnapshot()
+            throws AnalysisException {
+        // Partition sync adds an MV partition without a snapshot whenever its base partition appears, and
+        // REFRESH MATERIALIZED VIEW ... AUTO reaches this method in the MANUAL trigger mode. The partitions
+        // that were refreshed before did keep their snapshots, so only the new partition may be planned:
+        // reading the added partition as a lost baseline would rebuild the whole MV.
+        new Expectations() {
+            {
+                mtmvRefreshInfo.getRefreshMethod();
+                minTimes = 0;
+                result = RefreshMethod.AUTO;
+
+                mtmv.hasRefreshSnapshot();
+                minTimes = 0;
+                result = true;
+
+                mtmvPartitionUtil
+                        .isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any, (Set<TableName>) any);
+                minTimes = 0;
+                result = false;
+
+                mtmvPartitionUtil
+                        .getMTMVNeedRefreshPartitions((MTMVRefreshContext) any, (Set<BaseTableInfo>) any);
+                minTimes = 0;
+                result = Lists.newArrayList(ptwoName);
+            }
+        };
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(Lists.newArrayList(ptwoName), result);
+        new Verifications() {
+            {
+                // The narrowed baseline check is consulted and passes, and the comparison is then left
+                // to the per-partition path instead of being short-circuited into a full refresh.
+                mtmv.hasRefreshSnapshot();
+                times = 1;
+                mtmvPartitionUtil.isMTMVSync((MTMVRefreshContext) any, (Set<BaseTableInfo>) any,
+                        (Set<TableName>) any);
+                times = 1;
+            }
+        };
     }
 
     @Test
@@ -240,6 +342,19 @@ public class MTMVTaskTest {
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testCreateExecutorPreservesOriginStatement(@Mocked UpdateMvByPartitionCommand command) {
+        ConnectContext ctx = new ConnectContext();
+        OriginStatement originStatement = new OriginStatement("select k1 from test_db.base_table", 0);
+        StatementContext statementContext = new StatementContext(ctx, originStatement);
+
+        StmtExecutor executor = Deencapsulation.invoke(
+                MTMVTask.class, "createExecutor", ctx, command, statementContext);
+
+        Assert.assertSame(originStatement, statementContext.getOriginStatement());
+        Assert.assertSame(originStatement, executor.getParsedStmt().getOrigStmt());
     }
 
     @Test

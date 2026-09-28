@@ -153,7 +153,13 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
 
         // Test: Create database
         sql """DROP DATABASE IF EXISTS ${db_name} FORCE"""
-        sql """CREATE DATABASE ${db_name}"""
+        test {
+            sql """CREATE DATABASE ${db_name} PROPERTIES (
+                    'location' = 's3://warehouse/rejected_database_location/'
+                )"""
+            exception "database property 'location' for iceberg catalog type: jdbc"
+        }
+        sql """CREATE DATABASE ${db_name} PROPERTIES ('owner' = 'doris')"""
         
         def databases = sql """SHOW DATABASES"""
         assertTrue(databases.toString().contains(db_name))
@@ -311,7 +317,7 @@ suite("test_iceberg_jdbc_catalog", "p0,external,iceberg,external_docker,external
                 
                 String mysql_db_name = "mysql_test_db"
                 sql """DROP DATABASE IF EXISTS ${mysql_db_name} FORCE"""
-                sql """CREATE DATABASE ${mysql_db_name}"""
+                sql """CREATE DATABASE ${mysql_db_name} PROPERTIES ('owner' = 'doris')"""
                 sql """USE ${mysql_db_name}"""
                 
                 sql """DROP TABLE IF EXISTS test_mysql_catalog"""

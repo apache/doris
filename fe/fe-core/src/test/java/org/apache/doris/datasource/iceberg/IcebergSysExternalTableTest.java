@@ -17,10 +17,23 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+
 import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 public class IcebergSysExternalTableTest {
     @Test
@@ -44,5 +57,150 @@ public class IcebergSysExternalTableTest {
         IcebergSysExternalTable dataFiles = new IcebergSysExternalTable(
                 sourceTable, MetadataTableType.DATA_FILES.name());
         Assertions.assertTrue(dataFiles.supportsSnapshotSelection());
+    }
+
+    @Test
+    public void testMetadataSchemaReloadsAfterSourceEvolution() {
+        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(sourceTable.getId()).thenReturn(1L);
+        Mockito.when(sourceTable.getName()).thenReturn("table");
+        Mockito.when(sourceTable.getRemoteName()).thenReturn("table");
+        Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(sourceTable.getDatabase()).thenReturn(Mockito.mock(IcebergExternalDatabase.class));
+        Table firstGeneration = Mockito.mock(Table.class);
+        Table evolvedGeneration = Mockito.mock(Table.class);
+        Mockito.when(firstGeneration.schema()).thenReturn(new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get())));
+        Mockito.when(evolvedGeneration.schema()).thenReturn(new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get()),
+                Types.NestedField.optional(2, "evolved_partition", Types.StringType.get())));
+        IcebergSysExternalTable sysTable = Mockito.spy(new IcebergSysExternalTable(
+                sourceTable, MetadataTableType.PARTITIONS.name()));
+        Table firstBaseTable = Mockito.mock(Table.class);
+        Table evolvedBaseTable = Mockito.mock(Table.class);
+        Mockito.doReturn(firstGeneration).when(sysTable).createMetadataTable(firstBaseTable);
+        Mockito.doReturn(evolvedGeneration).when(sysTable).createMetadataTable(evolvedBaseTable);
+        IcebergSnapshotCacheValue firstSnapshot = Mockito.mock(IcebergSnapshotCacheValue.class);
+        Mockito.when(firstSnapshot.getIcebergTable()).thenReturn(Optional.of(firstBaseTable));
+        IcebergSnapshotCacheValue evolvedSnapshot = Mockito.mock(IcebergSnapshotCacheValue.class);
+        Mockito.when(evolvedSnapshot.getIcebergTable()).thenReturn(Optional.of(evolvedBaseTable));
+        AtomicReference<IcebergSnapshotCacheValue> snapshot = new AtomicReference<>(firstSnapshot);
+
+        try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
+                MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                        IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(sourceTable)).thenReturn(Optional.empty());
+            icebergUtils.when(() -> IcebergUtils.withSnapshotCacheValue(
+                            Mockito.any(), Mockito.eq(sourceTable), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        Function<IcebergSnapshotCacheValue, Object> action = invocation.getArgument(2);
+                        return action.apply(snapshot.get());
+                    });
+
+            Assertions.assertEquals(1, sysTable.getFullSchema().size());
+            snapshot.set(evolvedSnapshot);
+            Assertions.assertEquals(2, sysTable.getFullSchema().size());
+        }
+        Mockito.verify(sysTable).createMetadataTable(firstBaseTable);
+        Mockito.verify(sysTable).createMetadataTable(evolvedBaseTable);
+    }
+
+    @Test
+    public void testMetadataSchemaUsesMappingOptionsFromRetainedGeneration() {
+        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(sourceTable.getId()).thenReturn(1L);
+        Mockito.when(sourceTable.getName()).thenReturn("table");
+        Mockito.when(sourceTable.getRemoteName()).thenReturn("table");
+        Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(sourceTable.getDatabase()).thenReturn(Mockito.mock(IcebergExternalDatabase.class));
+        Mockito.when(catalog.getEnableMappingVarbinary()).thenReturn(false);
+        Mockito.when(catalog.getEnableMappingTimestampTz()).thenReturn(true);
+
+        Table frozenBaseTable = Mockito.mock(Table.class);
+        Table metadataTable = Mockito.mock(Table.class);
+        Mockito.when(metadataTable.schema()).thenReturn(new Schema(
+                Types.NestedField.optional(1, "binary_col", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "timestamptz_col", Types.TimestampType.withZone())));
+        IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
+        Mockito.when(snapshotValue.getIcebergTable()).thenReturn(Optional.of(frozenBaseTable));
+        Mockito.when(snapshotValue.isEnableMappingVarbinary()).thenReturn(true);
+        Mockito.when(snapshotValue.isEnableMappingTimestampTz()).thenReturn(false);
+        Optional<MvccSnapshot> relationSnapshot = Optional.of(new IcebergMvccSnapshot(snapshotValue));
+        IcebergSysExternalTable sysTable = Mockito.spy(new IcebergSysExternalTable(
+                sourceTable, MetadataTableType.PARTITIONS.name()));
+        Mockito.doReturn(metadataTable).when(sysTable).createMetadataTable(frozenBaseTable);
+        Mockito.clearInvocations(catalog);
+
+        List<Column> columns;
+        try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
+                MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                        IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(sourceTable)).thenReturn(relationSnapshot);
+            icebergUtils.when(() -> IcebergUtils.withSnapshotCacheValue(
+                            Mockito.eq(relationSnapshot), Mockito.eq(sourceTable), Mockito.any()))
+                    .thenAnswer(invocation -> {
+                        Function<IcebergSnapshotCacheValue, Object> action = invocation.getArgument(2);
+                        return action.apply(snapshotValue);
+                    });
+            columns = sysTable.getFullSchema();
+        }
+
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
+                columns.get(0).getType().getPrimitiveType());
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+                columns.get(1).getType().getPrimitiveType());
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();
+    }
+
+    @Test
+    public void testSnapshotSelectableSchemaFollowsRelationSnapshot() {
+        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(sourceTable.getId()).thenReturn(1L);
+        Mockito.when(sourceTable.getName()).thenReturn("table");
+        Mockito.when(sourceTable.getRemoteName()).thenReturn("table");
+        Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(sourceTable.getDatabase()).thenReturn(Mockito.mock(IcebergExternalDatabase.class));
+        Table frozenGeneration = Mockito.mock(Table.class);
+        Table latestGeneration = Mockito.mock(Table.class);
+        IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
+        Mockito.when(snapshotValue.getIcebergTable()).thenReturn(Optional.of(frozenGeneration));
+        Optional<MvccSnapshot> relationSnapshot = Optional.of(new IcebergMvccSnapshot(snapshotValue));
+
+        try (MockedStatic<MvccUtil> mvccUtil = Mockito.mockStatic(MvccUtil.class);
+                MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(IcebergUtils.class)) {
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(sourceTable)).thenReturn(relationSnapshot);
+            icebergUtils.when(() -> IcebergUtils.getQueryScopedIcebergTable(sourceTable))
+                    .thenReturn(latestGeneration);
+
+            // $partitions is snapshot-selectable: analysis must see the generation the scan uses.
+            IcebergSysExternalTable partitions = new IcebergSysExternalTable(
+                    sourceTable, MetadataTableType.PARTITIONS.name());
+            Assertions.assertSame(frozenGeneration, partitions.resolveBaseTable());
+
+            // $snapshots ignores a selected snapshot and keeps reading the latest generation.
+            IcebergSysExternalTable snapshots = new IcebergSysExternalTable(
+                    sourceTable, MetadataTableType.SNAPSHOTS.name());
+            Assertions.assertSame(latestGeneration, snapshots.resolveBaseTable());
+
+            // ALL_* file/entry tables ignore snapshot selection, but their schemas derive from
+            // the source schema and unified partition type: analysis and scan must bind to the
+            // same statement-local generation so a concurrent evolution cannot split them.
+            for (MetadataTableType boundType : new MetadataTableType[] {
+                    MetadataTableType.ALL_DATA_FILES, MetadataTableType.ALL_DELETE_FILES,
+                    MetadataTableType.ALL_FILES, MetadataTableType.ALL_ENTRIES}) {
+                IcebergSysExternalTable allTable = new IcebergSysExternalTable(
+                        sourceTable, boundType.name());
+                Assertions.assertFalse(allTable.supportsSnapshotSelection());
+                Assertions.assertSame(frozenGeneration, allTable.resolveBaseTable(), boundType.name());
+            }
+
+            // Without a bound relation snapshot the latest generation is used.
+            mvccUtil.when(() -> MvccUtil.getSnapshotFromContext(sourceTable)).thenReturn(Optional.empty());
+            Assertions.assertSame(latestGeneration, partitions.resolveBaseTable());
+        }
     }
 }

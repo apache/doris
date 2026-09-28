@@ -28,16 +28,24 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalDatabase;
+import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.LanceIndexAdmission;
+import org.apache.doris.datasource.lance.LanceIndexMutationValidator;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -47,14 +55,17 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyEngineOp;
@@ -66,9 +77,15 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
+
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +97,18 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     private TableNameInfo tbl;
     private List<AlterTableOp> ops;
     private List<AlterTableOp> originOps;
+    /**
+     * Top-level CREATE/DROP INDEX ops targeting a Lance catalog table, collected by validate()
+     * and admitted by run(). ForwardWithSync commands are forwarded before run() on a follower
+     * and re-parsed into a fresh command object on the master, so this collection can only be
+     * populated once, on the master, on this object; validate() pins that single-call invariant.
+     */
+    private final List<AlterTableOp> lanceIndexOps = new ArrayList<>();
+    // Resolved during validate() and reused by the Lance admission branch of run(); both run
+    // exactly once on the same master-side object, so there is no stale-state hazard.
+    private CatalogIf catalog;
+    private DatabaseIf dbIf;
+    private TableIf tableIf;
 
     public AlterTableCommand(TableNameInfo tbl, List<AlterTableOp> ops) {
         super(PlanType.ALTER_TABLE_COMMAND);
@@ -116,6 +145,8 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
      * validate
      */
     private void validate(ConnectContext ctx) throws UserException {
+        Preconditions.checkState(lanceIndexOps.isEmpty(),
+                "AlterTableCommand.validate() must run exactly once per command object");
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
@@ -135,14 +166,50 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
         String ctlName = tbl.getCtl();
         String dbName = tbl.getDb();
         String tableName = tbl.getTbl();
-        DatabaseIf dbIf = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(ctlName, catalog -> new DdlException("Unknown catalog " + catalog))
-                .getDbOrDdlException(dbName);
-        TableIf tableIf = dbIf.getTableOrDdlException(tableName);
+        catalog = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrException(ctlName, catalogName -> new DdlException("Unknown catalog " + catalogName));
+        validateLanceIndexOperationsBeforeResolution(catalog);
+        dbIf = catalog.getDbOrDdlException(dbName);
+        tableIf = dbIf.getTableOrDdlException(tableName);
         if (tableIf.isTemporary()) {
             throw new AnalysisException("Do not support alter temporary table[" + tableName + "]");
         }
         checkColumnOperationsSupported(tableIf, ops);
+        if (tableIf instanceof LanceExternalTable) {
+            // Top-level CREATE/DROP INDEX on Lance catalog tables: static-validate, then either
+            // reject with the mutation-disabled error while the admission gate stays off (the
+            // default; no metadata read, no id allocation), or hand the op to run() for
+            // admission. ALTER TABLE ADD/DROP INDEX (alter = true) falls through to the existing
+            // generic external-table rejection below.
+            for (AlterTableOp op : ops) {
+                if (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter()) {
+                    IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
+                    LanceIndexMutationValidator.validateCreateIndex((LanceExternalCatalog) catalog,
+                            (LanceExternalTable) tableIf, indexDef);
+                    if (!Config.enable_lance_index_mutation) {
+                        LanceIndexMutationValidator.rejectMutationDisabled(
+                                indexDef.isOrReplace() ? "CREATE OR REPLACE INDEX" : "CREATE INDEX");
+                    }
+                    lanceIndexOps.add(op);
+                } else if (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()) {
+                    // The DROP static checks (REST fail-fast and the name bounds) already ran in
+                    // validateLanceIndexOperationsBeforeResolution; only the gate forks here.
+                    if (!Config.enable_lance_index_mutation) {
+                        LanceIndexMutationValidator.rejectMutationDisabled("DROP INDEX");
+                    }
+                    lanceIndexOps.add(op);
+                }
+            }
+            if (!lanceIndexOps.isEmpty()) {
+                // Admission fully takes over a top-level index DDL: skip the generic op loop and
+                // the alterTable call below. CreateIndexOp.validate() would otherwise hit the
+                // internal Lance guards and, for ANN (null internal IndexType), even allocate an
+                // internal index id before the generic external-table rejection.
+                return;
+            }
+            // Non-index ops (rename etc.) on a Lance table continue on the generic path exactly
+            // as before.
+        }
         for (AlterTableOp op : ops) {
             op.setTableName(tbl);
             op.validate(ctx);
@@ -151,6 +218,27 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
             rewriteAlterOpForOlapTable(ctx, (OlapTable) tableIf);
         } else {
             checkExternalTableOperationAllow(tableIf);
+        }
+    }
+
+    /**
+     * Lance index checks that do not need the resolved table: REST catalogs fail fast for
+     * top-level CREATE/DROP INDEX before database/table metadata resolution, and DROP INDEX on
+     * Directory catalogs gets the shared index-name bounds here because the op-level
+     * DropIndexOp.validate() is never reached on the typed-rejection path below.
+     */
+    private void validateLanceIndexOperationsBeforeResolution(CatalogIf catalog) throws AnalysisException {
+        if (!(catalog instanceof LanceExternalCatalog)) {
+            return;
+        }
+        for (AlterTableOp op : ops) {
+            if (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter()) {
+                LanceIndexMutationValidator.validateCreateIndexCatalog((LanceExternalCatalog) catalog,
+                        ((CreateIndexOp) op).getIndexDef());
+            } else if (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()) {
+                LanceIndexMutationValidator.validateDropIndex((LanceExternalCatalog) catalog,
+                        ((DropIndexOp) op).getIndexName());
+            }
         }
     }
 
@@ -461,6 +549,48 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+        if (!lanceIndexOps.isEmpty()) {
+            // A top-level CREATE/DROP INDEX statement carries exactly one operation.
+            Preconditions.checkState(lanceIndexOps.size() == 1,
+                    "a top-level Lance index statement must carry exactly one operation");
+            AlterTableOp op = lanceIndexOps.get(0);
+            LanceIndexAdmission.Outcome outcome;
+            if (op instanceof CreateIndexOp) {
+                IndexDefinition indexDef = ((CreateIndexOp) op).getIndexDef();
+                outcome = LanceIndexAdmission.admitCreate((LanceExternalCatalog) catalog,
+                        (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf, indexDef,
+                        indexDef.isIfNotExists());
+            } else {
+                DropIndexOp dropIndexOp = (DropIndexOp) op;
+                outcome = LanceIndexAdmission.admitDrop((LanceExternalCatalog) catalog,
+                        (LanceExternalDatabase) dbIf, (LanceExternalTable) tableIf,
+                        dropIndexOp.getIndexName(), dropIndexOp.isSetIfExists());
+            }
+            sendJobIdResult(executor, outcome);
+            return;
+        }
         ctx.getEnv().alterTable(this);
+    }
+
+    /**
+     * Answers the admission with a single-column JobId result set (WarmUpClusterCommand
+     * pattern): one row carrying the durable job id, or zero rows for an IF no-op — "no job was
+     * created" is self-evident from the empty set, and sendResultSet's trailing setEof()
+     * suppresses the default OK packet on both the direct and the forwarded (proxy) link.
+     */
+    private void sendJobIdResult(StmtExecutor executor, LanceIndexAdmission.Outcome outcome)
+            throws IOException {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        builder.addColumn(new Column("JobId", ScalarType.createVarchar(30)));
+        List<List<String>> rows = new ArrayList<>();
+        if (outcome.getJobId() != null) {
+            rows.add(Collections.singletonList(String.valueOf(outcome.getJobId())));
+        }
+        ShowResultSet resultSet = new ShowResultSet(builder.build(), rows);
+        if (executor.isProxy()) {
+            executor.setProxyShowResultSet(resultSet);
+            return;
+        }
+        executor.sendResultSet(resultSet);
     }
 }

@@ -2,3 +2,7 @@
 -- !having_project_with_having_count_1_and_slot_from_project --
 1
 
+-- !scalar_subquery_having_true --
+1
+
+-- !scalar_subquery_having_false --

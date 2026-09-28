@@ -345,7 +345,18 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
 
         auto* cache = AnnIndexIVFListCache::instance();
         if (!cache) {
-            return RandomAccessReader::borrow(offset, nbytes);
+            // Read it ourselves. NOT RandomAccessReader::borrow(): faiss documents
+            // its default as "allocates a buffer and calls read_at()", and read_at()
+            // below is implemented by calling borrow() -- so delegating to the base
+            // is unbounded mutual recursion, never a fallback. No cache means no
+            // cache accounting either, hence a plain owning buffer rather than a
+            // DataPage; it lives only until the caller drops the ref.
+            std::vector<uint8_t> bytes(nbytes);
+            {
+                std::lock_guard<std::mutex> lock(_io_mutex);
+                _read_clucene(offset, reinterpret_cast<char*>(bytes.data()), nbytes);
+            }
+            return std::make_unique<OwnedReadRef>(std::move(bytes));
         }
 
         AnnIndexIVFListCache::CacheKey key(_cache_key_prefix, _file_size,
@@ -384,6 +395,17 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
 
 private:
     // ---- ReadRef that pins a cache entry ----
+
+    // Owns the bytes it serves. Used when there is no list cache to pin a page in.
+    struct OwnedReadRef : faiss::ReadRef {
+        explicit OwnedReadRef(std::vector<uint8_t> bytes) : _bytes(std::move(bytes)) {
+            data_ = _bytes.data();
+            size_ = _bytes.size();
+        }
+
+    private:
+        std::vector<uint8_t> _bytes;
+    };
 
     struct PinnedReadRef : faiss::ReadRef {
         explicit PinnedReadRef(PageCacheHandle handle, const uint8_t* ptr, size_t len)

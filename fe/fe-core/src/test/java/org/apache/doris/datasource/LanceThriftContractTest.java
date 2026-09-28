@@ -18,7 +18,9 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TLanceFileDesc;
+import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.thrift.TDeserializer;
@@ -27,9 +29,35 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 public class LanceThriftContractTest {
+
+    @Test
+    public void testScalarIndexTaskCompactProtocolRoundTrip() throws Exception {
+        for (boolean indexed : new boolean[] {true, false}) {
+            TLanceFileDesc source = new TLanceFileDesc()
+                    .setDatasetUri("s3://warehouse/db/table.lance")
+                    .setVersion(42L).setFragmentIds(Arrays.asList(7L, 11L));
+            if (indexed) {
+                ByteBuffer segmentUuid = ByteBuffer.allocate(16).putLong(1).putLong(2);
+                segmentUuid.flip();
+                source.setIndexSegmentUuids(Collections.singletonList(segmentUuid));
+            } else {
+                source.setUseScalarIndex(false);
+            }
+            TLanceFileDesc restored = new TLanceFileDesc();
+            new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored,
+                    new TSerializer(new TCompactProtocol.Factory()).serialize(source));
+            Assert.assertEquals(source, restored);
+            Assert.assertEquals(!indexed, restored.isSetUseScalarIndex());
+            Assert.assertEquals(indexed, restored.isSetIndexSegmentUuids());
+        }
+    }
 
     @Test
     public void testLanceDescriptorCompactProtocolRoundTrip() throws Exception {
@@ -76,5 +104,48 @@ public class LanceThriftContractTest {
 
         // A scan without a pushable LIMIT must leave the field unset so the BE reads all rows.
         Assert.assertFalse(restored.getLanceParams().isSetLimit());
+    }
+
+    @Test
+    public void testLanceStorageOptionsSurviveRoundTripUntouched() throws Exception {
+        Map<String, String> storageOptions = new HashMap<>();
+        storageOptions.put("access_key_id", "ak");
+        storageOptions.put("secret_access_key", "sk");
+        storageOptions.put("endpoint", "http://127.0.0.1:9000");
+        storageOptions.put("expires_at_millis", "1760000000000");
+        storageOptions.put("azure_storage_sas_token", "sas");
+
+        TFileScanRangeParams source = new TFileScanRangeParams()
+                .setFormatType(TFileFormatType.FORMAT_LANCE)
+                .setLanceScanParams(
+                        new TLanceScanParams().setLanceStorageOptions(storageOptions));
+
+        TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+        byte[] bytes = serializer.serialize(source);
+
+        TFileScanRangeParams restored = new TFileScanRangeParams();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+
+        // Whatever the namespace vended has to reach lance-c unchanged, including keys Doris
+        // itself assigns no meaning to.
+        Assert.assertTrue(restored.isSetLanceScanParams());
+        Assert.assertTrue(restored.getLanceScanParams().isSetLanceStorageOptions());
+        Assert.assertEquals(storageOptions,
+                restored.getLanceScanParams().getLanceStorageOptions());
+    }
+
+    @Test
+    public void testLanceStorageOptionsAreOptional() throws Exception {
+        TFileScanRangeParams source = new TFileScanRangeParams()
+                .setFormatType(TFileFormatType.FORMAT_LANCE);
+
+        TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+        byte[] bytes = serializer.serialize(source);
+
+        TFileScanRangeParams restored = new TFileScanRangeParams();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+
+        // A local dataset needs no storage configuration at all.
+        Assert.assertFalse(restored.isSetLanceScanParams());
     }
 }

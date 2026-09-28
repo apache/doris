@@ -49,6 +49,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
@@ -97,6 +98,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -162,6 +165,7 @@ public abstract class ExternalCatalog
     protected CatalogProperty catalogProperty;
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
+    private AtomicLong metadataLoadEpoch = new AtomicLong();
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     // <db name, table name> to tableAutoAnalyzePolicy
@@ -181,10 +185,12 @@ public abstract class ExternalCatalog
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    private ThreadLocal<Boolean> invalidateEngineCacheOnDatabaseRemoval =
+            ThreadLocal.withInitial(() -> true);
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
     // Map lowercase database names to actual remote database names for case-insensitive lookup
-    private Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
+    private volatile Map<String, String> lowerCaseToDatabaseName = Maps.newConcurrentMap();
 
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
@@ -420,11 +426,33 @@ public abstract class ExternalCatalog
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
+                    this::updateLowerCaseToDatabaseName,
+                    (remoteName, localName) -> lowerCaseToDatabaseName.put(remoteName.toLowerCase(), remoteName),
+                    localName -> lowerCaseToDatabaseName.remove(localName.toLowerCase()),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()));
+                    (key, value, cause) -> value.ifPresent(
+                            v -> v.resetMetaToUninitialized(invalidateEngineCacheOnDatabaseRemoval.get())),
+                    this::acquireMetadataLoadEpoch,
+                    this::isMetadataLoadEpochCurrent);
         }
+    }
+
+    protected long acquireMetadataLoadEpoch() {
+        synchronized (this) {
+            makeSureInitialized();
+            return metadataLoadEpoch.get();
+        }
+    }
+
+    boolean isMetadataLoadEpochCurrent(long epoch) {
+        return metadataLoadEpoch.get() == epoch;
+    }
+
+    protected final boolean executeIfDatabaseCurrent(
+            ExternalDatabase<? extends ExternalTable> database, BooleanSupplier action) {
+        return metaCache.executeIfMetaObjCurrent(database.getFullName(), database, action);
     }
 
     // check if all required properties are set when creating catalog
@@ -445,6 +473,22 @@ public abstract class ExternalCatalog
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
+        }
+
+        try {
+            Env currentEnv = Env.getCurrentEnv();
+            ExternalMetaCacheMgr extMetaCacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+            if (extMetaCacheMgr == null) {
+                // This fallback is only for isolated construction tests before Env is initialized.
+                ExternalMetaCacheBudgetManager.fromConfig().validateCatalogMaxWeight(properties);
+            } else {
+                // Validate what runtime will honor. Newly supplied keys are validated strictly by
+                // CatalogMgr for CREATE and ALTER; persisted legacy keys that initialization
+                // ignores must not reject an unrelated later ALTER.
+                extMetaCacheMgr.validateEffectiveCatalogCacheProperties(this, properties);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
         }
 
         // check schema.cache.ttl-second parameter
@@ -532,26 +576,15 @@ public abstract class ExternalCatalog
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
 
-        lowerCaseToDatabaseName.clear();
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
-        allDatabases = allDatabases.stream().filter(dbName -> {
-            if (!dbName.equals(InfoSchemaDb.DATABASE_NAME) && !dbName.equals(MysqlDb.DATABASE_NAME)) {
-                // Exclude database map take effect with higher priority over include database map
-                if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
-                    return false;
-                }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(dbName)) {
-                    return false;
-                }
-            }
-            return true;
-        }).collect(Collectors.toList());
+        allDatabases = allDatabases.stream()
+                .filter(dbName -> isDatabaseAllowedByFilter(
+                        dbName, includeDatabaseMap, excludeDatabaseMap, false))
+                .collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
             String localDbName = fromRemoteDatabaseName(remoteDbName);
-            // Populate lowercase mapping for case-insensitive lookups
-            lowerCaseToDatabaseName.put(remoteDbName.toLowerCase(), remoteDbName);
             // Apply lower_case_database_names mode to local name
             int dbNameMode = getLowerCaseDatabaseNames();
             if (dbNameMode == 1) {
@@ -593,6 +626,41 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
+    protected boolean isDatabaseAllowedByFilter(String dbName) {
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), false);
+    }
+
+    protected boolean isDatabaseAllowedByFilterIgnoringCase(String dbName) {
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), true);
+    }
+
+    private boolean isDatabaseAllowedByFilter(String dbName, Map<String, Boolean> includeDatabaseMap,
+            Map<String, Boolean> excludeDatabaseMap, boolean ignoreCase) {
+        if (dbName.equals(InfoSchemaDb.DATABASE_NAME) || dbName.equals(MysqlDb.DATABASE_NAME)) {
+            return true;
+        }
+        // Exclude database map takes precedence over include database map.
+        if (!excludeDatabaseMap.isEmpty() && containsDatabaseName(excludeDatabaseMap, dbName, ignoreCase)) {
+            return false;
+        }
+        return includeDatabaseMap.isEmpty() || containsDatabaseName(includeDatabaseMap, dbName, ignoreCase);
+    }
+
+    private boolean containsDatabaseName(Map<String, Boolean> databaseMap, String dbName, boolean ignoreCase) {
+        if (!ignoreCase) {
+            return databaseMap.containsKey(dbName);
+        }
+        String normalizedDbName = dbName.toLowerCase(Locale.ROOT);
+        return databaseMap.keySet().stream()
+                .anyMatch(configuredName -> configuredName.toLowerCase(Locale.ROOT).equals(normalizedDbName));
+    }
+
+    private void updateLowerCaseToDatabaseName(List<Pair<String, String>> names) {
+        Map<String, String> updated = Maps.newConcurrentMap();
+        names.forEach(pair -> updated.put(pair.key().toLowerCase(), pair.key()));
+        lowerCaseToDatabaseName = updated;
+    }
+
     /**
      * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
      * <p>
@@ -610,16 +678,33 @@ public abstract class ExternalCatalog
      *                     and reloaded during the refresh process.
      */
     public void resetToUninitialized(boolean invalidCache) {
-        synchronized (this) {
-            this.objectCreated = false;
-            this.initialized = false;
-            synchronized (this.confLock) {
-                this.cachedConf = null;
+        MetaCache<ExternalDatabase<? extends ExternalTable>> cacheToInvalidate = null;
+        Runnable objectInvalidation = null;
+        try {
+            synchronized (this) {
+                metadataLoadEpoch.incrementAndGet();
+                this.objectCreated = false;
+                this.initialized = false;
+                synchronized (this.confLock) {
+                    this.cachedConf = null;
+                }
+                this.lowerCaseToDatabaseName.clear();
+                cacheToInvalidate = metaCache;
+                if (cacheToInvalidate != null) {
+                    cacheToInvalidate.invalidateNames();
+                    objectInvalidation = cacheToInvalidate.retireObjects();
+                }
+                onClose();
             }
-            this.lowerCaseToDatabaseName.clear();
-            onClose();
+        } finally {
+            if (objectInvalidation != null) {
+                objectInvalidation.run();
+            }
         }
-        onRefreshCache(invalidCache);
+        setLastUpdateTime(System.currentTimeMillis());
+        if (invalidCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+        }
     }
 
     /**
@@ -629,7 +714,7 @@ public abstract class ExternalCatalog
      */
     public void onRefreshCache(boolean invalidCache) {
         setLastUpdateTime(System.currentTimeMillis());
-        refreshMetaCacheOnly();
+        refreshMetaCacheOnly(invalidCache);
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
@@ -637,11 +722,19 @@ public abstract class ExternalCatalog
 
     /**
      * Refresh meta cache only (database level cache), without invalidating catalog level cache.
-     * This method is safe to call within synchronized block.
      */
-    private void refreshMetaCacheOnly() {
+    private void refreshMetaCacheOnly(boolean invalidCache) {
         if (metaCache != null) {
-            metaCache.invalidateAll();
+            // A catalog-wide engine invalidation below supersedes every database invalidation.
+            // The legacy cache uses a synchronous removal listener, so this thread-local scope
+            // prevents one full SDK-cache scan per cached database without affecting concurrent
+            // expiry callbacks on other threads.
+            invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
+            try {
+                metaCache.invalidateAll();
+            } finally {
+                invalidateEngineCacheOnDatabaseRemoval.remove();
+            }
         }
     }
 
@@ -964,6 +1057,8 @@ public abstract class ExternalCatalog
     @Override
     public void gsonPostProcess() throws IOException {
         objectCreated = false;
+        metadataLoadEpoch = new AtomicLong();
+        invalidateEngineCacheOnDatabaseRemoval = ThreadLocal.withInitial(() -> true);
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -1036,7 +1131,13 @@ public abstract class ExternalCatalog
             throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.dropDb(dbName, ifExists, force);
+            if (!metadataOps.dropDb(dbName, ifExists, force)) {
+                // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
+                // database). Do not journal the no-op, otherwise every follower would replay a
+                // post-drop hook that retires caches for a database that was never touched.
+                LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
+                return;
+            }
             DropDbInfo info = new DropDbInfo(getName(), dbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
@@ -1152,6 +1253,24 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
+    /**
+     * Conservatively retire every cached database object of this catalog without triggering
+     * per-database engine invalidation. Used when a replayed drop cannot resolve the canonical
+     * local name (for example a case-insensitive name mapping disappeared before replay) and the
+     * caller invalidates the whole engine cache separately.
+     */
+    public void retireAllDatabaseObjectsWithoutEngineInvalidation() {
+        if (metaCache == null) {
+            return;
+        }
+        invalidateEngineCacheOnDatabaseRemoval.set(false);
+        try {
+            metaCache.invalidateObjects();
+        } finally {
+            invalidateEngineCacheOnDatabaseRemoval.remove();
+        }
+    }
+
     public void registerDatabase(long dbId, String dbName) {
         throw new NotImplementedException("registerDatabase not implemented");
     }
@@ -1251,11 +1370,15 @@ public abstract class ExternalCatalog
             // Mode 2: Case-insensitive comparison
             finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
             if (finalName == null && !isReplay) {
-                // Refresh database list and try again
                 try {
-                    getFilteredDatabaseNames();
+                    metaCache.refreshNames();
                     finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
                 } catch (Exception e) {
+                    if (Thread.currentThread().isInterrupted()
+                            && e instanceof java.util.concurrent.CompletionException
+                            && e.getCause() instanceof InterruptedException) {
+                        throw new RuntimeException(e);
+                    }
                     LOG.warn("Failed to refresh database list for catalog {}", getName(), e);
                 }
             }
@@ -1368,9 +1491,31 @@ public abstract class ExternalCatalog
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
-        if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        if (java.util.Objects.nonNull(schemaCacheTtl)
+                || updatedProps.containsKey(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
             extMetaCacheMgr.removeCatalog(id);
+            return;
+        }
+        for (String key : updatedProps.keySet()) {
+            if (key == null || !key.startsWith("meta.cache.")) {
+                continue;
+            }
+            String remainder = key.substring("meta.cache.".length());
+            int separator = remainder.indexOf('.');
+            if (separator <= 0) {
+                continue;
+            }
+            String engine = remainder.substring(0, separator);
+            try {
+                extMetaCacheMgr.removeCatalogByEngine(id, engine);
+            } catch (IllegalArgumentException e) {
+                // New DDL is validated before it reaches this notification. A persisted key with
+                // an unknown or legacy engine namespace (edit-log replay, image load) has no cache
+                // group to retire and must not abort the replay; runtime sanitization ignores it.
+                LOG.warn("Ignoring external meta cache property '{}' with unknown engine namespace '{}' "
+                        + "for catalog {}: {}", key, engine, id, e.getMessage());
+            }
         }
     }
 
@@ -1505,6 +1650,24 @@ public abstract class ExternalCatalog
                 .logRefreshExternalTable(
                         ExternalObjectLog.createForRefreshTable(dorisTable.getCatalog().getId(),
                                 dorisTable.getDbName(), dorisTable.getName(), updateTime));
+    }
+
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable externalTable = (ExternalTable) dorisTable;
+        if (metadataOps == null) {
+            throw new DdlException("Update table properties operation is not supported for catalog: " + getName());
+        }
+        try {
+            long updateTime = System.currentTimeMillis();
+            metadataOps.updateTableProperties(externalTable, properties, updateTime);
+            logRefreshExternalTable(externalTable, updateTime);
+        } catch (Exception e) {
+            LOG.warn("Failed to update properties for table {}.{} in catalog {}",
+                    externalTable.getDbName(), externalTable.getName(), getName(), e);
+            throw e;
+        }
     }
 
     @Override

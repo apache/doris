@@ -91,7 +91,9 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
@@ -109,6 +111,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
@@ -199,6 +202,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -568,6 +572,8 @@ public class Env {
 
     private InsertOverwriteManager insertOverwriteManager;
 
+    private LanceIndexJobManager lanceIndexJobManager;
+
     private DNSCache dnsCache;
 
     private final NereidsSqlCacheManager sqlCacheManager;
@@ -853,6 +859,7 @@ public class Env {
         this.mtmvService = new MTMVService();
         this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
+        this.lanceIndexJobManager = new LanceIndexJobManager();
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
@@ -976,6 +983,10 @@ public class Env {
 
     public InsertOverwriteManager getInsertOverwriteManager() {
         return insertOverwriteManager;
+    }
+
+    public LanceIndexJobManager getLanceIndexJobManager() {
+        return lanceIndexJobManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -1434,7 +1445,9 @@ public class Env {
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
-                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        // Masked: the cluster token authenticates meta access, so it must not
+                        // reach fe.log. The prefix is enough to tell which token was adopted.
+                        LOG.info("get token from helper node. token={}.", TokenMasker.maskPrefix(remoteToken));
                         token = remoteToken;
                         storage.writeClusterIdAndToken();
                         storage.reload();
@@ -1812,6 +1825,11 @@ public class Env {
 
             insertOverwriteManager.allTaskFail();
 
+            // A durable RUNNING Lance index job at this point may have lost its result with the
+            // old master: sweep it to UNKNOWN (and refresh RUNNING back to REQUIRED) before any
+            // master-only dispatcher could start.
+            lanceIndexJobManager.onTransferToMaster();
+
             toMasterProgress = "start daemon threads";
 
             // coz current fe was not master fe and didn't get all fes' alive session report before, which cause
@@ -2040,7 +2058,7 @@ public class Env {
         splitSourceManager.start();
     }
 
-    private void transferToNonMaster(FrontendNodeType newType) {
+    private boolean transferToNonMaster(FrontendNodeType newType) {
         isReady.set(false);
 
         try {
@@ -2050,7 +2068,7 @@ public class Env {
                 // not set canRead here, leave canRead as what is was.
                 // if meta out of date, canRead will be set to false in replayer thread.
                 metaReplayState.setTransferToUnknown();
-                return;
+                return true;
             }
 
             // transfer from INIT/UNKNOWN to OBSERVER/FOLLOWER
@@ -2062,8 +2080,11 @@ public class Env {
 
             // 'isReady' will be set to true in 'setCanRead()' method
             if (!postProcessAfterMetadataReplayed(true)) {
-                // the state has changed, exit early.
-                return;
+                // A newer BDB state is already waiting in typeTransferQueue. Abort this stale transition so the
+                // state listener can process the newer state instead of waiting indefinitely for this node to
+                // become ready as a non-master. The caller must not publish newType to feType in this case:
+                // none of the non-master initialization below, including MetricRepo.init(), has completed yet.
+                return false;
             }
 
             checkLowerCaseTableNames();
@@ -2080,11 +2101,13 @@ public class Env {
                 followerColumnSender = new FollowerColumnSender();
                 followerColumnSender.start();
             }
+            return true;
         } catch (Throwable e) {
             // When failed to transfer to non-master, we need to exit the process.
             // Otherwise, the process will be in an unknown state.
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
+            return false;
         }
     }
 
@@ -2657,6 +2680,18 @@ public class Env {
         return checksum;
     }
 
+    public long loadLanceIndexJobManager(DataInputStream in, long checksum) throws IOException {
+        this.lanceIndexJobManager = LanceIndexJobManager.read(in);
+        LOG.info("finished replay lance index job manager from image");
+        return checksum;
+    }
+
+    public long saveLanceIndexJobManager(CountingDataOutputStream out, long checksum) throws IOException {
+        this.lanceIndexJobManager.write(out);
+        LOG.info("finished save lance index job manager to image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -3095,6 +3130,8 @@ public class Env {
                         return;
                     }
 
+                    boolean transferCompleted = true;
+
                     /*
                      * INIT -> MASTER: transferToMaster
                      * INIT -> FOLLOWER/OBSERVER: transferToNonMaster
@@ -3112,7 +3149,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 case UNKNOWN:
@@ -3130,7 +3167,7 @@ public class Env {
                                 }
                                 case FOLLOWER:
                                 case OBSERVER: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3145,7 +3182,7 @@ public class Env {
                                     break;
                                 }
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3156,7 +3193,7 @@ public class Env {
                         case OBSERVER: {
                             switch (newType) {
                                 case UNKNOWN: {
-                                    transferToNonMaster(newType);
+                                    transferCompleted = transferToNonMaster(newType);
                                     break;
                                 }
                                 default:
@@ -3176,6 +3213,17 @@ public class Env {
                             break;
                     } // end switch formerFeType
 
+                    if (!transferCompleted) {
+                        // feType represents the last fully initialized FE state, not merely the latest state
+                        // reported by BDB. A non-master transition can be interrupted when a newer BDB state is
+                        // queued while it waits for metadata to become ready. Committing newType after that early
+                        // return would make a repeated FOLLOWER/OBSERVER event look redundant and skip the
+                        // incomplete initialization permanently. Keep the previous committed state so the queued
+                        // event is evaluated against the state that was actually initialized and can retry the
+                        // transition or take a different path.
+                        LOG.info("skip committing incomplete FE type transfer from {} to {}", feType, newType);
+                        continue;
+                    }
                     feType = newType;
                     LOG.info("finished to transfer FE type to {}", feType);
                 }
@@ -3736,10 +3784,12 @@ public class Env {
                 sb.append(",");
             }
             Column column = columns.get(i);
-            sb.append(column.getName());
+            // quote the column name to keep the generated DDL re-executable when the column name
+            // contains special characters (e.g. created via string literal alias like select 1 as '(第一列)')
+            sb.append(SqlUtils.getIdentSql(column.getName()));
             if (!StringUtils.isEmpty(column.getComment())) {
                 sb.append(" comment '");
-                sb.append(column.getComment());
+                sb.append(column.getComment().replace("'", "\\'"));
                 sb.append("'");
             }
         }
@@ -4061,9 +4111,7 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4482,9 +4530,7 @@ public class Env {
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
             addColNameAndComment(view, sb);
             sb.append("\n");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4521,7 +4567,8 @@ public class Env {
 
         sb.append(" (\n");
         int idx = 0;
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = table instanceof IcebergExternalTable
+                ? ((IcebergExternalTable) table).getBaseSchemaForDisplay(false) : table.getBaseSchema(false);
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -7366,6 +7413,55 @@ public class Env {
         return result;
     }
 
+    public void compactTablet(long tabletId, String type) throws DdlException {
+        TabletMeta tabletMeta = getCurrentInvertedIndex().getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            throw new DdlException("Unknown tablet: " + tabletId);
+        }
+
+        Database db = getInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        if (db == null) {
+            throw new DdlException("Unknown database for tablet: " + tabletId);
+        }
+        Table table = db.getTableNullable(tabletMeta.getTableId());
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException("Unknown OLAP table for tablet: " + tabletId);
+        }
+        OlapTable olapTable = (OlapTable) table;
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
+            if (partition == null) {
+                throw new DdlException("Unknown partition for tablet: " + tabletId);
+            }
+            MaterializedIndex index = partition.getIndex(tabletMeta.getIndexId());
+            if (index == null || !index.getState().isVisible()) {
+                throw new DdlException("Tablet " + tabletId + " is not in a visible index");
+            }
+            Tablet tablet = index.getTablet(tabletId);
+            if (tablet == null) {
+                throw new DdlException("Tablet " + tabletId + " does not belong to its metadata index");
+            }
+
+            int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+            LOG.info("Tablet compaction. database: {}, table: {}, tablet: {}, type: {}",
+                    db.getFullName(), olapTable.getName(), tabletId, type);
+            for (Replica replica : tablet.getReplicas()) {
+                batchTask.addTask(new CompactionTask(replica.getBackendIdWithoutException(), db.getId(),
+                        olapTable.getId(), partition.getId(), index.getId(), tabletId, schemaHash, type));
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        if (batchTask.getTaskNum() == 0) {
+            throw new DdlException("No replica found for tablet: " + tabletId);
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
     public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)
             throws DdlException {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
@@ -7404,6 +7500,19 @@ public class Env {
     private static void addTableComment(TableIf table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
+        }
+    }
+
+    private static void addViewComment(TableIf table, StringBuilder sb) {
+        if (StringUtils.isNotBlank(table.getComment())) {
+            String comment = table.getComment();
+            sb.append(" COMMENT ");
+            // Keep the historical output unchanged when the comment is already safe in single quotes.
+            if (comment.indexOf('\'') >= 0 || comment.indexOf('\\') >= 0) {
+                sb.append(SqlLiteralUtils.quoteStringLiteral(comment));
+            } else {
+                sb.append('\'').append(comment).append('\'');
+            }
         }
     }
 

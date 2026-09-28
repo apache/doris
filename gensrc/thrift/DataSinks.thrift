@@ -384,6 +384,9 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    // Field 13 is supports_deferred_azure_multipart (bool) in master; never reuse its wire ID.
+    // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
+    14: optional string hive_parquet_time_zone
 }
 
 enum TUpdateMode {

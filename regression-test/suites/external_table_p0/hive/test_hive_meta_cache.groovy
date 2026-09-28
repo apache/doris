@@ -76,7 +76,7 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
                     'file.meta.cache.ttl-second' = '-2'
                 );
                 """
-                exception "is wrong"
+                exception "must be >= -1"
             }
 
             // disable file list cache
@@ -128,7 +128,7 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
                     'partition.cache.ttl-second' = '-2'
                 );
                 """
-                exception "is wrong"
+                exception "must be >= -1"
             }
 
             // disable partition cache
@@ -200,7 +200,7 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             // alter wrong catalog property
             test {
                 sql """alter catalog ${catalog_name_no_cache} set properties ("file.meta.cache.ttl-second" = "-2")"""
-                exception "is wrong"
+                exception "must be >= -1"
             }
             // alter catalog property, disable file list cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("file.meta.cache.ttl-second" = "0")"""
@@ -218,7 +218,7 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             // alter wrong catalog property
             test {
                 sql """alter catalog ${catalog_name_no_cache} set properties ("partition.cache.ttl-second" = "-2")"""
-                exception "is wrong"
+                exception "must be >= -1"
             }
             // alter catalog property, disable partition cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("partition.cache.ttl-second" = "0")"""
@@ -286,7 +286,7 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             // alter wrong catalog property
             test {
                 sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "-2")"""
-                exception "is wrong"
+                exception "must be >= -1"
             }
             sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "0")"""
             // desc table, 5 columns

@@ -185,7 +185,15 @@ suite("test_cdc_stream_tvf_publication", "p0,external,pg,external_docker,externa
 
         // Drop job: Doris must NOT touch user-provided slot or publication.
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
-        sleep(5000)
+        // The TVF reader closes its connection automatically, so wait for the user slot to become inactive.
+        Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
+            boolean inactive = false
+            connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+                def slot = sql """SELECT active FROM pg_replication_slots WHERE slot_name = '${userSlot}'"""
+                inactive = slot.size() == 1 && slot[0][0] == false
+            }
+            inactive
+        })
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             def pubAfter = sql """SELECT COUNT(1) FROM pg_publication WHERE pubname = '${userPub}'"""
             assert pubAfter[0][0] == 1 : "user-provided publication must be preserved after job deletion"

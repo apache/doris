@@ -286,6 +286,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveKeyManagerStore",
                     CountingDataOutputStream.class, long.class);
                 break;
+            case "lanceIndexJobManager":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadLanceIndexJobManager",
+                        DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveLanceIndexJobManager",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

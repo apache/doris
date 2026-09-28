@@ -94,8 +94,69 @@ public class ConfigTest {
 
     @Test
     public void testSetEmptyArray() throws ConfigException {
-        ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "a,b,c");
-        ConfigBase.setMutableConfig("s3_load_endpoint_white_list", "");
-        Assert.assertEquals("array length should be 0", 0, Config.s3_load_endpoint_white_list.length);
+        ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
+        ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");
+        Assert.assertEquals("array length should be 0", 0, Config.mysql_compat_var_whitelist.length);
+    }
+
+    // File-path and jdbc-driver security configs must only be settable in fe.conf (ops), never at runtime
+    // via ADMIN SET FRONTEND CONFIG. setMutableConfig is exactly that runtime entrypoint, so it must reject them.
+    @Test
+    public void testSecurityPathConfigsAreNotRuntimeMutable() {
+        String[] opsOnlyConfigs = {
+                "jdbc_driver_url_white_list",
+                "jdbc_drivers_dir",
+                "jdbc_driver_secure_path",
+                "tmp_dir",
+                "plugin_dir",
+                "s3_load_endpoint_white_list",
+                "force_sqlserver_jdbc_encrypt_false",
+        };
+        for (String key : opsOnlyConfigs) {
+            ConfigException e = Assert.assertThrows(key + " should not be runtime-mutable",
+                    ConfigException.class, () -> ConfigBase.setMutableConfig(key, "x"));
+            Assert.assertTrue(e.getMessage().contains("is not mutable"));
+        }
+    }
+
+    @Test
+    public void testRejectDeprecatedInvertedIndexV1WithWhitespace() throws Exception {
+        String originFormat = Config.inverted_index_storage_format;
+        try {
+            ConfigBase.setMutableConfig("inverted_index_storage_format", "V2");
+            ConfigException dynamicException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("inverted_index_storage_format", " V1 "));
+            Assert.assertTrue(dynamicException.getMessage().contains("Inverted index V1 is deprecated"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+
+            Config.inverted_index_storage_format = "V2";
+            ConfigException startupException = Assert.assertThrows(ConfigException.class,
+                    () -> InvertedIndexStorageFormatValidator.rejectStartupV1(" V1 "));
+            Assert.assertTrue(startupException.getMessage().contains("inverted_index_storage_format=V1"));
+            Assert.assertEquals("V2", Config.inverted_index_storage_format);
+        } finally {
+            Config.inverted_index_storage_format = originFormat;
+        }
+    }
+
+    @Test
+    public void testCloudWarmUpSchedulerIntervalMustBePositive() throws ConfigException {
+        int original = Config.cloud_warm_up_job_scheduler_interval_millisecond;
+        try {
+            ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "2000");
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException zeroException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "0"));
+            Assert.assertTrue(zeroException.getMessage().contains("must be greater than 0"));
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+
+            ConfigException negativeException = Assert.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("cloud_warm_up_job_scheduler_interval_millisecond", "-1"));
+            Assert.assertTrue(negativeException.getMessage().contains("must be greater than 0"));
+            Assert.assertEquals(2000, Config.cloud_warm_up_job_scheduler_interval_millisecond);
+        } finally {
+            Config.cloud_warm_up_job_scheduler_interval_millisecond = original;
+        }
     }
 }

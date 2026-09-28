@@ -234,9 +234,9 @@ supportedCreateStatement
         name=identifier properties=propertyClause?                              #createStoragePolicy
     | BUILD INDEX (name=identifier)? ON tableName=multipartIdentifier
         partitionSpec?                                                          #buildIndex
-    | CREATE INDEX (IF NOT EXISTS)? name=identifier
+    | CREATE (OR REPLACE)? INDEX (IF NOT EXISTS)? name=identifier
         ON tableName=multipartIdentifier identifierList
-        (USING (NGRAM_BF | INVERTED | ANN))?
+        (USING (NGRAM_BF | INVERTED | ANN | BTREE | BITMAP))?
         properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
     | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
@@ -247,12 +247,12 @@ supportedCreateStatement
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
     | CREATE statementScope?
             (TABLES | AGGREGATE)? FUNCTION (IF NOT EXISTS)?
-            functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+            functionIdentifier LEFT_PAREN dataTypeList? RIGHT_PAREN
             RETURNS returnType=dataType (INTERMEDIATE intermediateType=dataType)?
             properties=propertyClause?
             (AS functionCode=dollarQuotedString)?                                   #createUserDefineFunction
     | CREATE statementScope? ALIAS FUNCTION (IF NOT EXISTS)?
-            functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN
+            functionIdentifier LEFT_PAREN dataTypeList? RIGHT_PAREN
             WITH PARAMETER LEFT_PAREN parameters=identifierSeq? RIGHT_PAREN
             AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
@@ -497,6 +497,8 @@ supportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     | SHOW PYTHON VERSIONS                                                           #showPythonVersions
     | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
+    | SHOW LANCE INDEX JOBS ((FROM | IN) db=multipartIdentifier)? (WHERE expression)?   #showLanceIndexJobs
+    | SHOW LANCE INDEX JOB jobId=INTEGER_VALUE                                          #showLanceIndexJob
     ;
 
 supportedLoadStatement
@@ -654,6 +656,7 @@ supportedAdminStatement
     | ADMIN DIAGNOSE TABLET tabletId=INTEGER_VALUE                                  #adminDiagnoseTablet
     | ADMIN SHOW REPLICA STATUS FROM baseTableRef (WHERE STATUS EQ|NEQ STRING_LITERAL)?   #adminShowReplicaStatus
     | ADMIN COMPACT TABLE baseTableRef (WHERE TYPE EQ STRING_LITERAL)?              #adminCompactTable
+    | ADMIN COMPACT TABLET tabletId=INTEGER_VALUE WHERE TYPE EQ STRING_LITERAL       #adminCompactTablet
     | ADMIN CHECK tabletList properties=propertyClause?                             #adminCheckTablets
     | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
     | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
@@ -1183,8 +1186,7 @@ replayCommand
     : PLAN REPLAYER replayType;
 
 replayType
-    : DUMP query
-    | PLAY filePath=STRING_LITERAL;
+    : DUMP query;
 
 mergeType
     : APPEND
@@ -1718,6 +1720,7 @@ primaryExpression
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
     | name=CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                              #cast
     | name=TRY_CAST LEFT_PAREN expression AS castDataType RIGHT_PAREN                           #tryCast
+    | DEFAULT LEFT_PAREN qualifiedName RIGHT_PAREN                                             #defaultValue
     | constant                                                                                 #constantDefault
     | interval                                                                                 #intervalLiteral
     | ASTERISK (exceptOrReplace)*                                                              #star
@@ -2045,6 +2048,7 @@ nonReserved
     | BRANCH
     | BRIEF
     | BROKER
+    | BTREE
     | BUCKETS
     | BUILD
     | BUILTIN
@@ -2200,6 +2204,7 @@ nonReserved
     | JSON
     | JSONB
     | LABEL
+    | LANCE
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD

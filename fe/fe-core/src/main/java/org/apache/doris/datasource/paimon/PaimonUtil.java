@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -53,7 +54,6 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
-import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.manifest.PartitionEntry;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
@@ -64,7 +64,6 @@ import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
@@ -178,6 +177,15 @@ public class PaimonUtil {
                 .collect(Collectors.toList());
         List<PaimonPartitionCandidate> candidates = Lists.newArrayListWithExpectedSize(partitionEntries.size());
         Map<String, Map<String, String>> displayNameToTypedSpec = Maps.newHashMap();
+        long retainedPayloadBytes = 0L;
+        if (!partitionEntries.isEmpty()) {
+            for (Column partitionColumn : partitionColumns) {
+                // Every partition's typed spec keys the same schema-owned name reference; the
+                // retained graph holds one string per column, not one per partition.
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionColumn.getName());
+            }
+        }
 
         for (PartitionEntry partitionEntry : partitionEntries) {
             Map<String, String> typedSpec = getPartitionInfoMap(
@@ -188,6 +196,8 @@ public class PaimonUtil {
 
             List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
             LinkedHashMap<String, String> orderedTypedSpec = new LinkedHashMap<>();
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                    PaimonPartitionInfo.partitionColumnBytes(partitionColumns.size()));
             for (Column partitionColumn : partitionColumns) {
                 String partitionColumnName = partitionColumn.getName();
                 Preconditions.checkState(typedSpec.containsKey(partitionColumnName),
@@ -195,6 +205,8 @@ public class PaimonUtil {
                 String partitionValue = typedSpec.get(partitionColumnName);
                 partitionValues.add(partitionValue);
                 orderedTypedSpec.put(partitionColumnName, partitionValue);
+                retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                        retainedPayloadBytes, partitionValue);
             }
 
             PartitionItem partitionItem;
@@ -219,6 +231,8 @@ public class PaimonUtil {
             }
             String partitionPath = PartitionPathUtils.generatePartitionPath(displaySpec);
             String displayName = partitionPath.substring(0, partitionPath.length() - 1);
+            retainedPayloadBytes = PaimonPartitionInfo.addRetainedStringPayload(
+                    retainedPayloadBytes, displayName);
             Map<String, String> previousTypedSpec = displayNameToTypedSpec.putIfAbsent(
                     displayName, orderedTypedSpec);
             if (previousTypedSpec != null) {
@@ -249,7 +263,7 @@ public class PaimonUtil {
             nameToPartitionItem.put(candidate.displayName, candidate.partitionItem);
             nameToPartition.put(candidate.displayName, partition);
         }
-        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
+        return new PaimonPartitionInfo(nameToPartitionItem, nameToPartition, retainedPayloadBytes);
     }
 
     private static final class PaimonPartitionCandidate {
@@ -464,6 +478,18 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
+        // Paimon writes high-precision TIMESTAMP and TIMESTAMP_LTZ with the same physical INT96
+        // representation, so preserve the logical table semantics in the schema history.
+        switch (dataType.getTypeRoot()) {
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(false);
+                break;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(true);
+                break;
+            default:
+                break;
+        }
         TNestedField nestedField = new TNestedField();
         switch (dataType.getTypeRoot()) {
             case ARRAY: {
@@ -700,23 +726,6 @@ public class PaimonUtil {
     }
 
     private static final class SerializationSizeLimitException extends IOException {
-    }
-
-    /**
-     * Serialize DataSplit using Paimon's native binary format.
-     * This format is compatible with paimon-cpp reader.
-     * Uses standard Base64 encoding (not URL-safe) for BE compatibility.
-     */
-    public static String encodeDataSplitToString(DataSplit split) {
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            DataOutputViewStreamWrapper out = new DataOutputViewStreamWrapper(baos);
-            split.serialize(out);
-            byte[] bytes = baos.toByteArray();
-            return Base64.getEncoder().encodeToString(bytes);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to serialize DataSplit using Paimon native format", e);
-        }
     }
 
     public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {

@@ -118,6 +118,29 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     "_last_updated_sequence_number should be non-null for ${tableName}, row=${rowLineageRows[i]}")
         }
 
+        def originalThreshold = sql("select @@topn_lazy_materialization_threshold")[0][0]
+        def originalScannerV2 = sql("select @@enable_file_scanner_v2")[0][0]
+        try {
+            sql "set enable_file_scanner_v2 = true"
+            // Phase two must retain generated-column categories and file-level lineage metadata.
+            for (String projection : ["_row_id", "_last_updated_sequence_number",
+                                      "id, _row_id, _last_updated_sequence_number"]) {
+                String query = "select ${projection} from ${tableName} order by id limit 2"
+                sql "set topn_lazy_materialization_threshold = -1"
+                def eagerRows = sql query
+                sql "set topn_lazy_materialization_threshold = 10"
+                explain {
+                    sql query
+                    contains "VMaterializeNode"
+                }
+                assertEquals(eagerRows, sql(query))
+            }
+        } finally {
+            // UNSET requires the experimental prefix in 4.1; preserve the caller's values even on failure.
+            sql "set topn_lazy_materialization_threshold = ${originalThreshold}"
+            sql "set enable_file_scanner_v2 = ${originalScannerV2}"
+        }
+
         long firstRowId = rowLineageRows[0][1].toString().toLong()
         long secondRowId = rowLineageRows[1][1].toString().toLong()
         assertTrue(firstRowId < secondRowId,

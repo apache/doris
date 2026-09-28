@@ -321,6 +321,77 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
     return Status::OK();
 }
 
+namespace {
+
+template <typename WriteNested>
+Status write_array_column_to_target(const IColumn& column, const NullMap* null_map,
+                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                    WriteNested&& write_nested) {
+    const auto& array_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = array_column.get_offsets();
+    const auto& nested_data = array_column.get_data();
+    auto& builder = assert_cast<arrow::ListBuilder&>(*array_builder);
+    auto* nested_builder = builder.value_builder();
+    for (size_t array_idx = start; array_idx < end; ++array_idx) {
+        if (null_map != nullptr && (*null_map)[array_idx]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
+        RETURN_IF_ERROR(write_nested(nested_data, nested_builder, offsets[array_idx - 1],
+                                     offsets[array_idx]));
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeArraySerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    // Reject an incompatible target before casting its nested schema or builder.
+    if (field->type()->id() != arrow::Type::LIST ||
+        array_builder->type()->id() != arrow::Type::LIST) {
+        return Status::InvalidArgument("Paimon array writer requires an Arrow list field");
+    }
+    const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+    const auto& list_type = assert_cast<const arrow::ListType&>(*field->type());
+    const auto& nested_field = list_type.value_field();
+    return write_array_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const IColumn& nested_data, arrow::ArrayBuilder* nested_builder,
+                int64_t nested_start, int64_t nested_end) {
+                return nested_serde->write_column_to_paimon_arrow(
+                        array_type.get_nested_type(), nested_data, nullptr, nested_field,
+                        nested_builder, nested_start, nested_end, ctz);
+            });
+}
+
+Status DataTypeArraySerDe::write_column_to_iceberg_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    // Reject an incompatible target before casting its nested schema or builder.
+    if (field->type()->id() != arrow::Type::LIST ||
+        array_builder->type()->id() != arrow::Type::LIST) {
+        return Status::InvalidArgument("Iceberg array writer requires an Arrow list field");
+    }
+    const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+    const auto& list_type = assert_cast<const arrow::ListType&>(*field->type());
+    const auto& nested_field = list_type.value_field();
+    return write_array_column_to_target(
+            column, null_map, array_builder, start, end,
+            [&](const IColumn& nested_data, arrow::ArrayBuilder* nested_builder,
+                int64_t nested_start, int64_t nested_end) {
+                return nested_serde->write_column_to_iceberg_arrow(
+                        array_type.get_nested_type(), nested_data, nullptr, nested_field,
+                        nested_builder, nested_start, nested_end, ctz);
+            });
+}
+
 Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                   int64_t start, int64_t end,
                                                   const cctz::time_zone& ctz) const {
@@ -444,7 +515,7 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
                                                       packed_nested_size, arena, options));
     // String batches borrow their source bytes, but the packed column is local to this call;
     // keep only those borrowed leaves in the write Arena until Writer::add() consumes them.
-    copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
+    orc_serde_utils::copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
     cur_batch->elements->numElements = packed_nested_size;
 
     cur_batch->numElements = end - start;
@@ -665,6 +736,58 @@ bool DataTypeArraySerDe::write_column_to_hive_text(const IColumn& column, Buffer
     }
     bw.write("]", 1);
     return true;
+}
+
+namespace {
+
+Status decode_list_orc_values(const DataTypeSerDeSPtr& nested_serde, IColumn& nested_column,
+                              const OrcDecodedColumnView& orc_view) {
+    const auto* orc_list = dynamic_cast<const ::orc::ListVectorBatch*>(orc_view.batch);
+    if (orc_list == nullptr) {
+        return Status::InternalError("Unexpected ORC list batch type {}",
+                                     orc_view.batch->toString());
+    }
+    DORIS_CHECK(orc_view.file_type != nullptr);
+    DORIS_CHECK(orc_view.selected_type != nullptr);
+    DORIS_CHECK(orc_view.file_type->getSubtypeCount() == 1);
+    DORIS_CHECK(orc_view.selected_type->getSubtypeCount() == 1);
+    DORIS_CHECK(orc_list->elements != nullptr);
+    const auto* file_element_type = orc_view.file_type->getSubtype(0);
+    const auto* selected_element_type = orc_view.selected_type->getSubtype(0);
+    DORIS_CHECK(file_element_type != nullptr);
+    DORIS_CHECK(selected_element_type != nullptr);
+
+    auto& array_column = assert_cast<ColumnArray&>(nested_column);
+    size_t element_size = 0;
+    std::vector<size_t> element_selection;
+    RETURN_IF_ERROR(orc_serde_utils::append_orc_offsets(
+            array_column.get_offsets(), orc_list->offsets, orc_view.rows, &element_size,
+            orc_view.selected_rows, &element_selection));
+    auto element_column = array_column.get_data_ptr()->assert_mutable();
+    const auto child_rows = orc_view.selected_rows == nullptr
+                                    ? element_size
+                                    : static_cast<size_t>(orc_list->elements->numElements);
+    const auto* child_selection = orc_view.selected_rows == nullptr ? nullptr : &element_selection;
+    auto child_view = orc_serde_utils::make_child_orc_view(
+            orc_view, file_element_type, selected_element_type, orc_list->elements.get(),
+            child_rows, child_selection);
+    RETURN_IF_ERROR(
+            orc_serde_utils::read_orc_child_column(nested_serde, element_column, child_view));
+    array_column.get_data_ptr() = std::move(element_column);
+    return Status::OK();
+}
+
+} // namespace
+
+Status DataTypeArraySerDe::read_column_from_orc(IColumn& column,
+                                                const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == ::orc::TypeKind::LIST);
+    if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
+        return Status::OK();
+    }
+    return decode_list_orc_values(nested_serde, column, view);
 }
 
 } // namespace doris
