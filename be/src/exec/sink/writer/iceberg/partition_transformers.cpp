@@ -46,12 +46,6 @@ const std::chrono::sys_days PartitionColumnTransformUtils::EPOCH = std::chrono::
 std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         const doris::iceberg::PartitionField& field, const DataTypePtr& source_type) {
     auto& transform = field.transform();
-    // Identity/void only carry values; computed binary partition transforms are unsupported.
-    if (source_type->get_primitive_type() == TYPE_VARBINARY && transform != "identity" &&
-        transform != "void") {
-        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                        "VARBINARY partition transform {} is not supported", transform);
-    }
     static const std::regex has_width(R"((\w+)\[(\d+)\])");
     std::smatch width_match;
 
@@ -73,6 +67,10 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
             case TYPE_CHAR:
             case TYPE_STRING: {
                 return std::make_unique<StringTruncatePartitionColumnTransform>(source_type,
+                                                                                parsed_width);
+            }
+            case TYPE_VARBINARY: {
+                return std::make_unique<BinaryTruncatePartitionColumnTransform>(source_type,
                                                                                 parsed_width);
             }
             case TYPE_DECIMALV2: {
@@ -115,6 +113,10 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
             case TYPE_CHAR:
             case TYPE_STRING: {
                 return std::make_unique<StringBucketPartitionColumnTransform>(source_type,
+                                                                              parsed_width);
+            }
+            case TYPE_VARBINARY: {
+                return std::make_unique<BinaryBucketPartitionColumnTransform>(source_type,
                                                                               parsed_width);
             }
             case TYPE_DATEV2: {

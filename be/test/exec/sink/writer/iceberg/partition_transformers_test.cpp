@@ -43,14 +43,100 @@ TEST_F(PartitionTransformersTest, human_hour_floors_negative_ordinals) {
     }
 }
 
-TEST_F(PartitionTransformersTest, binary_computation_transforms_are_not_supported) {
+TEST_F(PartitionTransformersTest, binary_bucket_hashes_raw_bytes) {
     const auto type = std::make_shared<DataTypeVarbinary>();
-    for (const auto& source_type : DataTypes {type, make_nullable(type)}) {
-        for (const auto& transform : {"truncate[1]", "bucket[16]"}) {
-            EXPECT_THROW(
-                    PartitionColumnTransforms::create(
-                            iceberg::PartitionField(1, 1000, "binary_key", transform), source_type),
-                    Exception);
+    const std::vector<std::string> values = {
+            std::string("\xc3\xa9\0\xff", 4), "", "abc", std::string("\0\xff\x80", 3),
+            std::string("\0\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\xff\x80",
+                        18)};
+    // Expected buckets come from Iceberg's Java binary transform, including non-UTF-8 bytes.
+    const std::vector<Int32> expected = {10, 0, 10, 12, 6};
+    for (bool nullable : {false, true}) {
+        for (bool constant : {false, true}) {
+            auto input = type->create_column();
+            for (const auto& value : values) {
+                input->insert_data(value.data(), value.size());
+            }
+            ColumnPtr column = std::move(input);
+            DataTypePtr source_type = type;
+            if (nullable) {
+                auto null_map = ColumnUInt8::create();
+                null_map->get_data().assign({0, 0, 0, 1, 0});
+                column = ColumnNullable::create(column, std::move(null_map));
+                source_type = make_nullable(type);
+            }
+            if (constant) {
+                column = ColumnConst::create(column->clone_resized(1), values.size());
+            }
+            Block block({{column, source_type, "binary_key"}});
+            auto transform = PartitionColumnTransforms::create(
+                    iceberg::PartitionField(1, 1000, "binary_bucket", "bucket[16]"), source_type);
+            auto result = transform->apply(block, 0);
+            EXPECT_EQ(TYPE_INT, result.type->get_primitive_type());
+            EXPECT_EQ(nullable, result.type->is_nullable());
+            ASSERT_EQ(values.size(), result.column->size());
+            const auto& buckets = assert_cast<const ColumnInt32&>(
+                    nullable
+                            ? assert_cast<const ColumnNullable&>(*result.column).get_nested_column()
+                            : *result.column);
+            for (size_t row = 0; row < values.size(); ++row) {
+                EXPECT_EQ(nullable && !constant && row == 3, result.column->is_null_at(row));
+                if (!result.column->is_null_at(row)) {
+                    EXPECT_EQ(expected[constant ? 0 : row], buckets.get_data()[row]);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(PartitionTransformersTest, binary_truncate_counts_bytes_and_preserves_type) {
+    const auto type = std::make_shared<DataTypeVarbinary>();
+    const std::vector<std::string> values = {
+            std::string("\xc3\xa9\0\xff", 4), "", "abc", std::string("\0\xff\x80", 3),
+            std::string("\0\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\xff\x80",
+                        18)};
+    for (bool nullable : {false, true}) {
+        for (bool constant : {false, true}) {
+            for (size_t width : {1, 4, 32}) {
+                auto input = type->create_column();
+                for (const auto& value : values) {
+                    input->insert_data(value.data(), value.size());
+                }
+                ColumnPtr column = std::move(input);
+                DataTypePtr source_type = type;
+                if (nullable) {
+                    auto null_map = ColumnUInt8::create();
+                    null_map->get_data().assign({0, 0, 0, 1, 0});
+                    column = ColumnNullable::create(column, std::move(null_map));
+                    source_type = make_nullable(type);
+                }
+                if (constant) {
+                    column = ColumnConst::create(column->clone_resized(1), values.size());
+                }
+                Block block({{column, source_type, "binary_key"}});
+                auto transform = PartitionColumnTransforms::create(
+                        iceberg::PartitionField(1, 1000, "binary_prefix",
+                                                fmt::format("truncate[{}]", width)),
+                        source_type);
+                auto result = transform->apply(block, 0);
+                ASSERT_TRUE(source_type->equals(*result.type));
+                ASSERT_EQ(values.size(), result.column->size());
+                const auto& nested = nullable ? assert_cast<const ColumnNullable&>(*result.column)
+                                                        .get_nested_column()
+                                              : *result.column;
+                for (size_t row = 0; row < values.size(); ++row) {
+                    EXPECT_EQ(nullable && !constant && row == 3, result.column->is_null_at(row));
+                    if (!result.column->is_null_at(row)) {
+                        EXPECT_EQ(values[constant ? 0 : row].substr(0, width),
+                                  nested.get_data_at(row).to_string());
+                    }
+                }
+                // A byte prefix can end inside UTF-8; the commit transport must remain lossless.
+                if (width == 1) {
+                    EXPECT_EQ("0xc3", transform->get_partition_value(
+                                              result.type, nested.get_data_at(0).to_string()));
+                }
+            }
         }
     }
     IdentityPartitionColumnTransform identity(type);
