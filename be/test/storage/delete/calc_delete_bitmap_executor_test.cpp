@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <chrono>
 #include <future>
 
@@ -29,79 +28,7 @@
 
 namespace doris {
 
-TEST(CalcDeleteBitmapTokenTest, SharedCancellationSkipsQueuedTasks) {
-    SCOPED_INIT_THREAD_CONTEXT();
-    std::unique_ptr<ThreadPool> pool;
-    ASSERT_TRUE(ThreadPoolBuilder("BitmapCancellationTest")
-                        .set_min_threads(1)
-                        .set_max_threads(1)
-                        .build(&pool)
-                        .ok());
-    auto status = std::make_shared<AtomicStatus>();
-    CalcDeleteBitmapToken token(pool->new_token(ThreadPool::ExecutionMode::CONCURRENT), status);
-    CountDownLatch entered(1);
-    CountDownLatch release(1);
-    Defer cleanup {[&] {
-        release.count_down();
-        pool->wait();
-    }};
-    ASSERT_TRUE(pool->submit_func([&] {
-                        entered.count_down();
-                        release.wait();
-                    }).ok());
-    ASSERT_TRUE(entered.wait_for(std::chrono::seconds(10)));
-
-    std::atomic<int> executed = 0;
-    ASSERT_TRUE(token.submit_func([&] {
-                         ++executed;
-                         return Status::OK();
-                     }).ok());
-    // These inputs must never be dereferenced: both typed entry points are queued
-    // behind the barrier and cancelled before execution.
-    ASSERT_TRUE(token.submit(nullptr, nullptr, nullptr, {}, 0, nullptr, nullptr, nullptr).ok());
-    ASSERT_TRUE(token.submit(nullptr, nullptr, RowsetId(), {}, nullptr).ok());
-    const auto reason = Status::Cancelled("load cancelled while bitmap tasks were queued");
-    status->update(reason);
-    // Submission stays lightweight; the execution gate also skips tasks queued after cancel.
-    ASSERT_TRUE(token.submit_func([&] {
-                         ++executed;
-                         return Status::OK();
-                     }).ok());
-    release.count_down();
-    EXPECT_EQ(token.wait().to_string(), reason.to_string());
-    EXPECT_EQ(executed.load(), 0);
-}
-
-TEST(CalcDeleteBitmapTokenTest, SharedCancellationStillWaitsForRunningCallback) {
-    SCOPED_INIT_THREAD_CONTEXT();
-    CalcDeleteBitmapExecutor executor;
-    executor.init("BitmapRunningCancellationTest", 1);
-    auto status = std::make_shared<AtomicStatus>();
-    auto token = executor.create_token(status);
-    CountDownLatch entered(1);
-    CountDownLatch release(1);
-    std::atomic<bool> finished = false;
-    Defer cleanup {[&] {
-        release.count_down();
-        token->cancel();
-    }};
-    ASSERT_TRUE(token->submit_func([&] {
-                         entered.count_down();
-                         release.wait();
-                         finished = true;
-                         return Status::OK();
-                     }).ok());
-    ASSERT_TRUE(entered.wait_for(std::chrono::seconds(10)));
-    status->update(Status::Cancelled("cancel running bitmap task"));
-    auto waiter = std::async(std::launch::async, [&] { return token->wait(); });
-    EXPECT_EQ(waiter.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
-    EXPECT_FALSE(finished.load());
-    release.count_down();
-    EXPECT_TRUE(waiter.get().is<ErrorCode::CANCELLED>());
-    EXPECT_TRUE(finished.load());
-}
-
-TEST(CalcDeleteBitmapTokenTest, TokenWithoutLoadStatusPreservesTaskFailure) {
+TEST(CalcDeleteBitmapTokenTest, PreservesTaskFailure) {
     SCOPED_INIT_THREAD_CONTEXT();
     CalcDeleteBitmapExecutor executor;
     executor.init("BitmapFailureTest", 1);
@@ -112,12 +39,11 @@ TEST(CalcDeleteBitmapTokenTest, TokenWithoutLoadStatusPreservesTaskFailure) {
     EXPECT_EQ(token->submit_func([] { return Status::OK(); }).to_string(), failure.to_string());
 }
 
-TEST(CalcDeleteBitmapTokenTest, DestructionWaitsForRunningCallbackAfterCancellation) {
+TEST(CalcDeleteBitmapTokenTest, DestructionWaitsForRunningCallback) {
     SCOPED_INIT_THREAD_CONTEXT();
     CalcDeleteBitmapExecutor executor;
     executor.init("BitmapDestructionTest", 1);
-    auto status = std::make_shared<AtomicStatus>();
-    auto token = executor.create_token(status);
+    auto token = executor.create_token();
     CountDownLatch entered(1);
     CountDownLatch release(1);
     CountDownLatch destroying(1);
@@ -134,7 +60,6 @@ TEST(CalcDeleteBitmapTokenTest, DestructionWaitsForRunningCallbackAfterCancellat
                          return Status::InternalError("callback failed during destruction");
                      }).ok());
     ASSERT_TRUE(entered.wait_for(std::chrono::seconds(10)));
-    status->update(Status::Cancelled("cancel before releasing the token"));
     auto destructor = std::async(std::launch::async, [&, owned = std::move(token)]() mutable {
         destroying.count_down();
         owned.reset();
