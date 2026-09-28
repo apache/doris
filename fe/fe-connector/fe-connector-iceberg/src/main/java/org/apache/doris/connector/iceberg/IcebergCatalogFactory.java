@@ -429,6 +429,17 @@ public final class IcebergCatalogFactory {
                         "software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider");
             }
             auth.flatMap(GcsAuth::getNativeCredential).ifPresent(credential -> {
+                // HadoopCatalog resolves its namespace filesystem independently of S3FileIO.
+                // Native GCS credentials configure fs.gs.*, so compatibility warehouse schemes
+                // must select that same filesystem before HadoopCatalog initializes.
+                String warehouse = opts.get(CatalogProperties.WAREHOUSE_LOCATION);
+                if (IcebergCatalogProperties.TYPE_HADOOP.equals(flavor) && warehouse != null) {
+                    if (warehouse.regionMatches(true, 0, "s3://", 0, 5)) {
+                        opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(5));
+                    } else if (warehouse.regionMatches(true, 0, "s3a://", 0, 6)) {
+                        opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(6));
+                    }
+                }
                 putS3FileIODialect(opts, storage);
                 opts.put("provider", "GCP");
                 opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());

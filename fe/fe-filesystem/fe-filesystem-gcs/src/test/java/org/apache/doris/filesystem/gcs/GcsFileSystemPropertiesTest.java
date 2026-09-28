@@ -115,6 +115,18 @@ class GcsFileSystemPropertiesTest {
     }
 
     @Test
+    void nativeHadoopUsesConfiguredEndpoint() {
+        for (String endpoint : new String[] {"private-gcs.example.test", "https://private-gcs.example.test",
+                "https://private-gcs.example.test/", "http://localhost:4443"}) {
+            GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                    "gs.endpoint", endpoint, "gs.credential_provider_type", "COMPUTE_ENGINE"));
+            String expected = endpoint.contains("://") ? endpoint : "https://" + endpoint;
+            Assertions.assertEquals(expected.endsWith("/") ? expected : expected + "/",
+                    props.toHadoopConfigurationMap().get("fs.gs.storage.root.url"));
+        }
+    }
+
+    @Test
     void toHadoopConfigurationMap_simpleProviderWithStaticCredentials() {
         Map<String, String> cfg = GcsFileSystemProperties.of(Map.of(
                 "gs.access_key", "ak",

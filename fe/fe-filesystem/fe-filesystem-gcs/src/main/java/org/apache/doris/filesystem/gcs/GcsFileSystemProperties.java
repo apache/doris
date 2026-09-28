@@ -191,6 +191,11 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
         GcpCredential credential = auth.getNativeCredential().get();
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
+        String storageRoot = getEndpoint();
+        if (!storageRoot.contains("://")) {
+            storageRoot = "https://" + storageRoot;
+        }
+        cfg.put("fs.gs.storage.root.url", storageRoot.endsWith("/") ? storageRoot : storageRoot + "/");
         cfg.put("fs.gs.auth.type", credential.getCredentialProviderType() == GcpCredentialProviderType.DEFAULT
                 ? "APPLICATION_DEFAULT" : "COMPUTE_ENGINE");
         cfg.put("fs.gs.auth.impersonation.service.account", credential.getImpersonationServiceAccount());

@@ -23,8 +23,30 @@
 #include <aws/core/http/HttpClientFactory.h>
 #include <aws/core/utils/stream/ResponseStream.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
+#include <aws/s3/model/AbortMultipartUploadRequest.h>
+#include <aws/s3/model/AbortMultipartUploadResult.h>
+#include <aws/s3/model/CompleteMultipartUploadRequest.h>
+#include <aws/s3/model/CompleteMultipartUploadResult.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
+#include <aws/s3/model/CreateMultipartUploadResult.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectResult.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
+#include <aws/s3/model/GetBucketLifecycleConfigurationRequest.h>
+#include <aws/s3/model/GetBucketLifecycleConfigurationResult.h>
+#include <aws/s3/model/GetBucketVersioningRequest.h>
+#include <aws/s3/model/GetBucketVersioningResult.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
+#include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/HeadObjectResult.h>
+#include <aws/s3/model/ListObjectsV2Request.h>
+#include <aws/s3/model/ListObjectsV2Result.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/PutObjectResult.h>
+#include <aws/s3/model/UploadPartRequest.h>
+#include <aws/s3/model/UploadPartResult.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -33,6 +55,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -154,9 +177,12 @@ public:
                           Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true) {}
 
     using GcpS3Client::BuildHttpRequest;
+    using GcpS3Client::authorize_request;
+
+    std::optional<std::string> token = "test-gcp-token";
 
 protected:
-    std::optional<std::string> fetch_token() const override { return "test-gcp-token"; }
+    std::optional<std::string> fetch_token() const override { return token; }
 };
 
 class SyncPointProcessingGuard {
@@ -381,6 +407,7 @@ TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
             Aws::Http::HttpMethod::HTTP_GET,
             Aws::Utils::Stream::DefaultResponseStreamFactoryMethod);
 
+    ASSERT_FALSE(client.authorize_request(request).has_value());
     client.BuildHttpRequest(request, http_request);
     EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
 
@@ -391,6 +418,35 @@ TEST_F(S3ClientFactoryTest, GcpBearerHeaderSurvivesAnonymousAwsSigning) {
             std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>(), "s3", "us-east-1");
     EXPECT_TRUE(signer.SignRequest(*http_request));
     EXPECT_EQ(http_request->GetHeaderValue("Authorization"), "Bearer test-gcp-token");
+}
+
+TEST_F(S3ClientFactoryTest, GcpTokenFailureRejectsEveryObjectStorageOperation) {
+    FixedTokenGcpS3Client client;
+    for (const auto& token : {std::optional<std::string> {}, std::optional<std::string> {""}}) {
+        client.token = token;
+        auto check = [](const auto& outcome) {
+            ASSERT_FALSE(outcome.IsSuccess());
+            EXPECT_EQ(outcome.GetError().GetExceptionName(), "GcpAuthenticationError");
+            EXPECT_EQ(outcome.GetError().GetResponseCode(),
+                      Aws::Http::HttpResponseCode::UNAUTHORIZED);
+            EXPECT_FALSE(outcome.GetError().ShouldRetry());
+            EXPECT_EQ(doris::s3fs_error(outcome.GetError(), "GCS request failed").code,
+                      ObjStorageStatus::PERMISSION_DENIED);
+        };
+        check(client.AbortMultipartUpload(Aws::S3::Model::AbortMultipartUploadRequest {}));
+        check(client.CompleteMultipartUpload(Aws::S3::Model::CompleteMultipartUploadRequest {}));
+        check(client.CreateMultipartUpload(Aws::S3::Model::CreateMultipartUploadRequest {}));
+        check(client.DeleteObject(Aws::S3::Model::DeleteObjectRequest {}));
+        check(client.DeleteObjects(Aws::S3::Model::DeleteObjectsRequest {}));
+        check(client.GetBucketLifecycleConfiguration(
+                Aws::S3::Model::GetBucketLifecycleConfigurationRequest {}));
+        check(client.GetBucketVersioning(Aws::S3::Model::GetBucketVersioningRequest {}));
+        check(client.GetObject(Aws::S3::Model::GetObjectRequest {}));
+        check(client.HeadObject(Aws::S3::Model::HeadObjectRequest {}));
+        check(client.ListObjectsV2(Aws::S3::Model::ListObjectsV2Request {}));
+        check(client.PutObject(Aws::S3::Model::PutObjectRequest {}));
+        check(client.UploadPart(Aws::S3::Model::UploadPartRequest {}));
+    }
 }
 
 TEST_F(S3ClientFactoryTest, UnauthorizedObjectStoreResponseIsPermissionDenied) {

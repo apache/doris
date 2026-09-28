@@ -24,15 +24,18 @@ suite("test_external_catalog_iam") {
         return
     }
 
-    def cases = config.authCases.collect { authCase ->
-        return [
-                name: authCase.name,
-                warehouse: "${config.scheme}://${config.bucket}/${config.prefix}" +
-                        "/test_external_catalog_iam/${authCase.name}",
-                properties: """
-                    ${authCase.storageSqlProperties}
-                """
-        ]
+    def schemes = config.provider == "GCP" ? ["gs", "s3", "s3a"] : [config.scheme]
+    def cases = config.authCases.collectMany { authCase ->
+        schemes.collect { scheme ->
+            return [
+                    name: "${authCase.name}_${scheme}",
+                    warehouse: "${scheme}://${config.bucket}/${config.prefix}" +
+                            "/test_external_catalog_iam/${authCase.name}_${scheme}",
+                    properties: """
+                        ${authCase.storageSqlProperties}
+                    """
+            ]
+        }
     }
 
     cases.eachWithIndex { testCase, index ->

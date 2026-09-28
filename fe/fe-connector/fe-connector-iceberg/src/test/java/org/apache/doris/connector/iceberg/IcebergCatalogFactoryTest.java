@@ -26,6 +26,8 @@ import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.junit.jupiter.api.Assertions;
@@ -1068,6 +1070,23 @@ public class IcebergCatalogFactoryTest {
             }
             Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
                     storage.toHadoopConfigurationMap().get("fs.gs.impl"));
+        }
+    }
+
+    @Test
+    void nativeGcpWarehouseAliasesSelectGoogleHadoopFileSystem() throws Exception {
+        for (String scheme : List.of("gs", "s3", "s3a", "S3A")) {
+            Map<String, String> raw = Map.of("provider", "GCP", "warehouse", scheme + "://bucket/warehouse",
+                    "iceberg.catalog.type", "hadoop", "gs.credential_provider_type", "COMPUTE_ENGINE");
+            GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+            Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                    IcebergCatalogProperties.of(raw), Optional.of(storage));
+            String warehouse = options.get("warehouse");
+            Assertions.assertEquals("gs://bucket/warehouse", warehouse);
+            Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                    storage.toHadoopConfigurationMap());
+            Assertions.assertEquals("com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                    FileSystem.getFileSystemClass(new Path(warehouse).toUri().getScheme(), conf).getName());
         }
     }
 
