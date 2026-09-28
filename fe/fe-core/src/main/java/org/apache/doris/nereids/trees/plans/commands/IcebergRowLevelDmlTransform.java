@@ -83,7 +83,13 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public boolean handles(TableIf table) {
+        // Identity FIRST, capability second: several connectors now declare row-level write
+        // capabilities, so the capability probe alone would let registry order decide which
+        // transform claims a table. The synthesized plan shape is connector-specific (iceberg's
+        // position-delete stream vs paimon's full-row keyed delete), so the claim must be too.
         return table instanceof PluginDrivenExternalTable
+                && "iceberg".equalsIgnoreCase(
+                        ((PluginDrivenExternalTable) table).getCatalog().getType())
                 && pluginConnectorSupportsRowLevelDml((PluginDrivenExternalTable) table);
     }
 
