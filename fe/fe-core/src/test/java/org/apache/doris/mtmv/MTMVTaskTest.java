@@ -852,13 +852,23 @@ public class MTMVTaskTest {
     }
 
     /**
-     * A refresh that rebuilt a partition and then fell back out of the incremental attempt must not plan
-     * to refresh that partition again. The plan is computed from the snapshot the MV holds, which such a
-     * refresh has not published yet, so without the rebuild's own record the partition still looks unsynced
-     * and the fallback replaces the work the rebuild just did.
+     * A refresh that rebuilt a partition and then fell back out of the incremental attempt does not plan to
+     * refresh it again -- unless taking it out would leave the plan short of the whole MV.
+     *
+     * <p>The plan is computed from the snapshot the MV holds, which such a refresh has not published yet, so
+     * without the rebuild's own record the partition still looks unsynced and the fallback replaces the work
+     * the rebuild just did.
+     *
+     * <p>What makes the exception necessary is the read a whole-MV plan gets compared with the one a partial
+     * plan gets. The whole-MV one reads the tables the MV does not partition by through a RESET read: their
+     * current rows, with their stream offsets advanced to the end. The partial one reads them through a
+     * SNAPSHOT read: the image at the offset. Taking partitions out of a whole-MV plan therefore turns the
+     * read for the partitions that remain into the second kind, and leaves the partitions taken out holding
+     * an image the refresh has just moved the offset past -- while it records the current state for all of
+     * them, which is the state in which the skipped partition is wrong and looks up to date.
      */
     @Test
-    public void testFallbackPlanLeavesTheRebuiltPartitionsOut() throws Exception {
+    public void testFallbackPlanLeavesTheRebuiltPartitionsOutOnlyWhileItStaysPartial() throws Exception {
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(
                 Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class),
                 Mockito.nullable(Set.class))).thenReturn(false);
@@ -877,9 +887,21 @@ public class MTMVTaskTest {
         Object plan = Deencapsulation.invoke(task, "planPartitionRefresh",
                 Mockito.mock(MTMVRefreshContext.class), request);
 
+        // Both partitions are unsynced, so the plan is the whole MV: nothing is taken out of it, and the
+        // fallback replaces p1 as well -- through the read that sees the base tables as they are now.
         Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
-        Assertions.assertEquals(Lists.newArrayList(ptwoName),
+        Assertions.assertEquals(Lists.newArrayList(poneName, ptwoName),
                 Deencapsulation.getField(plan, "partitions"));
+
+        // With a partition the plan does not name, the plan it builds is partial to begin with, and the
+        // exclusion keeps it that way: the read the skipped partition would get is the same snapshot read
+        // the rebuild already used, so refreshing it would repeat the work for the same rows.
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName, ptwoName, "p3"));
+        Object partialPlan = Deencapsulation.invoke(task, "planPartitionRefresh",
+                Mockito.mock(MTMVRefreshContext.class), request);
+
+        Assertions.assertEquals(Lists.newArrayList(ptwoName),
+                Deencapsulation.getField(partialPlan, "partitions"));
     }
 
     /**

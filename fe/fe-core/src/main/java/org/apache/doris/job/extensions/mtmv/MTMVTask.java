@@ -696,12 +696,28 @@ public class MTMVTask extends AbstractTask {
      * accumulator holds at this point is exactly those partitions -- the fallback runs after an attempt
      * that committed nothing, and a plan is built before anything is written.
      *
+     * <p>A plan that covers the whole MV is left alone, because for one of those the second read is not the
+     * same read. What a whole-MV plan gets from the executor is a RESET read of the tables the MV does not
+     * partition by: it reads them as they are now, and it advances their stream offsets to the end, which
+     * only a read that saw the whole table may do. Taking partitions out of that plan makes it a partial
+     * one, and a partial read of those tables is a snapshot of the offset instead: it reads them as they
+     * were when the offset was recorded. A partition this task replaced through such a read and is then
+     * skipped is left holding that old image while the refresh replaces the rest with the current one, has
+     * moved the offset past the difference, and records the current state for every partition it planned --
+     * which is a partition that is wrong and looks up to date, and nothing left to repair it.
+     *
+     * <p>Leaving the whole plan alone costs the second read in the case where the earlier phase had itself
+     * planned the whole MV. That phase read through RESET, so the partitions it replaced are current and
+     * skipping them would have been safe; telling the two apart would take remembering, per partition, how
+     * its replacement read, and the price of not remembering is one overwrite.
+     *
      * <p>An explicit partition list is left alone. It is the request itself rather than an inference from
      * the MV's snapshot, and the rebuild phase does not take partitions out of it either: what the request
      * names is refreshed, and at worst it is refreshed twice within one task.
      */
     private List<String> excludingRebuiltPartitions(List<String> plannedPartitions) {
-        if (partitionSnapshots.isEmpty()) {
+        if (partitionSnapshots.isEmpty()
+                || Sets.newHashSet(plannedPartitions).equals(mtmv.getPartitionNames())) {
             return plannedPartitions;
         }
         List<String> remaining = Lists.newArrayListWithCapacity(plannedPartitions.size());
