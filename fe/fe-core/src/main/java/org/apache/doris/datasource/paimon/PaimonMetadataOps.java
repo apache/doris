@@ -408,12 +408,9 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
                     invalidatePaimonCatalogForUnresolvedReplay();
                 }
             } else {
-                // The database itself could not be resolved (for example a mode-2 mapping was lost
-                // before replay). Retire any retained legacy database object first so a same-name
-                // recreation cannot reuse its stale nested table-name cache, then flush the engine
-                // group; a failure in either is best-effort so the drop log is still written.
-                dorisCatalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
-                invalidatePaimonCatalogForUnresolvedReplay();
+                // A cold DB with a retained canonical mapping has a narrow invalidation target.
+                // Only a genuinely lost mapping requires catalog-wide hidden-object retirement.
+                dorisCatalog.invalidateColdDatabaseForReplay(dbName);
             }
         } catch (Exception e) {
             // The remote drop is already committed and ExternalCatalog.dropTable still has to

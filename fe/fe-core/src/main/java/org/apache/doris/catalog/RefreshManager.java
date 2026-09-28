@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -119,11 +120,7 @@ public class RefreshManager {
             }
 
             if (!db.isPresent()) {
-                LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
-                // No canonical identity is available: retire the catalog scope so engine entries and
-                // row counts cannot survive the committed refresh.
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(catalog.getId());
-                invalidatePaimonCatalogForUnresolvedReplay(catalog);
+                invalidateColdReplayDatabase(catalog, log);
             } else {
                 refreshDbInternal(db.get());
             }
@@ -210,11 +207,7 @@ public class RefreshManager {
             }
             // See comment in refreshDbInternal for why db and table may be null.
             if (!db.isPresent()) {
-                LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
-                // No canonical identity is available: retire the catalog scope so engine entries and
-                // row counts cannot survive the committed refresh.
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(catalog.getId());
-                invalidatePaimonCatalogForUnresolvedReplay(catalog);
+                invalidateColdReplayDatabase(catalog, log);
                 return;
             }
             Optional<? extends ExternalTable> table;
@@ -349,6 +342,24 @@ public class RefreshManager {
         if (catalog instanceof PaimonExternalCatalog) {
             Env.getCurrentEnv().getExtMetaCacheMgr()
                     .invalidateCatalogByEngine(catalog.getId(), PaimonExternalMetaCache.ENGINE);
+        }
+    }
+
+    private void invalidateColdReplayDatabase(ExternalCatalog catalog, ExternalObjectLog log) {
+        Optional<Pair<String, Long>> identity = catalog.getDbIdentityForReplay(log.getDbName(), log.getDbId());
+        if (identity.isPresent()) {
+            // The object may be evicted while its canonical name and deterministic ID are still
+            // known. Retire only that database's engine entries and independent row counts.
+            LOG.debug("database object is cold when replaying refresh in catalog {}, db {}",
+                    catalog.getName(), identity.get().first);
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateDb(catalog.getId(), identity.get().second, identity.get().first);
+        } else {
+            // A lost mode-2 mapping cannot identify the database safely; widen the fence.
+            LOG.warn("failed to resolve database identity when replaying refresh: {}",
+                    log.debugForRefreshDb());
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(catalog.getId());
+            invalidatePaimonCatalogForUnresolvedReplay(catalog);
         }
     }
 

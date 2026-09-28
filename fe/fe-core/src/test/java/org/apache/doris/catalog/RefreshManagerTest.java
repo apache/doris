@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -37,6 +38,40 @@ import org.mockito.Mockito;
 import java.util.Optional;
 
 public class RefreshManagerTest {
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testColdKnownDatabaseReplayKeepsUnrelatedHotDatabase() {
+        long catalogId = 81L;
+        long coldDbId = 82L;
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getDbForReplay("cold_db")).thenReturn(Optional.empty());
+        Mockito.when(catalog.getDbIdentityForReplay("cold_db", 0L))
+                .thenReturn(Optional.of(Pair.of("CanonicalDb", coldDbId)));
+        ExternalDatabase<?> hotDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("hot_db"))
+                .thenReturn((Optional) Optional.of(hotDb));
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(catalogId);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            new RefreshManager().replayRefreshDb(
+                    ExternalObjectLog.createForRefreshDb(catalogId, "cold_db"));
+            new RefreshManager().replayRefreshTable(
+                    ExternalObjectLog.createForRefreshTable(catalogId, "cold_db", "tbl", 1L));
+        }
+
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateDb(catalogId, coldDbId, "CanonicalDb");
+        Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
+        Mockito.verify(hotDb, Mockito.never()).resetMetaToUninitialized();
+    }
 
     @Test
     void testColdDatabaseReplayInvalidatesCatalogRowCount() {

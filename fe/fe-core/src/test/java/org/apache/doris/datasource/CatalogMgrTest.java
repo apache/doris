@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -68,6 +69,48 @@ public class CatalogMgrTest {
 
         catalog.handleDatabaseMetaCacheRemoval(Optional.of(db), RemovalCause.EXPLICIT);
         Mockito.verify(db).resetMetaToUninitialized(true, true);
+    }
+
+    @Test
+    void testReplayDatabaseIdentitySurvivesObjectEviction() throws Exception {
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(83L,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+        mappingField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
+        mapping.put("mixeddb", "MixedDb");
+
+        Assertions.assertEquals(Pair.of("MixedDb", Util.genIdByName("testing_catalog", "MixedDb")),
+                catalog.getDbIdentityForReplay("mixeddb", 0L).orElseThrow(AssertionError::new));
+        Mockito.verify(metaCache, Mockito.never()).getMetaObj(Mockito.anyString(), Mockito.anyLong());
+        Mockito.when(metaCache.getNameByIdIfPresent(84L)).thenReturn(Optional.of("MixedDb"));
+        Assertions.assertEquals(Pair.of("MixedDb", 84L),
+                catalog.getDbIdentityForReplay(null, 84L).orElseThrow(AssertionError::new));
+    }
+
+    @Test
+    void testColdKnownDropInvalidatesOnlyItsDatabase() {
+        long catalogId = 85L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId);
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.invalidateColdDatabaseForReplay("cold_db");
+        }
+
+        Mockito.verify(cacheMgr).invalidateDb(catalogId,
+                Util.genIdByName("testing_catalog", "cold_db"), "cold_db");
+        Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
     }
 
     private static void addCatalog(CatalogMgr catalogMgr, ExternalCatalog catalog) throws Exception {

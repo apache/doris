@@ -324,9 +324,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
         } else {
-            // A mode-2 mapping can disappear while the canonical database object stays resident, so
-            // an empty lookup may still hide stale database/table objects, engine entries, and counts.
-            catalog.retireUnresolvedDatabaseGeneration();
+            // A cold object can retain a known canonical name; only a lost mode-2 mapping needs
+            // catalog-wide retirement of hidden objects and engine entries.
+            catalog.invalidateColdDatabaseForReplay(dbName);
         }
         LOG.info("after drop table {}.{}.{}, is db exists: {}",
                 getCatalog().getName(), dbName, tblName, db.isPresent());

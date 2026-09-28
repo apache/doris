@@ -553,6 +553,11 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
+    /** Return the retained canonical name without loading an evicted metadata object. */
+    public Optional<String> getNameByIdIfPresent(long id) {
+        return Optional.ofNullable(withMetaObjLifecycleReadLock(() -> idToName.get(id)));
+    }
+
     public void updateCache(String remoteName, String localName, T obj, long id) {
         updateCache(remoteName, localName, obj, id, namesLoadEpochSupplier.getAsLong());
     }

@@ -967,6 +967,19 @@ public abstract class ExternalCatalog
         return metaCache.tryGetMetaObj(localDbName);
     }
 
+    /** Resolve a replay log's database identity without reloading an evicted database object. */
+    public Optional<Pair<String, Long>> getDbIdentityForReplay(String dbName, long dbId) {
+        if (!isInitialized() || metaCache == null) {
+            return Optional.empty();
+        }
+        if (dbName != null && !dbName.isEmpty()) {
+            String localName = getLocalDatabaseName(dbName, true);
+            return localName == null ? Optional.empty()
+                    : Optional.of(Pair.of(localName, Util.genIdByName(name, localName)));
+        }
+        return metaCache.getNameByIdIfPresent(dbId).map(localName -> Pair.of(localName, dbId));
+    }
+
     /**
      * Build a database instance.
      * If checkExists is true, it will check if the database exists in the remote system.
@@ -1328,6 +1341,23 @@ public abstract class ExternalCatalog
         } catch (Exception e) {
             LOG.warn("Failed to retire unresolved database objects for catalog {}: {}",
                     getName(), e.getMessage(), e);
+        }
+    }
+
+    /** Retire a cold replay database narrowly when its canonical name survived object eviction. */
+    public void invalidateColdDatabaseForReplay(String dbName) {
+        try {
+            Optional<Pair<String, Long>> identity = getDbIdentityForReplay(dbName, 0L);
+            if (identity.isPresent()) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidateDb(getId(), identity.get().second, identity.get().first);
+            } else {
+                retireUnresolvedDatabaseGeneration();
+            }
+        } catch (Exception e) {
+            // The remote DROP is already committed; local cleanup cannot suppress its edit log.
+            LOG.warn("Failed to invalidate cold database {} in catalog {}: {}",
+                    dbName, getName(), e.getMessage(), e);
         }
     }
 
