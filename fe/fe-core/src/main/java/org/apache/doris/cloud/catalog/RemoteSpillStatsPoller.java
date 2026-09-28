@@ -48,20 +48,22 @@ public class RemoteSpillStatsPoller extends MasterDaemon {
 
     private static final int RPC_TIMEOUT_SECOND = 5;
 
-    /** One successful poll: the value and when it was fetched. */
+    /**
+     * One successful poll: the value and when it was fetched, on the monotonic clock so that a wall
+     * clock moved backward cannot keep a stale value fresh.
+     */
     private static final class RemoteSpillStats {
         private final long bytes;
-        private final long fetchTimeMs;
+        private final long fetchTimeNanos;
 
-        private RemoteSpillStats(long bytes, long fetchTimeMs) {
+        private RemoteSpillStats(long bytes, long fetchTimeNanos) {
             this.bytes = bytes;
-            this.fetchTimeMs = fetchTimeMs;
+            this.fetchTimeNanos = fetchTimeNanos;
         }
     }
 
     // Summed over the alive BEs of all clusters. Null until the first successful poll. A BE that is
-    // gone no longer contributes: its leftover objects are removed by its restart or by the
-    // meta-service recycler and are not counted meanwhile.
+    // gone no longer contributes.
     private volatile RemoteSpillStats remoteSpillStats = null;
 
     public RemoteSpillStatsPoller() {
@@ -128,12 +130,12 @@ public class RemoteSpillStatsPoller extends MasterDaemon {
                 return;
             }
         }
-        remoteSpillStats = new RemoteSpillStats(totalBytes, System.currentTimeMillis());
+        remoteSpillStats = new RemoteSpillStats(totalBytes, System.nanoTime());
     }
 
     @VisibleForTesting
-    void setRemoteSpillStatsForTest(long bytes, long fetchTimeMs) {
-        remoteSpillStats = new RemoteSpillStats(bytes, fetchTimeMs);
+    void setRemoteSpillStatsForTest(long bytes, long fetchTimeNanos) {
+        remoteSpillStats = new RemoteSpillStats(bytes, fetchTimeNanos);
     }
 
     /**
@@ -146,7 +148,7 @@ public class RemoteSpillStatsPoller extends MasterDaemon {
         if (stats == null) {
             throw new AnalysisException("spill stats have not been polled from the backends yet");
         }
-        long ageSecond = (System.currentTimeMillis() - stats.fetchTimeMs) / 1000;
+        long ageSecond = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - stats.fetchTimeNanos);
         long maxAgeSecond = maxAgeSecond();
         if (ageSecond > maxAgeSecond) {
             throw new AnalysisException(String.format("spill stats polled from the backends are stale: "

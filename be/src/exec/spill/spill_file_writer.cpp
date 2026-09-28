@@ -75,14 +75,36 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
 }
 
 SpillFileWriter::~SpillFileWriter() {
-    if (_closed) {
+    if (!_closed) {
+        Status st = close();
+        if (!st.ok()) {
+            LOG(WARNING) << "SpillFileWriter::~SpillFileWriter() failed: " << st.to_string()
+                         << ", spill_dir=" << _spill_dir;
+        }
+    }
+    // A failed close() leaves this writer registered; the SpillFile must not reach it anymore.
+    if (auto spill_file = _spill_file_wptr.lock();
+        spill_file && spill_file->_active_writer == this) {
+        spill_file->_active_writer = nullptr;
+    }
+}
+
+void SpillFileWriter::_discard(SpillFile* spill_file) {
+    DCHECK_EQ(spill_file->_active_writer, this);
+    spill_file->_active_writer = nullptr;
+    _closed = true;
+    if (!_file_writer) {
         return;
     }
-    Status st = close();
-    if (!st.ok()) {
-        LOG(WARNING) << "SpillFileWriter::~SpillFileWriter() failed: " << st.to_string()
-                     << ", spill_dir=" << _spill_dir;
-    }
+    // The part is dropped without a footer and without close(): destroying an unclosed
+    // writer waits for its in-flight uploads and publishes nothing, so the ledger below is
+    // complete afterwards and no object can appear after the SpillFile deleted its prefix.
+    std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
+    MultipartUploadId upload = _multipart_upload_id(writer.get());
+    writer.reset();
+    _reconcile_part();
+    _abort_multipart_upload(upload);
+    _advance_part();
 }
 
 Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_file) {
@@ -192,6 +214,20 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
         writer.reset();
     }
 
+    _reconcile_part();
+
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
+        _abort_multipart_upload(upload);
+    } else if (spill_file) {
+        spill_file->add_part(_part_written_bytes);
+    }
+
+    _advance_part();
+    return status;
+}
+
+void SpillFileWriter::_reconcile_part() {
     // Budget: everything the gate took for this part but the upload callback never gave
     // back (buffers that failed before their upload started) is released here. The writer is
     // in its final state at this point, so every callback that will ever fire has fired.
@@ -225,15 +261,9 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
         ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes,
                                                                             data_requests);
     }
+}
 
-    if (!status.ok()) {
-        LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
-        _abort_multipart_upload(upload);
-    } else if (spill_file) {
-        spill_file->add_part(_part_written_bytes);
-    }
-
-    // Advance to next part
+void SpillFileWriter::_advance_part() {
     ++_current_part_index;
     _part_written_blocks = 0;
     _part_written_bytes = 0;
@@ -241,8 +271,6 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     _part_meta.clear();
     _part_ledger.reset();
     _part_stats.reset();
-
-    return status;
 }
 
 SpillFileWriter::MultipartUploadId SpillFileWriter::_multipart_upload_id(io::FileWriter* writer) {

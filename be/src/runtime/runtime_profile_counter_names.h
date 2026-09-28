@@ -100,6 +100,8 @@ inline constexpr char SPILL_WRITE_BLOCK_COUNT[] = "SpillWriteBlockCount";
 inline constexpr char SPILL_WRITE_BLOCK_BYTES[] = "SpillWriteBlockBytes";
 inline constexpr char SPILL_WRITE_ROWS[] = "SpillWriteRows";
 // Remote (object storage) spill write counters. Zero when spill is written to local disks.
+// Request counters count logical requests; retries inside the object storage client are not
+// included.
 inline constexpr char SPILL_REMOTE_WRITE_REQUESTS[] = "SpillRemoteWriteRequests";
 inline constexpr char SPILL_REMOTE_UPLOAD_PART_REQUESTS[] = "SpillRemoteUploadPartRequests";
 inline constexpr char SPILL_REMOTE_UPLOAD_BYTES[] = "SpillRemoteUploadBytes";

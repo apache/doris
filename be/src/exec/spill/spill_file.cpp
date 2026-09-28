@@ -43,6 +43,12 @@ SpillFile::~SpillFile() {
 }
 
 void SpillFile::gc() {
+    // The writer may outlive this file (e.g. when an error unwinds the file's owner first).
+    // Drop its unfinished part now: closing it later would charge a footer to no owner and
+    // could publish an object after the prefix below was deleted.
+    if (_active_writer != nullptr) {
+        _active_writer->_discard(this);
+    }
     const int64_t written_bytes = std::exchange(_total_written_bytes, 0);
     if (!_dir_created) {
         _data_dir->release(written_bytes);

@@ -25,6 +25,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.TimeUnit;
+
 public class RemoteSpillStatsPollerTest {
     private int savedMaxAge;
     private int savedPollInterval;
@@ -53,17 +55,17 @@ public class RemoteSpillStatsPollerTest {
     @Test
     public void testRemoteSpillBytesFresh() throws AnalysisException {
         RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
-        poller.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis());
+        poller.setRemoteSpillStatsForTest(12345L, System.nanoTime());
         Assertions.assertEquals(12345L, poller.getRemoteSpillBytes());
         // Within the limit: still served.
-        poller.setRemoteSpillStatsForTest(67L, System.currentTimeMillis() - 200_000L);
+        poller.setRemoteSpillStatsForTest(67L, System.nanoTime() - TimeUnit.SECONDS.toNanos(200));
         Assertions.assertEquals(67L, poller.getRemoteSpillBytes());
     }
 
     @Test
     public void testRemoteSpillBytesStale() {
         RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
-        poller.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis() - 301_000L);
+        poller.setRemoteSpillStatsForTest(12345L, System.nanoTime() - TimeUnit.SECONDS.toNanos(301));
         AnalysisException e = Assertions.assertThrows(AnalysisException.class, poller::getRemoteSpillBytes);
         Assertions.assertTrue(e.getMessage().contains("stale"), e.getMessage());
         // The limit is mutable: raising it makes the same value acceptable again.
@@ -78,7 +80,7 @@ public class RemoteSpillStatsPollerTest {
         Config.cloud_spill_stats_poll_interval_second = 600;
         Assertions.assertEquals(1800, RemoteSpillStatsPoller.maxAgeSecond());
         RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
-        poller.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis() - 700_000L);
+        poller.setRemoteSpillStatsForTest(12345L, System.nanoTime() - TimeUnit.SECONDS.toNanos(700));
         Assertions.assertDoesNotThrow(poller::getRemoteSpillBytes);
     }
 }
