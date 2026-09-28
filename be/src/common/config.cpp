@@ -1710,12 +1710,16 @@ DEFINE_String(spill_storage_type, "local");
 DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
     return config == "local" || config == "s3";
 });
+// Empty means the default vault of the instance, resolved when this BE spills for the first
+// time; a later SET DEFAULT STORAGE VAULT applies to spill after the BE restarts.
 DEFINE_String(spill_s3_storage_vault, "");
 DEFINE_mInt64(spill_s3_storage_limit_bytes, "0");
 DEFINE_Validator(spill_s3_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
 DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
 DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
                  [](int64_t config) -> bool { return config > 0; });
+// The footer probe is bounded by it as well; the rest of a block offset array that does not fit
+// in the probe is read whole, like a single block larger than it.
 DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
 DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
 
