@@ -79,6 +79,9 @@ public:
     std::weak_ptr<ScannerDelegate> scanner;
     std::list<std::pair<BlockUPtr, size_t>> cached_blocks;
     bool is_first_schedule = true;
+    // MonotonicNanos() at which the ThreadPool scheduler returned this task to _pending_scanners,
+    // or 0 if it has been pending since the Context was created. Protected by _transfer_lock.
+    int64_t pending_since_ns = 0;
     // Use weak_ptr to avoid circular references and potential memory leaks with SplitRunner.
     // ScannerContext only needs to observe the lifetime of SplitRunner without owning it.
     // When SplitRunner is destroyed, split_runner.lock() will return nullptr, ensuring safe access.
@@ -225,10 +228,11 @@ public:
 
     // Atomically check whether this context can start another scan task, move one task from
     // pending to scheduled, and return it. It is called by the pool worker that will run the task;
-    // `context_queue_wait_ns` is how long that worker's Context runnable waited in the pool queue.
-    // The caller must hold _transfer_lock.
+    // the worker's Context runnable was submitted at `context_submit_time_ns` and started at
+    // `context_start_time_ns` (both MonotonicNanos()). The caller must hold _transfer_lock.
     std::shared_ptr<ScanTask> try_get_next_scan_task(
-            const std::unique_lock<std::mutex>& transfer_lock, int64_t context_queue_wait_ns);
+            const std::unique_lock<std::mutex>& transfer_lock, int64_t context_submit_time_ns,
+            int64_t context_start_time_ns);
 
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners

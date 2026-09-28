@@ -56,6 +56,10 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
         // cleared; fail below instead of waiting for that runnable forever.
         return Status::OK();
     }
+    // The pool budget read by can_admit_scan_task() is shared by every Context. Hold the
+    // scheduler-wide lock from that check through submission, otherwise two Contexts can both see
+    // the last free slot and the loser fails its query on a full pool instead of deferring.
+    std::lock_guard<std::mutex> submit_lock(_submit_lock);
     if (!context_queued && !scanner_ctx->can_admit_scan_task(transfer_lock, false)) {
         // No runnable is needed when the Context has no pending scanner or its concurrency slots
         // are occupied. A completion only wakes the operator; the operator's next consumption in
@@ -69,6 +73,8 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
         return failure;
     }
 
+    DBUG_EXECUTE_IF("ThreadPoolSimplifiedScanScheduler.schedule_scan_task.before_submit",
+                    DBUG_RUN_CALLBACK());
     // ThreadPool::submit_func() may return an error after retaining the runnable. Set the marker
     // before submission so either outcome is safe: a retained callback clears it, while a truly
     // rejected callback leaves a terminal Context that no longer needs rescheduling.
@@ -91,7 +97,7 @@ Status ThreadPoolSimplifiedScanScheduler::schedule_scan_task(
 
 void ThreadPoolSimplifiedScanScheduler::_run_context(std::shared_ptr<ScannerContext> scanner_ctx,
                                                      int64_t submit_time_ns) {
-    const int64_t context_queue_wait_ns = MonotonicNanos() - submit_time_ns;
+    const int64_t start_time_ns = MonotonicNanos();
     std::shared_ptr<ScanTask> scan_task;
     Status admission_status = [&]() -> Status {
         std::unique_lock<std::mutex> transfer_lock(scanner_ctx->transfer_lock());
@@ -111,8 +117,8 @@ void ThreadPoolSimplifiedScanScheduler::_run_context(std::shared_ptr<ScannerCont
             RETURN_IF_CATCH_EXCEPTION({
                 // Admission checks cached results, scheduled tasks, and pool slack while holding
                 // transfer_lock.
-                scan_task =
-                        scanner_ctx->try_get_next_scan_task(transfer_lock, context_queue_wait_ns);
+                scan_task = scanner_ctx->try_get_next_scan_task(transfer_lock, submit_time_ns,
+                                                                start_time_ns);
                 if (scan_task != nullptr) {
                     DBUG_EXECUTE_IF("ThreadPoolSimplifiedScanScheduler._run_context.inject_failure",
                                     {

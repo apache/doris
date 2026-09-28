@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
@@ -252,6 +253,9 @@ private:
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
     std::string _workload_group;
+    // Serializes the scheduler-wide budget check and the Context submission across Contexts.
+    // Acquired while holding a Context's _transfer_lock; never the other way around.
+    std::mutex _submit_lock;
 };
 
 class TaskExecutorSimplifiedScanScheduler final : public ScannerScheduler {

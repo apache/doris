@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 #include <zconf.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <ctime>
 #include <memory>
@@ -492,6 +493,7 @@ void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
     DORIS_CHECK(scan_task != nullptr);
     DORIS_CHECK(scan_task->cached_blocks.empty());
     DORIS_CHECK(!scan_task->is_eos());
+    scan_task->pending_since_ns = MonotonicNanos();
     _pending_scanners.push(std::move(scan_task));
 }
 
@@ -525,9 +527,13 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
     // _transfer_lock exactly as the TaskExecutor path reads them. A worker admitting the task it
     // runs itself is already counted as active; like the task _get_margin() is about to submit, it
     // must not count against the budget, otherwise the pool would stop one slot short of it.
-    const int32_t busy_scan_slots = _scanner_scheduler->get_active_threads() +
-                                    _scanner_scheduler->get_queue_size() -
-                                    (admitting_on_worker ? 1 : 0);
+    // The two counters are read under separate pool locks, and a worker moves a task from queued
+    // to active atomically. Reading the queue first makes a concurrent dequeue count that task
+    // twice rather than not at all, so a torn read defers instead of overbooking the last slot.
+    const int32_t queued_scan_tasks = _scanner_scheduler->get_queue_size();
+    const int32_t active_scan_threads = _scanner_scheduler->get_active_threads();
+    const int32_t busy_scan_slots =
+            active_scan_threads + queued_scan_tasks - (admitting_on_worker ? 1 : 0);
     if (busy_scan_slots < _min_scan_concurrency_of_scan_scheduler) {
         return true;
     }
@@ -537,7 +543,8 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
 }
 
 std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
-        const std::unique_lock<std::mutex>& transfer_lock, int64_t context_queue_wait_ns) {
+        const std::unique_lock<std::mutex>& transfer_lock, int64_t context_submit_time_ns,
+        int64_t context_start_time_ns) {
     if (!can_admit_scan_task(transfer_lock, true)) {
         VLOG_DEBUG << fmt::format(
                 "[{}|{}] refuse admission, pending: {}, task queue: {}, scheduled: {}, done: {}",
@@ -553,10 +560,14 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
     // ThreadPool admission bypasses ScannerScheduler::submit(); restart the per-scanner wait
     // timer here so it measures admission-to-execution instead of everything since the previous
     // attempt paused, which would include time the cached blocks waited for the operator. The
-    // Context runnable waited for a worker on behalf of this scanner, so credit that wait too.
+    // Context runnable waited for a worker on behalf of this scanner only while the scanner was
+    // pending: with LIFO re-admission the runnable may have been queued before the scanner's
+    // previous attempt ran, so do not credit the part of the runnable's wait before it was pending.
     if (auto scanner_delegate = scan_task->scanner.lock()) {
         scanner_delegate->_scanner->start_wait_worker_timer();
-        scanner_delegate->_scanner->add_wait_worker_time(context_queue_wait_ns);
+        const int64_t wait_start_ns = std::max(context_submit_time_ns, scan_task->pending_since_ns);
+        scanner_delegate->_scanner->add_wait_worker_time(
+                std::max<int64_t>(0, context_start_time_ns - wait_start_ns));
     }
     ++_num_scheduled_scanners;
     VLOG_DEBUG << fmt::format("[{}|{}] admit scanner, pending: {}, task queue: {}, scheduled: {}",
