@@ -35,9 +35,6 @@ curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 TP_CXX_STANDARD=20
 
-# Repository-owned helpers; never source scripts from dependency archives.
-. "${curdir}/rust-build-utils.sh"
-
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
@@ -2179,8 +2176,6 @@ build_lance_c() {
         exit 1
     fi
 
-    check_rust_toolchain_identity lance_c "${cargo_bin}" "${cargo_env[@]}"
-
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
@@ -2194,8 +2189,11 @@ build_lance_c() {
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
-    install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+    cp -v "${BUILD_DIR}/release/liblance_c.a" "${TP_INSTALL_DIR}/lib64/"
 
+    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
+    fi
 }
 
 # paimon-rust
@@ -2242,7 +2240,8 @@ build_paimon_rust() {
     # resolves both crates' std references against a single std copy. Mixing
     # toolchains makes the precompiled std hashes differ and the linker pulls
     # both std copies in, colliding on the unmangled `rust_eh_personality`
-    # (duplicate symbol). Build lance_c and paimon_rust with one toolchain.
+    # (duplicate symbol). Rebuild both lance_c and paimon_rust whenever the
+    # toolchain changes, using the same RUSTUP_TOOLCHAIN for both builds.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
             split(actual, a, ".");
@@ -2260,8 +2259,6 @@ build_paimon_rust() {
         echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-
-    check_rust_toolchain_identity paimon_rust "${cargo_bin}" "${cargo_env[@]}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
@@ -2318,8 +2315,11 @@ EOF
     rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
     mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
     cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
-    install_rust_archive "${BUILD_DIR}/release/libpaimon_c.a"
+    cp -v "${BUILD_DIR}/release/libpaimon_c.a" "${TP_INSTALL_DIR}/lib64/"
 
+    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
+    fi
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2529,76 +2529,23 @@ cleanup_package_source() {
     fi
 }
 
-# The packages this invocation will actually build: with --continue the
-# `packages` list is still the full default one and the build loop skips
-# everything before ${start_package}, so decisions made by scanning
-# `packages` would describe builds that never run. Resolve the effective
-# suffix once and use it for both the Rust cleanup decision below and the
-# build loop, so the two can never disagree.
-build_packages=()
-if [[ "${CONTINUE}" -eq 0 ]]; then
-    build_packages=("${packages[@]}")
-else
-    suffix_found=0
-    for package in "${packages[@]}"; do
-        if [[ "${package}" == "${start_package}" ]]; then
-            suffix_found=1
-        fi
-        if [[ "${suffix_found}" -eq 1 ]]; then
-            build_packages+=("${package}")
-        fi
-    done
-    if [[ "${suffix_found}" -eq 0 ]]; then
-        echo "Warning: --continue package '${start_package}' not found in the package list; nothing to build"
+for package in "${packages[@]}"; do
+    if [[ "${package}" == "${start_package}" ]]; then
+        PACKAGE_FOUND=1
     fi
-fi
-
-# A toolchain change requires rebuilding both Rust archives. Only clear the
-# old pair when both packages are in the effective --continue suffix; otherwise
-# a partial rebuild could silently mix Rust standard libraries or remove an
-# archive that the remaining build will never replace. Failed paired rebuilds
-# leave a missing library, which is recoverable by rerunning the paired build.
-rust_rebuild_lance=0
-rust_rebuild_paimon=0
-for package in "${build_packages[@]}"; do
-    case "${package}" in
-        lance_c) rust_rebuild_lance=1 ;;
-        paimon_rust) rust_rebuild_paimon=1 ;;
-    esac
-done
-if [[ "${rust_rebuild_lance}" -eq 1 && "${rust_rebuild_paimon}" -eq 1 ]]; then
-    if [[ -f "${TP_INSTALL_DIR}/.doris-rust-toolchain-id" ]] \
-        || [[ -f "${TP_INSTALL_DIR}/lib64/liblance_c.a" ]] \
-        || [[ -f "${TP_INSTALL_DIR}/lib64/libpaimon_c.a" ]] \
-        || [[ -f "${TP_INSTALL_DIR}/lib64/liblance_c.a.rust-id" ]] \
-        || [[ -f "${TP_INSTALL_DIR}/lib64/libpaimon_c.a.rust-id" ]]; then
-        echo "All-Rust rebuild (lance_c + paimon_rust): removing the installed"
-        echo "Rust archives and their identity records so the new pair is"
-        echo "built with one toolchain from a clean slate:"
-        rm -f "${TP_INSTALL_DIR}/.doris-rust-toolchain-id" \
-            "${TP_INSTALL_DIR}/.doris-rust-toolchain-id.tmp" \
-            "${TP_INSTALL_DIR}/lib64/liblance_c.a" \
-            "${TP_INSTALL_DIR}/lib64/libpaimon_c.a" \
-            "${TP_INSTALL_DIR}/lib64/liblance_c.a.rust-id" \
-            "${TP_INSTALL_DIR}/lib64/libpaimon_c.a.rust-id"
+    if [[ "${CONTINUE}" -eq 0 ]] || [[ "${PACKAGE_FOUND}" -eq 1 ]]; then
+        command="build_${package}"
+        # Isolate each package from environment and working-directory changes
+        # made by its build function or by a sourced upstream script.
+        (
+            "${command}"
+        )
+        cd "${TP_DIR}"
+        cleanup_package_source "${package}"
+        echo "debug after clean: ${package}"
+        df -h
+        du -sh "${TP_DIR}"
     fi
-fi
-
-# build_packages already carries the --continue suffix filter (see its
-# computation above), so the loop builds exactly the packages the Rust
-# cleanup decision described.
-for package in "${build_packages[@]}"; do
-    command="build_${package}"
-    # Isolate each package from environment and working-directory changes
-    # made by its build function or by a sourced upstream script.
-    (
-        "${command}"
-    )
-    cd "${TP_DIR}"
-    cleanup_package_source "${package}"
-    echo "debug after clean: ${package}"
-    df -h
-    du -sh "${TP_DIR}"
 done
 
 echo "Finished to build all thirdparties"
