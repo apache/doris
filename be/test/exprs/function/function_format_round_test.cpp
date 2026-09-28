@@ -50,16 +50,16 @@ TEST(FormatRoundTest, decimal_padding) {
 TEST(FormatRoundTest, decimal64_rounding) {
     const InputTypeSet arguments = {{TYPE_DECIMAL64, 17, 18}, TYPE_INT};
     const DataSet data = {
-            {{Decimal64(112499999999999999), 2}, std::string("1.12")},
-            {{Decimal64(-112499999999999999), 2}, std::string("-1.12")},
-            {{Decimal64(112499999999999999), 10}, std::string("1.1250000000")},
-            {{Decimal64(112345678901234567), 17}, std::string("1.12345678901234567")},
-            {{Decimal64(-112345678901234567), 16}, std::string("-1.1234567890123457")},
-            {{Decimal64(999999999999999999), 16}, std::string("10.0000000000000000")},
-            {{Decimal64(-999999999999999999), 10}, std::string("-10.0000000000")},
-            {{Decimal64(999999999999999999), 0}, std::string("10")},
-            {{Decimal64(-49999999999999999), 0}, std::string("-0")},
-            {{Decimal64(-50000000000000000), 0}, std::string("-1")}};
+            {{Decimal64(int64_t(112499999999999999)), 2}, std::string("1.12")},
+            {{Decimal64(int64_t(-112499999999999999)), 2}, std::string("-1.12")},
+            {{Decimal64(int64_t(112499999999999999)), 10}, std::string("1.1250000000")},
+            {{Decimal64(int64_t(112345678901234567)), 17}, std::string("1.12345678901234567")},
+            {{Decimal64(int64_t(-112345678901234567)), 16}, std::string("-1.1234567890123457")},
+            {{Decimal64(int64_t(999999999999999999)), 16}, std::string("10.0000000000000000")},
+            {{Decimal64(int64_t(-999999999999999999)), 10}, std::string("-10.0000000000")},
+            {{Decimal64(int64_t(999999999999999999)), 0}, std::string("10")},
+            {{Decimal64(int64_t(-49999999999999999)), 0}, std::string("-0")},
+            {{Decimal64(int64_t(-50000000000000000)), 0}, std::string("-1")}};
     check_function_all_arg_comb<DataTypeString, true>("format_round", arguments, data);
 }
 
@@ -149,7 +149,7 @@ TEST(FormatRoundTest, money_format_high_scale) {
             {{{Decimal32(112499999)}, std::string("1.12")}});
     check_function_all_arg_comb<DataTypeString, true>(
             "money_format", {{TYPE_DECIMAL64, 17, 18}},
-            {{{Decimal64(112499999999999999)}, std::string("1.12")}});
+            {{{Decimal64(int64_t(112499999999999999))}, std::string("1.12")}});
     const Int128 value =
             common::exp10_i128(37) + common::exp10_i128(36) + common::exp10_i128(34) * 25 - 1;
     check_function_all_arg_comb<DataTypeString, true>(

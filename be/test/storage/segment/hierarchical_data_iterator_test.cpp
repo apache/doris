@@ -118,7 +118,11 @@ public:
             return Status::InvalidArgument("JSONB destination is not a string column");
         }
 
-        const size_t produced = std::min(*rows, kRows - _state->current_ordinal);
+        // kRows is size_t while current_ordinal is ordinal_t (uint64_t); on platforms where
+        // those are distinct types std::min cannot deduce a common argument type, so narrow
+        // the remaining row count first.
+        const size_t available = kRows - _state->current_ordinal;
+        const size_t produced = std::min(*rows, available);
         auto serde = std::make_shared<DataTypeJsonb>()->get_serde();
         DataTypeSerDe::FormatOptions options;
         for (size_t row = 0; row < produced; ++row) {
@@ -166,7 +170,9 @@ public:
             return Status::InvalidArgument("sparse destination is not a map");
         }
 
-        const size_t produced = std::min(*rows, kRows - _state->current_ordinal);
+        // Same as above: keep the min() arguments a single type.
+        const size_t available = kRows - _state->current_ordinal;
+        const size_t produced = std::min(*rows, available);
         auto& keys = assert_cast<ColumnString&>(map->get_keys());
         auto& values = assert_cast<ColumnString&>(map->get_values());
         auto& offsets = map->get_offsets();
@@ -221,7 +227,8 @@ public:
             return Status::InvalidArgument("JSONB sparse destination is not a map");
         }
 
-        const size_t produced = std::min(*rows, kRows - _current_ordinal);
+        const size_t available = kRows - _current_ordinal;
+        const size_t produced = std::min(*rows, available);
         auto& keys = assert_cast<ColumnString&>(map->get_keys());
         auto& values = assert_cast<ColumnString&>(map->get_values());
         auto& offsets = map->get_offsets();
