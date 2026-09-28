@@ -44,6 +44,7 @@
 #include "exprs/function/scalar_leaf_compiler.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -3255,6 +3256,28 @@ TEST_F(FunctionSearchTest, TestSniiNativeJoinedAndKeepsReaderScores) {
     EXPECT_FLOAT_EQ(1.25F, collected[2]);
 }
 
+// An unscored compile hides the similarity from the SNII reader, so a tree whose scores are
+// discarded, such as a nested search, does not have its leaves scored.
+TEST_F(FunctionSearchTest, TestUnscoredCompileHidesTheSimilarityFromSniiLeaves) {
+    SniiScoringFixture fixture(58, 4);
+    fixture.reader->set_query_result("alpha", make_bitmap({1, 2}));
+    fixture.reader->set_query_scores("alpha", {{1, 3.5F}, {2, 1.25F}});
+
+    inverted_index::query_v2::QueryPtr query;
+    std::string binding_key;
+    auto status = function_search->build_query_recursive(
+            make_leaf_clause("TERM", "alpha"), fixture.context, *fixture.resolver, &query,
+            &binding_key, "OR", 0, fixture.num_rows, /*scoring=*/false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_FALSE(fixture.reader->last_query_scored);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(fixture.exec_context(), binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1, 2});
+}
+
 // The DSL cache answers a SEARCH whose fields SNII serves, as it does for CLucene fields.
 TEST_F(FunctionSearchTest, TestSearchDslCacheServesSniiNativeExecution) {
     ScopedInvertedIndexQueryCache cache_guard;
@@ -3301,8 +3324,8 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {
             20, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>(
             InvertedIndexStorageFormatPB::V2, "/tmp/search_scoring_v2_idx");
-    auto reader = std::make_shared<DummyInvertedIndexReader>(
-            &index_meta, index_file_reader, segment_v2::InvertedIndexReaderType::FULLTEXT);
+    // A CLucene reader, so the resolver opens the index the way MATCH does.
+    auto reader = segment_v2::FullTextIndexReader::create_shared(&index_meta, index_file_reader);
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -3325,6 +3348,13 @@ TEST_F(FunctionSearchTest, TestSearchDslCacheIsDisabledWhenScoring) {
 
     auto scoring_context = std::make_shared<IndexQueryContext>();
     scoring_context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
+    TQueryOptions query_options;
+    query_options.enable_inverted_index_searcher_cache = false;
+    runtime_state.set_query_options(query_options);
+    scoring_context->runtime_state = &runtime_state;
+    scoring_context->stats = &stats;
     InvertedIndexResultBitmap result;
     std::unordered_map<std::string, int> field_name_to_column_id;
     auto status = function_search->evaluate_inverted_index_with_search_param(

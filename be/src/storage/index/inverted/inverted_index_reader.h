@@ -428,6 +428,10 @@ class CluceneTextIndexReader : public TextIndexReader {
 public:
     using TextIndexReader::TextIndexReader;
 
+    // Opens the index's full-text searcher through the searcher cache; `handle` keeps it alive.
+    Status open_searcher(const IndexQueryContextPtr& context, InvertedIndexCacheHandle* handle,
+                         FulltextIndexSearcherPtr* searcher);
+
 protected:
     Status _open_index(const IndexQueryContextPtr& context,
                        std::unique_ptr<OpenedIndex>* out) override;

@@ -175,7 +175,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
     sql """ set enable_inverted_index_query_cache = false """
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("FieldReaderResolver.resolve.io_ctx")
+        GetDebugPoint().enableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
 
         // First query: cache miss, debug point validates io_ctx consistency
         qt_io_ctx_miss """ SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
@@ -190,7 +190,7 @@ suite("test_search_inverted_index_profile", "nonConcurrent") {
         qt_io_ctx_multi """ SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */
             id FROM ${tableName} WHERE search('content:tropical OR content:fruit') ORDER BY id """
     } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("FieldReaderResolver.resolve.io_ctx")
+        GetDebugPoint().disableDebugPointForAllBEs("InvertedIndexReader.handle_searcher_cache.io_ctx")
     }
 
     // =========================================================================

@@ -875,20 +875,27 @@ struct CluceneOpenedIndex : OpenedIndex {
 
 } // namespace
 
-Status CluceneTextIndexReader::_open_index(const IndexQueryContextPtr& context,
-                                           std::unique_ptr<OpenedIndex>* out) {
-    auto opened = std::make_unique<CluceneOpenedIndex>();
+Status CluceneTextIndexReader::open_searcher(const IndexQueryContextPtr& context,
+                                             InvertedIndexCacheHandle* handle,
+                                             FulltextIndexSearcherPtr* searcher) {
     try {
-        RETURN_IF_ERROR(handle_searcher_cache(context, &opened->handle));
+        RETURN_IF_ERROR(handle_searcher_cache(context, handle));
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());
     }
-    auto searcher = opened->handle.get_index_searcher();
-    auto* fulltext = std::get_if<FulltextIndexSearcherPtr>(&searcher);
+    auto variant = handle->get_index_searcher();
+    auto* fulltext = std::get_if<FulltextIndexSearcherPtr>(&variant);
     // A text index always builds a full-text searcher.
     DORIS_CHECK(fulltext != nullptr);
-    opened->searcher = *fulltext;
+    *searcher = *fulltext;
+    return Status::OK();
+}
+
+Status CluceneTextIndexReader::_open_index(const IndexQueryContextPtr& context,
+                                           std::unique_ptr<OpenedIndex>* out) {
+    auto opened = std::make_unique<CluceneOpenedIndex>();
+    RETURN_IF_ERROR(open_searcher(context, &opened->handle, &opened->searcher));
     *out = std::move(opened);
     return Status::OK();
 }
