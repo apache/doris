@@ -557,14 +557,13 @@ std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
     // Thus concurrent Context workers cannot admit the same task or both pass the limit check.
     auto scan_task = _pending_scanners.top();
     _pending_scanners.pop();
-    // ThreadPool admission bypasses ScannerScheduler::submit(); restart the per-scanner wait
-    // timer here so it measures admission-to-execution instead of everything since the previous
-    // attempt paused, which would include time the cached blocks waited for the operator. The
-    // Context runnable waited for a worker on behalf of this scanner only while the scanner was
-    // pending: with LIFO re-admission the runnable may have been queued before the scanner's
-    // previous attempt ran, so do not credit the part of the runnable's wait before it was pending.
+    // ThreadPool admission bypasses ScannerScheduler::submit(), so credit the time the Context
+    // runnable waited for a worker here; the caller restarts the per-scanner wait timer right
+    // before executing the task. The runnable waited on behalf of this scanner only while the
+    // scanner was pending: with LIFO re-admission the runnable may have been queued before the
+    // scanner's previous attempt ran, so do not credit the part of the runnable's wait before it
+    // was pending.
     if (auto scanner_delegate = scan_task->scanner.lock()) {
-        scanner_delegate->_scanner->start_wait_worker_timer();
         const int64_t wait_start_ns = std::max(context_submit_time_ns, scan_task->pending_since_ns);
         scanner_delegate->_scanner->add_wait_worker_time(
                 std::max<int64_t>(0, context_start_time_ns - wait_start_ns));

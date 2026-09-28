@@ -19,6 +19,8 @@
 
 #include "common/exception.h"
 #include "common/logging.h"
+#include "exec/scan/scan_node.h"
+#include "exec/scan/scanner.h"
 #include "exec/scan/scanner_context.h"
 #include "exec/scan/scanner_scheduler.h"
 #include "runtime/thread_context.h"
@@ -148,6 +150,11 @@ void ThreadPoolSimplifiedScanScheduler::_run_context(std::shared_ptr<ScannerCont
     }
     if (scan_task == nullptr) {
         return;
+    }
+    // The scanner already runs on this worker. Start its wait timer only now so it does not count
+    // the successor submission above, during which the pool may synchronously create a thread.
+    if (auto scanner_delegate = scan_task->scanner.lock()) {
+        scanner_delegate->_scanner->start_wait_worker_timer();
     }
     // The scan runs without transfer_lock so the operator and other Context workers can continue
     // consuming results and admitting work. Completion reacquires the lock before publishing.

@@ -1491,6 +1491,96 @@ TEST_F(ScannerContextTest, thread_pool_context_chain_runs_all_scanners) {
     EXPECT_EQ(peak_running.load(), parallel_tasks);
 }
 
+TEST_F(ScannerContextTest, successor_submission_is_not_scanner_wait_time) {
+    const int parallel_tasks = 2;
+    const int scanner_count = 2;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    olap_scan_local_state->_parent = scan_operator.get();
+    olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+    olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+    RuntimeProfile::HighWaterMarkCounter peak_running_scanner(TUnit::UNIT, 0, "");
+    olap_scan_local_state->_peak_running_scanner = &peak_running_scanner;
+    scan_operator->_should_run_serial = false;
+    TQueryOptions query_options;
+    query_options.__set_max_column_reader_num(0);
+    state->set_query_options(query_options);
+
+    // The scanners never wait for each other: the latch is already open.
+    std::atomic<int> running {0};
+    std::atomic<int> peak_running {0};
+    CountDownLatch overlap(0);
+    std::vector<std::shared_ptr<Scanner>> scanner_ptrs;
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < scanner_count; ++i) {
+        std::shared_ptr<Scanner> scanner = std::make_shared<ChainMockScanner>(
+                state.get(), olap_scan_local_state.get(), profile.get(), 1, &running, &peak_running,
+                &overlap);
+        scanner_ptrs.push_back(scanner);
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    // The worker's task_exec_ctx() must resolve, otherwise _run_context() exits before admission.
+    auto task_execution_context = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_execution_context);
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
+            scanners, -1, scan_dependency, parallel_tasks);
+    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
+    scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
+
+    ThreadPoolSimplifiedScanScheduler scheduler("successor_wait_time_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    scanner_context->_scanner_scheduler = &scheduler;
+    // The pool never reaches this budget, so the runnable submits a successor for the second
+    // pending scanner after admitting the first one.
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+
+    // Make the successor submission from the pool worker slow, as when ThreadPool synchronously
+    // creates a thread. The bootstrap submission from this thread is not delayed.
+    const int64_t submit_delay_ms = 1000;
+    const auto test_thread_id = std::this_thread::get_id();
+    const bool old_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add_with_callback(
+            "ThreadPoolSimplifiedScanScheduler.schedule_scan_task.before_submit",
+            std::function<void()>([&] {
+                if (std::this_thread::get_id() != test_thread_id) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(submit_delay_ms));
+                }
+            }));
+    Defer cleanup_debug_point = [&] {
+        DebugPoints::instance()->remove(
+                "ThreadPoolSimplifiedScanScheduler.schedule_scan_task.before_submit");
+        config::enable_debug_points = old_enable_debug_points;
+    };
+
+    // init() performs the bootstrap submission of the first Context runnable.
+    ASSERT_TRUE(scanner_context->init().ok());
+
+    bool published = false;
+    for (int i = 0; i < 20000; ++i) {
+        std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+        if (scanner_context->_tasks_queue.size() == scanner_count) {
+            published = true;
+            break;
+        }
+        transfer_lock.unlock();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(published) << scanner_context->debug_string();
+
+    // Both scanners ran on a worker right after admission. Neither may be charged the delayed
+    // successor submission as time spent waiting for a worker; charging it would add the whole
+    // delay on top of the runnable's own queue wait, which only covers the worker wake-up.
+    for (const auto& scanner : scanner_ptrs) {
+        EXPECT_LT(scanner->get_scanner_wait_worker_timer(), submit_delay_ms * 1000 * 1000);
+    }
+}
+
 TEST_F(ScannerContextTest, thread_pool_context_runnable_is_deduplicated) {
     const int parallel_tasks = 2;
     auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
