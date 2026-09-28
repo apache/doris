@@ -31,12 +31,15 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * Stateless expression builder shared by aggregate processors.
@@ -52,8 +55,18 @@ public class IvmAggExpressionBuilder {
 
     /** Returns {@code expr} for inserts and {@code -expr} for deletes. */
     Expression signedDeltaValue(Expression expr, Slot dmlFactorSlot) {
-        return new If(new GreaterThan(dmlFactorSlot, new TinyIntLiteral((byte) 0)),
-                expr, new Subtract(zeroOf(expr.getDataType()), expr));
+        return new If(factorPositive(dmlFactorSlot), expr,
+                new Subtract(zeroOf(expr.getDataType()), expr));
+    }
+
+    /** Returns {@code dmlFactorSlot > 0}; selects insert rows of the delta stream. */
+    Expression factorPositive(Slot dmlFactorSlot) {
+        return new GreaterThan(dmlFactorSlot, new TinyIntLiteral((byte) 0));
+    }
+
+    /** Returns {@code dmlFactorSlot < 0}; selects delete rows of the delta stream. */
+    Expression factorNegative(Slot dmlFactorSlot) {
+        return new LessThan(dmlFactorSlot, new TinyIntLiteral((byte) 0));
     }
 
     /** Returns {@code dml_factor} for non-NULL input values and zero for NULL input values. */
@@ -97,6 +110,11 @@ public class IvmAggExpressionBuilder {
     /** Builds a zero literal cast to the requested data type. */
     public Expression zeroOf(DataType dataType) {
         return new TinyIntLiteral((byte) 0).checkedCastTo(dataType);
+    }
+
+    /** Builds a typed empty array literal used to merge possibly-NULL array sides. */
+    public Expression emptyArrayLiteral(DataType arrayDataType) {
+        return new ArrayLiteral(ImmutableList.of(), arrayDataType);
     }
 
     /** Keeps an expression only for inserted rows; deleted rows become NULL and are ignored by MIN/MAX. */

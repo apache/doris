@@ -38,6 +38,7 @@ import org.apache.doris.regression.util.TeamcityUtils
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
 import org.apache.commons.lang3.concurrent.BasicThreadFactory;
+import org.awaitility.Awaitility
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.vmplugin.v8.IndyInterface
 import org.slf4j.LoggerFactory
@@ -162,6 +163,19 @@ class RegressionTest {
 
     static void initGroovyEnv(Config config) {
         log.info("parallel = ${config.parallel}, suiteParallel = ${config.suiteParallel}, actionParallel = ${config.actionParallel}")
+        // Evaluate every Awaitility condition on the thread that awaits it, as Suite.awaitUntil already
+        // does. A suite's connections are ThreadLocal to the thread that opened them (see
+        // SuiteContext.getConnection), so a `sql` inside `Awaitility.await()...until { }` on Awaitility's
+        // own polling thread opened a fresh connection that nothing closed when that thread died with
+        // the await(): one connection leaked on the frontend per await(), held until the client JVM
+        // garbage-collected it, and enough of them at once reach the user's max_user_connections.
+        // Polled on the suite thread, the condition reuses the suite's connection. The trade-off: an
+        // atMost() no longer bounds a condition that blocks - the poll runs to completion before the
+        // bound is checked. A condition that runs statements is bounded by their timeouts (the
+        // frontend's query_timeout, the framework's socketTimeout); a condition that waits on
+        // anything else has to bound that wait itself, as SuiteCluster does for its doris-compose
+        // subprocesses.
+        Awaitility.pollInSameThread()
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((SuiteScript as Class).name)

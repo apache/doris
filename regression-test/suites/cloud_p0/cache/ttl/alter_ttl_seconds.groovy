@@ -139,7 +139,10 @@ suite("test_ttl_seconds") {
 
     load_customer_once("customer_ttl")
     def tabletIds = getTabletIds.call("customer_ttl")
-    waitForFileCacheType.call(tabletIds, "ttl", 15000L, 500L)
+    // No wait for the "ttl" type here. The TTL deadline is the tablet creation time plus
+    // file_cache_ttl_seconds, and with a 5s ttl the load itself outlives it, so most of the
+    // data is written straight into the normal queue and the table never has all of its
+    // blocks in the TTL queue at once.
     sleep(30000) // 30s
     getMetricsMethod.call() {
         respCode, body ->

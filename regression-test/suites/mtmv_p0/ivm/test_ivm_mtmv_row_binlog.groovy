@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ivm_mtmv_row_binlog", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
+suite("test_ivm_mtmv_row_binlog") {
     sql """DROP MATERIALIZED VIEW IF EXISTS test_ivm_mtmv_row_binlog_mv;"""
     sql """DROP TABLE IF EXISTS test_ivm_mtmv_row_binlog_base;"""
 

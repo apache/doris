@@ -23,6 +23,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -131,6 +132,8 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
             RuleType.ELIMINATE_GROUP_BY_KEY,
             RuleType.ELIMINATE_GROUP_BY,
+            // Preserve the join structure used by FK-based MV matching.
+            RuleType.REORDER_JOIN_BEFORE_EAGER_AGG,
             RuleType.SALT_JOIN
     );
     // The rules should be disabled when run MTMV task
@@ -169,6 +172,8 @@ public class MTMVPlanUtil {
      * executing {@link StmtExecutor} through {@code executorConsumer} before the command
      * runs and clearing it (with {@code null}) after the command finishes, so task
      * cancellation can interrupt the running statement.
+     *
+     * <p>The supplied statement context must contain the originating SQL statement.
      */
     public static void executeCommand(ConnectContext ctx, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt,
@@ -177,7 +182,10 @@ public class MTMVPlanUtil {
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
         ctx.getSessionVariable().setEnableDmlMaterializedViewRewrite(false);
-        StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, stmtCtx);
+        adapter.setOrigStmt(Preconditions.checkNotNull(stmtCtx.getOriginStatement(),
+                "MTMV command origin statement must not be null"));
+        StmtExecutor executor = new StmtExecutor(ctx, adapter);
         ctx.setExecutor(executor);
         ctx.setQueryId(AbstractTask.generateQueryId());
         if (executorConsumer != null) {
@@ -625,6 +633,14 @@ public class MTMVPlanUtil {
             properties = CreateTableInfo.addOlapHiddenColumns(
                     columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
                     isIvm, properties, false);
+            // A row-binlog table carries hidden columns on top of the OLAP ones above, added by
+            // InternalCatalog#createOlapTable just before the table is built. The analyzed list has
+            // to carry them too: an MTMV re-validates its schema against it whenever a base table
+            // changes (MTMVPlanUtil#checkColumnIfChange), and a column missing here is
+            // indistinguishable from a real schema change. Idempotent, so the table still gets one.
+            CreateTableInfo.addRowBinlogHiddenColumns(columns,
+                    isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS, isIvm,
+                    BinlogConfig.fromProperties(properties));
             // analyze column
             final boolean finalEnableMergeOnWrite = isIvm;
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -687,7 +703,7 @@ public class MTMVPlanUtil {
             if (col.getType().isVarBinaryType()) {
                 throw new AnalysisException("MTMV do not support varbinary type : " + col.getName());
             }
-            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType);
+            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType, true);
         }
     }
 

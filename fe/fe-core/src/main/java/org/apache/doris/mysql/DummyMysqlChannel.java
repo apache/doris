@@ -28,10 +28,6 @@ import java.nio.ByteBuffer;
  */
 public class DummyMysqlChannel extends MysqlChannel {
 
-    public void setSequenceId(int sequenceId) {
-        this.sequenceId = sequenceId;
-    }
-
     @Override
     public String getRemoteIp() {
         return "";

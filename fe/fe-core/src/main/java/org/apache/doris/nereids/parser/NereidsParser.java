@@ -42,7 +42,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Recognizer;
@@ -143,7 +142,7 @@ public class NereidsParser {
      * for example: select id from tbl return Tokens: ['select', 'id', 'from', 'tbl']
      */
     public static TokenSource scan(String sql) {
-        return new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        return new DorisLexer(CaseInsensitiveStream.fromString(sql));
     }
 
     /**
@@ -363,11 +362,14 @@ public class NereidsParser {
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
+    /** Parse SQL for masking without applying execution hints to the session. */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        // SQL masking must not apply SET_VAR hints to the current session.
+        // The original SQL, including its hints, is preserved by the property replacements.
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
-                getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
+                ImmutableMap.of(), indexInSqlToString);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
@@ -392,7 +394,7 @@ public class NereidsParser {
         while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
             if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
                 String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
-                DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
+                DorisLexer newHintLexer = new DorisLexer(CaseInsensitiveStream.fromString(hintSql));
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);
                 ParserRuleContext hintContext = parseFunction.apply(hintParser);
@@ -477,7 +479,7 @@ public class NereidsParser {
     }
 
     private static CommonTokenStream parseTokens(String sql, boolean leanTokenMode) {
-        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        DorisLexer lexer = new DorisLexer(CaseInsensitiveStream.fromString(sql));
         lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
         lexer.isLeanTokenMode = leanTokenMode;
         CommonTokenStream tokenStream = leanTokenMode

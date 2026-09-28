@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.alter.Alter;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -24,17 +25,29 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 
@@ -402,6 +415,84 @@ public class AlterMTMVTest extends TestWithFeService {
     }
 
     @Test
+    public void testReplayAlterPartitionStates() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_partition_states_test");
+        createTable("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW states_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM states_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_partition_states_test").get()
+                .getTableOrMetaException("states_mv");
+        String partitionName = mtmv.getPartitionNames().iterator().next();
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+
+        // A payload carrying state applies it. The live map keeps moving after the payload was taken,
+        // and for a restart only the bytes in the journal matter, so both are driven here.
+        MTMVPartitionState state = new MTMVPartitionState(0, 1);
+        Map<String, MTMVPartitionState> states = new LinkedHashMap<>();
+        states.put(partitionName, state);
+        AlterMTMV withState = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        withState.setPartitionStates(states);
+        state.setLatestEpoch(7);
+        // The MV starts without any state, so only the replayed payload can put it there.
+        mtmv.alterPartitionStates(Map.of());
+
+        replayFromJournal(withState);
+
+        Map<String, MTMVPartitionState> applied = mtmv.getPartitionStates();
+        Assertions.assertEquals(Set.of(partitionName), applied.keySet());
+        Assertions.assertEquals(0, applied.get(partitionName).getRefreshEpoch());
+        Assertions.assertEquals(1, applied.get(partitionName).getLatestEpoch());
+
+        // An explicit empty map empties the states.
+        AlterMTMV empty = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        empty.setPartitionStates(Map.of());
+        Assertions.assertTrue(new String(journalBytes(empty), StandardCharsets.UTF_8).contains("\"pst\""),
+                "the state member should be written under its serialized name");
+
+        replayFromJournal(empty);
+
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+
+        // A payload written before the member existed leaves the states alone instead of clearing them.
+        mtmv.alterPartitionStates(Map.of(partitionName, new MTMVPartitionState(4, 6)));
+        JsonObject legacy = JsonParser.parseString(GsonUtils.GSON.toJson(withState)).getAsJsonObject();
+        Assertions.assertNotNull(legacy.remove("pst"));
+
+        replayFromJournal(GsonUtils.GSON.fromJson(legacy.toString(), AlterMTMV.class));
+
+        MTMVPartitionState kept = mtmv.getPartitionStates().get(partitionName);
+        Assertions.assertEquals(4, kept.getRefreshEpoch());
+        Assertions.assertEquals(6, kept.getLatestEpoch());
+    }
+
+    /** The bytes the edit log writes for an alter record. */
+    private static byte[] journalBytes(AlterMTMV alter) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            alter.write(out);
+        }
+        return bytes.toByteArray();
+    }
+
+    /** Replays an alter record the way a restart does: from what the journal wrote, not from memory. */
+    private static void replayFromJournal(AlterMTMV alter) throws Exception {
+        AlterMTMV replayed;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(journalBytes(alter)))) {
+            replayed = AlterMTMV.read(in);
+        }
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayed, true);
+    }
+
+    @Test
     public void testCreateIncrementalMtmvAutoCreatesStream() throws Exception {
         createDatabaseAndUse("stream_test");
         createTable("CREATE TABLE stream_test.stream_base (k1 int, v1 int)\n"
@@ -623,5 +714,108 @@ public class AlterMTMVTest extends TestWithFeService {
 
         alterMv("ALTER MATERIALIZED VIEW owner_mv SET ('excluded_trigger_tables' = 'owner_base1')");
         Assertions.assertSame(conflictingStream, db.getTableOrMetaException(streamName));
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerTablesCreateStreamFailureCompensatesAndFails() throws Exception {
+        createDatabaseAndUse("alter_ivm_excl_create_fail_test");
+        createTable("CREATE TABLE excl_fail_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("CREATE TABLE excl_fail_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW excl_create_fail_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',\n"
+                + "   'excluded_trigger_tables' = 'excl_fail_base1, excl_fail_base2')\n"
+                + " AS SELECT k1, v1 FROM excl_fail_base1 UNION ALL SELECT k1, v1 FROM excl_fail_base2");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_excl_create_fail_test");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("excl_create_fail_mv");
+        String stream1 = ivmStreamName(db, mtmv.getId(), "excl_fail_base1");
+        String stream2 = ivmStreamName(db, mtmv.getId(), "excl_fail_base2");
+        Assertions.assertFalse(db.getTable(stream1).isPresent());
+        Assertions.assertFalse(db.getTable(stream2).isPresent());
+
+        boolean originEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            DebugPointUtil.clearDebugPoints();
+            // Allow the first stream create to succeed and fail the second one (the count
+            // makes this independent of the base-table iteration order), so the
+            // compensation must drop the first stream again.
+            DebugPointUtil.addDebugPointWithValue(
+                    Alter.DEBUG_POINT_CREATE_EXCLUDED_STREAM_FAIL, "1");
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> alterMv("ALTER MATERIALIZED VIEW excl_create_fail_mv\n"
+                            + " SET ('excluded_trigger_tables' = '')"));
+            Assertions.assertTrue(exception.getMessage().contains("debug point"),
+                    "unexpected error message: " + exception.getMessage());
+        } finally {
+            DebugPointUtil.clearDebugPoints();
+            Config.enable_debug_points = originEnableDebugPoints;
+        }
+
+        // Compensated: no stream remains and the property still excludes both tables.
+        Assertions.assertFalse(db.getTable(stream1).isPresent(),
+                "compensation must drop the stream created before the failing one");
+        Assertions.assertFalse(db.getTable(stream2).isPresent());
+        Assertions.assertEquals(2, mtmv.getExcludedTriggerTables().size());
+    }
+
+    @Test
+    public void testAlterIvmExcludedTriggerTablesDropStreamFailureIsBestEffort() throws Exception {
+        createDatabaseAndUse("alter_ivm_excl_drop_fail_test");
+        createTable("CREATE TABLE excl_drop_base1 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("CREATE TABLE excl_drop_base2 (k1 int, v1 int) UNIQUE KEY(k1) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
+                + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW excl_drop_fail_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM excl_drop_base1 UNION ALL SELECT k1, v1 FROM excl_drop_base2");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("alter_ivm_excl_drop_fail_test");
+        MTMV mtmv = (MTMV) db.getTableOrMetaException("excl_drop_fail_mv");
+        String stream1 = ivmStreamName(db, mtmv.getId(), "excl_drop_base1");
+        String stream2 = ivmStreamName(db, mtmv.getId(), "excl_drop_base2");
+        Assertions.assertTrue(db.getTable(stream1).isPresent());
+        Assertions.assertTrue(db.getTable(stream2).isPresent());
+
+        boolean originEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            DebugPointUtil.clearDebugPoints();
+            // Both bases join the excluded set; allow one stream drop to succeed and fail
+            // the next one (the count makes this independent of the base-table iteration
+            // order). The property is already applied and the ALTER must still succeed:
+            // exactly one of the two now-unused streams leaks.
+            DebugPointUtil.addDebugPointWithValue(
+                    Alter.DEBUG_POINT_DROP_EXCLUDED_STREAM_FAIL, "1");
+            alterMv("ALTER MATERIALIZED VIEW excl_drop_fail_mv\n"
+                    + " SET ('excluded_trigger_tables' = 'excl_drop_base1, excl_drop_base2')");
+        } finally {
+            DebugPointUtil.clearDebugPoints();
+            Config.enable_debug_points = originEnableDebugPoints;
+        }
+
+        Assertions.assertEquals(2, mtmv.getExcludedTriggerTables().size());
+        boolean stream1Present = db.getTable(stream1).isPresent();
+        boolean stream2Present = db.getTable(stream2).isPresent();
+        Assertions.assertEquals(1, (stream1Present ? 1 : 0) + (stream2Present ? 1 : 0),
+                "exactly one stream drop must have failed and leaked");
     }
 }

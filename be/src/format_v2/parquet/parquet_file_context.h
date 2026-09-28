@@ -82,8 +82,7 @@ namespace detail {
 
 inline constexpr int64_t MAX_SERIALIZED_PARQUET_INDEX_BYTES = 64LL << 20;
 
-Status validate_native_footer_size(uint32_t serialized_size, size_t file_size,
-                                   size_t metadata_size_limit);
+Status validate_native_footer_size(uint32_t serialized_size, size_t file_size);
 
 std::string build_native_file_cache_key(std::string_view fs_name, std::string_view path,
                                         int64_t description_mtime, int64_t reader_mtime,

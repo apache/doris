@@ -1187,7 +1187,6 @@ void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
     _table_id = tablet_schema.table_id();
-    _path_set_info_map = tablet_schema._path_set_info_map;
 }
 
 void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schema) {
@@ -1630,43 +1629,7 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    std::vector<const TabletIndex*> result;
-    if (result = inverted_indexs(col_unique_id, escape_for_path_name(col.suffix_path()));
-        !result.empty()) {
-        return result;
-    }
-    // variant's typed column has it's own index
-    else if (col.is_extracted_column() && col.path_info_ptr()->get_is_typed()) {
-        std::string relative_path = col.path_info_ptr()->copy_pop_front().get_path();
-        if (_path_set_info_map.find(col_unique_id) == _path_set_info_map.end()) {
-            return result;
-        }
-        const auto& path_set_info = _path_set_info_map.at(col_unique_id);
-        if (path_set_info.typed_path_set.find(relative_path) ==
-            path_set_info.typed_path_set.end()) {
-            return result;
-        }
-        for (const auto& index : path_set_info.typed_path_set.at(relative_path).indexes) {
-            result.push_back(index.get());
-        }
-        return result;
-    }
-    // variant's subcolumns has it's own index
-    else if (col.is_extracted_column()) {
-        std::string relative_path = col.path_info_ptr()->copy_pop_front().get_path();
-        if (_path_set_info_map.find(col_unique_id) == _path_set_info_map.end()) {
-            return result;
-        }
-        const auto& path_set_info = _path_set_info_map.at(col_unique_id);
-        if (path_set_info.subcolumn_indexes.find(relative_path) ==
-            path_set_info.subcolumn_indexes.end()) {
-            return result;
-        }
-        for (const auto& index : path_set_info.subcolumn_indexes.at(relative_path)) {
-            result.push_back(index.get());
-        }
-    }
-    return result;
+    return inverted_indexs(col_unique_id, escape_for_path_name(col.suffix_path()));
 }
 
 const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,

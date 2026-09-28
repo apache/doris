@@ -1,0 +1,148 @@
+Subject: [PATCH] Include FTS prefilter metrics and full-snapshot test coverage
+
+Upstream: https://github.com/lance-format/lance/pull/9460
+Commit: f202fe41ac18323ca0cd7bc6efd8fd30b8722116
+
+Backport the applicable review updates from Lance PR #9471 to v11.
+Keep the C API and other dependencies unchanged, and upgrade previously
+patched source caches with the same revision as fresh builds.
+
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -20,10 +20,10 @@
+ [dependencies]
+-lance = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6", features = ["substrait"] }
+-lance-core = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-file = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-index = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-io = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-linalg = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-table = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-datafusion = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6", features = ["substrait"] }
++lance = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116", features = ["substrait"] }
++lance-core = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-file = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-index = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-io = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-linalg = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-table = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-datafusion = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116", features = ["substrait"] }
+ datafusion = { version = "54.0.0", default-features = false }
+@@ -53,5 +53,5 @@
+ [dev-dependencies]
+-lance = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6", features = ["substrait"] }
+-lance-datagen = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
+-lance-file = { git = "https://github.com/lance-format/lance.git", rev = "f75f3343b5e125c42da1bd7acc8d8217cd5660a6" }
++lance = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116", features = ["substrait"] }
++lance-datagen = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
++lance-file = { git = "https://github.com/lance-format/lance.git", rev = "f202fe41ac18323ca0cd7bc6efd8fd30b8722116" }
+ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2608,3 +2608,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -3820,3 +3820,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -3892,3 +3892,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -3914,3 +3914,3 @@
+ version = "58.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -3928,3 +3928,3 @@
+ version = "58.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -3938,3 +3938,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -3984,3 +3984,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4022,3 +4022,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4054,3 +4054,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4072,3 +4072,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4082,3 +4082,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4116,3 +4116,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4148,3 +4148,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4163,3 +4163,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4231,3 +4231,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4254,3 +4254,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4294,3 +4294,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4309,3 +4309,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4336,3 +4336,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4351,3 +4351,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [
+@@ -4390,3 +4390,3 @@
+ version = "11.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=f75f3343b5e125c42da1bd7acc8d8217cd5660a6#f75f3343b5e125c42da1bd7acc8d8217cd5660a6"
++source = "git+https://github.com/lance-format/lance.git?rev=f202fe41ac18323ca0cd7bc6efd8fd30b8722116#f202fe41ac18323ca0cd7bc6efd8fd30b8722116"
+ dependencies = [

@@ -32,6 +32,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/lambda_function/lambda_execution_context.h"
@@ -41,10 +42,11 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vlambda_function_expr.h"
+#include "util/untrusted_comparator_sort.h"
 
 namespace doris {
 
-using ConstColumnVariant =
+using ConstSortableColumn =
         std::variant<const ColumnUInt8*, const ColumnInt8*, const ColumnInt16*, const ColumnInt32*,
                      const ColumnInt64*, const ColumnInt128*, const ColumnFloat32*,
                      const ColumnFloat64*, const ColumnString*, const ColumnVarbinary*,
@@ -85,9 +87,10 @@ public:
         return Status::OK();
     }
 
-    Status execute(VExprContext* context, const Block* block, const Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
-                   const VExprSPtrs& children) const override {
+    Status execute( // NOLINT(readability-function-size)
+            VExprContext* context, const Block* block, const Selector* expr_selector, size_t count,
+            ColumnPtr& result_column, const DataTypePtr& result_type,
+            const VExprSPtrs& children) const override {
         ///* array_sort(lambda, arg) *///
 
         DCHECK_EQ(children.size(), 2);
@@ -125,7 +128,7 @@ public:
                              ->get_primitive_type();
 
         // Get the actual type data based on PrimitiveType.
-        ConstColumnVariant src_data;
+        ConstSortableColumn src_data;
         RETURN_IF_ERROR(
                 get_data_from_type(pType, nested_nullable_column.get_nested_column(), src_data));
 
@@ -202,33 +205,42 @@ public:
                     };
 
                     const int lambda_result_base = static_cast<int>(lambda_block.columns());
+                    // Returns true when element i sorts before element j according to the
+                    // user's lambda.
+                    auto less = [&](size_t i, size_t j) {
+                        prepare_lambda_input(i, 0);
+                        prepare_lambda_input(j, 1);
+                        int lambda_res_id = lambda_result_base;
+                        auto status = children[0]->execute(context, &lambda_block, &lambda_res_id);
+                        if (!status.ok()) [[unlikely]] {
+                            throw Exception(Status::InternalError(
+                                    "when execute array_sort lambda function: {}",
+                                    status.to_string()));
+                        }
+
+                        // raw_res_col maybe columnVector or ColumnConst
+                        ColumnPtr raw_res_col = lambda_block.get_by_position(lambda_res_id).column;
+                        ColumnPtr full_res_col = raw_res_col->convert_to_full_column_if_const();
+
+                        // only -1, 0, 1
+                        long cmp =
+                                assert_cast<const ColumnInt8*>(full_res_col.get())->get_data()[0];
+                        lambda_block.erase_tail(lambda_result_base);
+
+                        return cmp < 0;
+                    };
+
+                    // The comparator is user SQL and may violate strict weak ordering, or
+                    // even be non-deterministic. Standard library sorts rely on the comparator
+                    // contract to keep their accesses in range, so a broken comparator crashes
+                    // BE. sort_with_untrusted_comparator bounds every access by the range
+                    // length; an inconsistent comparator yields an unspecified order instead.
+                    DorisVector<size_t> scratch;
                     for (int row = 0; row < input_rows; ++row) {
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
-                        std::sort(&permutation[start], &permutation[end], [&](size_t i, size_t j) {
-                            prepare_lambda_input(i, 0);
-                            prepare_lambda_input(j, 1);
-                            int lambda_res_id = lambda_result_base;
-                            auto status =
-                                    children[0]->execute(context, &lambda_block, &lambda_res_id);
-                            if (!status.ok()) [[unlikely]] {
-                                throw Exception(Status::InternalError(
-                                        "when execute array_sort lambda function: {}",
-                                        status.to_string()));
-                            }
-
-                            // raw_res_col maybe columnVector or ColumnConst
-                            ColumnPtr raw_res_col =
-                                    lambda_block.get_by_position(lambda_res_id).column;
-                            ColumnPtr full_res_col = raw_res_col->convert_to_full_column_if_const();
-
-                            // only -1, 0, 1
-                            long cmp = assert_cast<const ColumnInt8*>(full_res_col.get())
-                                               ->get_data()[0];
-                            lambda_block.erase_tail(lambda_result_base);
-
-                            return cmp < 0;
-                        });
+                        sort_with_untrusted_comparator(permutation.data() + start,
+                                                       permutation.data() + end, scratch, less);
                     }
                 },
                 src_data);
@@ -396,7 +408,7 @@ private:
         break;
 
     Status get_data_from_type(PrimitiveType pType, const IColumn& column,
-                              ConstColumnVariant& column_variant) const {
+                              ConstSortableColumn& column_variant) const {
         switch (pType) {
             DISPATCH_PRIMITIVE_TYPE(TYPE_BOOLEAN, ColumnUInt8)
             DISPATCH_PRIMITIVE_TYPE(TYPE_TINYINT, ColumnInt8)

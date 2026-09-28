@@ -16,8 +16,6 @@
 // under the License.
 
 suite("variant_parse_functions", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
-    assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     order_qt_valid_json_supported """
         SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
             CAST(parse_to_variant('{"object":{"k":1},"array":[true,null],"text":"v"}')['object']['k'] AS INT),
@@ -114,5 +112,5 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
                 CAST(try_parse_to_variant('{"dup":1,"dup":2}') AS STRING)
         """
     }
-    }
+
 }

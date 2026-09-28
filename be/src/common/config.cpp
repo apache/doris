@@ -24,7 +24,9 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
+#include <atomic>
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -656,6 +658,15 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
+// Dedicated load cancellation workers. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_threads, "32");
+DEFINE_Validator(brpc_load_light_work_pool_threads,
+                 [](const int config) -> bool { return config > 0; });
+// Queue capacity: -1 selects a CPU-scaled default. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_max_queue_size, "-1");
+DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
+                 [](const int config) -> bool { return config == -1 || config > 0; });
+
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
@@ -1081,6 +1092,10 @@ DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 
 // Max size of parquet page header in bytes
 DEFINE_mInt32(parquet_header_max_size_mb, "1");
+// Max size of parquet file metadata in bytes
+DEFINE_mInt64(parquet_metadata_size_limit, "268435456");
+DEFINE_Validator(parquet_metadata_size_limit,
+                 [](const int64_t config) -> bool { return config > 0; });
 // Max buffer size for parquet row group
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
@@ -1316,28 +1331,20 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
+DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
+                 [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
+static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
+    published_inverted_index_candidate_pushdown_ratio.store(value);
+});
+
+double get_inverted_index_candidate_pushdown_ratio() {
+    return published_inverted_index_candidate_pushdown_ratio.load();
+}
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
-
-namespace {
-
-bool valid_common_grams_cost_ratio(int32_t value) {
-    return value >= 0 && value <= 100;
-}
-
-bool valid_common_grams_verify_factor(int32_t value) {
-    return value >= 0;
-}
-
-} // namespace
-
-DEFINE_mBool(enable_common_grams_query_plan, "false");
-DEFINE_mBool(enable_common_grams_index_build, "true");
-DEFINE_mInt32(common_grams_plan_cost_ratio_percent, "85");
-DEFINE_Validator(common_grams_plan_cost_ratio_percent, valid_common_grams_cost_ratio);
-DEFINE_mInt32(common_grams_position_verify_factor, "0");
-DEFINE_Validator(common_grams_position_verify_factor, valid_common_grams_verify_factor);
 
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
@@ -1352,13 +1359,6 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
-// does not reach yet (scoring_query has no production caller), so the default
-// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
-// freq regardless. Applies at segment build (write side only); existing
-// segments keep whatever layout they were written with (self-describing).
-DEFINE_mBool(snii_positions_index_write_freq, "false");
 // G16-h: zstd levels for the SNII dict-block compression and the .prx window
 // auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
 // sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
@@ -1430,6 +1430,11 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DEFINE_mBool(inverted_index_skip_norms_for_variant, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1533,6 +1538,12 @@ DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
+// Remove pre-rowset delete bitmaps in [end_version, end_version] before writing aggregated delete
+// bitmaps. True: point delete; false: range delete.
+DEFINE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys, "true");
+// Remove pre-rowset delete bitmaps in [start_version, end_version). True: point delete; false:
+// range delete.
+DEFINE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
@@ -1692,6 +1703,54 @@ DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
 // in sync with FE Config.trino_connector_plugin_dir: FE and BE load the same plugins and an operator
 // who leaves both untouched expects both to find them.
 DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
+
+// The directory BE loads its Java plugins from. Each subdirectory is one plugin, named by the
+// directory: that name is what BE addresses it by and what appears in "is not deployed".
+// It lives under plugins/ rather than lib/ because lib/ is the engine tree a package upgrade
+// replaces wholesale - a plugin deployed there would not survive one.
+DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
+
+// The hadoop configuration files (core-site.xml, hdfs-site.xml, ...) that Java plugins can read.
+// A plugin's classloader deliberately cannot reach BE's own classpath, and conf/ is on that
+// classpath - so a hadoop Configuration built inside a plugin sees nothing dropped into conf/,
+// which is where it came from before plugins were isolated. This directory is the drop point that
+// replaces it, and it is a directory of its own rather than conf/ so that what BE reads and what
+// plugins read stay two separate lists. FE has always had the same directory for the XML its
+// catalogs name through hadoop.config.resources (FE config hadoop_config_dir).
+//
+// Nothing has to be here: a catalog that carries its hadoop properties explicitly needs no file.
+DEFINE_String(jni_plugin_hadoop_conf_dir, "${DORIS_HOME}/plugins/hadoop_conf");
+
+// Third-party hadoop FileSystem implementations shared by every Java plugin: JindoFS for oss://
+// and oss-hdfs://, JuiceFS for jfs://. One subdirectory per filesystem, each holding its jars.
+//
+// Shared rather than bundled into each plugin because no plugin declares them - hadoop reaches a
+// filesystem by class name out of a Configuration, so nothing links against them - and because
+// the JuiceFS Hadoop SDK is a 180 MB fat jar that would have to be copied into every plugin that
+// might read a table on it. PluginRuntime appends the jars found here to each plugin's own
+// classpath, AFTER the plugin's jars, so a plugin's own hadoop still wins; each plugin loads its
+// own copy in its own classloader, so the isolation is unchanged. This is also the directory
+// bin/start_be.sh puts on the system class path for the native libhdfs reader, which needs the
+// same jars for the same schemes - one copy on disk serves both, and both honour this config:
+// the script reads it out of be.conf by hand (the export loop there only picks up UPPERCASE
+// keys), and JvmLauncher passes it to the JVM as -Ddoris.jni.fs.dir. Every subdirectory holding
+// jars is taken, on both sides.
+//
+// Nothing has to be here: both filesystems are opt-in build flags (DISABLE_BUILD_JINDOFS=OFF,
+// DISABLE_BUILD_JUICEFS=OFF), and a build without them leaves this directory absent.
+DEFINE_String(jni_plugin_fs_dir, "${DORIS_HOME}/plugins/jni_fs");
+
+// Whether to load every deployed plugin at startup rather than on the query that first needs
+// one. Off by default: warming a plugin keeps its whole jar closure open for the life of the
+// process - one classloader per plugin, holding every jar in its directory - which is several
+// hundred file descriptors on a BE that may never read a Java table format at all. That budget
+// is shared with everything else the process opens, and on macOS a descriptor numbered past
+// FD_SETSIZE breaks every libcurl transfer, because curl is built without poll() there and its
+// select() fallback cannot name one. Turning this on buys the opposite trade: a broken
+// deployment is found in the log at startup rather than in a user's query.
+// It is not a reason to create a JVM either way: with no plugin deployed there is nothing to
+// warm, and a BE that reads no Java table format still starts without one.
+DEFINE_Bool(java_plugin_warmup, "false");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -2284,6 +2343,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    published_inverted_index_candidate_pushdown_ratio.store(
+            inverted_index_candidate_pushdown_ratio);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)
@@ -2332,13 +2393,17 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        if (PERSIST) {                                                                             \
+            Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
+            if (!persist_status.ok()) {                                                            \
+                ref_conf_value = old_value;                                                        \
+                return persist_status;                                                             \
+            }                                                                                      \
+        }                                                                                          \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
         if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
             auto callback_it =                                                                     \
@@ -2351,40 +2416,13 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         return Status::OK();                                                                       \
     }
 
-namespace {
-
-// UPDATE_FIELD invokes registered validators before assigning the candidate value. Validate the two
-// mutable planner coefficients explicitly so their startup and runtime constraints stay identical.
-Status validate_common_grams_runtime_config(const std::string& field, const std::string& value) {
-    bool (*validator)(int32_t) = nullptr;
-    if (field == "common_grams_plan_cost_ratio_percent") {
-        validator = valid_common_grams_cost_ratio;
-    } else if (field == "common_grams_position_verify_factor") {
-        validator = valid_common_grams_verify_factor;
-    } else {
-        return Status::OK();
-    }
-
-    int32_t candidate = 0;
-    if (!convert(value, candidate)) {
-        return Status::OK();
-    }
-    if (!validator(candidate)) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed", field,
-                                                                 candidate);
-    }
-    return Status::OK();
-}
-
-} // namespace
-
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
 Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
+    const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
@@ -2408,18 +2446,14 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                 "'{}' is not support to modify", field);
     }
 
-    RETURN_IF_ERROR(validate_common_grams_runtime_config(field, value));
-
+    // Keep the value, config map, and callback in the same update order.
+    std::lock_guard<std::mutex> lock(mutable_string_config_lock);
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
     UPDATE_FIELD(it->second, value, double, need_persist);
-    {
-        // add lock to ensure thread safe
-        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
-        UPDATE_FIELD(it->second, value, std::string, need_persist);
-    }
+    UPDATE_FIELD(it->second, value, std::string, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(

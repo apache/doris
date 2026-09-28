@@ -19,11 +19,17 @@
 // DORIS-PATCH: this file is a verbatim copy of org.apache.hadoop.fs.FileSystem
 // from hadoop-common 3.4.2 (sources jar). This class shadows the vanilla one
 // in BOTH JVMs, always ahead of hadoop-common on the classpath:
-//  - BE: build.sh copies hadoop-deps.jar to be/lib/hadoop_hdfs/, which
-//    bin/start_be.sh adds before be/lib/hadoop_hdfs/lib/*.jar, covering the
-//    whole BE JVM including all JNI scanners.
+//  - BE, system classpath: build.sh copies hadoop-deps.jar to
+//    be/lib/hadoop_hdfs/, which bin/start_be.sh adds before
+//    be/lib/hadoop_hdfs/lib/*.jar. That is what C++ libhdfs runs on.
+//  - BE, Java plugins: a plugin classloader cannot see the system classpath
+//    and bundles its own hadoop-common, so every plugin that does (paimon,
+//    iceberg, hudi) also declares this module and gets this jar in its
+//    plugin directory. The jar's Doris-Shadows-Classes manifest entry
+//    (hadoop-deps/pom.xml) makes PluginRuntime search it before the rest.
 //  - FE: fe-core depends on this module (transitives excluded), so the jar
-//    lands in fe/lib/, and bin/start_fe.sh prepends it explicitly.
+//    lands in fe/lib/, and bin/start_fe.sh prepends it explicitly; plugin
+//    classloaders resolve org.apache.hadoop.* parent-first, so they see it.
 //
 // The only functional change: Cache.Key carries one extra dimension read from
 // the configuration property "doris.fs.cache.key". FE injects a per-catalog /

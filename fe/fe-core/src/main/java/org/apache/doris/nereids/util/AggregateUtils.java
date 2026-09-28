@@ -148,13 +148,13 @@ public class AggregateUtils {
     }
 
     public static boolean containsCountDistinctMultiExpr(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr ->
+        return ExpressionUtils.deepAnyMatch(aggregate.getOutputExpressions(), expr ->
                 expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1);
     }
 
     /** e.g. Aggregation with avg(distinct a)(not support multiDistinct) or count(distinct a,b) will return true*/
     public static boolean containsNotSupportMultiDistinctFunction(LogicalAggregate<? extends Plan> aggregate) {
-        return ExpressionUtils.deapAnyMatch(aggregate.getOutputExpressions(), expr -> {
+        return ExpressionUtils.deepAnyMatch(aggregate.getOutputExpressions(), expr -> {
             if (expr instanceof AggregateFunction && ((AggregateFunction) expr).isDistinct()) {
                 return !(expr instanceof SupportMultiDistinct)
                         || expr instanceof Count && ((Count) expr).isDistinct() && expr.arity() > 1;

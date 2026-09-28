@@ -109,13 +109,13 @@ Status NativeParquetMetadata::init_schema(bool enable_mapping_varbinary,
 
 namespace detail {
 
-Status validate_native_footer_size(uint32_t serialized_size, size_t file_size,
-                                   size_t metadata_size_limit) {
+Status validate_native_footer_size(uint32_t serialized_size, size_t file_size) {
     if (file_size < V2_PARQUET_FOOTER_SIZE ||
         serialized_size > file_size - V2_PARQUET_FOOTER_SIZE) {
         return Status::Corruption("Parquet v2 footer size {} exceeds file size {}", serialized_size,
                                   file_size);
     }
+    const size_t metadata_size_limit = static_cast<size_t>(config::parquet_metadata_size_limit);
     if (serialized_size > metadata_size_limit) {
         return Status::Corruption("Parquet v2 footer size {} exceeds metadata limit {}",
                                   serialized_size, metadata_size_limit);
@@ -224,13 +224,9 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
 
     const uint32_t serialized_size =
             decode_fixed32_le(tail.data() + tail.size() - V2_PARQUET_FOOTER_SIZE);
-    // The configured Thrift message ceiling also bounds this file-controlled allocation. Keep the
-    // check before both allocation and the optional second read so a sparse file cannot force a
-    // process-sized metadata buffer merely by advertising a large footer.
-    const size_t metadata_size_limit =
-            static_cast<size_t>(std::max(config::thrift_max_message_size, 0));
-    RETURN_IF_ERROR(
-            detail::validate_native_footer_size(serialized_size, file_size, metadata_size_limit));
+    // Keep the dedicated metadata limit independent of RPC serialization limits, and enforce it
+    // before allocation so file-controlled footer sizes cannot create unbounded memory pressure.
+    RETURN_IF_ERROR(detail::validate_native_footer_size(serialized_size, file_size));
     std::vector<uint8_t> serialized_metadata(serialized_size);
     if (serialized_size <= tail.size() - V2_PARQUET_FOOTER_SIZE) {
         const auto* metadata_start =

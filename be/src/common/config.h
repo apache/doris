@@ -739,6 +739,12 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
 
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
+
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
@@ -1160,6 +1166,8 @@ DECLARE_mInt32(in_memory_file_size);
 
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
+// Max size of parquet file metadata in bytes
+DECLARE_mInt64(parquet_metadata_size_limit);
 // Max buffer size for parquet row group
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
@@ -1369,18 +1377,19 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
 
-// Process-wide emergency switch for CommonGrams query plans.
-DECLARE_mBool(enable_common_grams_query_plan);
 // Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
 // it affects only writers created after the transition and never changes query/cache semantics.
-DECLARE_mBool(enable_common_grams_index_build);
 // Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
-DECLARE_mInt32(common_grams_plan_cost_ratio_percent);
-DECLARE_mInt32(common_grams_position_verify_factor);
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1393,11 +1402,6 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
-// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
-// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
-// default (false) drops the layout; scoring-config indexes always keep freq.
-// Write-side only; segments are self-describing either way.
-DECLARE_mBool(snii_positions_index_write_freq);
 // G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
 // all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
 // import CPU; see the DEFINEs in config.cpp).
@@ -1470,6 +1474,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1600,6 +1609,8 @@ DECLARE_mBool(enable_mow_get_agg_by_cache);
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+DECLARE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_String(user_files_secure_path);
@@ -1764,6 +1775,11 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
+DECLARE_String(jni_plugin_fs_dir);
+DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);

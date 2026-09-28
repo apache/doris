@@ -144,6 +144,7 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
+    [[nodiscard]] Status _apply_scan_restrictions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
@@ -155,6 +156,10 @@ private:
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+    // Publish _row_bitmap as IndexQueryContext::candidate_rows when it is
+    // below the configured engage ratio; refreshed at conjunct boundaries as
+    // earlier index conjuncts shrink the bitmap. No-op once engaged.
+    void _refresh_candidate_pushdown();
     // G02: true iff answering the single pushed-down MATCH predicate by its
     // match COUNT alone is indistinguishable from the row-accurate bitmap for
     // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,
@@ -189,7 +194,7 @@ private:
 
     void _init_column_states();
     void _rebuild_scan_predicate_states();
-    void _mark_common_expr_states(const VExprSPtr& expr);
+    void _mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated);
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -264,6 +269,9 @@ private:
 
     void _output_index_result_column(const VExprContextSPtrs& expr_ctxs, uint16_t* sel_rowid_idx,
                                      uint16_t select_size);
+
+    // False for MoR and AGG keys: the merge above this iterator needs the real values.
+    bool _keys_type_allows_skipping_data() const;
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, MutableColumnPtr& column, size_t num_of_defaults);
@@ -341,6 +349,13 @@ private:
         // predicates, then only residual predicates after index evaluation.
         bool has_scan_pred = false;
         bool has_common_expr = false;
+        // Set when a pushed-down common expression was generated on BE at runtime
+        // (TopN filter or runtime filter) rather than by the FE planner. FE computes
+        // predicate access paths only from planner-visible predicates, so such an
+        // expression may touch nested fields that are not predicate paths. The column
+        // must then read all of its access paths before filtering instead of splitting
+        // lazy nested-column recovery.
+        bool has_runtime_common_expr = false;
         // Index evaluation sets this to false when it fully supplies the column result.
         // _need_read_data() applies the remaining read constraints.
         bool need_read_data = true;

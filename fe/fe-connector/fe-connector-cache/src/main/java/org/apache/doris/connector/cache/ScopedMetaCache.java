@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
@@ -48,12 +49,14 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * One physical Caffeine cache participating in a {@link ScopedMetaCacheRegistry}.
@@ -65,6 +68,8 @@ import java.util.function.Function;
  */
 public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(ScopedMetaCache.class);
+    private static final long FIXED_ENTRY_ACCOUNTING_OVERHEAD_BYTES = 512L;
+    private static final long WEIGHT_REJECT_WARN_INTERVAL_NANOS = Duration.ofMinutes(1).toNanos();
     private static final Runnable NO_OP = () -> {
     };
 
@@ -90,6 +95,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final AtomicReference<Long> lastLoadSuccessTimeMs = new AtomicReference<>(-1L);
     private final AtomicReference<Long> lastLoadFailureTimeMs = new AtomicReference<>(-1L);
     private final AtomicReference<String> lastError = new AtomicReference<>("");
+    private final AtomicReference<String> lastWeightRejectReason = new AtomicReference<>("");
+    private final LongAdder weightRejectCount = new LongAdder();
+    private final AtomicLong lastWeightRejectWarnNanos = new AtomicLong(Long.MIN_VALUE);
     private final RemovalListener<K, V> beforeRemoval;
     private final BiConsumer<K, V> discardListener;
     private final Ticker ticker;
@@ -98,8 +106,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private final Runnable afterLoadElection;
     private final Runnable afterBulkStage;
     private final Runnable afterRefreshRegistration;
+    private final MetaCacheSizeEstimator<K, V> sizeEstimator;
+    private final MetaCacheBudgetManager.EntryBudget entryBudget;
+    private final boolean weightBounded;
     private final ThreadLocal<RemovalDeferral<K, V>> removalDeferrals =
             ThreadLocal.withInitial(RemovalDeferral::new);
+    private final ThreadLocal<Registration> budgetEvictionRegistration = new ThreadLocal<>();
     private BigInteger exactInvalidationSequence = BigInteger.ZERO;
 
     ScopedMetaCache(
@@ -113,7 +125,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             Executor refreshExecutor,
             Runnable afterLoadElection,
             Runnable afterBulkStage,
-            Runnable afterRefreshRegistration) {
+            Runnable afterRefreshRegistration,
+            MetaCacheSizeEstimator<K, V> sizeEstimator,
+            MetaCacheBudgetManager.EntryBudget entryBudget) {
         this.registry = Objects.requireNonNull(registry, "registry can not be null");
         this.name = Objects.requireNonNull(name, "name can not be null");
         Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
@@ -127,8 +141,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         this.afterBulkStage = Objects.requireNonNull(afterBulkStage, "afterBulkStage can not be null");
         this.afterRefreshRegistration = Objects.requireNonNull(
                 afterRefreshRegistration, "afterRefreshRegistration can not be null");
-        this.effectiveEnabled = CacheSpec.isCacheEnabled(
-                cacheSpec.isEnable(), cacheSpec.getTtlSecond(), cacheSpec.getCapacity());
+        this.sizeEstimator = sizeEstimator;
+        this.entryBudget = entryBudget;
+        if ((sizeEstimator == null) != (entryBudget == null)) {
+            throw new IllegalArgumentException(
+                    "Weighted metadata cache requires both estimator and budget: " + name);
+        }
+        this.weightBounded = entryBudget != null;
+        if (weightBounded) {
+            entryBudget.setReclaimer(this::reclaimForPeer);
+        }
+        this.effectiveEnabled = cacheSpec.isCacheEnabled();
 
         Caffeine<Object, Object> builder = Caffeine.newBuilder()
                 .maximumSize(effectiveEnabled ? cacheSpec.getCapacity() : 0L)
@@ -261,18 +284,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     private VersionedValue<K, V> currentVersionedValue(K key, ScopePath path) {
-        VersionedValue<K, V> versioned = data.getIfPresent(key);
-        if (versioned == null) {
-            return null;
-        }
-        if (!versioned.scopeSnapshot.path().equals(path)) {
-            return null;
-        }
-        if (!versioned.isCurrent(registry, keyNodes)) {
-            data.asMap().remove(key, versioned);
-            return null;
-        }
-        return versioned;
+        return deferRemovals(() -> {
+            VersionedValue<K, V> versioned = data.getIfPresent(key);
+            if (versioned == null || !versioned.scopeSnapshot.path().equals(path)) {
+                return null;
+            }
+            if (!versioned.isCurrent(registry, keyNodes)) {
+                data.asMap().remove(key, versioned);
+                return null;
+            }
+            return versioned;
+        });
     }
 
     public void put(K key, ScopePath path, V value) {
@@ -284,10 +306,46 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return;
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
-            guardedCommit(lease, () -> {
-                lease.keyNode.loadPublicationState.set(new Object());
-                return publishCommitted(lease, key, value) != null;
-            });
+            AtomicReference<VersionedValue<K, V>> preparedRef = new AtomicReference<>();
+            AtomicReference<ReplacementValue<K, V>> replacementRef = new AtomicReference<>();
+            AtomicBoolean admissionRejected = new AtomicBoolean(false);
+            boolean retained = false;
+            try {
+                retained = guardedCommit(lease, () -> {
+                    VersionedValue<K, V> current = currentVersionedValue(key, path);
+                    if (current != null) {
+                        ReplacementValue<K, V> replacement =
+                                prepareReplacementVersionedValue(lease, key, value, current);
+                        replacementRef.set(replacement);
+                        if (replacement == null) {
+                            admissionRejected.set(true);
+                            lease.keyNode.loadPublicationState.set(new Object());
+                            removeCurrentVersion(key, current);
+                            return false;
+                        }
+                        lease.keyNode.loadPublicationState.set(new Object());
+                        return installReplacement(replacement);
+                    }
+                    VersionedValue<K, V> prepared = prepareVersionedValue(lease, key, value);
+                    preparedRef.set(prepared);
+                    if (prepared == null) {
+                        admissionRejected.set(true);
+                        return false;
+                    }
+                    lease.keyNode.loadPublicationState.set(new Object());
+                    install(prepared, lease);
+                    return true;
+                });
+            } finally {
+                if (!retained && replacementRef.get() != null) {
+                    replacementRef.get().rollback();
+                } else if (!retained && preparedRef.get() != null) {
+                    releaseReservation(preparedRef.get());
+                }
+                if (admissionRejected.get()) {
+                    notifyDiscarded(key, value);
+                }
+            }
         }
     }
 
@@ -306,29 +364,82 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return true;
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, false)) {
-            return guardedCommit(lease, () -> {
-                VersionedValue<K, V> current = currentVersionedValue(key, path);
-                V currentValue = current == null ? null : current.value;
-                if (currentValue != expectedValue) {
-                    return false;
-                }
-                lease.keyNode.loadPublicationState.set(new Object());
-                action.run();
-                if (updatedValue == currentValue) {
+            AtomicReference<VersionedValue<K, V>> preparedRef = new AtomicReference<>();
+            AtomicReference<ReplacementValue<K, V>> replacementRef = new AtomicReference<>();
+            AtomicBoolean admissionRejected = new AtomicBoolean(false);
+            boolean committed = false;
+            try {
+                committed = guardedCommit(lease, () -> {
+                    VersionedValue<K, V> current = currentVersionedValue(key, path);
+                    V currentValue = current == null ? null : current.value;
+                    if (currentValue != expectedValue) {
+                        return false;
+                    }
+                    if (updatedValue != null && updatedValue != currentValue) {
+                        if (current != null) {
+                            ReplacementValue<K, V> replacement =
+                                    prepareReplacementVersionedValue(lease, key, updatedValue, current);
+                            replacementRef.set(replacement);
+                            if (replacement == null) {
+                                admissionRejected.set(true);
+                                lease.keyNode.loadPublicationState.set(new Object());
+                                action.run();
+                                removeCurrentVersion(key, current);
+                                return true;
+                            }
+                        } else {
+                            VersionedValue<K, V> prepared = prepareVersionedValue(lease, key, updatedValue);
+                            preparedRef.set(prepared);
+                            if (prepared == null) {
+                                admissionRejected.set(true);
+                                lease.keyNode.loadPublicationState.set(new Object());
+                                action.run();
+                                return true;
+                            }
+                        }
+                    }
+                    lease.keyNode.loadPublicationState.set(new Object());
+                    try {
+                        action.run();
+                    } catch (RuntimeException | Error e) {
+                        // Restore the old reservation before removal can acquire this key's lock.
+                        if (replacementRef.get() != null) {
+                            replacementRef.get().rollback();
+                        }
+                        throw e;
+                    }
+                    if (updatedValue == currentValue) {
+                        lease.keyNode.loadPublicationState.set(new Object());
+                        return true;
+                    }
+                    if (updatedValue != null) {
+                        if (replacementRef.get() != null) {
+                            lease.keyNode.loadPublicationState.set(new Object());
+                            return installReplacement(replacementRef.get());
+                        }
+                        lease.keyNode.loadPublicationState.set(new Object());
+                        install(preparedRef.get(), lease);
+                        return true;
+                    }
+                    if (updatedValue == null) {
+                        if (current != null) {
+                            removeCurrentVersion(key, current);
+                        }
+                    }
                     lease.keyNode.loadPublicationState.set(new Object());
                     return true;
+                });
+            } finally {
+                if (!committed && replacementRef.get() != null) {
+                    replacementRef.get().rollback();
+                } else if (!committed && preparedRef.get() != null) {
+                    releaseReservation(preparedRef.get());
                 }
-                if (updatedValue == null) {
-                    if (current != null) {
-                        data.asMap().remove(key, current);
-                        lease.keyNode.registration.compareAndSet(current, null);
-                    }
-                } else {
-                    publishCommitted(lease, key, updatedValue);
+                if (admissionRejected.get()) {
+                    notifyDiscarded(key, updatedValue);
                 }
-                lease.keyNode.loadPublicationState.set(new Object());
-                return true;
-            });
+            }
+            return committed;
         }
     }
 
@@ -366,10 +477,17 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return;
         }
         afterStateReplacement.run();
-        VersionedValue<K, V> registered = invalidated.node.registration.get();
-        if (registered != null && registered.keyState == invalidated.keyState) {
-            data.asMap().remove(key, registered);
-            invalidated.node.registration.compareAndSet(registered, null);
+        Registration registered = invalidated.registration;
+        deferRemovals(() -> {
+            VersionedValue<K, V> current = data.getIfPresent(key);
+            if (registered != null && current != null && current.registration == registered
+                    && current.keyState == invalidated.keyState) {
+                data.asMap().remove(key, current);
+            }
+            return null;
+        });
+        if (registered != null && invalidated.node.registration.compareAndSet(registered, null)) {
+            releaseRegistration(registered);
         }
         tryPruneKey(key, invalidated.node);
     }
@@ -411,9 +529,20 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return false;
         }
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, actualScope, false)) {
-            VersionedValue<K, V> staged = newVersionedValue(lease, key, value);
-            afterBulkStage.run();
-            return handle.tryCommit(key, lease, staged);
+            VersionedValue<K, V> staged = prepareVersionedValue(lease, key, value);
+            if (staged == null) {
+                return false;
+            }
+            boolean retained = false;
+            try {
+                afterBulkStage.run();
+                retained = handle.tryCommit(key, lease, staged);
+                return retained;
+            } finally {
+                if (!retained) {
+                    releaseReservation(staged);
+                }
+            }
         }
     }
 
@@ -444,7 +573,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                     invalidateCount.sum(),
                     lastLoadSuccessTimeMs.get(),
                     lastLoadFailureTimeMs.get(),
-                    lastError.get()));
+                    lastError.get(),
+                    weightBounded,
+                    entryBudget == null ? -1L : entryBudget.getEffectiveMaxWeight(),
+                    entryBudget == null ? 0L : entryBudget.getUsedWeight(),
+                    weightRejectCount.sum(),
+                    lastWeightRejectReason.get()));
     }
 
     int refreshingCountForTest() {
@@ -453,10 +587,13 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     public void forEach(BiConsumer<K, V> consumer) {
         Objects.requireNonNull(consumer, "consumer can not be null");
-        data.asMap().forEach((key, versioned) -> {
-            if (versioned.isCurrent(registry, keyNodes)) {
-                consumer.accept(key, versioned.value);
-            }
+        deferRemovals(() -> {
+            data.asMap().forEach((key, versioned) -> {
+                if (versioned.isCurrent(registry, keyNodes)) {
+                    consumer.accept(key, versioned.value);
+                }
+            });
+            return null;
         });
     }
 
@@ -487,7 +624,10 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     }
 
     public void cleanUp() {
-        data.cleanUp();
+        deferRemovals(() -> {
+            data.cleanUp();
+            return null;
+        });
     }
 
     @Override
@@ -510,9 +650,14 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     void removeExpectedRaw(Object rawKey, Object expectedValue) {
         @SuppressWarnings("unchecked")
         K key = (K) rawKey;
-        @SuppressWarnings("unchecked")
-        VersionedValue<K, V> versionedValue = (VersionedValue<K, V>) expectedValue;
-        data.asMap().remove(key, versionedValue);
+        Registration expectedRegistration = (Registration) expectedValue;
+        deferRemovals(() -> {
+            VersionedValue<K, V> current = data.getIfPresent(key);
+            if (current != null && current.registration == expectedRegistration) {
+                data.asMap().remove(key, current);
+            }
+            return null;
+        });
     }
 
     private PublicationLease<K, V> acquirePublicationLease(
@@ -533,29 +678,25 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
-    private VersionedValue<K, V> publish(PublicationLease<K, V> lease, K key, V value) {
-        if (!lease.isCurrent()) {
-            return null;
-        }
-        VersionedValue<K, V> versioned = newVersionedValue(lease, key, value);
-        install(versioned, lease);
-        if (!lease.isCurrent()) {
-            data.asMap().remove(key, versioned);
-            return null;
-        }
-        return versioned;
-    }
-
-    private VersionedValue<K, V> publishCommitted(PublicationLease<K, V> lease, K key, V value) {
-        return publish(lease, key, value);
-    }
-
     private boolean commitLoaded(PublicationLease<K, V> lease, K key, V value, Runnable beforePublication) {
         Runnable action = Objects.requireNonNull(beforePublication, "beforePublication can not be null");
-        return guardedCommit(lease, () -> {
-            action.run();
-            return publishCommitted(lease, key, value) != null;
-        });
+        VersionedValue<K, V> prepared = prepareVersionedValue(lease, key, value);
+        boolean retained = false;
+        try {
+            retained = guardedCommit(lease, () -> {
+                action.run();
+                if (prepared == null) {
+                    return false;
+                }
+                install(prepared, lease);
+                return true;
+            });
+            return retained;
+        } finally {
+            if (!retained && prepared != null) {
+                releaseReservation(prepared);
+            }
+        }
     }
 
     private boolean guardedCommit(PublicationLease<K, V> lease, BooleanSupplier commitAction) {
@@ -568,11 +709,171 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                         })));
     }
 
-    private VersionedValue<K, V> newVersionedValue(
+    private VersionedValue<K, V> prepareVersionedValue(
             PublicationLease<K, V> lease, K key, V value) {
+        MetaCacheBudgetManager.AdmissionReservation reservation = reserve(key, value);
+        if (weightBounded && reservation == null) {
+            return null;
+        }
         CacheAddress address = new CacheAddress(this, key);
+        ScopeSnapshot scopeSnapshot = lease.scopeLease.snapshot();
+        Registration registration = new Registration(reservation, address, scopeSnapshot);
         return new VersionedValue<>(
-                key, value, address, lease.scopeLease.snapshot(), lease.keyNode, lease.keyState, ticker.read());
+                key, value, address, scopeSnapshot, lease.keyNode, lease.keyState,
+                ticker.read(), registration);
+    }
+
+    private MetaCacheBudgetManager.AdmissionReservation reserve(K key, V value) {
+        if (!weightBounded) {
+            return null;
+        }
+        long bytes = estimateWeight(key, value);
+        return bytes < 0L ? null : reserveEstimated(bytes);
+    }
+
+    private long estimateWeight(K key, V value) {
+        MetaCacheSizeEstimate estimate = MetaCacheSizeEstimator.estimateSafely(
+                "estimator_failure", () -> sizeEstimator.estimate(key, value));
+        if (!estimate.isComplete()) {
+            rejectWeight("incomplete_estimate:" + estimate.getIncompleteReason());
+            return -1L;
+        }
+        if (estimate.getBytes() == 0L) {
+            rejectWeight("invalid_zero_estimate");
+            return -1L;
+        }
+        long bytes = JvmSizeUtils.saturatedAdd(
+                estimate.getBytes(), FIXED_ENTRY_ACCOUNTING_OVERHEAD_BYTES);
+        if (bytes > entryBudget.getEffectiveMaxWeight()) {
+            rejectWeight("entry_too_large");
+            return -1L;
+        }
+        return bytes;
+    }
+
+    private MetaCacheBudgetManager.AdmissionReservation reserveEstimated(long bytes) {
+        Optional<MetaCacheBudgetManager.AdmissionReservation> reservation = entryBudget.tryReserve(bytes);
+        if (!reservation.isPresent()) {
+            entryBudget.requestPeerReclaim(bytes);
+            rejectWeight("budget_exceeded");
+            return null;
+        }
+        return reservation.get();
+    }
+
+    private ReplacementValue<K, V> prepareReplacementVersionedValue(
+            PublicationLease<K, V> lease, K key, V value, VersionedValue<K, V> previous) {
+        if (!weightBounded) {
+            VersionedValue<K, V> versioned = prepareVersionedValue(lease, key, value);
+            return versioned == null ? null : new ReplacementValue<>(versioned, previous, null);
+        }
+        long bytes = estimateWeight(key, value);
+        if (bytes < 0L) {
+            return null;
+        }
+        Optional<MetaCacheBudgetManager.ReservationReplacement> replacement =
+                entryBudget.tryReplace(previous.registration.reservation, bytes);
+        if (!replacement.isPresent()) {
+            long additionalBytes = Math.max(0L,
+                    bytes - previous.registration.reservation.getBytes());
+            entryBudget.requestPeerReclaim(additionalBytes);
+            rejectWeight("budget_exceeded");
+            return null;
+        }
+        MetaCacheBudgetManager.ReservationReplacement accounting = replacement.get();
+        if (!previous.registration.released.compareAndSet(false, true)) {
+            accounting.rollback();
+            return null;
+        }
+        CacheAddress address = new CacheAddress(this, key);
+        ScopeSnapshot scopeSnapshot = lease.scopeLease.snapshot();
+        Registration registration = new Registration(accounting.current(), address, scopeSnapshot);
+        VersionedValue<K, V> versioned = new VersionedValue<>(
+                key, value, address, scopeSnapshot, lease.keyNode, lease.keyState,
+                ticker.read(), registration);
+        return new ReplacementValue<>(versioned, previous, accounting);
+    }
+
+    private boolean installReplacement(ReplacementValue<K, V> replacement) {
+        VersionedValue<K, V> previous = replacement.previous;
+        VersionedValue<K, V> current = replacement.current;
+        registry.register(current.address, current.registration, current.scopeSnapshot);
+        if (!current.keyNode.registration.compareAndSet(
+                previous.registration, current.registration)) {
+            registry.register(previous.address, previous.registration, previous.scopeSnapshot);
+            replacement.rollback();
+            return false;
+        }
+        if (!data.asMap().replace(current.key, previous, current)) {
+            current.keyNode.registration.compareAndSet(current.registration, previous.registration);
+            registry.register(previous.address, previous.registration, previous.scopeSnapshot);
+            replacement.rollback();
+            return false;
+        }
+        replacement.commit();
+        return true;
+    }
+
+    private long evictLocalColdest() {
+        return deferRemovals(this::evictLocalColdestWithDeferredRemovals);
+    }
+
+    private long evictLocalColdestWithDeferredRemovals() {
+        if (!data.policy().eviction().isPresent()) {
+            return 0L;
+        }
+        Map<K, VersionedValue<K, V>> coldest = data.policy().eviction().get().coldest(1);
+        for (Map.Entry<K, VersionedValue<K, V>> candidate : coldest.entrySet()) {
+            VersionedValue<K, V> current = data.getIfPresent(candidate.getKey());
+            if (current == candidate.getValue()) {
+                long weight = current.registration.reservation.getBytes();
+                budgetEvictionRegistration.set(current.registration);
+                try {
+                    if (data.asMap().remove(candidate.getKey(), current)) {
+                        return weight;
+                    }
+                } finally {
+                    budgetEvictionRegistration.remove();
+                }
+            }
+        }
+        return 0L;
+    }
+
+    private long reclaimForPeer(long targetBytes) {
+        if (targetBytes <= 0L || closed.get()) {
+            return 0L;
+        }
+        long reclaimed = 0L;
+        long removed;
+        while (reclaimed < targetBytes && (removed = evictLocalColdest()) > 0L) {
+            reclaimed = JvmSizeUtils.saturatedAdd(reclaimed, removed);
+        }
+        return reclaimed;
+    }
+
+    private void rejectWeight(String reason) {
+        weightRejectCount.increment();
+        lastWeightRejectReason.set(reason);
+        long now = System.nanoTime();
+        long last = lastWeightRejectWarnNanos.get();
+        if ((last == Long.MIN_VALUE || now - last >= WEIGHT_REJECT_WARN_INTERVAL_NANOS)
+                && lastWeightRejectWarnNanos.compareAndSet(last, now)) {
+            LOG.warn("Metadata cache entry '{}' rejected a value by weight: reason={}, used={}, max={}",
+                    name, reason, entryBudget == null ? 0L : entryBudget.getUsedWeight(),
+                    entryBudget == null ? -1L : entryBudget.getEffectiveMaxWeight());
+        }
+    }
+
+    private static void releaseReservation(VersionedValue<?, ?> versioned) {
+        releaseRegistration(versioned.registration);
+    }
+
+    private static void releaseRegistration(Registration registration) {
+        if (registration != null && registration.released.compareAndSet(false, true)
+                && registration.reservation != null) {
+            registration.reservation.release();
+        }
     }
 
     private void scheduleRefresh(K key, ScopePath path, Function<K, V> loader, VersionedValue<K, V> current) {
@@ -587,7 +888,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             refreshing.remove(key, current);
             throw throwable;
         }
-        if (data.getIfPresent(key) != current || !current.isCurrent(registry, keyNodes)) {
+        if (deferRemovals(() -> data.getIfPresent(key)) != current || !current.isCurrent(registry, keyNodes)) {
             refreshing.remove(key, current);
             return;
         }
@@ -598,7 +899,8 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                         return;
                     }
                     try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
-                        if (data.getIfPresent(key) != current || !current.isCurrent(registry, keyNodes)) {
+                        if (deferRemovals(() -> data.getIfPresent(key)) != current
+                                || !current.isCurrent(registry, keyNodes)) {
                             return;
                         }
                         V refreshed = loadAndRecord(key, loader);
@@ -626,34 +928,45 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private void install(
             VersionedValue<K, V> versioned, PublicationLease<K, V> lease) {
-        registry.register(versioned.address, versioned, versioned.scopeSnapshot);
-        lease.keyNode.registration.set(versioned);
+        registry.register(versioned.address, versioned.registration, versioned.scopeSnapshot);
+        lease.keyNode.registration.set(versioned.registration);
         data.asMap().put(versioned.key, versioned);
     }
 
     private boolean replaceRefreshExpected(PublicationLease<K, V> lease, K key,
             VersionedValue<K, V> expected, V refreshed) {
-        return guardedCommit(lease, () -> {
-            if (data.getIfPresent(key) != expected || !expected.isCurrent(registry, keyNodes)) {
-                return false;
-            }
-            if (refreshed == expected.value) {
+        if (refreshed == expected.value) {
+            return guardedCommit(lease, () -> {
+                if (data.getIfPresent(key) != expected || !expected.isCurrent(registry, keyNodes)) {
+                    return false;
+                }
                 expected.writeTimeNanos = ticker.read();
                 return true;
+            });
+        }
+        AtomicReference<ReplacementValue<K, V>> replacementRef = new AtomicReference<>();
+        boolean retained = false;
+        try {
+            retained = guardedCommit(lease, () -> {
+                if (data.getIfPresent(key) != expected || !expected.isCurrent(registry, keyNodes)) {
+                    return false;
+                }
+                ReplacementValue<K, V> replacement =
+                        prepareReplacementVersionedValue(lease, key, refreshed, expected);
+                replacementRef.set(replacement);
+                if (replacement == null) {
+                    lease.keyNode.loadPublicationState.set(new Object());
+                    removeCurrentVersion(key, expected);
+                    return false;
+                }
+                return installReplacement(replacement);
+            });
+            return retained;
+        } finally {
+            if (!retained && replacementRef.get() != null) {
+                replacementRef.get().rollback();
             }
-            VersionedValue<K, V> replacement = newVersionedValue(lease, key, refreshed);
-            registry.register(replacement.address, replacement, replacement.scopeSnapshot);
-            if (!lease.keyNode.registration.compareAndSet(expected, replacement)) {
-                registry.unregister(replacement.address, replacement, replacement.scopeSnapshot);
-                return false;
-            }
-            if (!data.asMap().replace(key, expected, replacement)) {
-                lease.keyNode.registration.compareAndSet(replacement, null);
-                registry.unregister(replacement.address, replacement, replacement.scopeSnapshot);
-                return false;
-            }
-            return true;
-        });
+        }
     }
 
     private boolean tryCommitBulk(
@@ -685,11 +998,21 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }));
     }
 
-    private boolean deferRemovals(BooleanSupplier action) {
+    private void removeCurrentVersion(K key, VersionedValue<K, V> current) {
+        data.asMap().remove(key, current);
+        if (current.keyNode.registration.compareAndSet(current.registration, null)) {
+            releaseRegistration(current.registration);
+        }
+    }
+
+    // Caffeine's direct executor can call removal listeners while holding its maintenance lock, even on a
+    // read or policy snapshot. Drain only after that operation returns, outside both maintenance and (for
+    // publication callers) KeyNode locks; otherwise a full Caffeine write buffer can invert their lock order.
+    private <T> T deferRemovals(Supplier<T> action) {
         RemovalDeferral<K, V> removalDeferral = removalDeferrals.get();
         removalDeferral.depth++;
         try {
-            return action.getAsBoolean();
+            return action.get();
         } finally {
             removalDeferral.depth--;
             if (removalDeferral.depth == 0 && !removalDeferral.draining) {
@@ -753,27 +1076,35 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private void closePhysicalState() {
         bulkInvalidationGate.write(exactInvalidations::clear);
-        keyNodes.forEach((key, node) -> {
-            replaceKeyState(node);
-            VersionedValue<K, V> versioned = node.registration.get();
-            if (versioned != null) {
-                data.asMap().remove(key, versioned);
-                node.registration.compareAndSet(versioned, null);
-            }
-            tryPruneKey(key, node);
+        deferRemovals(() -> {
+            keyNodes.forEach((key, node) -> {
+                replaceKeyState(node);
+                Registration registered = node.registration.get();
+                VersionedValue<K, V> versioned = data.getIfPresent(key);
+                if (versioned != null && versioned.registration == registered) {
+                    data.asMap().remove(key, versioned);
+                }
+                if (registered != null && node.registration.compareAndSet(registered, null)) {
+                    releaseRegistration(registered);
+                }
+                tryPruneKey(key, node);
+            });
+            data.invalidateAll();
+            data.cleanUp();
+            return null;
         });
-        data.invalidateAll();
-        data.cleanUp();
+        if (entryBudget != null) {
+            entryBudget.close();
+        }
     }
 
     private void onRemoval(
             Object rawKey, Object rawValue, RemovalCause cause) {
-        Objects.requireNonNull(rawKey, "removed cache key can not be null");
-        Objects.requireNonNull(rawValue, "removed cache value can not be null");
         @SuppressWarnings("unchecked")
         VersionedValue<K, V> versioned = (VersionedValue<K, V>) rawValue;
         RemovalDeferral<K, V> removalDeferral = removalDeferrals.get();
-        removalDeferral.removals.addLast(new DeferredRemoval<>(versioned, cause));
+        removalDeferral.removals.addLast(new DeferredRemoval<>(
+                versioned, cause, budgetEvictionRegistration.get() == versioned.registration));
         if (removalDeferral.depth > 0 || removalDeferral.draining) {
             return;
         }
@@ -787,7 +1118,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             DeferredRemoval<K, V> removal;
             while ((removal = removalDeferral.removals.pollFirst()) != null) {
                 try {
-                    completeRemoval(removal.versioned, removal.cause);
+                    completeRemoval(removal.versioned, removal.cause, removal.budgetEviction);
                 } catch (RuntimeException | Error e) {
                     if (failure == null) {
                         failure = e;
@@ -809,8 +1140,9 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
     }
 
-    private void completeRemoval(VersionedValue<K, V> versioned, RemovalCause cause) {
-        if (cause.wasEvicted()) {
+    private void completeRemoval(
+            VersionedValue<K, V> versioned, RemovalCause cause, boolean budgetEviction) {
+        if (cause.wasEvicted() || budgetEviction) {
             evictionCount.increment();
         } else if (cause == RemovalCause.EXPLICIT) {
             invalidateCount.increment();
@@ -823,9 +1155,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 LOG.warn("Scoped metadata cache removal callback failed", t);
             }
         }
-        registry.unregister(versioned.address, versioned, versioned.scopeSnapshot);
-        versioned.keyNode.registration.compareAndSet(versioned, null);
-        tryPruneKey(key, versioned.keyNode);
+        synchronized (versioned.keyNode) {
+            registry.unregister(versioned.address, versioned.registration, versioned.scopeSnapshot);
+            versioned.keyNode.registration.compareAndSet(versioned.registration, null);
+            releaseRegistration(versioned.registration);
+            tryPruneKey(key, versioned.keyNode);
+        }
     }
 
     private void notifyDiscarded(K key, V value) {
@@ -848,20 +1183,26 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     private static final class DeferredRemoval<K, V> {
         private final VersionedValue<K, V> versioned;
         private final RemovalCause cause;
+        private final boolean budgetEviction;
 
-        private DeferredRemoval(VersionedValue<K, V> versioned, RemovalCause cause) {
+        private DeferredRemoval(
+                VersionedValue<K, V> versioned, RemovalCause cause, boolean budgetEviction) {
             this.versioned = versioned;
             this.cause = cause;
+            this.budgetEviction = budgetEviction;
         }
     }
 
     private static final class InvalidatedKey<K, V> {
         private final KeyNode<K, V> node;
         private final KeyState keyState;
+        private final Registration registration;
 
         private InvalidatedKey(KeyNode<K, V> node, KeyState keyState) {
             this.node = node;
             this.keyState = keyState;
+            // Captured under the publication fence: cleanup must never detach a newer generation.
+            this.registration = node == null ? null : node.registration.get();
         }
     }
 
@@ -954,6 +1295,11 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final long lastLoadSuccessTimeMs;
         private final long lastLoadFailureTimeMs;
         private final String lastError;
+        private final boolean weightBounded;
+        private final long maxWeight;
+        private final long estimatedWeight;
+        private final long weightRejectCount;
+        private final String lastWeightRejectReason;
 
         private CacheMetrics(
                 long physicalEntryCount,
@@ -972,7 +1318,12 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 long invalidateCount,
                 long lastLoadSuccessTimeMs,
                 long lastLoadFailureTimeMs,
-                String lastError) {
+                String lastError,
+                boolean weightBounded,
+                long maxWeight,
+                long estimatedWeight,
+                long weightRejectCount,
+                String lastWeightRejectReason) {
             this.physicalEntryCount = physicalEntryCount;
             this.keyNodeCount = keyNodeCount;
             this.inFlightLoadCount = inFlightLoadCount;
@@ -990,6 +1341,11 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.lastLoadSuccessTimeMs = lastLoadSuccessTimeMs;
             this.lastLoadFailureTimeMs = lastLoadFailureTimeMs;
             this.lastError = lastError;
+            this.weightBounded = weightBounded;
+            this.maxWeight = maxWeight;
+            this.estimatedWeight = estimatedWeight;
+            this.weightRejectCount = weightRejectCount;
+            this.lastWeightRejectReason = lastWeightRejectReason;
         }
 
         public long getPhysicalEntryCount() {
@@ -1059,6 +1415,26 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         public String getLastError() {
             return lastError;
         }
+
+        public boolean isWeightBounded() {
+            return weightBounded;
+        }
+
+        public long getMaxWeight() {
+            return maxWeight;
+        }
+
+        public long getEstimatedWeight() {
+            return estimatedWeight;
+        }
+
+        public long getWeightRejectCount() {
+            return weightRejectCount;
+        }
+
+        public String getLastWeightRejectReason() {
+            return lastWeightRejectReason;
+        }
     }
 
     private static final class PublicationLease<K, V> implements AutoCloseable {
@@ -1113,6 +1489,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final KeyNode<K, V> keyNode;
         private final KeyState keyState;
         private volatile long writeTimeNanos;
+        private final Registration registration;
 
         private VersionedValue(
                 K key,
@@ -1121,7 +1498,8 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 ScopeSnapshot scopeSnapshot,
                 KeyNode<K, V> keyNode,
                 KeyState keyState,
-                long writeTimeNanos) {
+                long writeTimeNanos,
+                Registration registration) {
             this.key = key;
             this.value = value;
             this.address = address;
@@ -1129,6 +1507,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             this.keyNode = keyNode;
             this.keyState = keyState;
             this.writeTimeNanos = writeTimeNanos;
+            this.registration = registration;
         }
 
         private boolean isCurrent(
@@ -1137,14 +1516,63 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
             return scopeSnapshot.isCurrent(registry)
                     && currentKeyNodes.get(key) == keyNode
                     && keyNode.current.get() == keyState
-                    && keyNode.registration.get() == this;
+                    && keyNode.registration.get() == registration;
+        }
+    }
+
+    private static final class ReplacementValue<K, V> {
+        private final VersionedValue<K, V> current;
+        private final VersionedValue<K, V> previous;
+        private final MetaCacheBudgetManager.ReservationReplacement accounting;
+        private boolean finished;
+
+        private ReplacementValue(VersionedValue<K, V> current,
+                VersionedValue<K, V> previous,
+                MetaCacheBudgetManager.ReservationReplacement accounting) {
+            this.current = current;
+            this.previous = previous;
+            this.accounting = accounting;
+        }
+
+        private void commit() {
+            if (accounting != null) {
+                accounting.commit();
+            }
+            finished = true;
+        }
+
+        private void rollback() {
+            if (finished) {
+                return;
+            }
+            if (accounting != null) {
+                current.registration.released.set(true);
+                previous.registration.released.set(false);
+                accounting.rollback();
+            }
+            finished = true;
+        }
+    }
+
+    /** Lightweight ownership token: deliberately does not retain the cached value. */
+    private static final class Registration {
+        private final MetaCacheBudgetManager.AdmissionReservation reservation;
+        private final CacheAddress address;
+        private final ScopeSnapshot scopeSnapshot;
+        private final AtomicBoolean released = new AtomicBoolean(false);
+
+        private Registration(MetaCacheBudgetManager.AdmissionReservation reservation,
+                CacheAddress address, ScopeSnapshot scopeSnapshot) {
+            this.reservation = reservation;
+            this.address = address;
+            this.scopeSnapshot = scopeSnapshot;
         }
     }
 
     private static final class KeyNode<K, V> {
         private final AtomicReference<KeyState> current = new AtomicReference<>(new KeyState());
         private final AtomicReference<Object> loadPublicationState = new AtomicReference<>(new Object());
-        private final AtomicReference<VersionedValue<K, V>> registration = new AtomicReference<>();
+        private final AtomicReference<Registration> registration = new AtomicReference<>();
         private final AtomicInteger activeLoads = new AtomicInteger();
     }
 

@@ -37,6 +37,8 @@ class ColumnReaderCache;
 class MockSegment : public Segment {
 public:
     MockSegment() : Segment(1, RowsetId(), std::make_shared<TabletSchema>(), {}) {}
+    explicit MockSegment(TabletSchemaSPtr tablet_schema)
+            : Segment(1, RowsetId(), std::move(tablet_schema), {}) {}
     ~MockSegment() override = default;
 
     // Mock methods for file reader

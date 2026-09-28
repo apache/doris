@@ -313,6 +313,29 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
+    public void testGenerateRelatedBasePartitionIdsWithoutSyncLimit() throws AnalysisException {
+        // Without partition_sync_limit the MV mirrors every base partition, so the incremental
+        // delta has nothing to restrict and must be left alone.
+        Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        Mockito.when(mtmv.getMvProperties()).thenReturn(Maps.newHashMap());
+        Assertions.assertFalse(MTMVPartitionUtil.generateRelatedBasePartitionIds(mtmv).isPresent());
+    }
+
+    @Test
+    public void testGenerateRelatedBasePartitionIdsOnSelfManageMv() throws AnalysisException {
+        // setUp leaves the mocked MV on SELF_MANAGE: it decides its own partitions, so there is no
+        // base partition mapping to restrict the delta to.
+        Assertions.assertFalse(MTMVPartitionUtil.generateRelatedBasePartitionIds(mtmv).isPresent());
+    }
+
+    @Test
+    public void testGenerateRelatedBasePartitionIdsWithoutMvPartitionInfo() throws AnalysisException {
+        MTMV mvWithoutPartitionInfo = Mockito.mock(MTMV.class);
+        Assertions.assertFalse(
+                MTMVPartitionUtil.generateRelatedBasePartitionIds(mvWithoutPartitionInfo).isPresent());
+    }
+
+    @Test
     public void testGetBaseVersionsUsesMappedPartitions() throws AnalysisException {
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings = Maps.newHashMap();
         partitionMappings.put("mv1", pctMapping("p1"));

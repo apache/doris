@@ -660,30 +660,30 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (catalog instanceof ExternalCatalog) {
             Map<String, String> newProps = log.getNewProps();
             if (!isReplay) {
-                boolean tentativelyMutated = false;
+                ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
                 try {
-                    ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
                     boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
                             oldProperties, newProps);
                     if (!validatedWithoutMutation) {
-                        externalCatalog.tryModifyCatalogProps(newProps);
-                        tentativelyMutated = true;
-                        externalCatalog.checkProperties();
+                        synchronized (externalCatalog) {
+                            Map<String, String> currentProperties = Maps.newHashMap(externalCatalog.getProperties());
+                            try {
+                                externalCatalog.tryModifyCatalogProps(newProps);
+                                externalCatalog.checkProperties();
+                            } finally {
+                                // Never expose tentative limits to lazy cache initialization. The real update
+                                // publishes properties with budget retirement after validation succeeds.
+                                externalCatalog.rollBackCatalogProps(currentProperties);
+                            }
+                        }
                     }
                 } catch (Exception validationException) {
-                    // Only legacy validators publish a tentative candidate. Detached validators
-                    // leave the live CatalogProperty untouched while concurrent initialization runs.
-                    if (oldProperties != null && tentativelyMutated) {
-                        ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
-                    }
                     if (validationException instanceof DdlException) {
                         throw (DdlException) validationException;
                     }
                     throw new DdlException("Invalid catalog properties: "
                             + validationException.getMessage(), validationException);
                 }
-            } else {
-                ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
             }
             if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                 long catalogId = catalog.getId();

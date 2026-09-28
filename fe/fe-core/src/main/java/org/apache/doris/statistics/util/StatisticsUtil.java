@@ -202,7 +202,7 @@ public class StatisticsUtil {
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
         sessionVariable.enablePushDownMinMaxOnUnique = true;
-        sessionVariable.enablePushDownStringMinMax = true;
+        sessionVariable.forcePushDownZonemapMinMax = true;
         sessionVariable.enableUniqueKeyPartialUpdate = false;
         sessionVariable.enableMaterializedViewRewrite = false;
         sessionVariable.enableQueryCache = false;

@@ -48,6 +48,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -91,6 +92,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -142,17 +144,23 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
+    private static final Set<String> STREAM_CONSUMPTION_STREAM_COLUMNS =
+            Set.of("DB_NAME", "STREAM_NAME", "STREAM_ID");
+    private static final Set<String> STREAM_CONSUMPTION_SELECTOR_COLUMNS =
+            Set.of("DB_NAME", "STREAM_NAME", "STREAM_ID", "UNIT");
 
     private static final ImmutableMap<String, Integer> ACTIVE_QUERIES_COLUMN_TO_INDEX;
 
@@ -367,7 +375,7 @@ public class MetadataGenerator {
                 columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
                 break;
             case TSO_STATUS:
-                result = tsoStatusMetadataResult();
+                result = tsoStatusMetadataResult(schemaTableParams.isSetColumnsName());
                 columnIndex = TSO_STATUS_COLUMN_TO_INDEX;
                 break;
             case STATISTICS:
@@ -1967,6 +1975,10 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(
                             formatMetaCacheTime(entryStats.getLastLoadFailureTimeMs(), timeZone)));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastError())); // LAST_ERROR
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getMaxWeight()));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedWeight()));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getWeightAdmissionRejectedCount()));
+                    trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastWeightRejectReason()));
                     dataBatch.add(trow);
                 }
             }
@@ -2325,8 +2337,68 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult streamConsumptionMetadataResult(TSchemaTableRequestParams params) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
+        // Decode the planner predicates carried back by BE. Conversion failures only disable FE pruning.
+        List<Expression> parsedConjuncts = Collections.emptyList();
+        if (params.isSetFrontendConjuncts()) {
+            try {
+                parsedConjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to convert frontend conjuncts for table_stream_consumption; skip FE pruning", e);
+            }
+        }
+        List<Expression> conjuncts = parsedConjuncts;
         try {
-            Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+            // Keep unfiltered scans on the direct path without allocating a selector or partition snapshots.
+            if (conjuncts.isEmpty()) {
+                Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+                result.setDataBatch(dataBatch);
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
+            // Split predicates by the earliest metadata level that has every referenced column.
+            // Stream-only predicates run once per stream; predicates using UNIT run once per partition.
+            List<Expression> streamConjuncts = Lists.newArrayList();
+            List<Expression> unitConjuncts = Lists.newArrayList();
+            for (Expression conjunct : conjuncts) {
+                Set<String> referencedColumns = new HashSet<>();
+                for (UnboundSlot slot : conjunct.<UnboundSlot>collectToList(UnboundSlot.class::isInstance)) {
+                    List<String> nameParts = slot.getNameParts();
+                    if (!nameParts.isEmpty()) {
+                        referencedColumns.add(nameParts.get(nameParts.size() - 1).toUpperCase(Locale.ROOT));
+                    }
+                }
+                // containsAll allows any subset, but rejects predicates that need unavailable columns.
+                if (STREAM_CONSUMPTION_STREAM_COLUMNS.containsAll(referencedColumns)) {
+                    streamConjuncts.add(conjunct);
+                } else if (referencedColumns.contains("UNIT")
+                        && STREAM_CONSUMPTION_SELECTOR_COLUMNS.containsAll(referencedColumns)) {
+                    unitConjuncts.add(conjunct);
+                }
+            }
+            // Bind each candidate's metadata values in the selector; unsupported predicates remain for BE filtering.
+            Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(
+                    dataBatch, new TableStreamManager.StreamConsumptionSelector() {
+                        @Override
+                        public boolean test(String dbName, String streamName, long streamId, String unit) {
+                            List<Expression> currentConjuncts = unit == null ? streamConjuncts : unitConjuncts;
+                            if (currentConjuncts.isEmpty()) {
+                                return true;
+                            }
+                            TreeMap<String, Object> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                            values.put("DB_NAME", dbName);
+                            values.put("STREAM_NAME", streamName);
+                            values.put("STREAM_ID", streamId);
+                            if (unit != null) {
+                                values.put("UNIT", unit);
+                            }
+                            return !FrontendConjunctsUtils.isFiltered(currentConjuncts, values);
+                        }
+
+                        @Override
+                        public boolean hasUnitFilter() {
+                            return !unitConjuncts.isEmpty();
+                        }
+                    });
         } catch (UserException e) {
             return errorResult(e.getMessage());
         }
@@ -2335,7 +2407,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult tsoStatusMetadataResult() {
+    private static TFetchSchemaTableDataResult tsoStatusMetadataResult(boolean includeCommittedTso) {
         if (!Config.enable_feature_binlog) {
             return errorResult("TSO feature is disabled, please check enable_feature_binlog");
         }
@@ -2347,10 +2419,18 @@ public class MetadataGenerator {
 
         long currentTso = statusSnapshot.getCurrentTso();
         TRow row = new TRow();
-        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTime()));
+        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTimeMs()));
         row.addToColumnValue(new TCell().setLongVal(currentTso));
         row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(currentTso)));
         row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractLogicalCounter(currentTso)));
+        // Older BE scanners omit columns_name and require exactly the original four columns.
+        if (includeCommittedTso) {
+            long committedTso = statusSnapshot.getCommittedTso();
+            row.addToColumnValue(committedTso == 0 ? new TCell().setIsNull(true)
+                    : new TCell().setLongVal(committedTso));
+            row.addToColumnValue(committedTso == 0 ? new TCell().setIsNull(true)
+                    : new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(committedTso)));
+        }
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(Lists.newArrayList(row));

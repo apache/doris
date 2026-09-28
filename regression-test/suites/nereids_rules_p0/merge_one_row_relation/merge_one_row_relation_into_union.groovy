@@ -28,4 +28,29 @@ suite("merge_one_row_relation_into_union") {
         ) u
         GROUP BY v
     """
+
+    qt_preserve_constant_before_group_by """
+        SELECT 1 AS c
+        UNION ALL
+        SELECT c FROM (SELECT 2 AS c) s GROUP BY c
+        ORDER BY c
+    """
+
+    qt_preserve_constant_before_distinct """
+        SELECT 1 AS c
+        UNION ALL
+        SELECT DISTINCT c FROM (SELECT 2 AS c) s
+        ORDER BY c
+    """
+
+    qt_preserve_constant_after_group_by """
+        SELECT c FROM (SELECT 2 AS c) s GROUP BY c
+        UNION ALL
+        SELECT 1 AS c
+        ORDER BY c
+    """
+
+    qt_preserve_multiple_constant_rows """
+        SELECT 1 AS c UNION ALL SELECT 1 AS c UNION ALL SELECT 1 AS c ORDER BY c
+    """
 }

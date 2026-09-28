@@ -397,9 +397,14 @@ public class PropertyAnalyzerTest {
 
             Map<String, String> properties = new HashMap<>();
             Config.inverted_index_storage_format = "SNII";
-            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "default");
-            Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII,
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V3");
+            Assertions.assertEquals(TInvertedIndexFileStorageFormat.V3,
                     PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+
+            properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "default");
+            AnalysisException defaultException = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
+            Assertions.assertTrue(defaultException.getMessage().contains("does not support 'default'"));
 
             properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V1");
             AnalysisException v1Exception = Assertions.assertThrows(AnalysisException.class,

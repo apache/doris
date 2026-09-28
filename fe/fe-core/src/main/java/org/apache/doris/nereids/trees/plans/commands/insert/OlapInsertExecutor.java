@@ -233,7 +233,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             } catch (Exception abortTxnException) {
                 LOG.warn("errors when abort txn. {}", ctx.getQueryIdentifier(), abortTxnException);
             }
-        } else if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+        } else if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransactionWithRetry(
                 database, Lists.newArrayList((Table) table),
                 txnId,
                 TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
