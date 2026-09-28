@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -72,6 +73,35 @@ class ConnectorChangelogPlanBuilderTest {
                         .collect(ImmutableList.toImmutableList()));
         Assertions.assertTrue(((LogicalProject<?>) result).getProjects().get(0).toSql().contains("6"));
         Assertions.assertTrue(((LogicalProject<?>) result).getProjects().get(2).toSql().contains("99"));
+    }
+
+    @Test
+    void updateRejectsPrimaryKeyAssignment() {
+        LogicalPlan child = targetRow();
+        ConnectorChangelogRowChangeSpec.Update spec = new ConnectorChangelogRowChangeSpec.Update(
+                ImmutableList.of("target"), ImmutableList.of(
+                        new EqualTo(new UnboundSlot("ID"), new IntegerLiteral(2))));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> ConnectorChangelogPlanBuilder.build(
+                        SCHEMA, TARGET_TABLE, ImmutableList.of("id"), MODE, spec, child, context(child)));
+
+        Assertions.assertTrue(exception.getMessage().contains("cannot modify primary-key column 'ID'"));
+    }
+
+    @Test
+    void matchedMergeUpdateRejectsPrimaryKeyAssignment() {
+        LogicalPlan child = targetRow();
+        MergeMatchedClause clause = new MergeMatchedClause(Optional.empty(), ImmutableList.of(
+                new EqualTo(new UnboundSlot("id"), new IntegerLiteral(2))), false);
+        ConnectorChangelogRowChangeSpec.Merge spec = new ConnectorChangelogRowChangeSpec.Merge(
+                ImmutableList.of("target"), ImmutableList.of(clause), ImmutableList.of());
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> ConnectorChangelogPlanBuilder.build(
+                        SCHEMA, TARGET_TABLE, ImmutableList.of("id"), MODE, spec, child, context(child)));
+
+        Assertions.assertTrue(exception.getMessage().contains("cannot modify primary-key column 'id'"));
     }
 
     @Test

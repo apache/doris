@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -405,6 +406,12 @@ public class PhysicalConnectorTableSinkTest {
 
         Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()),
                 ((DistributionSpecHash) properties.getDistributionSpec()).getOrderedShuffledColumns());
+        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
+                ((DistributionSpecHash) properties.getDistributionSpec()).getShuffleType());
+        DistributionSpecHash natural = new DistributionSpecHash(
+                ImmutableList.of(partSlot.getExprId()), ShuffleType.NATURAL);
+        Assertions.assertFalse(natural.satisfy(properties.getDistributionSpec()),
+                "a storage-natural distribution must not bypass the sink's execution hash shuffle");
     }
 
     // ==================== helpers ====================

@@ -83,7 +83,7 @@ public final class ConnectorChangelogPlanBuilder {
             ConnectorChangelogMode mode, ConnectorChangelogRowChangeSpec spec,
             LogicalPlan child, CascadesContext context) {
         if (spec instanceof ConnectorChangelogRowChangeSpec.Update) {
-            return buildUpdate(schema, targetTable, mode,
+            return buildUpdate(schema, targetTable, primaryKeys, mode,
                     (ConnectorChangelogRowChangeSpec.Update) spec, child, context);
         }
         if (spec instanceof ConnectorChangelogRowChangeSpec.Delete) {
@@ -99,9 +99,10 @@ public final class ConnectorChangelogPlanBuilder {
     }
 
     private static LogicalPlan buildUpdate(List<Column> schema, ExternalTable targetTable,
-            ConnectorChangelogMode mode,
+            List<String> primaryKeys, ConnectorChangelogMode mode,
             ConnectorChangelogRowChangeSpec.Update update, LogicalPlan child,
             CascadesContext context) {
+        rejectPrimaryKeyAssignments(primaryKeys, update.getAssignments(), "UPDATE");
         Map<String, Expression> changes = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo assignment : update.getAssignments()) {
             List<String> parts = ((UnboundSlot) assignment.left()).getNameParts();
@@ -130,6 +131,20 @@ public final class ConnectorChangelogPlanBuilder {
                     + String.join(", ", changes.keySet()));
         }
         return new LogicalProject<>(projects, child);
+    }
+
+    private static void rejectPrimaryKeyAssignments(List<String> primaryKeys,
+            List<EqualTo> assignments, String operation) {
+        Set<String> keys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        keys.addAll(primaryKeys);
+        for (EqualTo assignment : assignments) {
+            List<String> parts = ((UnboundSlot) assignment.left()).getNameParts();
+            String name = parts.get(parts.size() - 1);
+            if (keys.contains(name)) {
+                throw new AnalysisException("Connector changelog " + operation
+                        + " cannot modify primary-key column '" + name + "'");
+            }
+        }
     }
 
     private static LogicalPlan buildDelete(List<Column> schema, List<String> primaryKeys,
@@ -439,6 +454,7 @@ public final class ConnectorChangelogPlanBuilder {
         }
 
         private List<Expression> updateProjection(MergeMatchedClause clause) {
+            rejectPrimaryKeyAssignments(primaryKeys, clause.getAssignments(), "MERGE UPDATE");
             Map<String, Expression> changes = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (EqualTo assignment : clause.getAssignments()) {
                 List<String> parts = ((UnboundSlot) assignment.left()).getNameParts();

@@ -461,7 +461,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 return PhysicalProperties.GATHER;
             case HASH:
                 return PhysicalProperties.createHash(
-                        routeExprIds(distribution.getRouteColumns()), ShuffleType.REQUIRE);
+                        routeExprIds(distribution.getRouteColumns()), ShuffleType.EXECUTION_BUCKETED);
             case EXTERNAL_UNPARTITIONED:
                 requireExternalWriterRoutingSupport();
                 return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;

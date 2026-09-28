@@ -38,16 +38,18 @@ import java.util.Optional;
 public class DeleteFromUsingCommand extends DeleteFromCommand implements SupportProfile {
     private final Optional<LogicalPlan> cte;
     private final boolean hasOrderByLimit;
+    private final boolean hasUsingClause;
 
     /**
      * constructor
      */
     public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
             boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery,
-            Optional<LogicalPlan> cte, boolean hasOrderByLimit) {
+            Optional<LogicalPlan> cte, boolean hasOrderByLimit, boolean hasUsingClause) {
         super(nameParts, tableAlias, isTempPart, partitions, logicalQuery);
         this.cte = cte;
         this.hasOrderByLimit = hasOrderByLimit;
+        this.hasUsingClause = hasUsingClause;
     }
 
     @Override
@@ -81,7 +83,13 @@ public class DeleteFromUsingCommand extends DeleteFromCommand implements Support
     @Override
     protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
         return RowLevelDmlArgs.forDelete(
-                table, nameParts, tableAlias, isTempPart, partitions, handleCte(logicalQuery), true);
+                table, nameParts, tableAlias, isTempPart, partitions,
+                handleCte(logicalQuery), hasUsingClause);
+    }
+
+    /** Whether this command came from a DELETE statement with an actual USING clause. */
+    public boolean hasUsingClause() {
+        return hasUsingClause;
     }
 
     /**
