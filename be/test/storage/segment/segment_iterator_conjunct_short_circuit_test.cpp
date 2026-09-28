@@ -378,6 +378,34 @@ TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_result_narrows_bitmap_but
     EXPECT_EQ(_stats.rows_gram_index_filtered, 7);
 }
 
+TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_candidates_count_final_index_bitmap_once) {
+    _iter->_row_bitmap.addRange(0, 100);
+    auto rows_below = [](uint32_t end) {
+        std::vector<uint32_t> rows;
+        for (uint32_t row = 0; row < end; ++row) {
+            rows.push_back(row);
+        }
+        return rows;
+    };
+
+    auto first_approx = std::make_shared<BitmapEvalExpr>(rows_below(80),
+                                                         BitmapEvalExpr::ResultKind::kApproximate);
+    auto first_exact = std::make_shared<BitmapEvalExpr>(rows_below(60));
+    auto second_approx = std::make_shared<BitmapEvalExpr>(rows_below(50),
+                                                          BitmapEvalExpr::ResultKind::kApproximate);
+    auto last_exact = std::make_shared<BitmapEvalExpr>(rows_below(10));
+    _iter->_common_expr_ctxs_push_down = {
+            make_bitmap_ctx(first_approx), make_bitmap_ctx(first_exact),
+            make_bitmap_ctx(second_approx), make_bitmap_ctx(last_exact)};
+
+    ASSERT_TRUE(_iter->_apply_index_expr().ok());
+
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 10);
+    EXPECT_EQ(_iter->_common_expr_ctxs_push_down.size(), 2);
+    EXPECT_EQ(_stats.gram_index_candidate_rows, 10);
+    EXPECT_EQ(_stats.rows_gram_index_filtered, 30);
+}
+
 // An approximate result that prunes nothing still counts its candidates and reports zero rows
 // filtered, rather than a negative number from the unsigned difference.
 TEST_F(SegmentIteratorConjunctShortCircuitTest, approx_result_that_prunes_nothing_filters_none) {

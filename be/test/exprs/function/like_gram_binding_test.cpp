@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -159,7 +160,7 @@ protected:
     }
 
     Status evaluate_pattern(const std::string& name, const std::string& literal_value,
-                            PatternEvaluation* result) {
+                            PatternEvaluation* result, bool literal_on_left = false) {
         const DataTypePtr string_type = std::make_shared<DataTypeString>();
         TFunction function;
         TFunctionName function_name;
@@ -179,8 +180,13 @@ protected:
         auto slot = VSlotRef::create_shared(0, 0, 0, string_type, "p");
         auto literal = VLiteral::create_shared(string_type,
                                                Field::create_field<TYPE_STRING>(literal_value));
-        expression->add_child(slot);
-        expression->add_child(literal);
+        if (literal_on_left) {
+            expression->add_child(literal);
+            expression->add_child(slot);
+        } else {
+            expression->add_child(slot);
+            expression->add_child(literal);
+        }
 
         std::vector<IndexFieldNameAndTypePair> storage_types {{"p", string_type}};
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> index_status;
@@ -232,6 +238,7 @@ protected:
                          // column projection, which only ever materializes exact results)
         kUnderNot,       // NOT(LIKE ...)
         kUnderOr,        // LIKE ... OR LIKE ...
+        kDynamicPatternWithEscape,
     };
 
     struct PushDownProbe {
@@ -247,29 +254,39 @@ protected:
 
     Status probe_push_down(PushDownShape shape, PushDownProbe* probe) {
         const DataTypePtr string_type = std::make_shared<DataTypeString>();
-        auto make_like = [&]() {
+        auto make_like = [&](bool dynamic_pattern_with_escape = false) {
             TFunction function;
             TFunctionName function_name;
             function_name.__set_function_name("like");
             function.__set_name(function_name);
             function.__set_binary_type(TFunctionBinaryType::BUILTIN);
-            function.__set_arg_types({string_type->to_thrift(), string_type->to_thrift()});
+            std::vector<TTypeDesc> arg_types {string_type->to_thrift(), string_type->to_thrift()};
+            if (dynamic_pattern_with_escape) {
+                arg_types.push_back(string_type->to_thrift());
+            }
+            function.__set_arg_types(std::move(arg_types));
             function.__set_ret_type(DataTypeUInt8().to_thrift());
             function.__set_has_var_args(false);
             TExprNode node;
             node.__set_node_type(TExprNodeType::FUNCTION_CALL);
             node.__set_type(DataTypeUInt8().to_thrift());
             node.__set_fn(function);
-            node.__set_num_children(2);
+            node.__set_num_children(dynamic_pattern_with_escape ? 3 : 2);
             node.__set_is_nullable(false);
             auto call = VectorizedFnCall::create_shared(node);
             call->add_child(VSlotRef::create_shared(0, 0, 0, string_type, "p"));
-            call->add_child(VLiteral::create_shared(
-                    string_type, Field::create_field<TYPE_STRING>(std::string("%abcdef%"))));
+            if (dynamic_pattern_with_escape) {
+                call->add_child(VSlotRef::create_shared(1, 0, 0, string_type, "q"));
+                call->add_child(VLiteral::create_shared(
+                        string_type, Field::create_field<TYPE_STRING>(std::string("!"))));
+            } else {
+                call->add_child(VLiteral::create_shared(
+                        string_type, Field::create_field<TYPE_STRING>(std::string("%abcdef%"))));
+            }
             return call;
         };
 
-        auto like = make_like();
+        auto like = make_like(shape == PushDownShape::kDynamicPatternWithEscape);
         VExprSPtr root = like;
         if (shape == PushDownShape::kUnderNot || shape == PushDownShape::kUnderOr) {
             const bool is_not = shape == PushDownShape::kUnderNot;
@@ -360,6 +377,20 @@ TEST_F(LikeGramBindingTest, RegexpPrunesIndexedValues) {
     check_selective_result(forward);
 }
 
+TEST_F(LikeGramBindingTest, ReversedOperandsDoNotProduceGramCandidates) {
+    for (const char* name : {"like", "regexp", "rlike"}) {
+        SCOPED_TRACE(name);
+        PatternEvaluation result;
+        const auto status = evaluate_pattern(name, "abcdef", &result, true);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_FALSE(result.has_exact_result);
+        EXPECT_TRUE(result.candidates.is_empty());
+        if (std::string_view(name) == "like") {
+            EXPECT_TRUE(result.row_result->get_bool(0));
+        }
+    }
+}
+
 TEST_F(LikeGramBindingTest, PatternsUseTheSelectedReaderSchemeInASharedContainer) {
     TIndexPolicy tokenizer;
     tokenizer.id = 6753822;
@@ -440,6 +471,14 @@ TEST_F(LikeGramBindingTest, GramPushDownDoesNoIndexIoWhenItsResultWouldBeDiscard
         EXPECT_EQ(probe.index_reader_opens, 0) << "the index was read for a result nobody can use";
         EXPECT_FALSE(probe.has_candidates);
     }
+}
+
+TEST_F(LikeGramBindingTest, DynamicPatternWithEscapeDoesNotReadGramIndex) {
+    PushDownProbe probe;
+    const auto status = probe_push_down(PushDownShape::kDynamicPatternWithEscape, &probe);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(probe.index_reader_opens, 0);
+    EXPECT_FALSE(probe.has_candidates);
 }
 
 // An analyzed query (MATCH_*) is only exact on a gram segment when the current analyzer cuts

@@ -1388,6 +1388,7 @@ Status SegmentIterator::_apply_index_expr() {
     // iterates the same list.
     std::vector<const VExprContext*> consumed_by_index;
     bool bitmap_exhausted = false;
+    bool applied_approx_index = false;
     size_t considered_conjuncts = 0;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (_row_bitmap.isEmpty()) {
@@ -1423,7 +1424,9 @@ Status SegmentIterator::_apply_index_expr() {
         } else {
             // Approximate results come here: prune the candidates only, never consume the
             // expression.
-            _apply_approx_index_result(expr_ctx.get());
+            if (_apply_approx_index_result(expr_ctx.get())) {
+                applied_approx_index = true;
+            }
         }
     }
 
@@ -1490,6 +1493,10 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
 
+    if (applied_approx_index) {
+        _opts.stats->gram_index_candidate_rows += static_cast<int64_t>(_row_bitmap.cardinality());
+    }
+
     if (bitmap_exhausted) {
         // Zero surviving rows satisfy every remaining conjunct, so the whole
         // list is consumed -- mirroring the column-predicate short circuit.
@@ -1509,25 +1516,18 @@ Status SegmentIterator::_apply_index_expr() {
     return Status::OK();
 }
 
-void SegmentIterator::_apply_approx_index_result(VExprContext* expr_ctx) {
-    // An approximate result is a superset of candidates: rows outside the bitmap certainly do
-    // not match, while rows inside it may not match. So this only narrows _row_bitmap down to
-    // the candidate set and never records the expression in consumed_by_index -- it must stay in
-    // _common_expr_ctxs_push_down so that _execute_common_expr re-verifies each candidate row.
+bool SegmentIterator::_apply_approx_index_result(VExprContext* expr_ctx) {
+    // Approximate results prune candidates while their expressions remain for row evaluation.
     const auto* approx =
             expr_ctx->get_index_context()->get_approx_index_result_for_expr(expr_ctx->root().get());
     if (approx == nullptr || approx->get_data_bitmap() == nullptr) {
-        // InvertedIndexResultBitmap allows a null data bitmap (the default-constructed "no
-        // result" shape). In theory the approximate map only ever holds results with
-        // is_empty() == false, but dereferencing a null pointer here would be a segfault, which
-        // costs far more than one extra null check.
-        return;
+        return false;
     }
     const uint64_t before = _row_bitmap.cardinality();
     _row_bitmap &= *approx->get_data_bitmap();
     const uint64_t after = _row_bitmap.cardinality();
-    _opts.stats->gram_index_candidate_rows += static_cast<int64_t>(after);
     _opts.stats->rows_gram_index_filtered += static_cast<int64_t>(before - after);
+    return true;
 }
 
 bool SegmentIterator::_count_on_index_fastpath_safe() const {

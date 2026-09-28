@@ -919,16 +919,19 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
-    // A function that can only answer approximately (the gram push-down behind LIKE / REGEXP)
-    // produces a superset of candidate rows, and the caller names the single expression whose
-    // superset it will read back. Anywhere else -- an operand of a compound AND/OR/NOT, a
-    // nested child push-down, a virtual column projection -- the bitmap would be stored and
-    // never read, so building it would spend term dictionary lookups and posting reads (one
-    // remote request each on object storage) to filter nothing. Bail out before any of that;
-    // the row-level path still evaluates the predicate exactly, only the speedup is lost.
-    if (function->index_result_is_approximate() &&
-        context->approx_index_result_consumer() != this) {
-        return Status::OK();
+    if (function->index_result_is_approximate()) {
+        if (context->approx_index_result_consumer() != this || get_num_children() != 2) {
+            return Status::OK();
+        }
+        // Keep operand roles intact before the child loop separates iterators from literals.
+        const auto& value = get_child(0);
+        const bool indexed_value =
+                value->is_slot_ref() ||
+                (value->node_type() == TExprNodeType::CAST_EXPR && value->get_num_children() == 1 &&
+                 value->get_child(0)->is_slot_ref());
+        if (!indexed_value || !get_child(1)->is_literal()) {
+            return Status::OK();
+        }
     }
 
     // Pre-allocate vectors based on an estimated or known size
