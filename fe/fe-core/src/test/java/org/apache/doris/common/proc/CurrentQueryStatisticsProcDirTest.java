@@ -27,6 +27,15 @@ import org.junit.jupiter.api.Test;
 public class CurrentQueryStatisticsProcDirTest {
 
     @Test
+    public void testRemoteSpillColumnsAreAppendedLast() {
+        // Multi-FE aggregation concatenates rows by position: new columns must stay at the end.
+        int n = CurrentQueryStatisticsProcDir.TITLE_NAMES.size();
+        Assertions.assertEquals("Progress", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 3));
+        Assertions.assertEquals("SpillWriteBytesToRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 2));
+        Assertions.assertEquals("SpillReadBytesFromRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 1));
+    }
+
+    @Test
     public void testProgressNormal() {
         // 7 out of 20 tasks finished = 35.0%
         Assertions.assertEquals("35.0%", CurrentQueryStatisticsProcDir.formatProgress(20, 7));

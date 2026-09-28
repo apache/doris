@@ -36,7 +36,10 @@ struct FileCacheAllocatorBuilder;
 struct EncryptionInfo;
 
 // Request statistics reported by remote file writers when the caller passes an instance
-// through FileWriterOptions::remote_write_stats. All fields are cumulative.
+// through FileWriterOptions::remote_write_stats. All fields are cumulative. They count logical
+// requests, one per call into the object storage client: attempts retried inside the client
+// (throttling, transient errors) are not seen by the writer and not counted, so these are
+// observability numbers, not the provider's billed request count.
 struct RemoteWriteStats {
     std::atomic<int64_t> put_object_requests {0};
     std::atomic<int64_t> create_multipart_requests {0};
