@@ -1342,6 +1342,62 @@ public class MTMV extends OlapTable {
     }
 
     /**
+     * Raises the requirement of the given MV partitions that do not name one, and reports what each of those
+     * partitions now names.
+     *
+     * <p>This is what a refresh about to replace a partition says about it, and it has to be said before that
+     * replacement reads anything: an overwrite is two halves -- the rows are committed into temporary
+     * partitions, and a swap publishes them -- so a refresh that dies in between leaves the live partition
+     * holding the rows it had while whatever its read consumed, the offsets of the streams it read among
+     * them, is already committed with the first half. The epochs a refresh records ride with its result, and
+     * a refresh that never returns records none, so without this nothing would say the partition owes the
+     * rebuild and the next refresh would read on from an offset past a change the partition never received.
+     *
+     * <p>What the caller gets back is the requirement it raised, which is the ceiling its write-back is
+     * clamped to; see MTMVTask's captured epochs. A partition that already names a requirement is left alone
+     * and is not part of that result: it names the requirement the refresh answers for, and the caller must
+     * record what it read rather than what it found. Raising it again would move it above that, and the
+     * partition would be rebuilt a second time for nothing. The record it submits still carries the whole
+     * map -- that is what this channel carries -- but it is submitted only when something was raised.
+     *
+     * <p>This differs from {@link #markPartitionsForRebuild} on purpose: that one is an invalidation, and it
+     * raises the requirement of every partition it names because it has to outrank a refresh already
+     * running. This one is a refresh's own record of what it is about to do, and a partition that already
+     * names such a requirement does not need a second one.
+     *
+     * <p>Which partitions need it is decided under the same lock as the raise. Read outside it, a mark
+     * landing in between would leave this call blind to a requirement it then raises above, and the caller
+     * would record its own value as met for a change that arrived after it read.
+     */
+    public Map<String, Long> raiseRebuildRequirement(Set<String> partitionNames) {
+        if (CollectionUtils.isEmpty(partitionNames)) {
+            return Collections.emptyMap();
+        }
+        Map<String, Long> raised = Maps.newHashMapWithExpectedSize(partitionNames.size());
+        EditLogItem editLogItem;
+        writeMvLock();
+        try {
+            for (String partitionName : partitionNames) {
+                MTMVPartitionState state = partitionStates.get(partitionName);
+                if (state == null || state.isDirty()) {
+                    // Dropped since the caller planned it, or already naming a requirement of its own.
+                    continue;
+                }
+                state.setLatestEpoch(state.getLatestEpoch() + 1);
+                raised.put(partitionName, state.getLatestEpoch());
+            }
+            if (raised.isEmpty()) {
+                return Collections.emptyMap();
+            }
+            editLogItem = submitPartitionStatesChange(Collections.emptySet());
+        } finally {
+            writeMvUnlock();
+        }
+        editLogItem.await();
+        return raised;
+    }
+
+    /**
      * Journals the current states, and the MV partitions whose snapshots the same change dropped.
      *
      * <p>Same shape as submitIvmInfoChange: the caller mutated under the MV write lock, and replay applies

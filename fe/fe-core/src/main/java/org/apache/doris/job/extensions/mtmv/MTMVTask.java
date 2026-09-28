@@ -927,6 +927,37 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
+     * Says durably that the parts of the scope that do not name a rebuild requirement have to be rebuilt, and
+     * brings the epochs this phase records in line with it.
+     *
+     * <p>Raised here rather than by each caller of the executor, like the scope above: this is the phase that
+     * replaces partitions, and a caller that forgot would leave a partition whose rows were never published
+     * looking caught up. The partitions a caller has already made dirty are left as they are, which is what
+     * makes raising it here harmless for them: a whole-MV attempt marks its scope before it reconciles the
+     * streams, and the incremental attempt rebuilds the partitions an invalidation marked.
+     * See MTMV#raiseRebuildRequirement.
+     *
+     * <p>What that call reports is what a partition it raised now names, and this phase is clamped to it. The
+     * clamp cannot stay at what an earlier attempt planned: that value sits below the requirement this phase
+     * has just raised, so the epochs recorded here would leave the partition dirty after it was replaced, and
+     * every refresh after it would rebuild the same partitions again.
+     *
+     * <p>A partition that already named a requirement keeps the entry it has, and is deliberately not moved
+     * up to what it names now. The entry is the value the routing decision saw, and it is what keeps a mark
+     * landing between that decision and this phase's read from being recorded as met by a replacement that
+     * read before the change it made. Leaving it where it is costs one rebuild; moving it up could cost the
+     * change.
+     */
+    private void raiseRequirementForRefreshScope(Collection<String> partitions) {
+        if (!mtmv.isIvm()) {
+            // A plain MV has no streams to read and its epochs record nothing: the sync criterion plans it
+            // again on its own until its snapshots are published.
+            return;
+        }
+        ivmPlannedEpochs.putAll(mtmv.raiseRebuildRequirement(Sets.newHashSet(partitions)));
+    }
+
+    /**
      * Brings the routing decision up to date after a retry has synchronized and aligned the MV's partitions.
      *
      * <p>A partition the alignment creates is dirty by construction -- {@code {0, 1}}, behind its
@@ -1084,6 +1115,12 @@ public class MTMVTask extends AbstractTask {
         // callers name a scope as well, and only where they decide one and may not get here: a whole-MV
         // attempt before it reconciles the streams, and a partition plan before it judges their streams.
         recordRefreshScope(partitions);
+        // The durable half of what this phase is about to do, raised before it reads anything. An overwrite
+        // commits the rows into temporary partitions and publishes them with a swap afterwards, so a refresh
+        // that dies between the two leaves the live partitions holding the rows they had while the streams
+        // its read consumed are already advanced -- and the epochs it would have written ride with a result
+        // that never came. See raiseRequirementForRefreshScope.
+        raiseRequirementForRefreshScope(partitions);
         boolean useIvmFallbackStreams = mtmv.isIvm();
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
         try {

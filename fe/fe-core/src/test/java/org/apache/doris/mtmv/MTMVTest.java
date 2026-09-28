@@ -1199,6 +1199,69 @@ public class MTMVTest {
     }
 
     /**
+     * The requirement a refresh raises for the partitions it is about to replace, and what it is told it
+     * raised.
+     *
+     * <p>This is what makes a refresh that dies between the two halves of an overwrite recoverable: the rows
+     * are committed into temporary partitions and the swap that publishes them never runs, so the live
+     * partition holds what it had while the streams its read consumed are advanced -- and the refresh
+     * publishes no epochs, because a refresh that never returns publishes nothing. What comes back is the
+     * value the caller's write-back records, so the replacement that met the requirement clears it.
+     */
+    @Test
+    public void testRaiseRebuildRequirementSkipsThePartitionsThatAlreadyNameOne() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Deencapsulation.setField(mtmv, "name", "mv1");
+        Map<String, MTMVPartitionState> current = new HashMap<>();
+        current.put("p202601", new MTMVPartitionState(1, 1));
+        current.put("p202602", new MTMVPartitionState(1, 2));
+        current.put("p202603", new MTMVPartitionState(1, 1));
+        mtmv.alterPartitionStates(current);
+
+        Map<String, Long> raised = Maps.newHashMap();
+        List<AlterMTMV> journaled = runRaiseRebuildRequirement(mtmv,
+                Sets.newHashSet("p202601", "p202602", "p202603"), raised);
+
+        // The parts of the scope that named a requirement of their own are not moved: p202602 is left where
+        // it is, and the caller is not told to record it.
+        Assertions.assertEquals(Map.of("p202601", 2L, "p202603", 2L), raised);
+        Assertions.assertEquals(1, journaled.size());
+        Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p202601").getLatestEpoch());
+        Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p202602").getLatestEpoch());
+        Assertions.assertEquals(2, journaled.get(0).getPartitionStates().get("p202603").getLatestEpoch());
+
+        // The epoch the refresh records is the one it raised, and recording it is what clears the partition:
+        // a value below it would leave the partition needing a rebuild for the rest of its life.
+        runAddTaskResult(mtmv, null, false, raised);
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertFalse(mtmv.getPartitionStates().get("p202601").isDirty());
+        Assertions.assertFalse(mtmv.getPartitionStates().get("p202603").isDirty());
+        // What this result published nothing for keeps the requirement it had.
+        Assertions.assertTrue(mtmv.getPartitionStates().get("p202602").isDirty());
+    }
+
+    @Test
+    public void testRaiseRebuildRequirementWritesNothingWhenEveryPartitionNamesOne() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        Deencapsulation.setField(mtmv, "name", "mv1");
+        Map<String, MTMVPartitionState> current = new HashMap<>();
+        current.put("p202601", new MTMVPartitionState(1, 2));
+        mtmv.alterPartitionStates(current);
+
+        Map<String, Long> raised = Maps.newHashMap();
+        // A partition that already needs a rebuild and a partition this MV does not have: nothing to say, so
+        // nothing is journaled -- an MV with many partitions would otherwise write its whole map to say it.
+        List<AlterMTMV> journaled = runRaiseRebuildRequirement(mtmv,
+                Sets.newHashSet("p202601", "p202699"), raised);
+
+        Assertions.assertTrue(raised.isEmpty());
+        Assertions.assertTrue(journaled.isEmpty());
+        Assertions.assertEquals(2, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
+    }
+
+    /**
      * Runs one ADD_TASK result through {@link MTMV#addTaskResult}, optionally carrying {@code
      * journaledStates} in its payload the way a real journal would, and returns the payloads that
      * reached the edit log -- which stays empty on the replay path.
@@ -1253,6 +1316,14 @@ public class MTMVTest {
         mtmv.getIvmInfo().setEnableIvm(true);
         Mockito.doReturn(partitionNames).when(mtmv).getPartitionNames();
         return mtmv;
+    }
+
+    /** Runs {@link MTMV#raiseRebuildRequirement} against a mocked edit log, collecting what it raised. */
+    private List<AlterMTMV> runRaiseRebuildRequirement(MTMV mtmv, Set<String> partitionNames,
+            Map<String, Long> raised) {
+        List<AlterMTMV> journaled = Lists.newArrayList();
+        withMockedEditLog(journaled, () -> raised.putAll(mtmv.raiseRebuildRequirement(partitionNames)));
+        return journaled;
     }
 
     private List<AlterMTMV> runAlignPartitionStates(MTMV mtmv) {

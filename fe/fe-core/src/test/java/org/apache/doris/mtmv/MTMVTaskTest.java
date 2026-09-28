@@ -192,6 +192,50 @@ public class MTMVTaskTest {
     }
 
     /**
+     * A partition refresh raises the requirement of the parts of its scope that name none, and is clamped to
+     * what it raised.
+     *
+     * <p>Without the raise, a refresh that dies between the two halves of an overwrite -- the rows committed
+     * into temporary partitions, the swap not run -- leaves the live partitions holding what they had while
+     * the streams its read consumed are advanced, and nothing says so. Without the clamp moving with it, the
+     * partition stays dirty after the replacement that met the requirement, and every refresh rebuilds it
+     * again.
+     */
+    @Test
+    public void testAPartitionRefreshRaisesTheRequirementItIsClampedTo() {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        // An earlier attempt planned both partitions; the requirement this phase raises is above what it saw.
+        Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L, ptwoName, 2L)));
+        Mockito.when(mtmv.raiseRebuildRequirement(Mockito.any())).thenReturn(Map.of(poneName, 5L));
+
+        Deencapsulation.invoke(task, "raiseRequirementForRefreshScope", allPartitionNames);
+
+        // The partition that was raised is clamped to what it now names; the one that was not keeps the
+        // value the routing decision saw, which is what keeps a later invalidation from being recorded.
+        Assertions.assertEquals(Map.of(poneName, 5L, ptwoName, 2L),
+                Deencapsulation.getField(task, "ivmPlannedEpochs"));
+
+        Deencapsulation.invoke(task, "commitCapturedEpochs", Maps.newHashMap(Map.of(poneName, 5L)));
+        Assertions.assertEquals(Map.of(poneName, 5L), Deencapsulation.getField(task, "ivmCapturedEpochs"));
+    }
+
+    /**
+     * A plain MV has no epoch to raise: its refresh is planned by the sync criterion until its snapshots are
+     * published, and a requirement recorded for it would never be met by a write-back that only IVM records.
+     */
+    @Test
+    public void testAPlainMvRaisesNoRequirement() {
+        Mockito.when(mtmv.isIvm()).thenReturn(false);
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        Deencapsulation.invoke(task, "raiseRequirementForRefreshScope", allPartitionNames);
+
+        Assertions.assertTrue(((Map<?, ?>) Deencapsulation.getField(task, "ivmPlannedEpochs")).isEmpty());
+        Mockito.verify(mtmv, Mockito.never()).raiseRebuildRequirement(Mockito.any());
+    }
+
+    /**
      * A PARTITIONS request that may not fall back is not widened by an invalidated baseline.
      *
      * <p>What the invalidation needs rebuilt is not what the request names -- it covers partitions partition
