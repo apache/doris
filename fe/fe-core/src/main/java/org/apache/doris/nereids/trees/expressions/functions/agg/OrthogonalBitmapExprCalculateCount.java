@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -36,7 +38,7 @@ import java.util.List;
 /** OrthogonalBitmapExprCalculateCount */
 public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunction
         implements OrthogonalBitmapFunction, ExplicitlyCastableSignature,
-        NullIgnoringAggregateFunction {
+        NullIgnoringAggregateFunction, FoldLiteralArguments {
 
     static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
@@ -47,7 +49,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
      * constructor with 3 arguments.
      */
     public OrthogonalBitmapExprCalculateCount(
-            Expression bitmap, Expression filterColumn, VarcharLiteral inputString) {
+            Expression bitmap, Expression filterColumn, Expression inputString) {
         super("orthogonal_bitmap_expr_calculate_count",
                 ExpressionUtils.mergeArguments(bitmap, filterColumn, inputString));
     }
@@ -56,7 +58,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
      * constructor with 3 arguments.
      */
     public OrthogonalBitmapExprCalculateCount(boolean distinct,
-            Expression bitmap, Expression filterColumn, VarcharLiteral inputString) {
+            Expression bitmap, Expression filterColumn, Expression inputString) {
         super("orthogonal_bitmap_expr_calculate_count", distinct,
                 ExpressionUtils.mergeArguments(bitmap, filterColumn, inputString));
     }
@@ -64,6 +66,20 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
     /** constructor for withChildren and reuse signature */
     private OrthogonalBitmapExprCalculateCount(AggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        // the calculation expression
+        return index == 2;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!(getArgument(2) instanceof StringLikeLiteral)) {
+            throw new AnalysisException("The third argument of " + getName()
+                    + " must be a string literal: " + toSql());
+        }
     }
 
     @Override
