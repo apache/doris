@@ -107,7 +107,11 @@ public class SearchCteRewriteTest extends TestWithFeService {
         // Force RecordPlanForMvPreRewrite, which runs a temporary RewriteCteChildren pass and may
         // leave its rewritten CTE producers/consumers in the shared StatementContext.
         checker.getCascadesContext().getStatementContext().setForceRecordTmpPlan(true);
-        assertSearchRewritten(checker.rewrite().getPlan());
+        checker.rewrite();
+        List<Plan> recordedPlans = checker.getCascadesContext().getStatementContext().getTmpPlanForMvRewrite();
+        Assertions.assertEquals(1, recordedPlans.size(), "pre-MV rewrite must record exactly one temporary plan");
+        Assertions.assertNotNull(recordedPlans.get(0), "the recorded pre-MV plan must not be null");
+        assertSearchRewritten(checker.getPlan());
     }
 
     @Test

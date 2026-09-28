@@ -189,7 +189,6 @@ import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -895,8 +894,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
         if (includeNormalizePlanJobs) {
             builder.addAll(NORMALIZE_PLAN_JOBS);
         }
-        List<RewriteJob> rewriteJobs = Lists.newArrayListWithExpectedSize(300);
-        rewriteJobs.addAll(jobs(
+        builder.addAll(jobs(
                 topic("cte inline and pull up all cte anchor",
                         custom(RuleType.PULL_UP_CTE_ANCHOR, PullUpCteAnchor::new),
                         custom(RuleType.CTE_INLINE, CTEInline::new)
@@ -912,23 +910,23 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 () -> new RewriteCteChildren(beforePushDownJobs, runCboRules)
                         )
                 )));
-        rewriteJobs.addAll(jobs(topic("convert outer join to anti",
+        builder.addAll(jobs(topic("convert outer join to anti",
                 custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
-        rewriteJobs.addAll(jobs(topic("eliminate Aggregate according to fd items",
+        builder.addAll(jobs(topic("eliminate Aggregate according to fd items",
                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                         || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                         || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
                 custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new))));
-        rewriteJobs.addAll(jobs(topic("eliminate group by key by uniform",
+        builder.addAll(jobs(topic("eliminate group by key by uniform",
                 custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new))));
         if (needOrExpansion) {
-            rewriteJobs.addAll(jobs(topic("or expansion",
+            builder.addAll(jobs(topic("or expansion",
                     custom(RuleType.OR_EXPANSION, () -> OrExpansion.INSTANCE))));
         }
-        rewriteJobs.add(topic("repeat rewrite",
+        builder.add(topic("repeat rewrite",
                 custom(RuleType.DECOMPOSE_REPEAT, () -> DecomposeRepeatWithPreAggregation.INSTANCE)));
 
-        rewriteJobs.addAll(jobs(topic("split multi distinct",
+        builder.addAll(jobs(topic("split multi distinct",
                 custom(RuleType.DISTINCT_AGG_STRATEGY_SELECTOR,
                         () -> DistinctAggStrategySelector.INSTANCE))));
 
@@ -937,18 +935,18 @@ public class Rewriter extends AbstractBatchJobExecutor {
         // plan when there is no LogicalCTEAnchor, so SEARCH is bound in both cases from one place.
 
         if (needSubPathPushDown) {
-            rewriteJobs.addAll(jobs(
+            builder.addAll(jobs(
                     topic("variant element_at push down",
                             custom(RuleType.VARIANT_SUB_PATH_PRUNING, VariantSubPathPruning::new)
                     )
             ));
         }
-        rewriteJobs.add(
+        builder.add(
                 topic("nested column prune",
                         custom(RuleType.NESTED_COLUMN_PRUNING, NestedColumnPruning::new)
                 )
         );
-        rewriteJobs.addAll(jobs(
+        builder.addAll(jobs(
                         topic("rewrite cte sub-tree after sub path push down",
                                 custom(RuleType.CLEAR_CONTEXT_STATUS, ClearContextStatus::new),
                                 custom(RuleType.REWRITE_CTE_CHILDREN,
@@ -963,7 +961,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new NullableDependentExpressionRewrite())))
                 )
         );
-        builder.addAll(rewriteJobs);
         return builder.build();
     }
 
