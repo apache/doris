@@ -29,6 +29,7 @@
 #include "common/logging.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/writer/global_memory_limiter.h"
@@ -115,10 +116,11 @@ Status SniiIndexColumnWriter::init() {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "SNII create analyzer failed: {}", e.what());
     }
-    // A2: Analyzed indexes with positions always write norms (tokens per document, clamped to
-    // 1..255), matching CLucene's scoring capabilities. Keyword or positionless indexes omit
-    // them. Norms are an optional core-metadata region ignored by older readers.
-    _writes_norms = _should_analyzer && _has_positions;
+    // A2: Analyzed indexes with positions write norms (tokens per document, clamped to 1..255),
+    // matching CLucene's scoring capabilities, unless the shared norms policy turns them off.
+    // Keyword or positionless indexes omit them. Norms are an optional core-metadata region
+    // ignored by older readers.
+    _writes_norms = _should_analyzer && _has_positions && should_write_index_norms(*_index_meta);
     return Status::OK();
 }
 

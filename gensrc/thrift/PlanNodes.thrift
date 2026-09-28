@@ -313,6 +313,10 @@ struct TFileAttributes {
     // org.openx.data.jsonserde.JsonSerDe
     13: optional bool openx_json_ignore_malformed = false;
 
+    // Hive OpenCSVSerde has different field states and physical record boundaries from load CSV.
+    // Requires BE execution version >= 15 and excludes smooth-upgrade source backends.
+    14: optional bool hive_open_csv = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
@@ -593,13 +597,18 @@ struct TFileScanRangeParams {
     34: optional i32 iceberg_scan_semantics_version
     // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
     35: optional string serialized_table_cache_key
-    // HMS catalog property hive.parquet.time-zone. When absent, format_v2 keeps INT96 wall-clock
-    // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
+    // HMS catalog property hive.parquet.time-zone. Interpretation is versioned by
+    // parquet_timestamp_semantics_version.
     36: optional string hive_parquet_time_zone
     37: optional TLanceScanParams lance_scan_params
     // Non-regular columns in the pinned full schema, including columns pruned from phase one.
     // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
     38: optional map<string, TColumnCategory> column_name_to_category
+    // If both this marker and the timezone are absent, preserve legacy session-timezone decoding.
+    // Version 1 makes an absent/empty hive_parquet_time_zone explicitly disable INT96 conversion.
+    39: optional i32 parquet_timestamp_semantics_version
+    // Hybrid Paimon/Hudi scans keep FORMAT_JNI while individual ranges can be native Parquet.
+    40: optional bool contains_native_parquet
 }
 
 struct TFileRangeDesc {

@@ -18,6 +18,7 @@
 suite("other_join_conjuncts_inner") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
+    sql "set pre_materialized_view_rewrite_strategy=TRY_IN_RBO"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
@@ -166,6 +167,10 @@ suite("other_join_conjuncts_inner") {
             """
     order_qt_query1_0_before "${query1_0}"
     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    explain {
+        sql("${query1_0}")
+        contains("RBO.")
+    }
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 

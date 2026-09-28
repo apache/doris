@@ -28,6 +28,18 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
     def mowPartialTable = "changes_mow_partial"
     def mowBitmapTable = "changes_mow_bitmap"
     def incrTimeFormat = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    def fullWindowEnd = {
+        long current = (sql "SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status")[0][0] as long
+        long minimumEnd = (Math.floorDiv(current, 1000L) + 1L) * 1000L
+        String column = isCloudMode() ? "COMMITTED_TSO_PHYSICAL_TIME" : "CURRENT_TSO_PHYSICAL_TIME"
+        long readable = 0L
+        awaitUntil(60, 0.1) {
+            def value = (sql "SELECT ${column} FROM information_schema.tso_status")[0][0]
+            readable = value == null ? 0L : value as long
+            readable >= minimumEnd
+        }
+        incrTimeFormat.format(new Date(readable))
+    }
 
     try {
         sql "DROP TABLE IF EXISTS ${dupTable}"
@@ -80,7 +92,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${dupTable} VALUES (3, 31, 'c2', NULL)"
         sql "sync"
         sleep(1200)
-        def dupT1 = incrTimeFormat.format(new Date())
+        def dupT1 = fullWindowEnd()
         sleep(1200)
         sql "INSERT INTO ${dupTable} VALUES (5, 50, 'd', 'w')"
         sql "sync"
@@ -161,12 +173,8 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
             ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
         """
 
-        //  - CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp is accepted.
-        sleep(1200)
-        def currentTsoPhysicalTime = Long.parseLong(sql("""
-            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
-        """)[0][0].toString())
-        def currentTsoEnd = incrTimeFormat.format(new Date(currentTsoPhysicalTime))
+        //  - The readable TSO physical time converted to an INCR timestamp is accepted.
+        def currentTsoEnd = fullWindowEnd()
         order_qt_dup_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${dupTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
@@ -183,7 +191,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                     "endTimestamp" = "2999-01-01 00:00:00",
                     "incrementType" = "DETAIL")
             """
-            exception "CURRENT_TSO_PHYSICAL_TIME="
+            exception (isCloudMode() ? "ERR_INCR_WINDOW_NOT_READY" : "CURRENT_TSO_PHYSICAL_TIME=")
         }
 
         // 1.8 Cross-check against binlog() TVF — DETAIL with full window must
@@ -263,7 +271,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "sync"
 
         sleep(1200)
-        def mowT1 = incrTimeFormat.format(new Date())
+        def mowT1 = fullWindowEnd()
         sleep(1200)
         sql "INSERT INTO ${mowTable} VALUES (6, 60, 'f')"
         sql "sync"
@@ -410,13 +418,9 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                 "incrementType" = "MIN_DELTA")
         """
 
-        // 2.9 CURRENT_TSO_PHYSICAL_TIME converted to an INCR timestamp covers
+        // 2.9 The readable TSO physical time converted to an INCR timestamp covers
         //     all changes that were visible before it was captured.
-        sleep(1200)
-        def mowCurrentTsoPhysicalTime = Long.parseLong(sql("""
-            SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status
-        """)[0][0].toString())
-        def mowCurrentTsoEnd = incrTimeFormat.format(new Date(mowCurrentTsoPhysicalTime))
+        def mowCurrentTsoEnd = fullWindowEnd()
         order_qt_mow_full_cover """
             SELECT id, v1, __DORIS_BINLOG_OP__
             FROM ${mowTable}@incr('startTimestamp' = '1971-01-01 00:00:00',
@@ -433,7 +437,8 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
                     "endTimestamp" = "2999-01-01 00:00:00",
                     "incrementType" = "DETAIL")
             """
-            exception "endTimestamp exceeds the maximum supported time for an INCR read"
+            exception (isCloudMode() ? "ERR_INCR_WINDOW_NOT_READY"
+                    : "endTimestamp exceeds the maximum supported time for an INCR read")
         }
 
         // ============================================================
@@ -482,7 +487,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         """
         sql "sync"
         sleep(1200)
-        def seqT1 = incrTimeFormat.format(new Date())
+        def seqT1 = fullWindowEnd()
         sleep(1200)
 
         // 3.1 DETAIL only captures physically-applied writes. The out-of-order
@@ -543,7 +548,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "SET enable_unique_key_partial_update = false"
         sql "sync"
         sleep(1200)
-        def partT1 = incrTimeFormat.format(new Date())
+        def partT1 = fullWindowEnd()
 
         // 4.1 DETAIL: 3 partial updates -> 6 raw binlog rows.
         order_qt_part_detail """
@@ -608,7 +613,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('3,4'))"
         sql "sync"
         sleep(1200)
-        def bitmapT1 = incrTimeFormat.format(new Date())
+        def bitmapT1 = fullWindowEnd()
 
         order_qt_bitmap_min_delta """
             SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__
@@ -627,7 +632,7 @@ suite("test_binlog_changes_syntax", "nonConcurrent") {
         sql "INSERT INTO ${mowBitmapTable} VALUES (1, BITMAP_FROM_STRING('3,4'))"
         sql "sync"
         sleep(1200)
-        def bitmapEqualT1 = incrTimeFormat.format(new Date())
+        def bitmapEqualT1 = fullWindowEnd()
 
         order_qt_bitmap_equal_min_delta """
             SELECT id, BITMAP_TO_STRING(b), __DORIS_BINLOG_OP__

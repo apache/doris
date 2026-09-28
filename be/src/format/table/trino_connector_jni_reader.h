@@ -40,6 +40,7 @@ class TrinoConnectorJniReader : public JniReader {
 
 public:
     static const std::string TRINO_CONNECTOR_OPTION_PREFIX;
+    static const std::string TRINO_CONNECTOR_PLUGIN_DIR;
     TrinoConnectorJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
                             RuntimeState* state, RuntimeProfile* profile,
                             const TFileRangeDesc& range);
@@ -50,8 +51,5 @@ public:
 
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
-
-private:
-    Status _set_spi_plugins_dir();
 };
 } // namespace doris

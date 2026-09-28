@@ -191,6 +191,17 @@ txn_id=126419752960)",
         R"({"table_ids":["10001"]})",
     },
     Input {
+        "TxnTsoFenceKey",
+        "instance_id=gavin-instance",
+        {hex(txn_tso_fence_key({"gavin-instance"}))},
+        []() -> std::vector<std::string> {
+            TxnTsoFencePB pb;
+            pb.set_fence_tso(100);
+            return {pb.SerializeAsString()};
+        },
+        R"({"fence_tso":"100"})",
+    },
+    Input {
         "PartitionVersionKey",
         "instance_id=gavin-instance&db_id=10086&tbl_id=10010&partition_id=10000",
         {"011076657273696f6e000110676176696e2d696e7374616e6365000110706172746974696f6e000112000000000000276612000000000000271a120000000000002710"},

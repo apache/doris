@@ -46,6 +46,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
 #include "exec/scan/file_scan_io_context.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -185,10 +186,6 @@ bool is_text_format(TFileFormatType::type format_type) {
 
 bool is_json_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_JSON;
-}
-
-bool is_native_format(TFileFormatType::type format_type) {
-    return format_type == TFileFormatType::FORMAT_NATIVE;
 }
 
 bool is_wal_format(TFileFormatType::type format_type) {
@@ -331,7 +328,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     } else if (is_wal_format(format_type)) {
         return table_format_name(range) == "NotSet";
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
-               is_json_format(format_type) || is_native_format(format_type)) {
+               is_json_format(format_type)) {
         return is_supported_table_format(range);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
@@ -472,7 +469,10 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
             const auto status = _table_reader->get_block(block, eof);
-            if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
+            if (_should_skip_not_found(
+                        status,
+                        can_ignore_not_found_file(
+                                _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 _state->update_num_finished_scan_range(1);
@@ -483,10 +483,9 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             }
             if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
                 // END_OF_FILE here means the reader discovered a valid split with no data while
-                // opening or probing it, not that the Scanner has exhausted all splits. Examples
-                // are a zero-byte CSV with an explicit schema and a Doris Native file containing
-                // only its 12-byte header. Treat it like V1's empty-file path: finish this range,
-                // discard partial reader state, and let the loop fetch the next split.
+                // opening or probing it, not that the Scanner has exhausted all splits, e.g. a
+                // zero-byte CSV with an explicit schema. Treat it like V1's empty-file path: finish
+                // this range, discard partial reader state, and let the loop fetch the next split.
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_empty_file_counter, 1);
                 _state->update_num_finished_scan_range(1);
@@ -559,7 +558,10 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         RETURN_IF_ERROR(_generate_partition_values(_current_range, &partition_values));
         const auto status =
                 _prepare_table_reader_split(_current_range, std::move(partition_values));
-        if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
+        if (_should_skip_not_found(
+                    status,
+                    can_ignore_not_found_file(_current_range,
+                                              config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
             _state->update_num_finished_scan_range(1);
@@ -1015,9 +1017,6 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_JSON:
         *file_format = format::FileFormat::JSON;
-        return Status::OK();
-    case TFileFormatType::FORMAT_NATIVE:
-        *file_format = format::FileFormat::NATIVE;
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;

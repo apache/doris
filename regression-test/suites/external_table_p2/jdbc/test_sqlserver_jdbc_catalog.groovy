@@ -86,6 +86,29 @@ suite("test_sqlserver_jdbc_catalog", "p2,external") {
 
         order_qt_identity_decimal """ select * from test_identity_decimal order by id; """
 
+        // Regression test for https://github.com/apache/doris/issues/67793
+        // Columns declared with a user-defined alias type (CREATE TYPE ... FROM base_type) are reported
+        // by the driver with the alias name as TYPE_NAME. They must resolve to the Doris type of their
+        // base type instead of UNSUPPORTED, so that both DESC and SELECT * work.
+        order_qt_desc_alias_type """ desc test_alias_type; """
+        order_qt_alias_type """ select * from test_alias_type order by id; """
+        // IDENTITY on an alias typed column
+        order_qt_desc_alias_identity """ desc test_alias_identity; """
+        order_qt_alias_identity """ select * from test_alias_identity order by id; """
+        // Alias types named like a system type ([int alias], [decimal(18,0) identity], [int identity]) are
+        // resolved by their base type; only a real IDENTITY column is reported with its base type decorated.
+        order_qt_desc_alias_name """ desc test_alias_name; """
+        order_qt_alias_name """ select * from test_alias_name order by id; """
+        // Aliases over binary types, datetimeoffset and sql_variant can not be resolved by the JDBC type
+        // code, and the xml / CLR system types are not supported either. They stay UNSUPPORTED, the other
+        // columns of the table remain readable and SELECT * still fails on the unsupported columns.
+        order_qt_desc_alias_unsupported """ desc test_alias_unsupported; """
+        order_qt_alias_unsupported """ select id, plain_col from test_alias_unsupported order by id; """
+        test {
+            sql """ select * from test_alias_unsupported order by id; """
+            exception "UNSUPPORTED"
+        }
+
         // Test cases for SQL Server date format pushdown (handleSQLServerDateFormat)
         // Uses test_date_filter table which has diverse date/datetime values across rows
         // to verify that filters genuinely include/exclude the correct rows.
@@ -138,6 +161,8 @@ suite("test_sqlserver_jdbc_catalog", "p2,external") {
         sql """ use ${ex_db_name} """
 
         order_qt_desc """ desc test_binary;  """
+        // enable.mapping.varbinary only applies to the native binary types, aliases over them stay UNSUPPORTED
+        order_qt_desc_alias_unsupported_varbinary """ desc test_alias_unsupported; """
         sql """ CALL EXECUTE_STMT("test_sqlserver_jdbc_catalog_binary", "DELETE FROM dbo.test_binary WHERE id = 4") """
         order_qt_query """ select * from test_binary order by id; """
 

@@ -2747,11 +2747,8 @@ PARTITION `p599` VALUES IN (599)
    """
     sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
     sql """analyze table string_min_max with sync"""
-    explain {
-        sql("select min(name), max(name) from string_min_max")
-        contains "pushAggOp=NONE"
-    }
-    sql """set enable_pushdown_string_minmax = true"""
+    // Every string column is pushed down now, and the storage layer decides per segment whether
+    // a cut bound may answer. These bounds are short, so the zone map answers them.
     explain {
         sql("select min(name), max(name) from string_min_max")
         contains "pushAggOp=MINMAX"

@@ -97,7 +97,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/client_cache.h"
 #include "util/defer_op.h"
-#include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 #include "util/jsonb_utils.h"
@@ -117,7 +116,7 @@ PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::s
     return builder.append(parent_column->name_lower_case(), false).append("", false).build();
 }
 
-void append_empty_key_subcolumn_from_stats(TabletSchema::PathsSetInfo& paths_set_info,
+void append_empty_key_subcolumn_from_stats(VariantCompactionPaths& paths_set_info,
                                            const TabletColumnPtr& parent_column,
                                            TabletSchemaSPtr& output_schema) {
     if (!paths_set_info.sub_path_set.contains("") || paths_set_info.sparse_path_set.contains("") ||
@@ -1002,7 +1001,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 // get the subpaths and sparse paths for the variant column
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
                                          const PathToNoneNullValues& stats,
-                                         TabletSchema::PathsSetInfo& paths_set_info) {
+                                         VariantCompactionPaths& paths_set_info) {
     // max_subcolumns_count is 0 means no limit
     if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
@@ -1148,7 +1147,7 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
 Status VariantCompactionUtil::get_compaction_typed_columns(
         const TabletSchemaSPtr& target, const std::unordered_set<std::string>& typed_paths,
         const TabletColumnPtr parent_column, TabletSchemaSPtr& output_schema,
-        TabletSchema::PathsSetInfo& paths_set_info) {
+        VariantCompactionPaths& paths_set_info) {
     if (parent_column->variant_enable_typed_paths_to_sparse()) {
         return Status::OK();
     }
@@ -1169,7 +1168,7 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
 Status VariantCompactionUtil::get_compaction_nested_columns(
         const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
         const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
-        TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info) {
+        TabletSchemaSPtr& output_schema, VariantCompactionPaths& paths_set_info) {
     const auto& parent_indexes = output_schema->inverted_indexs(parent_column->unique_id());
     for (const auto& path : nested_paths) {
         const auto& find_data_types = path_to_data_types.find(path);
@@ -1200,7 +1199,7 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
 }
 
 void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
-        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        VariantCompactionPaths& paths_set_info, const TabletColumnPtr parent_column,
         const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
         const std::unordered_set<std::string>& sparse_paths, TabletSchemaSPtr& output_schema) {
     auto& path_set = paths_set_info.sub_path_set;
@@ -1265,7 +1264,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
 }
 
 void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
-        TabletSchema::PathsSetInfo& paths_set_info, const TabletColumnPtr parent_column,
+        VariantCompactionPaths& paths_set_info, const TabletColumnPtr parent_column,
         const TabletSchemaSPtr& target, const PathToDataTypes& path_to_data_types,
         TabletSchemaSPtr& output_schema) {
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
@@ -1305,7 +1304,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
 // ordinary extracted subcolumns. NG typed paths still use get_compaction_typed_columns(), keeping
 // typed-column rules out of the NG-specific regular-path filtering.
 Status VariantCompactionUtil::get_extended_compaction_schema(
-        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
+        const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target,
+        VariantCompactionPathsMap& paths) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
     const bool needs_variant_extended_info =
             std::ranges::any_of(target->columns(), [](const TabletColumnPtr& column) {
@@ -1322,7 +1322,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
     // build the output schema
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     output_schema->shawdow_copy_without_columns(*target);
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
     const auto ng_root_uids =
             collect_nested_group_compaction_root_uids(target, uid_to_variant_extended_info);
     for (const TabletColumnPtr& column : target->columns()) {
@@ -1417,7 +1417,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
 
     target = output_schema;
     // used to merge & filter path to sparse column during reading in compaction
-    target->set_path_set_info(std::move(uid_to_paths_set_info));
+    paths = std::move(uid_to_paths_set_info);
     VLOG_DEBUG << "dump schema " << target->dump_full_schema();
     return Status::OK();
 }

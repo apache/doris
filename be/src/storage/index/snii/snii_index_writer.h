@@ -93,7 +93,8 @@ private:
     bool _should_analyzer = false;
     bool _has_positions = false;
     const bool _is_char;
-    // A2: Analyzed indexes with positions always write BM25 norms, matching CLucene.
+    // A2: Analyzed indexes with positions write BM25 norms, matching CLucene, unless the shared
+    // norms policy (should_write_index_norms) turns them off.
     bool _writes_norms = false;
     // Latch: set_direct_load() ran. The first call wins; a repeat or late call
     // is ignored (and logged) so one index keeps one stable compression-tier

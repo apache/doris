@@ -26,6 +26,8 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
+#include "format_v2/delimited_text/hive_csv_line_reader.h"
+#include "format_v2/delimited_text/hive_csv_parser.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -117,6 +119,17 @@ Status CsvReader::_init_format_state() {
     if (text_params.__isset.empty_field_as_null) {
         _empty_field_as_null = text_params.empty_field_as_null;
     }
+    if (_scan_params->file_attributes.hive_open_csv) {
+        size_t fields = _source_file_slot_descs.size();
+        for (int index : _scan_params->column_idxs) {
+            fields = std::max(fields, static_cast<size_t>(index) + 1);
+        }
+        _hive_csv_parser =
+                std::make_unique<HiveCsvParser>(_value_separator, _enclose, _escape, fields);
+        _options.escape_char = 0;
+        _options.converted_from_string = false;
+        _options.null_len = 0;
+    }
     return Status::OK();
 }
 
@@ -130,7 +143,9 @@ Status CsvReader::_create_decompressor() {
 Status CsvReader::_create_line_reader() {
     if (is_csv_text_format(_file_format_type)) {
         std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
-        if (_enclose == 0) {
+        if (_hive_csv_parser) {
+            text_line_reader_ctx = std::make_shared<HiveCsvLineReaderCtx>();
+        } else if (_enclose == 0) {
             text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                     _line_delimiter, _line_delimiter.size(), _keep_cr);
         } else {
@@ -164,6 +179,10 @@ Status CsvReader::_validate_line(const Slice& line) {
 
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
+    if (_hive_csv_parser) {
+        _hive_csv_parser->parse(line, &_split_values);
+        return;
+    }
     if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
         auto** row_ptr = reinterpret_cast<PDataRow**>(line.data);
         PDataRow* row = *row_ptr;
@@ -212,10 +231,20 @@ void CsvReader::_split_line(const Slice& line) {
 Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* output,
                                         Slice value) {
     DORIS_CHECK(output != nullptr);
+    if (_hive_csv_parser && column.file_column_id.value() >= _split_values.size()) {
+        return _append_null(output);
+    }
     if (column.nullable_string_fast_path) {
         auto& null_column = assert_cast<ColumnNullable&>(*output);
         // String is the hottest CSV type. Avoid the generic nullable serde wrapper here:
         // deserialize directly into the nested string column and append the null map bit ourselves.
+        if (_hive_csv_parser) {
+            // Splitting and decoding are one operation for OpenCSV; a second CSV serde pass
+            // would unescape literal data and confuse empty strings with missing fields.
+            null_column.get_nested_column().insert_data(value.data, value.size);
+            null_column.get_null_map_data().push_back(0);
+            return Status::OK();
+        }
         if (_empty_field_as_null && value.size == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
@@ -243,7 +272,7 @@ Status CsvReader::_deserialize_one_cell(const RequestedColumn& column, IColumn* 
 }
 
 Slice CsvReader::_normalize_value(Slice value) const {
-    if (_empty_field_as_null && value.size == 0) {
+    if (!_hive_csv_parser && _empty_field_as_null && value.size == 0) {
         return Slice(_options.null_format, _options.null_len);
     }
     return value;

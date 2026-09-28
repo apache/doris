@@ -157,7 +157,7 @@ Status CloudCumulativeCompaction::prepare_compact() {
         // synchronized with meta-service.
         if (_tablet->tablet_meta()->all_rs_metas().size() >=
                     cloud_tablet()->fetch_add_approximate_num_rowsets(0) &&
-            cloud_tablet()->last_sync_time_s > 0) {
+            cloud_tablet()->last_sync_rowsets_time_s > 0) {
             need_sync_tablet = false;
         }
     }
@@ -238,7 +238,7 @@ Status CloudCumulativeCompaction::request_global_lock() {
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
-            cloud_tablet()->last_sync_time_s = 0;
+            cloud_tablet()->last_sync_rowsets_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();
@@ -271,26 +271,22 @@ Status CloudCumulativeCompaction::execute_compact() {
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    using namespace std::chrono;
-    auto start = steady_clock::now();
-    Status st;
-    Defer defer_set_st([&] {
-        cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
-        if (!st.ok()) {
-            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
-        } else {
-            cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
-        }
-    });
-    st = CloudCompactionMixin::execute_compact();
-    if (!st.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << st
-                     << ", tablet=" << _tablet->tablet_id()
-                     << ", output_version=" << _output_version;
-        return st;
+    const auto execution_start_time = std::chrono::steady_clock::now();
+    Status status = CloudCompactionMixin::execute_compact();
+    if (!status.ok()) {
+        return record_compaction_failure(status);
     }
+    record_compaction_success(execution_start_time);
+    return Status::OK();
+}
+
+void CloudCumulativeCompaction::record_compaction_success(
+        std::chrono::steady_clock::time_point execution_start_time) {
     LOG_INFO("finish CloudCumulativeCompaction, tablet_id={}, cost={}ms, range=[{}-{}]",
-             _tablet->tablet_id(), duration_cast<milliseconds>(steady_clock::now() - start).count(),
+             _tablet->tablet_id(),
+             std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::steady_clock::now() - execution_start_time)
+                     .count(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
             .tag("job_id", _uuid)
             .tag("input_rowsets", _input_rowsets.size())
@@ -320,8 +316,16 @@ Status CloudCumulativeCompaction::execute_compact() {
             _input_rowsets_total_size);
     cumu_output_size << _output_rowset->total_disk_size();
 
-    st = Status::OK();
-    return st;
+    cloud_tablet()->set_last_cumu_compaction_status(Status::OK().to_string());
+    cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+}
+
+Status CloudCumulativeCompaction::record_compaction_failure(Status status) {
+    LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << status
+                 << ", tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version;
+    cloud_tablet()->set_last_cumu_compaction_status(status.to_string());
+    cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+    return status;
 }
 
 bool CloudCumulativeCompaction::should_calculate_new_cumulative_point(
@@ -925,7 +929,7 @@ void CloudCumulativeCompaction::update_cumulative_point(int64_t input_cumulative
     if (!st.ok()) {
         if (start_resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
-            cloud_tablet()->last_sync_time_s = 0;
+            cloud_tablet()->last_sync_rowsets_time_s = 0;
         } else if (start_resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();

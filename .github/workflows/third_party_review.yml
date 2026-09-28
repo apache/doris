@@ -76,8 +76,11 @@ jobs:
           # org.junit.jupiter:junit-jupiter is EPL-2.0, a licence allow-licenses above already
           # carries, but GitHub's dependency graph reports it as LicenseRef-bad-non-standard, so
           # every pull request that adds a module with a JUnit 5 test fails on a licence the
-          # project has already approved. junit:junit is EPL-1.0, an ASF Category B licence, and
-          # the JUnit 4 tests that need it run through junit-vintage-engine.
+          # project has already approved. junit:junit is EPL-1.0, an ASF Category B licence. No
+          # pom declares it any more - the fe reactor runs no JUnit 4 test and carries no vintage
+          # engine - but it still arrives transitively via guava-testlib (fe-core, test) and
+          # hive-exec -> zookeeper -> jline (hive-udf, provided), and the standalone samples/
+          # projects declare it directly, so the exception stays.
           #
           # com.sun.jersey:jersey-client (CDDL-1.1 OR GPL-2.0 WITH Classpath-exception-2.0):
           # CDDL-1.1 is ASF Category B, usable in binary form as long as the distribution records

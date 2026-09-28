@@ -28,11 +28,15 @@ import org.apache.doris.authorization.spi.AuthorizationContext;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.ranger.authorization.hadoop.config.RangerPluginConfig;
 import org.apache.ranger.plugin.model.RangerPolicy;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
+import org.apache.ranger.plugin.policyengine.RangerPluginContext;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
+import org.apache.ranger.plugin.service.RangerAuthContext;
+import org.apache.ranger.plugin.util.RangerUserStore;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -100,6 +104,38 @@ public class RangerHiveAccessControllerTest {
                 return Optional.of(clientIp);
             }
         };
+    }
+
+    /**
+     * Groups, unlike roles, are not the engine's to know: Doris has none, so they are Ranger's own, read out
+     * of the user store the plugin downloads - which for a Hive service is where its policies' groups come
+     * from in the first place. Without them every policy item written against a group is dead to Doris.
+     */
+    @Test
+    public void testRequestCarriesTheGroupsOfRangersUserStore() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        Mockito.when(context.rolesOf(SUBJECT)).thenReturn(ImmutableSet.of());
+        // The plugin context as the policy engine leaves it once the user store enricher has run.
+        RangerPluginContext pluginContext = new RangerPluginContext(
+                new RangerPluginConfig("hive", "hive", null, null, null, null));
+        pluginContext.setAuthContext(new RangerAuthContext(null, null, null, new RangerUserStore(1L, null, null,
+                ImmutableMap.of("user1", ImmutableSet.of("analysts", "etl")))));
+
+        try (MockedConstruction<RangerHivePlugin> plugin = Mockito.mockConstruction(RangerHivePlugin.class,
+                (mock, settings) -> Mockito.when(mock.getPluginContext()).thenReturn(pluginContext));
+                MockedConstruction<RangerHiveAuditHandler> audit =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            RangerHiveAccessController controller = new RangerHiveAccessController(
+                    ImmutableMap.of("ranger.service.name", "hive"), context);
+            try {
+                Assertions.assertEquals(ImmutableSet.of("analysts", "etl"),
+                        controller.createRequest(SUBJECT, AccessContext.NONE).getUserGroups());
+                Assertions.assertTrue(controller.createRequest(AuthorizedSubject.of("nobody", "%"),
+                        AccessContext.NONE).getUserGroups().isEmpty(), "a user the store does not know");
+            } finally {
+                controller.close();
+            }
+        }
     }
 
     /**

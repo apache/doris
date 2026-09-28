@@ -8,26 +8,26 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
+----------------hashJoin[INNER_JOIN shuffle] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF2 p_partkey->l_partkey
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[orders]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[supplier]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[nation]
 --------------------------PhysicalProject
 ----------------------------filter((part.p_name like '%green%'))
 ------------------------------PhysicalOlapScan[part]
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[partsupp]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[supplier]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[nation]
+--------------------PhysicalOlapScan[orders]
 

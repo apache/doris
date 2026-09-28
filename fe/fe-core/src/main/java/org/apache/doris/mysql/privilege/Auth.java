@@ -242,6 +242,10 @@ public class Auth implements Writable {
                 throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
                         Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
             }
+            // an LDAP-accepted credential still does not open a Doris account under ACCOUNT_LOCK
+            if (currentUser != null && !currentUser.isEmpty()) {
+                checkAccountLocked(currentUser.get(0));
+            }
         } else {
             readLock();
             try {
@@ -250,6 +254,15 @@ public class Auth implements Writable {
                 readUnlock();
             }
         }
+    }
+
+    /**
+     * MySQL-compatible ACCOUNT_LOCK, enforced at authentication for every authenticator: a locked
+     * Doris account is refused whichever path (local password, LDAP, integration, plugin) accepted the
+     * credential. Not a session check -- sessions already authenticated are untouched.
+     */
+    public void checkAccountLocked(UserIdentity userIdentity) throws AuthenticationException {
+        passwdPolicyManager.checkAccountLocked(userIdentity);
     }
 
     public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
@@ -1961,6 +1974,12 @@ public class Auth implements Writable {
                     break;
                 case SET_PASSWORD_POLICY:
                     passwdPolicyManager.updatePolicy(userIdent, null, passwordOptions);
+                    break;
+                case LOCK_ACCOUNT:
+                    // MySQL-compatible ALTER USER ... ACCOUNT_LOCK: refuses the account's own logins
+                    // from now on (persisted + journaled). Not a session check: existing sessions are
+                    // unaffected, as in MySQL.
+                    passwdPolicyManager.lockUser(userIdent);
                     break;
                 case UNLOCK_ACCOUNT:
                     passwdPolicyManager.unlockUser(userIdent);

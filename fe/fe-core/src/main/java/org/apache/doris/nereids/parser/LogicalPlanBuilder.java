@@ -786,7 +786,6 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -1781,12 +1780,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new MTMVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
         }
         return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
-    }
-
-    @Override
-    public ReplayCommand visitReplay(DorisParser.ReplayContext ctx) {
-        LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
-        return new ReplayCommand(PlanType.REPLAY_COMMAND, plan);
     }
 
     @Override
@@ -5544,13 +5537,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public VariantField visitVariantSubColType(VariantSubColTypeContext ctx) {
-        String comment;
-        if (ctx.commentSpec() != null) {
-            comment = ctx.commentSpec().STRING_LITERAL().getText();
-            comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
-        } else {
-            comment = "";
-        }
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.commentSpec().STRING_LITERAL().getText());
         String pattern = ctx.STRING_LITERAL().getText();
         pattern = pattern.substring(1, pattern.length() - 1);
         if (ctx.variantSubColMatchType() != null) {

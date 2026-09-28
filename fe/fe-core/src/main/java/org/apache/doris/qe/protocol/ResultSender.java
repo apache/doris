@@ -67,8 +67,9 @@ public interface ResultSender {
     void sendRow(ByteBuffer row) throws IOException;
 
     /**
-     * Forgets whatever the previous statement of the same request left unsent, so that a
-     * multi-statement request delivers only the last result. Called when a query starts.
+     * Forgets whatever a failed attempt of the query left unsent, so that the next attempt starts
+     * from nothing. Called when each attempt of a query starts; what a previous statement of the
+     * same request left behind is dropped earlier, by {@link ProtocolAdapter#beforeStatement}.
      */
     void reset();
 }

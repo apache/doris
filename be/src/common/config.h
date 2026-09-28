@@ -739,6 +739,12 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
 
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
+
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
@@ -1371,6 +1377,12 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
@@ -1462,6 +1474,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1758,6 +1775,11 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
+DECLARE_String(jni_plugin_fs_dir);
+DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);

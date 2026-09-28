@@ -49,7 +49,6 @@
 #include "storage/transform/block_transform.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
-#include "util/json/json_parser.h"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 

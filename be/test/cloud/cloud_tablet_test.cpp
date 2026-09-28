@@ -24,6 +24,9 @@
 
 #include <chrono>
 #include <cstdint>
+#include <future>
+#include <mutex>
+#include <tuple>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -33,7 +36,9 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/unique_rowset_id_generator.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -146,6 +151,81 @@ TEST_F(CloudTabletDeleteBitmapTest, AggDeleteBitmapForCompactionReturnsPreRowset
     EXPECT_EQ(aggregated_without_stats->delete_bitmap, aggregated_delete_bitmap->delete_bitmap);
     EXPECT_EQ(rowset_versions_without_stats, pre_rowset_to_versions);
 }
+
+class CloudTabletDeleteBitmapPrefillTest
+        : public CloudTabletWarmUpStateTest,
+          public testing::WithParamInterface<std::tuple<bool, bool>> {
+public:
+    void SetUp() override {
+        CloudTabletWarmUpStateTest::SetUp();
+        // The aggregate cache is global, so rowset IDs must be unique across test instances.
+        _engine._rowset_id_generator =
+                std::make_unique<UniqueRowsetIdGenerator>(UniqueId::gen_uid());
+    }
+};
+
+TEST_P(CloudTabletDeleteBitmapPrefillTest, WaitForSchemaChangeDeleteBitmap) {
+    const auto old_prefill_output = config::enable_prefill_output_dbm_agg_cache_after_compaction;
+    const auto old_prefill_all = config::enable_prefill_all_dbm_agg_cache_after_compaction;
+    Defer restore_config {[&] {
+        config::enable_prefill_output_dbm_agg_cache_after_compaction = old_prefill_output;
+        config::enable_prefill_all_dbm_agg_cache_after_compaction = old_prefill_all;
+    }};
+    const auto [prefill_output, prefill_all] = GetParam();
+    config::enable_prefill_output_dbm_agg_cache_after_compaction = prefill_output;
+    config::enable_prefill_all_dbm_agg_cache_after_compaction = prefill_all;
+
+    _tablet->tablet_meta()->set_enable_unique_key_merge_on_write(true);
+    _tablet->tablet_meta()->mutable_tablet_schema()->_keys_type = UNIQUE_KEYS;
+    auto output_rowset = create_rowset(Version(2, 3), 2);
+    auto other_rowset = create_rowset(Version(4, 4), 2);
+    ASSERT_NE(output_rowset, nullptr);
+    ASSERT_NE(other_rowset, nullptr);
+    output_rowset->rowset_meta()->set_segment_ids({3, 7});
+    other_rowset->rowset_meta()->set_segment_ids({5, 9});
+    const std::vector<RowsetSharedPtr> rowsets {output_rowset, other_rowset};
+    {
+        std::unique_lock lock(_tablet->get_header_lock());
+        ASSERT_TRUE(_tablet->set_tablet_state(TABLET_NOTREADY).ok());
+        _tablet->add_rowsets(rowsets, false, lock, false);
+    }
+
+    // Compaction finishes before schema change installs the complete delete bitmap.
+    _tablet->prefill_dbm_agg_cache_after_compaction(output_rowset);
+    auto cache_before = DeleteBitmapAggCache::instance()->snapshot(_tablet->tablet_id());
+    DeleteBitmap complete_delete_bitmap(_tablet->tablet_id());
+    for (const auto& rowset : rowsets) {
+        for (auto segment : rowset->segments()) {
+            auto key = segment.delete_bitmap_key(4);
+            EXPECT_EQ(cache_before.get(key), nullptr);
+            complete_delete_bitmap.add(key, 1);
+        }
+    }
+    {
+        std::unique_lock lock(_tablet->get_header_lock());
+        _tablet->tablet_meta()->delete_bitmap() = complete_delete_bitmap;
+        ASSERT_TRUE(_tablet->set_tablet_state(TABLET_RUNNING).ok());
+    }
+
+    // Prefill must still work for RUNNING tablets, honoring both configuration switches.
+    _tablet->prefill_dbm_agg_cache_after_compaction(output_rowset);
+    auto cache_after = DeleteBitmapAggCache::instance()->snapshot(_tablet->tablet_id());
+    for (const auto& rowset : rowsets) {
+        const bool should_prefill = prefill_all || (prefill_output && rowset == output_rowset);
+        for (auto segment : rowset->segments()) {
+            auto key = segment.delete_bitmap_key(4);
+            EXPECT_EQ(cache_after.get(key) != nullptr, should_prefill);
+            // The read version and rowset IDs are unchanged after schema change. A premature
+            // prefill would return the old empty bitmap and expose overwritten rows here.
+            auto bitmap = _tablet->tablet_meta()->delete_bitmap().get_agg(key);
+            EXPECT_EQ(bitmap->cardinality(), 1);
+            EXPECT_TRUE(bitmap->contains(1));
+        }
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(PrefillModes, CloudTabletDeleteBitmapPrefillTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
 
 // Test get_rowset_warmup_state for non-existent rowset
 TEST_F(CloudTabletWarmUpStateTest, TestGetRowsetWarmupStateNonExistent) {
@@ -1004,6 +1084,8 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     mock_tablet_meta->set_time_series_compaction_empty_rowsets_threshold(9);
     mock_tablet_meta->set_time_series_compaction_level_threshold(7);
     mock_tablet_meta->set_vertical_compaction_num_columns_per_group(13);
+    mock_tablet_meta->set_binlog_config(
+            BinlogConfig(true, 3600, 4096, 7, BinlogFormatPB::ROW, true));
 
     // Mock get_tablet_meta to return tablet_meta with updated properties
     sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
@@ -1027,9 +1109,35 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold(), 9);
     EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_level_threshold(), 7);
     EXPECT_EQ(_tablet->tablet_meta()->vertical_compaction_num_columns_per_group(), 13);
+    auto binlog_config = _tablet->binlog_config();
+    EXPECT_TRUE(binlog_config.is_enable());
+    EXPECT_EQ(binlog_config.ttl_seconds(), 3600);
+    EXPECT_EQ(binlog_config.max_bytes(), 4096);
+    EXPECT_EQ(binlog_config.max_history_nums(), 7);
+    EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::ROW);
+    EXPECT_TRUE(binlog_config.need_historical_value());
 
     sp->disable_processing();
     sp->clear_all_call_backs();
+}
+
+TEST_F(CloudTabletSyncMetaTest, TestBinlogConfigReadUsesMetaLock) {
+    std::unique_lock meta_lock(_tablet->get_header_lock());
+    std::promise<void> reader_started;
+    auto reader_started_future = reader_started.get_future();
+    auto read_future = std::async(std::launch::async, [&]() {
+        reader_started.set_value();
+        return _tablet->binlog_config();
+    });
+
+    auto reader_started_status = reader_started_future.wait_for(seconds(5));
+    auto read_blocked_status = read_future.wait_for(milliseconds(100));
+    meta_lock.unlock();
+
+    EXPECT_EQ(reader_started_status, std::future_status::ready);
+    EXPECT_EQ(read_blocked_status, std::future_status::timeout);
+    ASSERT_EQ(read_future.wait_for(seconds(5)), std::future_status::ready);
+    EXPECT_EQ(read_future.get(), _tablet->binlog_config());
 }
 
 TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {

@@ -78,7 +78,6 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -768,6 +767,10 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
@@ -786,8 +789,12 @@ public class Coordinator implements CoordInterface {
                     // AllBackendComputeGroup may assocatiate with multiple workload groups
                     queryQueue = wgs.get(0).getQueryQueue();
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
-                    queueToken.get(DebugUtil.printId(queryId),
-                            this.queryOptions.getExecutionTimeout() * 1000);
+                    try {
+                        queueToken.get(DebugUtil.printId(queryId),
+                                this.queryOptions.getExecutionTimeout() * 1000);
+                    } catch (UserException e) {
+                        throw preferTerminalReason(e);
+                    }
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
@@ -798,18 +805,21 @@ public class Coordinator implements CoordInterface {
     }
 
     /**
-     * Whether the BE keeps calling back into this coordinator after {@link #exec()} returned: an
-     * external-table scan in batch mode fetches its splits lazily from the split source that its
-     * scan node holds, so the coordinator must not be closed until the BE has finished scanning.
-     * Arrow Flight SQL uses this to decide whether a query's coordinator has to outlive
-     * GetFlightInfo, the client pulling the results from the BE later in DoGet. See #62259.
+     * Whether the BE still depends on this coordinator after {@link #exec()} returned, so it must
+     * not be closed until the BE has finished scanning: one of its scan nodes holds something on
+     * the FE that the BE scans with and that {@link #close()} releases
+     * ({@link ScanNode#coordinatorMustOutliveDispatch()}) - the split source an external-table
+     * scan in batch mode fetches its splits from lazily, or the Flight SQL session a remote Doris
+     * scan keeps open on the other frontend. Arrow Flight SQL uses this to decide whether a
+     * query's coordinator has to outlive GetFlightInfo, the client pulling the results from the BE
+     * later in DoGet. See #62259.
      */
-    public boolean hasBatchSplitSource() {
+    public boolean mustOutliveDispatch() {
         if (scanNodes == null) {
             return false;
         }
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode.hasBatchSplitSource()) {
+            if (scanNode.coordinatorMustOutliveDispatch()) {
                 return true;
             }
         }
@@ -877,7 +887,7 @@ public class Coordinator implements CoordInterface {
                             toBrpcHost(param.host), this.timeoutDeadline,
                             context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    // The client pulls the result from the backend (Arrow Flight SQL); register where.
                     TUniqueId finstId;
                     if (enableParallelResultSink) {
                         finstId = queryId;
@@ -920,6 +930,9 @@ public class Coordinator implements CoordInterface {
     protected void sendPipelineCtx() throws Exception {
         lock();
         try {
+            if (!queryStatus.ok()) {
+                throw new UserException(queryStatus.getErrorMsg());
+            }
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
             for (FragmentExecParams params : fragmentExecParamsMap.values()) {
                 for (FInstanceExecParam fi : params.instanceExecParams) {
@@ -1407,12 +1420,6 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
-        if (queueToken != null) {
-            queueToken.cancel();
-        }
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
@@ -1437,6 +1444,21 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+        if (queueToken != null) {
+            queueToken.cancel();
+        }
+        // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
+        // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
+        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
+        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scannode stop during cancel, query id: {}",
+                        DebugUtil.printId(queryId), t);
+            }
+        }
     }
 
     public boolean isQueryCancelled() {
@@ -1446,6 +1468,28 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+    }
+
+    protected Status getQueryStatus() {
+        lock();
+        try {
+            return new Status(queryStatus);
+        } finally {
+            unlock();
+        }
+    }
+
+    /**
+     * A queue wait can be unblocked by {@code cancel()}, which records the real TIMEOUT/KILL reason on the
+     * coordinator before cancelling the token, while {@link QueueToken#get} can only report a generic
+     * "query is cancelled". Prefer the retained terminal reason when one is present.
+     */
+    protected UserException preferTerminalReason(UserException queueFailure) {
+        Status current = getQueryStatus();
+        if (!current.ok()) {
+            return new UserException(current.getErrorMsg());
+        }
+        return queueFailure;
     }
 
     private void cancelLatch() {
