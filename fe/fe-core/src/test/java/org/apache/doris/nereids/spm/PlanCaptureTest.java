@@ -120,6 +120,63 @@ public class PlanCaptureTest {
                 "two consumers of one CTE alias: " + reused);
     }
 
+    // ==================== quoted dotted names / audit-mode prefilter (round-11) ====================
+
+    @Test
+    public void testQuotedDottedTableNameKeepsComponentBoundaries() {
+        // `t.a` is ONE identifier component (legal under enable_unicode_name_support):
+        // the flattened name must keep that boundary so the existence check does not
+        // read it as db "t" + table "a" and reject a valid join
+        List<String> tables = PlanCaptureFilter.extractTableNames(
+                "SELECT * FROM `t.a` JOIN u ON `t.a`.k = u.k");
+        Assertions.assertEquals(2, tables.size(), "both tables must be extracted: " + tables);
+        Assertions.assertTrue(tables.contains("`t.a`"),
+                "the dotted component must stay quoted: " + tables);
+    }
+
+    @Test
+    public void testQuotedDottedTableResolvesThroughExistenceCheck() throws Exception {
+        PlanCaptureFilter captureFilter = new PlanCaptureFilter("", "");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            CatalogIf catalog = Mockito.mock(CatalogIf.class);
+            DatabaseIf db = Mockito.mock(DatabaseIf.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("internal")).thenReturn(catalog);
+            Mockito.when(catalog.getDbNullable("db1")).thenReturn(db);
+            Mockito.when(db.getTableNullable("u")).thenReturn(Mockito.mock(TableIf.class));
+            // `t.a` resolves as ONE plain component (cannot be split further); the old
+            // unquoted "t.a" would have been read as db "t" + table "a" and rejected
+            Assertions.assertTrue(captureFilter.allTablesExist(
+                    List.of("`t.a`", "u"), "internal", "db1"),
+                    "a quoted dotted component must resolve as one table name");
+        }
+    }
+
+    @Test
+    public void testPrefilterExtractionUsesAuditRowSqlMode() {
+        org.apache.doris.qe.ConnectContext ctx = new org.apache.doris.qe.ConnectContext();
+        ctx.setSessionVariable(new org.apache.doris.qe.SessionVariable());
+        ctx.setThreadLocalInfo();
+        try {
+            ctx.getSessionVariable().setSqlMode(
+                    org.apache.doris.qe.SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            String stmt = "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a WHERE t2.s = 'a\\'b'";
+            // the daemon thread's global mode would fail this parse ...
+            Assertions.assertTrue(PlanCaptureFilter.extractTableNames(stmt).size() < 2,
+                    "control: NO_BACKSLASH_ESCAPES breaks the escaped literal");
+            // ... the audited statement's own mode must be applied around the extraction
+            Assertions.assertEquals(2, org.apache.doris.qe.SqlModeHelper.withSqlMode(
+                    org.apache.doris.qe.SqlModeHelper.MODE_DEFAULT,
+                    () -> PlanCaptureFilter.extractTableNames(stmt)).size(),
+                    "extraction under the audit row's mode must see both tables");
+        } finally {
+            org.apache.doris.qe.ConnectContext.remove();
+        }
+    }
+
     // ==================== table existence resolves in the CAPTURED namespace ====================
 
     @Test

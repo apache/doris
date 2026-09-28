@@ -776,6 +776,38 @@ public class BaselineManager {
         }
     }
 
+    /**
+     * One internal-table statement / query body; see {@link #inInternalIoMode}. */
+    @FunctionalInterface
+    private interface InternalIo<T> {
+        T run() throws Exception;
+    }
+
+    /**
+     * Runs one internal-table I/O with the DEFAULT parser mode pinned (returns the
+     * result). Every internal SPM statement is built with StatisticsUtil.escapeSQL,
+     * whose doubled backslashes only decode back to a single backslash when the
+     * executor parses under the default mode; the internal context otherwise inherits
+     * the GLOBAL sql_mode, so NO_BACKSLASH_ESCAPES would store / compare the doubled
+     * bytes literally and the stored SQL / JSON would round-trip with an extra
+     * backslash.
+     */
+    private static <T> T inInternalIoMode(InternalIo<T> io) {
+        return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+            try {
+                return io.run();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /** Runs {@link #inInternalIoMode} and reports the effective parser mode (test seam). */
+    @VisibleForTesting
+    public static long internalIoModeForTest() {
+        return inInternalIoMode(SqlModeHelper::currentMode);
+    }
+
     /** Number of durable rows currently carrying (id, status). */
     private static int durableRowCount(long id, BaselineStatus status) {
         if (statusProtocolStoreForTest != null) {
@@ -788,8 +820,8 @@ public class BaselineManager {
         params.put("id", String.valueOf(id));
         params.put("status", status.name());
         try {
-            List<ResultRow> rows = StatisticsUtil.executeQuery(COUNT_BY_ID_AND_STATUS_SQL, params,
-                    INTERNAL_QUERY_TIMEOUT_SECONDS);
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    COUNT_BY_ID_AND_STATUS_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             if (rows == null || rows.isEmpty()) {
                 return 0;
             }
@@ -1375,8 +1407,8 @@ public class BaselineManager {
         if (snapshotReaderForTest != null) {
             return snapshotReaderForTest.get();
         }
-        List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_ALL_SQL, Collections.emptyMap(),
-                INTERNAL_QUERY_TIMEOUT_SECONDS);
+        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                SELECT_ALL_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
         Map<Long, BaselinePlan> snapshot = new HashMap<>();
         for (ResultRow row : rows) {
             try {
@@ -1509,8 +1541,8 @@ public class BaselineManager {
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
         params.put("planSql", StatisticsUtil.escapeSQL(planSql));
         try {
-            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_BY_KEY_SQL, params,
-                    INTERNAL_QUERY_TIMEOUT_SECONDS);
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_BY_KEY_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             List<BaselinePlan> result = new ArrayList<>();
             for (ResultRow row : rows) {
                 try {
@@ -1749,7 +1781,10 @@ public class BaselineManager {
                 StatisticsUtil.escapeSQL(p.getSchemaFingerprint() == null
                         ? "" : p.getSchemaFingerprint()));
         try {
-            StatisticsUtil.execUpdate(INSERT_SQL, params);
+            inInternalIoMode(() -> {
+                StatisticsUtil.execUpdate(INSERT_SQL, params);
+                return null;
+            });
         } catch (Exception e) {
             throw new RuntimeException("SPM persist (insert) failed: " + e.getMessage(), e);
         }
@@ -1768,7 +1803,10 @@ public class BaselineManager {
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
         params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
         try {
-            StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params);
+            inInternalIoMode(() -> {
+                StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params);
+                return null;
+            });
         } catch (Exception e) {
             throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage(), e);
         }
@@ -1787,7 +1825,10 @@ public class BaselineManager {
         params.put("id", String.valueOf(id));
         params.put("status", status.name());
         try {
-            StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params);
+            inInternalIoMode(() -> {
+                StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params);
+                return null;
+            });
         } catch (Exception e) {
             throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
         }

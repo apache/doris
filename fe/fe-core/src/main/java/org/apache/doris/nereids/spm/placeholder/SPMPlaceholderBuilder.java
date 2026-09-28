@@ -72,6 +72,20 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private final Deque<Integer> childIndexStack = new ArrayDeque<>();
 
     /**
+     * Query-block identity: incremented when entering a nested query block (the plan of
+     * a subquery expression). Two literals in DIFFERENT blocks never share a placeholder
+     * id even when value / parent / position coincide: in
+     * SELECT * FROM t WHERE a=1 AND EXISTS (SELECT 1 FROM u WHERE a=1) the two a=1
+     * literals used to reuse one id, and a user query with outer a=2 / inner a=3 was
+     * rejected (one id must resolve to ONE value), so the baseline could never hit.
+     * The counter restarts per tree (see startNewTree): bind and plan trees traverse the
+     * same structure in the same order, so corresponding blocks keep corresponding
+     * numbers and the cross-tree id alignment is preserved.
+     */
+    private long nextBlockId = 1;
+    private long currentBlockId = 0;
+
+    /**
      * Parameterizes a list of expressions with this single shared builder (entry point).
      *
      * Every expression is parameterized in order with the same builder, so placeholder
@@ -86,9 +100,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     public List<Expression> parameterizeExpressions(List<Expression> exprs) {
         List<Expression> parameterized = new ArrayList<>(exprs.size());
         for (Expression expr : exprs) {
+            // each element is one query block of the same tree: its own block scope
+            startNewTree();
             parameterized.add(expr.accept(this, null));
         }
         return parameterized;
+    }
+
+    /** Restarts the per-tree query-block numbering (a tree's root block is 0). */
+    public void startNewTree() {
+        nextBlockId = 1;
+        currentBlockId = 0;
     }
 
     public List<PlaceholderExpr> getPlaceholderExprs() {
@@ -112,14 +134,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // and a similar query may carry different values there (one shared id would make
         // the two occurrences resolve to the same user value and never match).
         int childIndex = currentChildIndex();
+        long blockId = currentBlockId;
         for (PlaceholderExpr record : placeholderExprs) {
-            if (record.matches(literal, parent, childIndex)) {
+            if (record.matches(literal, parent, childIndex, blockId)) {
                 return record.getPlaceholderExpr();
             }
         }
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id, literal);
-        placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex));
+        placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
+                blockId));
         return placeholder;
     }
 
@@ -138,15 +162,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // plan tree, so the values extracted against the bind tree substitute into
             // the plan tree.
             int childIndex = currentChildIndex();
+            long blockId = currentBlockId;
             for (PlaceholderExpr record : placeholderExprs) {
-                if (record.matches(inPredicate, parent, childIndex)) {
+                if (record.matches(inPredicate, parent, childIndex, blockId)) {
                     return record.getPlaceholderExpr();
                 }
             }
             long id = nextId++;
             SpmConstList list = SpmConstList.of(id, inPredicate.getOptions());
             InPredicate placeholder = new InPredicate(newCompare, ImmutableList.of(list));
-            placeholderExprs.add(new PlaceholderExpr(inPredicate, placeholder, parent, childIndex));
+            placeholderExprs.add(new PlaceholderExpr(inPredicate, placeholder, parent, childIndex,
+                    blockId));
             return placeholder;
         }
 
@@ -169,16 +195,26 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // parameterize EVERY literal of the subquery's own plan tree (filters, having,
         // projections, aggregate ... and nested subqueries recursively). The
         // expressions of the subquery plan are NEW roots: push the root sentinel so a
-        // bare-literal root records -1 instead of a stale outer child index.
-        LogicalPlan newPlan = SPMPlanTreeSupport.transform(
-                subqueryExpr.getQueryPlan(), expr -> {
-                    childIndexStack.push(-1);
-                    try {
-                        return expr.accept(this, null);
-                    } finally {
-                        childIndexStack.pop();
-                    }
-                });
+        // bare-literal root records -1 instead of a stale outer child index. The plan
+        // is also a NEW query block: save the enclosing block, give the nested block
+        // its own monotonic id, and restore afterwards so sibling subqueries get
+        // distinct ids while the outer block numbering resumes.
+        long enclosingBlock = currentBlockId;
+        currentBlockId = nextBlockId++;
+        LogicalPlan newPlan;
+        try {
+            newPlan = SPMPlanTreeSupport.transform(
+                    subqueryExpr.getQueryPlan(), expr -> {
+                        childIndexStack.push(-1);
+                        try {
+                            return expr.accept(this, null);
+                        } finally {
+                            childIndexStack.pop();
+                        }
+                    });
+        } finally {
+            currentBlockId = enclosingBlock;
+        }
         if (newPlan == subqueryExpr.getQueryPlan() && newCompare == null) {
             return subqueryExpr;
         }

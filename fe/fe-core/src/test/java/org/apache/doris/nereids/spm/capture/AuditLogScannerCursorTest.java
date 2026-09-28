@@ -358,6 +358,51 @@ public class AuditLogScannerCursorTest {
     }
 
     /**
+     * The dedup identity must be at least as fine as the SPM match identity: the
+     * ORIGINATING parser mode separates same-text default / PIPES_AS_CONCAT executions,
+     * and the CONCRETE generator arguments (which SPM compares exactly) separate two
+     * same-digest LATERAL VIEW statements with different split delimiters.
+     */
+    @Test
+    public void testDedupUsesSpmMatchIdentity() {
+        String withComma =
+                "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a"
+                        + " LATERAL VIEW explode(split(t2.s, ',')) e AS c";
+        String withSemicolon =
+                "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a"
+                        + " LATERAL VIEW explode(split(t2.s, ';')) e AS c";
+        List<ResultRow> rows = List.of(
+                modeRow(withComma, "d1", ""),
+                modeRow(withSemicolon, "d1", ""),
+                modeRow(withComma, "", "PIPES_AS_CONCAT"));
+        Assertions.assertEquals(3,
+                AuditLogScanner.toBatch(rows, 10).getCandidates().size(),
+                "different parser modes / generator arguments must stay separate candidates");
+        // control: identical rows still dedup to one candidate
+        Assertions.assertEquals(1,
+                AuditLogScanner.toBatch(List.of(modeRow(withComma, "d1", ""),
+                        modeRow(withComma, "d1", "")), 10).getCandidates().size());
+    }
+
+    /** One raw audit_log row (12 columns) with statement / digest / sql_mode overridden. */
+    private static ResultRow modeRow(String stmt, String digest, String sqlMode) {
+        List<String> values = new ArrayList<>();
+        values.add(stmt);                    // 0 stmt
+        values.add("1000");                  // 1 query_time
+        values.add("100");                   // 2 scan_rows
+        values.add("10");                    // 3 return_rows
+        values.add(digest);                  // 4 sql_digest
+        values.add("hash");                  // 5 sql_hash
+        values.add("db1");                   // 6 db
+        values.add("internal");              // 7 catalog
+        values.add("q1");                    // 8 query_id
+        values.add("false");                 // 9 is_internal
+        values.add("2026-01-01 00:00:00");   // 10 time
+        values.add(sqlMode);                 // 11 sql_mode
+        return new ResultRow(values);
+    }
+
+    /**
      * The audit_log sql_mode must be projected, decoded and carried on the candidate:
      * the capture builds the baseline under the ORIGINATING mode (a literal "a || b" is
      * CONCAT under PIPES_AS_CONCAT, a boolean OR otherwise).

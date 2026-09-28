@@ -365,15 +365,70 @@ public class AuditLogScanner {
             if (digest == null || digest.isEmpty()) {
                 digest = candidate.getStmt();
             }
-            // namespace-aware key: the database / catalog take part, otherwise identical
-            // unqualified SQL from two namespaces collapses to one candidate and the
-            // other namespace never gets a baseline (SPM namespace-qualifies its match
-            // key, so the two executions really are different queries)
-            String key = candidate.getCatalog() + '\u0001' + candidate.getDb() + '\u0001' + digest;
+            // namespace-aware key + SPM-match identity: the database / catalog take part
+            // (SPM namespace-qualifies its match key), the ORIGINATING parser mode takes
+            // part (a || b parses differently under PIPES_AS_CONCAT), and the digest is
+            // refined with the CONCRETE generator arguments SPM keeps unparameterized
+            // (the digest masks literals, so explode(split(s,',')) and explode(split(s,';'))
+            // would otherwise collapse although they are different baselines).
+            String key = candidate.getCatalog() + '\u0001' + candidate.getDb() + '\u0001'
+                    + candidate.getSqlMode() + '\u0001' + dedupIdentity(candidate.getStmt(), digest);
             deduped.merge(key, candidate, (a, b) -> b.getQueryTimeMs() >= a.getQueryTimeMs() ? b : a);
         }
         return new ScanBatch(new ArrayList<>(deduped.values()), rows.size() < maxBatchSize,
                 lastQueryTime, lastTime, lastQueryId, encodeCursorTail(lastTail));
+    }
+
+    /**
+     * SPM-match identity of one audit row used for the dedup: the audit digest when
+     * present (it already covers the whole logical shape), refined with the CONCRETE
+     * generator arguments for statements that mention a generator - SPM deliberately
+     * keeps LATERAL VIEW / UNNEST arguments concrete and compares them exactly, so two
+     * same-digest statements with different arguments are different baselines. A row
+     * without an audit digest falls back to its text (never coarser than SPM).
+     */
+    private static String dedupIdentity(String stmt, String digest) {
+        if (digest == null || digest.isEmpty()) {
+            return stmt;
+        }
+        if (!mentionsGenerator(stmt)) {
+            return digest;
+        }
+        return digest + '\u0001' + generatorFingerprint(stmt);
+    }
+
+    private static boolean mentionsGenerator(String stmt) {
+        if (stmt == null) {
+            return false;
+        }
+        String upper = stmt.toUpperCase(java.util.Locale.ROOT);
+        return upper.contains("LATERAL VIEW") || upper.contains("UNNEST");
+    }
+
+    /** The concrete generator arguments of the statement (the full text when unparsable). */
+    private static String generatorFingerprint(String stmt) {
+        try {
+            org.apache.doris.nereids.trees.plans.Plan parsed =
+                    new org.apache.doris.nereids.parser.NereidsParser().parseSingle(stmt);
+            StringBuilder sb = new StringBuilder();
+            org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(
+                    parsed, node -> {
+                        if (node instanceof org.apache.doris.nereids.trees.plans.logical
+                                .LogicalGenerate) {
+                            org.apache.doris.nereids.trees.plans.logical.LogicalGenerate<?> generate =
+                                    (org.apache.doris.nereids.trees.plans.logical.LogicalGenerate<?>)
+                                            node;
+                            for (org.apache.doris.nereids.trees.expressions.Expression generator
+                                    : generate.getGenerators()) {
+                                sb.append(generator.toSql()).append('|');
+                            }
+                        }
+                    });
+            return sb.toString();
+        } catch (Throwable t) {
+            // unparsable: keep the full-text identity, never a coarser one
+            return stmt;
+        }
     }
 
     /**

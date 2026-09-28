@@ -120,6 +120,12 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         return pattern;
     }
 
+    /** Builds the LIKE matcher of one operand; {@code null} means "LIKE omitted". */
+    static PatternMatcher buildLikeMatcher(String pattern)
+            throws org.apache.doris.common.AnalysisException {
+        return pattern == null ? null : PatternMatcherWrapper.createMysqlPattern(pattern, false);
+    }
+
     @Override
     public Optional<Origin> getOrigin() {
         return super.getOrigin();
@@ -150,8 +156,11 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         // LIKE operand: real MySQL wildcard semantics (% and _ are wildcards, the pattern
         // must match the WHOLE value), case-insensitive like the previous substring
         // behavior - the same PatternMatcher path every other SHOW command uses.
-        PatternMatcher matcher = (pattern == null || pattern.isEmpty())
-                ? null : PatternMatcherWrapper.createMysqlPattern(pattern, false);
+        // Only an OMITTED LIKE is "no filter": an empty pattern operand (LIKE '') is a
+        // real pattern that matches only empty values - treating it as absent admitted
+        // every baseline although none of the searched SQL / status / source fields is
+        // empty.
+        PatternMatcher matcher = buildLikeMatcher(pattern);
         for (BaselinePlan baseline : all) {
             if (!matches(baseline, matcher)) {
                 continue;

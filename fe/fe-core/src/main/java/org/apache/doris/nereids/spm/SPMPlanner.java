@@ -721,6 +721,9 @@ public class SPMPlanner {
     /** Parameterizes one whole tree with the given (possibly shared) builder. */
     private static LogicalPlan parameterizeWholeTree(SPMPlaceholderBuilder builder,
             LogicalPlan plan) {
+        // one tree = one block-numbering run: corresponding blocks of the bind tree and
+        // the (separately parsed) plan tree keep corresponding numbers
+        builder.startNewTree();
         return SPMPlanTreeSupport.transform(plan, expr -> expr.accept(builder, null));
     }
 
@@ -733,6 +736,9 @@ public class SPMPlanner {
     private static BaselinePlan assembleBaseline(LogicalPlan bindPlan, LogicalPlan parameterizedBind,
             LogicalPlan parameterizedPlan, String bindSql, String planSql, double cost,
             String catalog, String db, long creatorSqlMode) {
+        // Volatile non-table dependencies (key(...)) are rejected before anything is
+        // stored; alias-UDF bodies are tracked by the schema fingerprint instead.
+        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan);
         BaselinePlan baseline = new BaselinePlan();
         baseline.setCreatorSqlMode(creatorSqlMode);
         baseline.setBindSql(bindSql);

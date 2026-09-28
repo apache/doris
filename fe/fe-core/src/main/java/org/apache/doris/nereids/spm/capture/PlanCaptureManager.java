@@ -549,8 +549,14 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     private boolean processCandidate(CapturedQuery candidate) {
         try {
-            // Level 3/5 filter: multi-table + table-name regex (pure logic)
-            List<String> tables = PlanCaptureFilter.extractTableNames(candidate.getStmt());
+            // Level 3/5 filter: multi-table + table-name regex (pure logic). The
+            // extraction PARSES the statement, so it must run under the audit row's
+            // ORIGINATING parser mode just like the later build - the daemon thread's
+            // global mode can differ (e.g. NO_BACKSLASH_ESCAPES globally while the
+            // audited session used the default), and a parse failure here silently
+            // drops the row as terminal while the cursor advances past it.
+            List<String> tables = SqlModeHelper.withSqlMode(candidate.getSqlMode(),
+                    () -> PlanCaptureFilter.extractTableNames(candidate.getStmt()));
             if (!filter.shouldCapture(candidate.toAuditEvent(), tables)) {
                 if (tables.size() < 2) {
                     skipSingleTableCount.incrementAndGet();
@@ -779,7 +785,18 @@ public class PlanCaptureManager extends MasterDaemon {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
             // leave the shared store without a checkpoint row.
-            checkpointWriter.write(CHECKPOINT_INSERT_SQL, params);
+            // Pin the DEFAULT parser mode for the write: escapeSQL doubles backslashes,
+            // which only decode back in that mode - under a global NO_BACKSLASH_ESCAPES
+            // the stored JSON / SQL text would keep the doubled bytes (and a doubled
+            // quote can break the Gson round-trip of the retry queue).
+            SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+                try {
+                    checkpointWriter.write(CHECKPOINT_INSERT_SQL, params);
+                } catch (Exception writeFailure) {
+                    throw new RuntimeException(writeFailure);
+                }
+                return null;
+            });
         } catch (Exception e) {
             LOG.warn("SPM capture checkpoint write failed (will retry next cycle): {}",
                     e.getMessage());
