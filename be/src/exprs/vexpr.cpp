@@ -895,6 +895,10 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
 }
 
 uint64_t VExpr::get_digest(uint64_t seed) const {
+    // A nondeterministic expression can give another result on the next run, so do not cache it.
+    if (!is_deterministic()) {
+        return 0;
+    }
     auto digest = seed;
     for (auto child : _children) {
         digest = child->get_digest(digest);

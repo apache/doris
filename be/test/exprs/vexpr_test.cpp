@@ -53,6 +53,7 @@
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "gtest/gtest_pred_impl.h"
@@ -935,4 +936,47 @@ TEST(VExprExecuteColumnTest, CorrectColumnPasses) {
     auto st = expr.execute_column(nullptr, nullptr, nullptr, 1, result);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(result->size(), 1U);
+}
+
+namespace doris {
+
+// Builds a call to the given function, with no arguments, that returns INT.
+static VExprSPtr int_function_call(const std::string& function_name) {
+    DataTypePtr int_type = std::make_shared<DataTypeInt32>();
+    TFunctionName fn_name;
+    fn_name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(fn_name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    fn.__set_ret_type(int_type->to_thrift());
+
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_type(int_type->to_thrift());
+    node.__set_fn(fn);
+    node.__set_num_children(0);
+    node.__set_is_nullable(false);
+    return VectorizedFnCall::create_shared(node);
+}
+
+} // namespace doris
+
+// The condition cache skips a filter whose digest is zero. A nondeterministic function can
+// pass other rows on the next run, so a filter that uses one must get a zero digest.
+TEST(VExprDigestTest, NondeterministicExprIsNotCached) {
+    using namespace doris;
+    constexpr uint64_t seed = 12345;
+    auto deterministic = int_function_call("abs");
+    deterministic->add_child(int_function_call("abs"));
+    EXPECT_NE(deterministic->get_digest(seed), 0);
+
+    for (const auto* name : {"random", "rand", "random_bytes", "uuid", "uuid_numeric"}) {
+        EXPECT_EQ(int_function_call(name)->get_digest(seed), 0) << name;
+
+        // A deterministic function over a nondeterministic one is not cached either.
+        auto parent = int_function_call("abs");
+        parent->add_child(int_function_call(name));
+        EXPECT_EQ(parent->get_digest(seed), 0) << name;
+        EXPECT_EQ(VExprContext::create_shared(parent)->get_digest(seed), 0) << name;
+    }
 }
