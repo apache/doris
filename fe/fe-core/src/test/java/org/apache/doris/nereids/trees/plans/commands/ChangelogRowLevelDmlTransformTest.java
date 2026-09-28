@@ -28,6 +28,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -50,6 +51,25 @@ import java.util.Collections;
 import java.util.Optional;
 
 public class ChangelogRowLevelDmlTransformTest {
+
+    @Test
+    public void deleteDeduplicatesOnlyWhenQueryCanDuplicateTargetRows() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+
+        Assertions.assertTrue(deleteArgs(
+                "DELETE FROM target USING source WHERE target.id = source.id", table)
+                .shouldDeduplicateTargetRows());
+        Assertions.assertTrue(deleteArgs(
+                "DELETE FROM target USING UNNEST([1, 2]) AS source(id) "
+                        + "WHERE target.id = source.id", table)
+                .shouldDeduplicateTargetRows());
+        Assertions.assertFalse(deleteArgs(
+                "DELETE FROM target ORDER BY id LIMIT 1", table)
+                .shouldDeduplicateTargetRows());
+        Assertions.assertFalse(deleteArgs(
+                "WITH source AS (SELECT 1 AS id) DELETE FROM target WHERE target.id = 1", table)
+                .shouldDeduplicateTargetRows());
+    }
 
     @Test
     public void rejectsMaskedTargetForNonAdminUser() {
@@ -140,5 +160,11 @@ public class ChangelogRowLevelDmlTransformTest {
         Assertions.assertFalse(join.left() instanceof LogicalEmptyRelation,
                 "the target must stay on the probe/left side");
         Assertions.assertSame(source, join.right());
+    }
+
+    private RowLevelDmlArgs deleteArgs(String sql, PluginDrivenExternalTable table) {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, parsed);
+        return ((DeleteFromUsingCommand) parsed).rowLevelDmlArgs(table);
     }
 }

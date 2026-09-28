@@ -2189,7 +2189,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
                     partitionSpec.first, partitionSpec.second, query, cte,
-                    hasQueryOrganization, ctx.USING() != null);
+                    hasQueryOrganization);
         }
         if (ctx.explainContext != null) {
             return withExplain(deleteCommand, ctx.explainContext);

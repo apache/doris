@@ -23,6 +23,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -38,18 +40,16 @@ import java.util.Optional;
 public class DeleteFromUsingCommand extends DeleteFromCommand implements SupportProfile {
     private final Optional<LogicalPlan> cte;
     private final boolean hasOrderByLimit;
-    private final boolean hasUsingClause;
 
     /**
      * constructor
      */
     public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
             boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery,
-            Optional<LogicalPlan> cte, boolean hasOrderByLimit, boolean hasUsingClause) {
+            Optional<LogicalPlan> cte, boolean hasOrderByLimit) {
         super(nameParts, tableAlias, isTempPart, partitions, logicalQuery);
         this.cte = cte;
         this.hasOrderByLimit = hasOrderByLimit;
-        this.hasUsingClause = hasUsingClause;
     }
 
     @Override
@@ -84,12 +84,16 @@ public class DeleteFromUsingCommand extends DeleteFromCommand implements Support
     protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
         return RowLevelDmlArgs.forDelete(
                 table, nameParts, tableAlias, isTempPart, partitions,
-                handleCte(logicalQuery), hasUsingClause);
+                handleCte(logicalQuery), mayDuplicateTargetRows());
     }
 
-    /** Whether this command came from a DELETE statement with an actual USING clause. */
-    public boolean hasUsingClause() {
-        return hasUsingClause;
+    private boolean mayDuplicateTargetRows() {
+        // The parser attaches every regular USING relation through a LogicalJoin. UNNEST is the
+        // exception: withRelations replaces its one-row child with the target and produces a
+        // LogicalGenerate. CTE, ORDER BY/LIMIT, and simple-DELETE fallback plans contain neither,
+        // so their target rows do not need primary-key deduplication.
+        return logicalQuery.anyMatch(plan -> plan instanceof LogicalJoin
+                || plan instanceof LogicalGenerate);
     }
 
     /**

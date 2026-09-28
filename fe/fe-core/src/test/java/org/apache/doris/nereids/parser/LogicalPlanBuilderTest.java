@@ -43,7 +43,6 @@ public class LogicalPlanBuilderTest {
         String sql = "DELETE FROM t ORDER BY c1 LIMIT 10";
         LogicalPlan plan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
-        Assertions.assertFalse(((DeleteFromUsingCommand) plan).hasUsingClause());
         LogicalPlan query = ((DeleteFromUsingCommand) plan).getLogicalQuery();
         // plan tree: LogicalLimit -> LogicalSort -> CheckPolicy(UnboundRelation)
         Assertions.assertInstanceOf(LogicalLimit.class, query);
@@ -110,15 +109,6 @@ public class LogicalPlanBuilderTest {
         LogicalPlan plan = parser.parseSingle(sql);
         Assertions.assertInstanceOf(DeleteFromCommand.class, plan);
         Assertions.assertFalse(plan instanceof DeleteFromUsingCommand);
-    }
-
-    @Test
-    public void testDeleteWithUsingTracksTargetDeduplication() {
-        LogicalPlan plan = parser.parseSingle(
-                "DELETE FROM target USING source WHERE target.id = source.id");
-
-        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
-        Assertions.assertTrue(((DeleteFromUsingCommand) plan).hasUsingClause());
     }
 
     @Test
