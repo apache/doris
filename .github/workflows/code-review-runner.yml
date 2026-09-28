@@ -192,7 +192,7 @@ jobs:
           echo "Synced refreshed canary auth."
 
   code-review:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       base_sha: ${{ steps.review_inputs.outputs.base_sha }}
       head_sha: ${{ steps.review_inputs.outputs.head_sha }}
@@ -316,20 +316,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
 
-      - name: Install Codex
-        timeout-minutes: 5
-        run: |
-          for attempt in 1 2 3; do
-            if npm install -g @openai/codex; then
-              codex --version
-              exit 0
-            fi
-            echo "Install attempt $attempt failed, retrying in 10s..."
-            sleep 10
-          done
-          echo "All install attempts failed"
-          exit 1
-
       - name: Install ossutil
         timeout-minutes: 5
         run: |
@@ -339,35 +325,36 @@ jobs:
           unzip -q "$tmp_dir/ossutil.zip" -d "$tmp_dir"
           sudo install -m 0755 "$tmp_dir/ossutil-v1.7.19-linux-amd64/ossutil" /usr/local/bin/ossutil
 
-      - name: Install Codex goal binary
+      - name: Install pinned Codex package
         timeout-minutes: 10
         run: |
-          codex_cmd="$(command -v codex)"
-          codex_target="$(readlink -f "$codex_cmd")"
-          tmp_dir="$(mktemp -d)"
-          trap 'rm -rf "$tmp_dir"' EXIT
-
-          downloaded=false
-          for object in "$OSS_CODEX_GOAL_OBJECT" "$OSS_CODEX_GOAL_FALLBACK_OBJECT"; do
-            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$object" "$tmp_dir/codex-goal"; then
-              downloaded=true
-              break
-            fi
-          done
-          test "$downloaded" = "true"
-          test -s "$tmp_dir/codex-goal"
-          sudo install -m 0755 "$tmp_dir/codex-goal" "$codex_target"
-          "$codex_cmd" exec --help | grep -q -- '--goal'
-          "$codex_cmd" --version
-          # The deployed goal binary currently reports only 0.0.0. Record its
-          # identity so a resume failure can be reproduced with the same build.
-          sha256sum "$codex_target"
+          set -euo pipefail
+          archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
+          package="$RUNNER_TEMP/codex-exec-goal"
+          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
+            cp -f "$OSS_CODEX_PACKAGE_OBJECT" "$archive"
+          echo "2ee3073479bc8c94436684b55a13d7a3f299e768d04436d90e0427814a3954bc  $archive" | sha256sum --check
+          mkdir -p "$package"
+          tar -xzf "$archive" -C "$package"
+          (cd "$package" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .version "$package/codex-package.json")" = 0.156.1
+          echo "$package/bin" >> "$GITHUB_PATH"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_GOAL_OBJECT: oss://doris-community-ci/codex-goal
-          OSS_CODEX_GOAL_FALLBACK_OBJECT: oss://doris-community-ci/codex/codex-goal
+          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.156.1-a310d33f7ebb-x86_64-unknown-linux-gnu.tar.gz
+
+      - name: Verify pinned Codex runtime
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          codex_cmd="$(command -v codex)"
+          test "$(readlink -f "$codex_cmd")" = "$RUNNER_TEMP/codex-exec-goal/bin/codex"
+          echo "e07e6d32e9333cbc52ba058195d6b225c6e072c8c438541d61ec97645b811906  $codex_cmd" | sha256sum --check
+          codex --version
+          codex exec --help | grep -q -- '--goal'
+          codex exec --goal resume --help >/dev/null
 
       - name: Configure Codex auth
         id: auth
