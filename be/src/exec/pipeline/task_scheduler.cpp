@@ -40,6 +40,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "exec/pipeline/pipeline_worker_timeline_log.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
@@ -131,6 +132,12 @@ void TaskScheduler::_do_work(int index) {
         }
 
         task->set_thread_id(index);
+
+        // Declared before task_running_defer so that END is written after the task is released.
+        const TUniqueId timeline_query_id = fragment_context->get_query_id();
+        worker_timeline_record(_name, index, timeline_query_id, true);
+        Defer worker_timeline_defer {
+                [&]() { worker_timeline_record(_name, index, timeline_query_id, false); }};
 
         bool done = false;
         auto status = Status::OK();

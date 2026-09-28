@@ -47,6 +47,7 @@
 #include "cpp/s3_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/pipeline_tracing.h"
+#include "exec/pipeline/pipeline_worker_timeline_log.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/scan/scanner_scheduler.h"
@@ -315,6 +316,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
     _pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>(); // before query
+    init_worker_timeline_log_dir();
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();

@@ -1717,6 +1717,10 @@ DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
+// Write a per pipeline worker timeline (START/END of every pipeline task a worker runs, with
+// UNIX timestamp and query id) to ${LOG_DIR}/worker_timeline/<BE startup time>/.
+DECLARE_mBool(enable_pipeline_worker_timeline_log);
+
 DECLARE_mInt32(check_score_rounds_num);
 
 // MB
