@@ -446,7 +446,12 @@ else
     LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
 fi
 
-if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
+# Old installs can contain the sentinel but predate Paimon. Rebuild the whole
+# dependency set so Lance and Paimon also use the same selected Rust toolchain.
+if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/lib64/liblance_c.a" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"

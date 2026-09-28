@@ -2265,8 +2265,12 @@ build_paimon_rust() {
     fi
 
     local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    # cbindgen invokes cargo metadata itself; command-line flags on the build
+    # and install calls do not propagate to that child process.
+    cargo_env+=("CARGO=${cargo_bin}")
     if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
         cargo_args+=(--offline)
+        cargo_env+=("CARGO_NET_OFFLINE=true")
     fi
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
