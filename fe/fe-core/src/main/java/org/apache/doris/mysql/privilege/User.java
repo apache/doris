@@ -138,6 +138,11 @@ public class User implements Comparable<User>, GsonPostProcessable {
         return password != null && password.getPassword() != null && password.getPassword().length != 0;
     }
 
+    /** Whether the account also holds a retained secondary password (RETAIN CURRENT PASSWORD). */
+    public boolean hasSecondaryPassword() {
+        return password != null && password.hasSecondaryPassword();
+    }
+
     public String getComment() {
         return comment;
     }

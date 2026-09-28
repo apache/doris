@@ -65,6 +65,12 @@ public class PrivInfo implements Writable {
     @SerializedName(value = "userId")
     private String userId;
 
+    // MySQL-compatible "RETAIN CURRENT PASSWORD" on a password change: keep
+    // the previous password valid as the secondary password. Absent in
+    // journals written before this feature (GSON default: false).
+    @SerializedName(value = "retainPasswd")
+    private boolean retainPasswd;
+
     private PrivInfo() {
 
     }
@@ -73,6 +79,14 @@ public class PrivInfo implements Writable {
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
             PasswordOptions passwordOptions) {
         this(userIdent, privs, passwd, role, passwordOptions, null, null);
+    }
+
+    // For set password with the MySQL-compatible RETAIN CURRENT PASSWORD
+    // clause (DISCARD OLD PASSWORD journals via AlterUserOperationLog instead)
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions, boolean retainPasswd) {
+        this(userIdent, privs, passwd, role, passwordOptions, null, null);
+        this.retainPasswd = retainPasswd;
     }
 
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
@@ -157,6 +171,10 @@ public class PrivInfo implements Writable {
 
     public byte[] getPasswd() {
         return passwd;
+    }
+
+    public boolean isRetainPasswd() {
+        return retainPasswd;
     }
 
     public String getRole() {
