@@ -88,7 +88,7 @@ public class ArrayShuffle extends UniqueFunction
     public void checkLegalityBeforeTypeCoercion() {
         // The rows of a block draw from one random sequence that starts from the seed,
         // so a per-row seed would be ignored.
-        if (arity() == 2 && !child(1).isConstant()) {
+        if (arity() == 2 && !getArgument(1).isConstant()) {
             throw new AnalysisException("The seed of array_shuffle must be a constant: " + toSql());
         }
     }

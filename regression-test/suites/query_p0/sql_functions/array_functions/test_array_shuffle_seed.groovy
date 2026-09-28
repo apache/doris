@@ -79,8 +79,10 @@ suite("test_array_shuffle_seed") {
     """
 
     // A constant array is still shuffled on each row, so the rows do not all get the same order.
+    // Each block starts again from the seed, so keep all 100 rows in one block.
     order_qt_const_array """
-        SELECT count(DISTINCT cast(array_shuffle(array_range(20), 1) AS string)),
+        SELECT /*+ SET_VAR(batch_size = 4064) */
+               count(DISTINCT cast(array_shuffle(array_range(20), 1) AS string)),
                count(DISTINCT cast(array_shuffle(array_range(20)) AS string))
         FROM numbers("number" = "100")
     """
