@@ -34,6 +34,7 @@ from pathlib import Path
 
 RETRY_DELAYS = (30, 60, 120)
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
+UNSUPPORTED_CHATGPT_MODEL = "model is not supported when using Codex with a ChatGPT account."
 PROCESS_EXIT_GRACE_SECONDS = 5
 
 
@@ -105,16 +106,56 @@ def read_events(path):
     return events
 
 
-def failure(events, status, stderr_path):
-    for event_type in ("turn.failed", "error"):
-        for event in reversed(events):
-            if event.get("type") == event_type:
-                error = event.get("error") or event
-                return error.get("message") or f"Codex exited with status {status}"
+def attempt_result(events, status, stderr_path):
+    """Use the latest turn in this attempt, never a previous attempt's failure."""
+    terminal = next(
+        (
+            event
+            for event in reversed(events)
+            if event.get("type")
+            in ("turn.started", "turn.completed", "turn.failed", "error")
+        ),
+        {},
+    )
+    event_type = terminal.get("type", "missing")
+    if event_type == "turn.completed":
+        message = (
+            None
+            if status == 0
+            else f"Codex exited with status {status} after turn.completed"
+        )
+        return event_type, message
+    if event_type in ("turn.failed", "error"):
+        error = terminal.get("error") or terminal
+        message = (
+            error.get("message")
+            or f"Codex reported {event_type} (exit status {status})"
+        )
+        return event_type, message
+    # A zero exit after only thread.started (or an unfinished new turn) does
+    # not prove recovery. Do not reuse an older capacity event to retry it.
+    if status == 0:
+        return (
+            event_type,
+            "Codex exited with status 0 without a terminal turn event; review is incomplete",
+        )
     lines = stderr_path.read_text(errors="replace").splitlines()
-    return next(
+    return event_type, next(
         (line for line in reversed(lines) if line.strip()),
         f"Codex exited with status {status}",
+    )
+
+
+def can_fallback_model(events, message, model):
+    """Only a rejected first model request may start a new review session."""
+    return (
+        message is not None
+        and f"The '{model}' {UNSUPPORTED_CHATGPT_MODEL}" in message
+        and not any(
+            event.get("type") == "turn.completed"
+            or event.get("type", "").startswith("item.")
+            for event in events
+        )
     )
 
 
@@ -312,6 +353,10 @@ def run_review(args, reaper=None):
     deadline = time.monotonic() + args.budget_seconds
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     thread_id = None
+    model = args.model
+    fallback_model = getattr(args, "fallback_model", None)
+    capacity_retry = 0
+    attempt_number = 0
 
     def remaining():
         seconds = deadline - time.monotonic()
@@ -335,10 +380,12 @@ def run_review(args, reaper=None):
         return 1
 
     try:
-        for attempt in range(len(RETRY_DELAYS) + 1):
-            events_path = attempts / f"{attempt + 1}.jsonl"
-            stderr_path = attempts / f"{attempt + 1}.stderr.log"
-            output_path = attempts / f"{attempt + 1}.final.txt"
+        while capacity_retry <= len(RETRY_DELAYS):
+            attempt_number += 1
+            events_path = attempts / f"{attempt_number}.jsonl"
+            stderr_path = attempts / f"{attempt_number}.stderr.log"
+            output_path = attempts / f"{attempt_number}.final.txt"
+            (context / "codex-review-model.txt").write_text(model + "\n")
             final_message.write_text("")
             command = [
                 "codex",
@@ -347,7 +394,7 @@ def run_review(args, reaper=None):
                 "--cd",
                 str(args.cwd),
                 "--model",
-                args.model,
+                model,
                 "--config",
                 f"model_reasoning_effort={args.effort}",
                 "--sandbox",
@@ -363,8 +410,8 @@ def run_review(args, reaper=None):
             else:
                 command += [goal_prompt]
             print(
-                f"Starting Codex review attempt {attempt + 1}/4 "
-                f"(session={thread_id or 'new'}, remaining={remaining():.0f}s)",
+                f"Starting Codex review attempt {attempt_number} "
+                f"(model={model}, session={thread_id or 'new'}, remaining={remaining():.0f}s)",
                 file=sys.stderr,
                 flush=True,
             )
@@ -388,9 +435,30 @@ def run_review(args, reaper=None):
                 return fail(
                     f"Codex was interrupted or timed out (status {status}); not resuming"
                 )
-            message = failure(events, status, stderr_path)
-            if status != 0 and (
-                message != CAPACITY_MESSAGE or attempt == len(RETRY_DELAYS)
+            terminal, message = attempt_result(events, status, stderr_path)
+            print(
+                f"Finished Codex review attempt {attempt_number} "
+                f"(exit_status={status}, terminal_event={terminal}, events={len(events)})",
+                file=sys.stderr,
+                flush=True,
+            )
+            if (
+                fallback_model
+                and fallback_model != model
+                and thread_id is None
+                and can_fallback_model(events, message, model)
+            ):
+                check_resume_target(args, started_at, remaining)
+                print(
+                    f"Model {model} is unavailable for this ChatGPT account; "
+                    f"retrying with {fallback_model} before review work began",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                model = fallback_model
+                continue
+            if message is not None and (
+                message != CAPACITY_MESSAGE or capacity_retry == len(RETRY_DELAYS)
             ):
                 return fail(message)
             current_id = session_id(events)
@@ -399,7 +467,7 @@ def run_review(args, reaper=None):
                     "Codex resumed a different session; refusing further attempts"
                 )
             thread_id = current_id
-            if status == 0:
+            if message is None:
                 return 0
             require_rollout(Path(os.environ["CODEX_HOME"]), thread_id, args.cwd)
             # Check parser support without authenticating or starting a model request.
@@ -409,7 +477,7 @@ def run_review(args, reaper=None):
                 capture_output=True,
                 timeout=min(10, remaining()),
             )
-            delay = RETRY_DELAYS[attempt]
+            delay = RETRY_DELAYS[capacity_retry]
             if remaining() <= delay:
                 return fail("Insufficient shared review budget for capacity backoff")
             print(
@@ -423,7 +491,7 @@ def run_review(args, reaper=None):
                         {
                             "type": "review.capacity_retry",
                             "thread_id": thread_id,
-                            "next_attempt": attempt + 2,
+                            "next_attempt": attempt_number + 1,
                             "delay_seconds": delay,
                         }
                     )
@@ -431,6 +499,7 @@ def run_review(args, reaper=None):
                 )
             time.sleep(delay)
             check_resume_target(args, started_at, remaining)
+            capacity_retry += 1
     except KeyboardInterrupt:
         fail("Review cancelled; not resuming")
         return 130
@@ -451,6 +520,7 @@ def main():
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--fallback-model")
     parser.add_argument("--effort", required=True)
     # The workflow owns the total timeout and deducts setup/finalization time.
     parser.add_argument("--budget-seconds", type=int, required=True)

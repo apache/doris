@@ -106,6 +106,22 @@ bvar::Status<uint64_t> g_fragment_last_active_time(
                                              std::chrono::system_clock::now().time_since_epoch())
                                              .count());
 
+void increment_fragment_executing_count() {
+    g_fragment_executing_count << 1;
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    g_fragment_last_active_time.set_value(now);
+}
+
+void decrement_fragment_executing_count() {
+    g_fragment_executing_count << -1;
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    g_fragment_last_active_time.set_value(now);
+}
+
 uint64_t get_fragment_executing_count() {
     return g_fragment_executing_count.get_value();
 }
@@ -425,11 +441,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     if (_pipeline_map.erase(key)) {
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-        g_fragment_executing_count << -1;
-        g_fragment_last_active_time.set_value(now);
+        decrement_fragment_executing_count();
     }
 }
 
@@ -675,11 +687,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-        g_fragment_executing_count << 1;
-        g_fragment_last_active_time.set_value(now);
+        increment_fragment_executing_count();
 
         // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
         auto res = _pipeline_map.find({params.query_id, params.fragment_id});
@@ -1375,6 +1383,7 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
 
         // Insert new PFC into _pipeline_map (old one was removed)
         _pipeline_map.insert({info.params.query_id, info.params.fragment_id}, context);
+        increment_fragment_executing_count();
 
         // Update QueryContext mapping (must support overwrite)
         q_ctx->set_pipeline_context(info.params.fragment_id, context);

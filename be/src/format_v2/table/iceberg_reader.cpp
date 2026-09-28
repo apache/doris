@@ -1768,7 +1768,17 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
             return Status::NotSupported(
                     "Iceberg equality delete does not support complex column {}", field->name);
         }
-        const auto key_type = path.size() > 1 ? make_nullable(field->type) : field->type;
+        // Equality comparison must run in the promoted (current snapshot schema) type domain.
+        // Narrowing a wider data key into a historical delete-file type is lossy: an INT overflow
+        // becomes NULL, and NULL-safe equality then matches a NULL delete key. Delete values are
+        // promoted into this same domain when the delete file is read.
+        const DataTypePtr delete_file_type =
+                path.size() > 1 ? make_nullable(field->type) : field->type;
+        DataTypePtr key_type = delete_file_type;
+        if (auto table_field = _find_table_column_by_field_id(field_id, delete_file_type, true);
+            table_field.has_value() && table_field->type != nullptr) {
+            key_type = table_field->type;
+        }
         delete_paths->push_back(std::move(path));
         result->field_ids.push_back(field_id);
         result->field_names.push_back(field->name);
@@ -1814,11 +1824,21 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     std::vector<VExprContextSPtr> key_exprs;
     key_exprs.reserve(delete_paths.size());
     RowDescriptor row_desc;
-    for (const auto& path : delete_paths) {
+    for (size_t index = 0; index < delete_paths.size(); ++index) {
+        const auto& path = delete_paths[index];
         const auto root_column_id = format::LocalColumnId(path.front()->file_local_id());
         VExprSPtr key_expr;
         RETURN_IF_ERROR(build_equality_delete_key_expr(
                 path, request->local_positions.at(root_column_id).value(), &key_expr));
+        const auto& key_type = result->key_types[index];
+        if (!key_expr->data_type()->equals(*key_type)) {
+            // Historical delete values are promoted into the comparison domain. For an
+            // Iceberg-legal type promotion this cast is always widening, so it cannot turn a
+            // non-NULL value into NULL.
+            auto cast_expr = Cast::create_shared(key_type);
+            cast_expr->add_child(key_expr);
+            key_expr = std::move(cast_expr);
+        }
         auto context = VExprContext::create_shared(std::move(key_expr));
         RETURN_IF_ERROR(context->prepare(_runtime_state, row_desc));
         RETURN_IF_ERROR(context->open(_runtime_state));
@@ -1862,6 +1882,11 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
     }
     std::ostringstream cache_key;
     cache_key << _delete_file_cache_key("iceberg_v2_equality_delete_", delete_file.path);
+    if (scan_params.__isset.current_schema_id) {
+        // The promoted comparison type depends on the current snapshot schema, so a cached filter
+        // must not be reused across schemas.
+        cache_key << ":schema=" << scan_params.current_schema_id;
+    }
     cache_key << ':' << delete_file.field_ids.size();
     for (const auto field_id : delete_file.field_ids) {
         cache_key << ':' << field_id;

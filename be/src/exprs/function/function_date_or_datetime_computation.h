@@ -422,8 +422,9 @@ struct AddQuartersImpl {
 
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = false;
-    static inline ReturnValueType execute(const InputValueType& t, Int32 delta) {
-        return date_time_add<TimeUnit::MONTH, PType, Int32>(t, 3 * delta);
+    static inline ReturnValueType execute(const InputValueType& t, Int64 delta) {
+        // Preserve both the month offset and the negation of INT_MIN in quarters_sub.
+        return date_time_add<TimeUnit::MONTH, PType, Int64>(t, 3 * delta);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -1516,12 +1517,13 @@ struct TimestampToDateTime : IFunction {
                 continue;
             }
             Int64 value = column_data.get_element(i);
-            if (value < 0) [[unlikely]] {
+            const Int64 seconds = value / Impl::ratio;
+            if (value < 0 || seconds > MAX_UNIX_TIMESTAMP_WITH_TIMEZONE) [[unlikely]] {
                 throw_out_of_bound_int(name, value);
             }
 
             auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
-            dt.from_unixtime(value / Impl::ratio, time_zone);
+            dt.from_unixtime(seconds, time_zone);
 
             if (!dt.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_int(name, value);

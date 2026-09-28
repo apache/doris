@@ -200,6 +200,9 @@ jobs:
           sudo install -m 0755 "$tmp_dir/codex-goal" "$codex_target"
           "$codex_cmd" exec --help | grep -q -- '--goal'
           "$codex_cmd" --version
+          # The deployed goal binary currently reports only 0.0.0. Record its
+          # identity so a resume failure can be reproduced with the same build.
+          sha256sum "$codex_target"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
@@ -725,7 +728,8 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
-            --model "gpt-5.6-sol" \
+            --model "gpt-6-sol" \
+            --fallback-model "gpt-5.6-sol" \
             --effort xhigh \
             --budget-seconds "$budget_seconds"
           status=$?
@@ -1007,7 +1011,7 @@ jobs:
             --pr-number "$PR_NUMBER" \
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
-            --model "gpt-5.6-sol" \
+            --model "$(cat "$REVIEW_CONTEXT_DIR/codex-review-model.txt")" \
             --reasoning-effort "xhigh" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \

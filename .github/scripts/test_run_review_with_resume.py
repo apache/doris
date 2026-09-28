@@ -71,6 +71,7 @@ class ResumeReviewTest(unittest.TestCase):
             head_sha="a" * 40,
             base_sha="b" * 40,
             model="gpt-5.6-sol",
+            fallback_model=None,
             effort="xhigh",
             budget_seconds=1000,
         )
@@ -154,6 +155,140 @@ class ResumeReviewTest(unittest.TestCase):
         self.target_check.assert_not_called()
         self.assertEqual([], self.sleeps)
 
+    def test_unsupported_model_falls_back_before_review_work(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        server_error = json.dumps(
+            {
+                "type": "error",
+                "status": 400,
+                "error": {"type": "invalid_request_error", "message": rejection},
+            }
+        )
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "turn.started"},
+                            failed(server_error),
+                        ]
+                    },
+                    {"events": [thread_event(OTHER), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(
+            ["gpt-6-sol", "gpt-5.6-sol"],
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        self.assertNotIn("resume", self.commands[1])
+        self.assertEqual(
+            "gpt-5.6-sol\n", (self.context / "codex-review-model.txt").read_text()
+        )
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_called_once()
+
+    def test_unsupported_model_does_not_restart_after_item(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "item.started"},
+                            failed(rejection),
+                        ]
+                    }
+                ]
+            ),
+        )
+        self.assertEqual(1, len(self.commands))
+        self.target_check.assert_not_called()
+
+    def test_both_models_rejected_stops_after_one_fallback(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+
+        def rejection(model):
+            return (
+                f"The '{model}' model is not supported when using Codex "
+                "with a ChatGPT account."
+            )
+
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed(rejection("gpt-6-sol"))]},
+                    {"events": [thread_event(OTHER), failed(rejection("gpt-5.6-sol"))]},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual(rejection("gpt-5.6-sol"), self.last_error())
+
+    def test_capacity_resume_uses_the_fallback_model(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        self.write_rollout(thread_id=OTHER)
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed(rejection)]},
+                    {"events": [thread_event(OTHER), failed()]},
+                    {"events": [thread_event(OTHER), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual([30], self.sleeps)
+        self.assertEqual(
+            ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-sol"],
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        self.assertEqual(["resume", OTHER], self.commands[2][-3:-1])
+        self.assertEqual(
+            "gpt-5.6-sol\n", (self.context / "codex-review-model.txt").read_text()
+        )
+
+    def test_unsupported_model_during_resume_never_starts_another_review(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event(), failed(rejection)]},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual([30], self.sleeps)
+        self.assertEqual(rejection, self.last_error())
+
     def test_capacity_resumes_exact_session_with_same_settings_and_ledger(self):
         before = self.ledger.read_text()
         self.assertEqual(
@@ -187,6 +322,149 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual(before, self.ledger.read_text())
         self.assertEqual("done", (self.context / "codex-final-message.txt").read_text())
         self.target_check.assert_called_once()
+
+    def test_zero_exit_capacity_on_resume_still_retries(self):
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event(), failed()], "status": 0},
+                    {"events": [thread_event(), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(3, len(self.commands))
+        self.assertEqual([30, 60], self.sleeps)
+        self.assertEqual(2, self.target_check.call_count)
+        self.assertEqual("completed", exporter.latest_turn_result(self.events())[0])
+
+    def test_zero_exit_capacity_stops_at_the_retry_limit(self):
+        self.assertEqual(
+            1, self.execute([{"events": [thread_event(), failed()], "status": 0}] * 4)
+        )
+        self.assertEqual([30, 60, 120], self.sleeps)
+        self.assertEqual(4, len(self.commands))
+        self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
+
+    def test_zero_exit_error_event_can_identify_capacity(self):
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "error", "message": runner.CAPACITY_MESSAGE},
+                        ],
+                        "status": 0,
+                    },
+                    {"events": [thread_event(), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual([30], self.sleeps)
+
+    def test_zero_exit_auth_usage_and_generic_failures_do_not_retry(self):
+        for message in (
+            "refresh_token_reused",
+            "You've hit your usage limit.",
+            "HTTP 500",
+        ):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                self.args.context_dir = Path(tmp)
+                (self.args.context_dir / "codex_goal_prompt.txt").write_text("review")
+                self.assertEqual(
+                    1,
+                    self.execute(
+                        [{"events": [thread_event(), failed(message)], "status": 0}]
+                    ),
+                )
+                events = runner.read_events(
+                    self.args.context_dir / "codex-events.jsonl"
+                )
+                self.assertEqual(message, events[-1]["error"]["message"])
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_not_called()
+
+    def test_zero_exit_without_terminal_event_fails_closed(self):
+        self.assertEqual(1, self.execute([{"events": [thread_event()], "status": 0}]))
+        self.assertIn("without a terminal turn event", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_empty_resume_does_not_reuse_the_previous_capacity_error(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual([30], self.sleeps)
+        self.assertIn("without a terminal turn event", self.last_error())
+        self.assertNotEqual(runner.CAPACITY_MESSAGE, self.last_error())
+
+    def test_later_completion_supersedes_earlier_error_in_the_same_attempt(self):
+        self.assertEqual(
+            0,
+            self.execute(
+                [{"events": [thread_event(), failed(), completed()], "status": 0}]
+            ),
+        )
+        self.assertEqual([], self.sleeps)
+
+    def test_later_failure_supersedes_earlier_completion(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [thread_event(), completed(), failed("auth failed")],
+                        "status": 0,
+                    }
+                ]
+            ),
+        )
+        self.assertEqual("auth failed", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_unfinished_new_turn_does_not_reuse_an_earlier_completion(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            completed(),
+                            {"type": "turn.started"},
+                        ],
+                        "status": 0,
+                    }
+                ]
+            ),
+        )
+        self.assertIn("without a terminal turn event", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_completion_with_nonzero_exit_does_not_retry_old_stderr_capacity(self):
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [thread_event(), completed()],
+                        "status": 1,
+                        "stderr": runner.CAPACITY_MESSAGE,
+                    }
+                ]
+            ),
+        )
+        self.assertIn("status 1 after turn.completed", self.last_error())
+        self.assertEqual([], self.sleeps)
 
     def test_retry_count_is_bounded(self):
         self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 4))

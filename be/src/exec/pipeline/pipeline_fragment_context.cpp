@@ -356,6 +356,10 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
 }
 
 Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
+    DBUG_EXECUTE_IF("fault_inject::PipelineFragmentContext::prepare.skip", {
+        _prepared = true;
+        return Status::OK();
+    });
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
