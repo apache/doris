@@ -51,8 +51,10 @@ class SpillDataDir;
 /// Part sizes are known from the writer, so no size lookup is needed on open.
 ///
 /// On object storage every read is a GET, so the reader keeps the request count low:
-/// the part footer is fetched with one tail read, adjacent blocks are coalesced into one
-/// read of at most `_coalesce_bytes`, and a part no larger than that is fetched whole.
+/// the part footer is fetched with one tail read of at most `_coalesce_bytes` (plus one more
+/// read for the rest of a block offset array that does not fit), adjacent blocks are coalesced
+/// into one read of at most `_coalesce_bytes`, and a part no larger than that is fetched whole.
+/// A single block, or the rest of the offset array, larger than `_coalesce_bytes` is read whole.
 class SpillFileReader {
 public:
     SpillFileReader(RuntimeState* state, RuntimeProfile* profile, SpillDataDir* data_dir,
