@@ -170,6 +170,11 @@ public class JdbcScanNode extends ExternalScanNode {
                 // Send epoch microseconds for both scalar and nested instants before JDBC decoding.
                 columns.add(clickHouseTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
                 projectsTimestamps = true;
+            } else if (jdbcType == TOdbcTableType.TRINO && leaf.isTimeStampTz()) {
+                // Trino JDBC loses the offset when decoding a named-zone timestamp in a DST fold.
+                // Convert instants to UTC on the server before scalar or array values reach the driver.
+                columns.add(trinoTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
+                projectsTimestamps = true;
             } else {
                 columns.add(remoteName);
             }
@@ -192,6 +197,15 @@ public class JdbcScanNode extends ExternalScanNode {
                     + ", " + value + ")";
         }
         return "toUnixTimestamp64Micro(toDateTime64(" + value + ", 6))";
+    }
+
+    private static String trinoTimestampProjection(String value, org.apache.doris.catalog.Type type, int depth) {
+        if (type.isArrayType()) {
+            String element = "t" + depth;
+            return "transform(" + value + ", " + element + " -> "
+                    + trinoTimestampProjection(element, ((ArrayType) type).getItemType(), depth + 1) + ")";
+        }
+        return "at_timezone(" + value + ", 'UTC')";
     }
 
     private String getTvfQuery() {

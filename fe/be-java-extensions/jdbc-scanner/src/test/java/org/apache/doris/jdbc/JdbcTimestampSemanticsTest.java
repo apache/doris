@@ -109,6 +109,39 @@ class JdbcTimestampSemanticsTest {
     }
 
     @Test
+    void testTrinoProjectedOverlapInstantsAndNestedArrays() throws Exception {
+        TrinoJdbcExecutor executor = Mockito.mock(TrinoJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        executor.resultSet = Mockito.mock(ResultSet.class);
+        java.util.TimeZone previous = java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/Los_Angeles"));
+            Instant first = Instant.parse("2023-11-05T08:30:00.123456Z");
+            Instant second = Instant.parse("2023-11-05T09:30:00.123456Z");
+            Instant negative = Instant.parse("1969-12-31T23:59:59.999999Z");
+            // Remote UTC projections keep the two fold instants distinct before JDBC decoding.
+            Mockito.when(executor.resultSet.getObject(1, ZonedDateTime.class))
+                    .thenReturn(first.atZone(ZoneOffset.UTC), second.atZone(ZoneOffset.UTC), null);
+            ColumnType scalar = ColumnType.parseType("event_time", "timestamptz(6)");
+            Assertions.assertEquals(LocalDateTime.ofInstant(first, ZoneOffset.UTC),
+                    executor.getColumnValue(0, scalar, new String[0]));
+            Assertions.assertEquals(LocalDateTime.ofInstant(second, ZoneOffset.UTC),
+                    executor.getColumnValue(0, scalar, new String[0]));
+            Assertions.assertNull(executor.getColumnValue(0, scalar, new String[0]));
+            ColumnType nested = ColumnType.parseType("events", "array<array<timestamptz(6)>>");
+            Object input = java.util.Arrays.asList(java.util.Arrays.asList(
+                    Timestamp.from(first), Timestamp.from(second), Timestamp.from(negative), null),
+                    null, java.util.Collections.emptyList());
+            Object expected = java.util.Arrays.asList(java.util.Arrays.asList(
+                    LocalDateTime.ofInstant(first, ZoneOffset.UTC), LocalDateTime.ofInstant(second, ZoneOffset.UTC),
+                    LocalDateTime.ofInstant(negative, ZoneOffset.UTC), null), null, java.util.Collections.emptyList());
+            Assertions.assertEquals(expected, executor.getOutputConverter(nested, "")
+                    .convert(new Object[] {input})[0]);
+        } finally {
+            java.util.TimeZone.setDefault(previous);
+        }
+    }
+
+    @Test
     void testPostgreSqlTimestampArraysRetainInstants() throws Exception {
         PostgreSQLJdbcExecutor executor = Mockito.mock(PostgreSQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
         ColumnType type = ColumnType.parseType("events", "array<array<timestamptz(6)>>");

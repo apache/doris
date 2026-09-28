@@ -61,6 +61,7 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
             case TIMESTAMPTZ: {
+                // JdbcScanNode projects to UTC before the driver can lose a named-zone overlap offset.
                 // JNI carries instants as UTC components, not the source zone's wall clock.
                 ZonedDateTime value = resultSet.getObject(columnIndex + 1, ZonedDateTime.class);
                 return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);

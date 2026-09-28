@@ -165,7 +165,7 @@ public class PaimonWriteBinding {
             boolean isNull = castValue instanceof NullLiteral;
             String partitionValue = isNull
                     ? defaultPartitionName
-                    : canonicalPartitionValue(castValue, partitionField);
+                    : canonicalPartitionValue(castValue, partitionField, overwrite);
             if (overwrite && !isNull
                     && defaultPartitionName.equals(partitionValue)) {
                 // Paimon 1.3's public static-overwrite API uses this string as the
@@ -189,7 +189,7 @@ public class PaimonWriteBinding {
     }
 
     private static String canonicalPartitionValue(
-            Literal literal, DataField partitionField) {
+            Literal literal, DataField partitionField, boolean overwrite) throws AnalysisException {
         String value = literal.getStringValue();
         if (partitionField.type().getTypeRoot()
                 != DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
@@ -203,9 +203,16 @@ public class PaimonWriteBinding {
                 : LocalDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
                         .atZone(TimeUtils.getDorisZoneId());
         // Paimon 1.3 parses withOverwrite strings in the FE JVM default zone.
-        return instant
-                .withZoneSameInstant(ZoneId.systemDefault())
-                .toLocalDateTime()
+        ZoneId sdkZone = ZoneId.systemDefault();
+        LocalDateTime localValue = instant.withZoneSameInstant(sdkZone).toLocalDateTime();
+        if (overwrite && sdkZone.getRules().getValidOffsets(localValue).size() > 1) {
+            // Both fold instants serialize to the same offset-free overwrite key. Reject both
+            // rather than letting the SDK select a different partition when it parses the key.
+            throw new AnalysisException("Static LTZ partition value for column '" + partitionField.name()
+                    + "' is ambiguous in FE JVM time zone " + sdkZone
+                    + " and cannot be represented in a static overwrite");
+        }
+        return localValue
                 // Paimon 1.3's timestamp parser accepts a space, but not ISO's
                 // 'T', between the date and time components.
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)

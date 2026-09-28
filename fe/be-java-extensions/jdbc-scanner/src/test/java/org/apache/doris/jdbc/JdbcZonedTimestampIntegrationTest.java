@@ -40,6 +40,43 @@ import java.util.TimeZone;
 
 class JdbcZonedTimestampIntegrationTest {
     @Test
+    @EnabledIfSystemProperty(named = "trino.integration.url", matches = ".+")
+    void testTrinoUtcProjectionPreservesNamedZoneOverlap() throws Exception {
+        withDriver("trino", "io.trino.jdbc.TrinoDriver", connection -> {
+            TrinoJdbcExecutor executor = Mockito.mock(TrinoJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+            String values = "ARRAY[first_value, second_value, old_value, NULL]";
+            String query = "WITH sample AS (SELECT "
+                    + "at_timezone(TIMESTAMP '2023-11-05 08:30:00.123456 UTC', 'America/Los_Angeles') first_value, "
+                    + "at_timezone(TIMESTAMP '2023-11-05 09:30:00.123456 UTC', 'America/Los_Angeles') second_value, "
+                    + "TIMESTAMP '1969-12-31 23:59:59.999999 UTC' old_value) "
+                    + "SELECT at_timezone(first_value, 'UTC'), at_timezone(second_value, 'UTC'), "
+                    + "at_timezone(CAST(NULL AS TIMESTAMP(6) WITH TIME ZONE), 'UTC'), "
+                    + "transform(" + values + ", t -> at_timezone(t, 'UTC')), "
+                    + "transform(ARRAY[" + values + ", CAST(NULL AS ARRAY(TIMESTAMP(6) WITH TIME ZONE)), ARRAY[]], "
+                    + "t0 -> transform(t0, t1 -> at_timezone(t1, 'UTC'))) FROM sample";
+            try (Statement statement = connection.createStatement(); ResultSet rows = statement.executeQuery(query)) {
+                Assertions.assertTrue(rows.next());
+                executor.resultSet = rows;
+                assertInstant(executor, 0, "2023-11-05T08:30:00.123456Z");
+                assertInstant(executor, 1, "2023-11-05T09:30:00.123456Z");
+                assertInstant(executor, 2, null);
+                java.util.List<LocalDateTime> expected = Arrays.asList(
+                        LocalDateTime.of(2023, 11, 5, 8, 30, 0, 123456000),
+                        LocalDateTime.of(2023, 11, 5, 9, 30, 0, 123456000),
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000), null);
+                for (int i = 3; i < 5; ++i) {
+                    ColumnType type = ColumnType.parseType("events", i == 3
+                            ? "array<timestamptz(6)>" : "array<array<timestamptz(6)>>");
+                    Object raw = executor.getColumnValue(i, type, new String[0]);
+                    Assertions.assertEquals(i == 3 ? expected
+                                    : Arrays.asList(expected, null, java.util.Collections.emptyList()),
+                            executor.getOutputConverter(type, "").convert(new Object[] {raw})[0]);
+                }
+            }
+        });
+    }
+
+    @Test
     @EnabledIfSystemProperty(named = "postgresql.integration.url", matches = ".+")
     void testPostgreSqlUnrepresentableTimestampRange() throws Exception {
         withDriver("postgresql", "org.postgresql.Driver", connection -> {

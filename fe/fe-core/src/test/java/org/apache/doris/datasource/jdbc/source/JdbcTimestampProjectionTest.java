@@ -38,6 +38,49 @@ import java.util.List;
 
 class JdbcTimestampProjectionTest {
     @Test
+    void testTrinoScalarInstantsAreProjectedInUtc() throws Exception {
+        assertTrinoProjection(ScalarType.createTimeStampTzType(6),
+                "at_timezone(\"event_time\", 'UTC') AS \"event_time\"");
+    }
+
+    @Test
+    void testTrinoNestedInstantsAreProjectedInUtc() throws Exception {
+        assertTrinoProjection(new ArrayType(new ArrayType(ScalarType.createTimeStampTzType(6))),
+                "transform(\"event_time\", t0 -> transform(t0, t1 -> at_timezone(t1, 'UTC'))) AS \"event_time\"");
+    }
+
+    @Test
+    void testTrinoLocalTimestampsDoNotNeedProjection() throws Exception {
+        assertTrinoProjection(ScalarType.createDatetimeV2Type(6), "\"event_time\"");
+    }
+
+    private void assertTrinoProjection(org.apache.doris.catalog.Type type, String expected) throws Exception {
+        JdbcScanNode node = Mockito.mock(JdbcScanNode.class, Mockito.CALLS_REAL_METHODS);
+        TupleDescriptor descriptor = Mockito.mock(TupleDescriptor.class);
+        SlotDescriptor slot = Mockito.mock(SlotDescriptor.class);
+        JdbcTable table = Mockito.mock(JdbcTable.class);
+        Mockito.when(descriptor.getSlots()).thenReturn(new ArrayList<>(Collections.singletonList(slot)));
+        Mockito.when(slot.getColumn()).thenReturn(new Column("event_time", type));
+        Mockito.when(table.getProperRemoteColumnName(TOdbcTableType.TRINO, "event_time"))
+                .thenReturn("\"event_time\"");
+        node.setDesc(descriptor);
+        List<String> columns = new ArrayList<>();
+        setField(node, "columns", columns);
+        setField(node, "tbl", table);
+        setField(node, "jdbcType", TOdbcTableType.TRINO);
+        Method create = JdbcScanNode.class.getDeclaredMethod("createJdbcColumns");
+        create.setAccessible(true);
+        create.invoke(node);
+        Assertions.assertEquals(Collections.singletonList(expected), columns);
+        String query = "SELECT event_time FROM event_stream;";
+        setField(node, "query", query);
+        Method tvfQuery = JdbcScanNode.class.getDeclaredMethod("getTvfQuery");
+        tvfQuery.setAccessible(true);
+        Assertions.assertEquals(type.isDatetimeV2() ? query : "SELECT " + expected
+                + " FROM (SELECT event_time FROM event_stream) doris_jdbc_source", tvfQuery.invoke(node));
+    }
+
+    @Test
     void testClickHouseScalarInstantsAreProjectedAsEpochMicros() throws Exception {
         JdbcScanNode node = Mockito.mock(JdbcScanNode.class, Mockito.CALLS_REAL_METHODS);
         TupleDescriptor descriptor = Mockito.mock(TupleDescriptor.class);
