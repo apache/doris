@@ -114,7 +114,8 @@ private:
     bool _dir_created = false;
     bool _ready_for_reading = false;
     // Pointer to the currently-active writer. Mutable to allow checks from const
-    // methods like create_reader(). Only one writer may be active at a time.
+    // methods like create_reader(). Only one writer may be active at a time. Cleared when
+    // the writer finished, was discarded by gc(), or was destroyed.
     mutable SpillFileWriter* _active_writer = nullptr;
 };
 using SpillFileSPtr = std::shared_ptr<SpillFile>;

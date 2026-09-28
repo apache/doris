@@ -44,9 +44,8 @@ class SpillRemoteUploadBudget;
 ///
 /// Part rotation is fully internal. Each part file has its own footer with
 /// block offset metadata. Parts are named 0, 1, 2, ... within the SpillFile's
-/// directory. Parts are closed non-blocking (FileWriter::close(true)) so that the
-/// upload of a finished part overlaps with writing the next one; close() waits for
-/// all of them.
+/// directory. A part is closed synchronously when it is rotated out or when close() is called.
+/// If the SpillFile is destroyed before the writer is closed, the unfinished part is discarded.
 ///
 /// Files are created on the SpillDataDir's file system, which is either a local disk or
 /// the object storage of a cloud storage vault. For object storage the writer additionally
@@ -69,6 +68,8 @@ public:
     Status close();
 
 private:
+    friend class SpillFile;
+
     /// Remote only: budget bytes taken and given back for one part. Updated from the
     /// appending thread (gate) and the upload threads (done callback); shared by value with
     /// the FileWriterOptions lambdas so that it outlives the writer.
@@ -87,6 +88,18 @@ private:
     /// to the next part index. Budget and statistics are reconciled whether it succeeds
     /// or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
+
+    /// Budget and statistics of the current part, once its writer reached a final state.
+    void _reconcile_part();
+
+    /// Reset the per-part state and move on to the next part index.
+    void _advance_part();
+
+    /// Called by SpillFile::gc() when the SpillFile goes away before this writer was closed
+    /// (e.g. an error unwound the owner of the file first). Drops the current part without
+    /// a footer and without publishing it, and unregisters from the SpillFile, so that nothing
+    /// is charged to or written under a SpillFile that no longer exists.
+    void _discard(SpillFile* spill_file);
 
     /// If current part size >= _max_part_size, close it.
     Status _rotate_if_needed(const std::shared_ptr<SpillFile>& spill_file);

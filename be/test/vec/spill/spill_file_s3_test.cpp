@@ -1479,6 +1479,71 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
+// A writer can outlive its SpillFile when an error unwinds the owner of the file first (the
+// repartitioner keeps its writers while the output files live in the caller). Destroying the
+// file discards the unfinished part: the multipart upload is aborted, no footer is charged,
+// and destroying the writer afterwards publishes nothing under the deleted prefix.
+TEST_F(SpillFileS3Test, SpillFileDestroyedBeforeWriterDiscardsPart) {
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    _create_manager();
+    auto* budget = _manager->remote_upload_budget();
+    std::mt19937 rng(47);
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_16/join-1-0-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    for (int i = 0; i < 4; ++i) {
+        ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 100, 100))
+                            .ok());
+    }
+    ASSERT_EQ(mock_store().create_multipart_requests, 1);
+    ASSERT_GT(_data_dir->get_spill_data_bytes(), 0);
+
+    spill_file.reset();
+    ASSERT_EQ(mock_store().abort_multipart_requests, 1);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_EQ(budget->inflight_bytes(), 0);
+    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+
+    const int64_t puts_before = mock_store().put_requests;
+    ASSERT_TRUE(writer->close().ok());
+    writer.reset();
+    ASSERT_EQ(mock_store().put_requests, puts_before);
+    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_16/").empty());
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+}
+
+// A writer whose close() failed stays registered with its SpillFile; destroying the file
+// afterwards must neither touch the writer's (already reconciled) state nor leak capacity, and
+// the writer destroyed first must not leave a dangling registration behind.
+TEST_F(SpillFileS3Test, FailedCloseThenSpillFileDestroyed) {
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    _create_manager();
+    std::mt19937 rng(53);
+    for (bool writer_first : {false, true}) {
+        SpillFileSPtr spill_file;
+        ASSERT_TRUE(_manager->create_spill_file(fmt::format("query_17/sort-1-0-{}", writer_first),
+                                                spill_file)
+                            .ok());
+        SpillFileWriterSPtr writer;
+        ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+        ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 100, 100))
+                            .ok());
+        mock_store().fail_uploads = true;
+        ASSERT_FALSE(writer->close().ok());
+        mock_store().fail_uploads = false;
+        ASSERT_FALSE(spill_file->ready_for_reading());
+        if (writer_first) {
+            writer.reset();
+            spill_file.reset();
+        } else {
+            spill_file.reset();
+            writer.reset();
+        }
+        ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    }
+}
+
 // The scenario behind the fast-path cancellation check: a query cancelled before close() must
 // not start a new upload for its last buffer; the part is refused, nothing is put, the budget
 // stays balanced.
