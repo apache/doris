@@ -52,6 +52,10 @@ public class PlaceholderExpr {
     /** Position of the literal inside its direct parent; -1 for a parent-less root. */
     private final int childIndex;
 
+    /** Query-block identity of the literal (see SPMPlaceholderBuilder#startNewTree):
+     *  two literals in different query blocks never share one placeholder id. */
+    private final long blockId;
+
     /**
      * Constructs a PlaceholderExpr.
      *
@@ -63,11 +67,12 @@ public class PlaceholderExpr {
      *                        (the child index); -1 when there is no parent node
      */
     public PlaceholderExpr(Expression originalExpr, Expression placeholderExpr, Expression parentExpr,
-            int childIndex) {
+            int childIndex, long blockId) {
         this.originalExpr = Objects.requireNonNull(originalExpr, "originalExpr can not be null");
         this.placeholderExpr = Objects.requireNonNull(placeholderExpr, "placeholderExpr can not be null");
         this.parentExpr = parentExpr;
         this.childIndex = childIndex;
+        this.blockId = blockId;
     }
 
     public Expression getOriginalExpr() {
@@ -84,6 +89,10 @@ public class PlaceholderExpr {
 
     public int getChildIndex() {
         return childIndex;
+    }
+
+    public long getBlockId() {
+        return blockId;
     }
 
     /**
@@ -109,7 +118,12 @@ public class PlaceholderExpr {
      * @param childIndex the position of the literal inside its direct parent
      * @return whether it matches
      */
-    public boolean matches(Expression expr, Expression parent, int childIndex) {
+    public boolean matches(Expression expr, Expression parent, int childIndex, long blockId) {
+        if (this.blockId != blockId) {
+            // different query blocks (outer query vs subquery): never share one id, or a
+            // user query with different values in the two blocks could never match
+            return false;
+        }
         if (!originalExpr.equals(expr)) {
             return false;
         }

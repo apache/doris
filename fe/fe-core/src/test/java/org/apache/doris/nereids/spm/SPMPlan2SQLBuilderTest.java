@@ -463,6 +463,24 @@ public class SPMPlan2SQLBuilderTest {
     // ==================== GROUPING SETS (PhysicalRepeat) ====================
 
     @Test
+    public void testSessionVarGuardedExpressionRejectsFreezing() {
+        // an alias-UDF body computed under the DEFINITION's session variables carries a
+        // SessionVarGuardExpr; the SQL text cannot express the guard, so freezing must
+        // be rejected instead of silently replanning under the caller's variables
+        org.apache.doris.nereids.trees.expressions.Expression guarded =
+                new org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr(
+                        new org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral(1),
+                        java.util.Collections.singletonMap("enable_decimal256", "1"));
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.logical.LogicalPlan.class);
+        // doReturn (Object-typed) sidesteps the wildcard capture of getExpressions()
+        Mockito.doReturn(java.util.List.of(guarded)).when(plan).getExpressions();
+        Mockito.doReturn(java.util.List.of()).when(plan).children();
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> SPMPlan2SQLBuilder.rejectSessionVarGuardedExpressions(plan));
+    }
+
+    @Test
     public void testDecompileGroupingSets() {
         // PhysicalHashAggregate(GLOBAL) over PhysicalRepeat over scan:
         // GROUP BY GROUPING SETS((a), (a, b))

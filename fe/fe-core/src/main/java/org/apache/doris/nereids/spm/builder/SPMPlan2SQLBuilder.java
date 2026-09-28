@@ -142,6 +142,38 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private static final String HINT_JOIN_BROADCAST = "BROADCAST";
     private static final String HINT_JOIN_SHUFFLE = "SHUFFLE";
 
+    /**
+     * Rejects freezing when any expression of the plan carries a
+     * SessionVarGuardExpr (see {@link #containsSessionVarGuard}): the guard holds the
+     * alias-UDF DEFINITION's saved session variables and has no SQL rendering.
+     *
+     * @param plan the physical plan about to be decompiled
+     */
+    public static void rejectSessionVarGuardedExpressions(Plan plan) {
+        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            for (org.apache.doris.nereids.trees.expressions.Expression expr
+                    : node.getExpressions()) {
+                if (containsSessionVarGuard(expr)) {
+                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                            + " carrying a session-variable guard: " + expr);
+                }
+            }
+        });
+    }
+
+    private static boolean containsSessionVarGuard(
+            org.apache.doris.nereids.trees.expressions.Expression expr) {
+        if (expr instanceof org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr) {
+            return true;
+        }
+        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
+            if (containsSessionVarGuard(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Expression printer (carries the columnNames mapping of SQLRelation). */
     private final SPMExprSqlBuilder exprSqlBuilder = new SPMExprSqlBuilder();
 
@@ -684,6 +716,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * @return planSql (standard SQL text)
      */
     public String toSQL(Plan plan) {
+        // An alias-UDF expansion computed under the DEFINITION's stored session
+        // variables (decimalOverflowScale / enable_decimal256 / ...) carries a
+        // SessionVarGuardExpr; the SQL text has no way to express that guard, so
+        // printing only its child would replan the arithmetic under the LATER caller's
+        // variables and could change its type, scale or value while the same bind SQL
+        // still matches. Reject freezing instead (CREATE keeps the user planSql /
+        // falls back to the parameterized-plan-tree path).
+        rejectSessionVarGuardedExpressions(plan);
         // reset the per-decompile alias / generated-name sequences: t_N and c_N only
         // need to be unique WITHIN the one produced SQL, so numbering restarts here and
         // the decompiled text stays compact across calls

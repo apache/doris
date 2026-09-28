@@ -392,6 +392,81 @@ public class SPMMatchingSafetyTest {
                 "the LogicalRepeat rebuild must keep withInProjection=false");
     }
 
+    // ==================== cross-block literals / set-operand limits / volatile deps ====================
+
+    /**
+     * The same literal at the same position of DIFFERENT query blocks must get DIFFERENT
+     * placeholder ids: with one shared id a similar query (outer a=2 / inner a=3) was
+     * rejected by the one-value-per-id check and the baseline could never hit.
+     */
+    @Test
+    public void testIndependentLiteralsInSeparateQueryBlocks() {
+        LogicalPlan bindPlan = parse(
+                "SELECT * FROM t WHERE a = 1 AND EXISTS (SELECT 1 FROM u WHERE a = 1)");
+        org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder builder =
+                new org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder();
+        LogicalPlan parameterizedBind = SPMPlanTreeSupport.transform(
+                bindPlan, expr -> expr.accept(builder, null));
+        Assertions.assertEquals(3, builder.getPlaceholderExprs().size(),
+                "outer 1, inner SELECT 1 and inner a=1 are three independent literals");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(parameterizedBind, parse(
+                "SELECT * FROM t WHERE a = 1 AND EXISTS (SELECT 1 FROM u WHERE a = 1)"),
+                new HashMap<>()), "same values must still match");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(parameterizedBind, parse(
+                "SELECT * FROM t WHERE a = 2 AND EXISTS (SELECT 1 FROM u WHERE a = 3)"),
+                new HashMap<>()),
+                "cross-block literals must extract independently (outer a=2 / inner a=3)");
+    }
+
+    /**
+     * A semantic LIMIT inside a SET OPERAND is a nested query block: the digest masks
+     * the value and mergeLimits cannot reach it, so it must be compared exactly or the
+     * frozen set silently keeps the captured slice (losing a t1 row for LIMIT 2).
+     */
+    @Test
+    public void testSetOperandLimitIsPartOfMatch() {
+        String bind = "(SELECT k FROM t1 LIMIT 1) UNION ALL SELECT k FROM t2";
+        Assertions.assertTrue(matches(bind,
+                "(SELECT k FROM t1 LIMIT 1) UNION ALL SELECT k FROM t2"),
+                "an identical operand LIMIT must still match");
+        Assertions.assertFalse(matches(bind,
+                "(SELECT k FROM t1 LIMIT 2) UNION ALL SELECT k FROM t2"),
+                "a different operand LIMIT must not match (the captured LIMIT 1"
+                        + " would be replayed)");
+    }
+
+    /** key(...) folds a volatile secret into the plan: baselines using it are refused. */
+    @Test
+    public void testKeyFunctionBaselineRejected() {
+        Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> SPMPlanTreeSupport.rejectVolatileFunctionDependencies(
+                        parse("SELECT key('kdb', 'k') FROM t1")));
+        // a plan without key(...) passes
+        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(parse("SELECT a FROM t1"));
+    }
+
+    /**
+     * Internal SPM writes must parse under MODE_DEFAULT (escapeSQL doubles backslashes,
+     * which only decode back in that mode) even when the global session mode is
+     * NO_BACKSLASH_ESCAPES.
+     */
+    @Test
+    public void testInternalIoRunsUnderDefaultMode() {
+        org.apache.doris.qe.ConnectContext ctx = new org.apache.doris.qe.ConnectContext();
+        ctx.setSessionVariable(new SessionVariable());
+        ctx.setThreadLocalInfo();
+        try {
+            ctx.getSessionVariable().setSqlMode(
+                    org.apache.doris.qe.SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            Assertions.assertEquals(org.apache.doris.qe.SqlModeHelper.MODE_DEFAULT,
+                    BaselineManager.internalIoModeForTest(),
+                    "internal writes must not inherit the global NO_BACKSLASH_ESCAPES mode");
+        } finally {
+            org.apache.doris.qe.ConnectContext.remove();
+        }
+    }
+
     // ==================== capture regexes are validated at SET time ====================
 
     @Test

@@ -172,18 +172,21 @@ public class PlanCaptureFilter {
 
     private boolean tableExists(String fullName, String capturedCatalog, String capturedDb) {
         try {
-            String[] parts = fullName.split("\\.");
+            // Quote-aware split (inverse of joinNameParts): a table COMPONENT may itself
+            // contain dots (`t.a` under enable_unicode_name_support), so a plain
+            // split(".") would mistake it for a db.table pair and reject a valid join.
+            List<String> parts = splitQualifiedName(fullName);
             String catalogName = capturedCatalog;
             String dbName = capturedDb;
             String tableName;
-            if (parts.length >= 3) {
-                catalogName = parts[parts.length - 3];
-                dbName = parts[parts.length - 2];
-                tableName = parts[parts.length - 1];
-            } else if (parts.length == 2) {
+            if (parts.size() >= 3) {
+                catalogName = parts.get(parts.size() - 3);
+                dbName = parts.get(parts.size() - 2);
+                tableName = parts.get(parts.size() - 1);
+            } else if (parts.size() == 2) {
                 // db.table is relative to the current catalog
-                dbName = parts[parts.length - 2];
-                tableName = parts[parts.length - 1];
+                dbName = parts.get(parts.size() - 2);
+                tableName = parts.get(parts.size() - 1);
             } else {
                 // plain table name without a db qualifier: treat as existing (cannot
                 // verify unambiguously)
@@ -204,6 +207,56 @@ public class PlanCaptureFilter {
             // missing catalog (DdlException) or any resolution failure: not capturable
             return false;
         }
+    }
+
+    /**
+     * Joins relation name parts back into ONE string while preserving component
+     * boundaries: a component that itself contains a '.' (legal as `t.a` under
+     * enable_unicode_name_support) is quoted, so the existence check can split on dots
+     * again without mistaking the component for a db.table pair.
+     */
+    private static String joinNameParts(List<String> parts) {
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (sb.length() > 0) {
+                sb.append('.');
+            }
+            if (part.contains(".") || part.contains("`")) {
+                sb.append('`').append(part.replace("`", "``")).append('`');
+            } else {
+                sb.append(part);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Splits a (possibly quoted) dotted name into components (inverse of
+     * {@link #joinNameParts}): dots inside backticks do not split, doubled backticks
+     * unescape to one.
+     */
+    private static List<String> splitQualifiedName(String fullName) {
+        List<String> parts = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean quoted = false;
+        for (int i = 0; i < fullName.length(); i++) {
+            char c = fullName.charAt(i);
+            if (c == '`') {
+                if (quoted && i + 1 < fullName.length() && fullName.charAt(i + 1) == '`') {
+                    current.append('`');
+                    i++;
+                } else {
+                    quoted = !quoted;
+                }
+            } else if (c == '.' && !quoted) {
+                parts.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        parts.add(current.toString());
+        return parts;
     }
 
     /**
@@ -277,7 +330,7 @@ public class PlanCaptureFilter {
             if (parts.size() == 1 && visibleCtes.contains(normalizeCteName(parts.get(0)))) {
                 return; // reference to a CTE alias, not a physical table
             }
-            out.add(String.join(".", parts));
+            out.add(joinNameParts(parts));
             return;
         }
         if (plan instanceof LogicalCTE) {

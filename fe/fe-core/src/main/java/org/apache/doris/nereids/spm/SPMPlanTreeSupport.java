@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
@@ -1119,8 +1120,14 @@ public final class SPMPlanTreeSupport {
             // LIMIT / OFFSET cannot rely on the positional merge (mergeLimits gives up on
             // a class mismatch - e.g. a frozen join order that differs from the user's -
             // and would silently keep the captured slice), so nested limits are part of
-            // the exact match (see the LIMIT check above).
-            boolean childInsideSubquery = insideSubquery || bind instanceof LogicalSubQueryAlias;
+            // the exact match (see the LIMIT check above). A SET OPERAND is a query block
+            // of its own too: (SELECT k FROM t1 LIMIT 1) UNION ALL SELECT k FROM t2
+            // parses as UnionAll(Limit(1, t1), t2) with no SubQueryAlias around that
+            // limit, and toDigest() masks the limit value - without this the frozen set
+            // (wrapped as a derived table at replay) kept the captured LIMIT 1 while the
+            // user asked LIMIT 2, silently losing a t1 row.
+            boolean childInsideSubquery = insideSubquery || bind instanceof LogicalSubQueryAlias
+                    || bind instanceof LogicalSetOperation;
             if (!checkPlan(bindChildren.get(i), userChildren.get(i), placeholderValues,
                     childInsideSubquery)) {
                 return false;
@@ -1727,6 +1734,18 @@ public final class SPMPlanTreeSupport {
                 }
             }
         });
+        // Non-table dependencies (validated before every replay exactly like the table
+        // schema): analysis INLINES an alias-UDF body, so f(x): x+1 -> x+2 leaves both
+        // the bind SQL and the table fingerprint unchanged while the frozen SQL keeps
+        // projecting the old body. Every referenced function contributes an entry, so a
+        // changed definition fails the same check as a changed table schema. key(...)
+        // is a volatile secret (folded at optimize time): marker only, such baselines
+        // are rejected at CREATE (rejectVolatileFunctionDependencies).
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                collectFunctionDependencies(ctx, expr, entries);
+            }
+        });
         if (entries.isEmpty()) {
             return "";
         }
@@ -1748,6 +1767,115 @@ public final class SPMPlanTreeSupport {
                     .append(column.getType().toString()).append(',');
         }
         return table.getName() + "|" + table.getId() + "|" + SPMUtils.hashOf(schema.toString());
+    }
+
+    /** Records one function call's dependency entry (see the schemaFingerprint caller). */
+    private static void collectFunctionDependencies(ConnectContext ctx, Expression expr,
+            TreeSet<String> entries) {
+        if (expr instanceof org.apache.doris.nereids.analyzer.UnboundFunction) {
+            entries.add(describeFunctionDependency(ctx,
+                    (org.apache.doris.nereids.analyzer.UnboundFunction) expr));
+        }
+        for (Expression child : expr.children()) {
+            collectFunctionDependencies(ctx, child, entries);
+        }
+    }
+
+    /**
+     * One dependency entry of one referenced function. An ALIAS UDF resolves through the
+     * nereids FunctionRegistry to its AliasUdfBuilder: the entry is the name plus a hash
+     * of the inlined body SQL and the definition's saved session variables, so a
+     * definition change (x+1 -&gt; x+2, or different definition-time variables) changes
+     * the fingerprint and the replay check fails closed. Builtins / java UDFs are not
+     * inlined into the frozen SQL, so they only contribute a stable identity. key(...)
+     * folds a named secret into the plan and can be recreated without touching any
+     * table: a volatile marker is recorded and CREATE refuses such baselines.
+     */
+    private static String describeFunctionDependency(ConnectContext ctx,
+            org.apache.doris.nereids.analyzer.UnboundFunction function) {
+        // normalized: the parser preserves the written case, SUM and sum are the same
+        // function and must produce the same entry
+        String name = function.getName().toLowerCase(java.util.Locale.ROOT);
+        if ("key".equals(name)) {
+            return "fn:key|volatile";
+        }
+        try {
+            // NAME-level UDF lookup: the plans checked here are UNBOUND, so the
+            // argument-matching overload of findFunctionBuilder cannot resolve them (and
+            // the dependency must not depend on argument types anyway). findUdfBuilder
+            // lowercases the name itself and scans db + global scopes.
+            java.util.List<org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder>
+                    udfBuilders = org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry()
+                            .findUdfBuilder(ctx == null ? null : ctx.getDatabase(), name);
+            for (org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder builder
+                    : udfBuilders) {
+                if (builder instanceof org.apache.doris.nereids.trees.expressions.functions.udf
+                        .AliasUdfBuilder) {
+                    org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf udf =
+                            ((org.apache.doris.nereids.trees.expressions.functions.udf
+                                    .AliasUdfBuilder) builder).getAliasUdf();
+                    if (udf != null) {
+                        return "fn:" + name + "|" + SPMUtils.hashOf(
+                                udf.getUnboundFunction().toSql() + "|" + udf.getSessionVariables());
+                    }
+                }
+            }
+            if (!udfBuilders.isEmpty()) {
+                // java UDF / UDAF / UDTF: not inlined into the frozen SQL, so a stable
+                // identity is enough (a dropped/added registration changes the
+                // fingerprint and fails closed)
+                return "fn:" + name + "|udf";
+            }
+            return "fn:" + name + "|builtin";
+        } catch (RuntimeException e) {
+            // name-level lookup hiccup (null database / privilege probe): a stable
+            // identity, so both sides degrade identically instead of mismatching
+            return "fn?:" + name;
+        }
+    }
+
+    /**
+     * Rejects creating a baseline over a plan referencing a VOLATILE non-table
+     * dependency: key(...) folds the named encryption key into a concrete value during
+     * optimization, so a recreated key would leave the frozen SQL with the old secret
+     * while the same bind SQL still matches. The folded value cannot be re-validated
+     * before replay, so such baselines are refused at CREATE (alias UDF definitions are
+     * instead TRACKED by the schema fingerprint: a definition change fails the replay
+     * check).
+     *
+     * @param bindPlan the unbound bind plan
+     */
+    public static void rejectVolatileFunctionDependencies(LogicalPlan bindPlan) {
+        if (bindPlan == null) {
+            return;
+        }
+        final boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(bindPlan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                if (referencesKeyFunction(expr)) {
+                    found[0] = true;
+                }
+            }
+        });
+        if (found[0]) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM does not support baselines using the key() function: the folded key"
+                            + " value cannot be re-validated before replay");
+        }
+    }
+
+    private static boolean referencesKeyFunction(Expression expr) {
+        if (expr instanceof org.apache.doris.nereids.analyzer.UnboundFunction
+                && "key".equalsIgnoreCase(
+                        ((org.apache.doris.nereids.analyzer.UnboundFunction) expr).getName())) {
+            return true;
+        }
+        for (Expression child : expr.children()) {
+            if (referencesKeyFunction(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Optional value equality with a textual fallback for value types without equals. */
