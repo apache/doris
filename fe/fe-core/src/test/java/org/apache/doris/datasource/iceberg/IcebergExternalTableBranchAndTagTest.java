@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
@@ -98,6 +99,12 @@ public class IcebergExternalTableBranchAndTagTest {
                 .thenReturn(icebergTable);
         mockedIcebergUtils.when(() -> IcebergUtils.getWritableIcebergTable(Mockito.any(), Mockito.any()))
                 .thenReturn(icebergTable);
+        IcebergExternalMetaCache.WritableTableLease lease =
+                Mockito.mock(IcebergExternalMetaCache.WritableTableLease.class);
+        Mockito.when(lease.getTable()).thenReturn(icebergTable);
+        Mockito.when(lease.getAuthenticator()).thenReturn(new ExecutionAuthenticator() { });
+        mockedIcebergUtils.when(() -> IcebergUtils.acquireWritableIcebergTable(Mockito.any(), Mockito.any()))
+                .thenReturn(lease);
 
         // mock Env.getCurrentEnv().getEditLog().logBranchOrTag(info) to do nothing
         Env mockEnv = Mockito.mock(Env.class);

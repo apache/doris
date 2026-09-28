@@ -23,8 +23,8 @@
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
 #include "format/table/iceberg/schema.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
@@ -100,9 +100,9 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                               .parquet_version = TParquetVersion::PARQUET_1_0,
                                               .parquet_disable_dictionary = false,
                                               .enable_int96_timestamps = false};
-        _file_format_transformer = std::make_unique<VParquetTransformer>(
+        _file_format_transformer = std::make_unique<VIcebergParquetWriter>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
-                parquet_options, _iceberg_schema_json, &_schema);
+                parquet_options, _iceberg_schema_json, _schema);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
@@ -178,7 +178,7 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     }
     if (_file_format_type == TFileFormatType::FORMAT_PARQUET) {
         TIcebergColumnStats column_stats;
-        RETURN_IF_ERROR(static_cast<VParquetTransformer*>(_file_format_transformer.get())
+        RETURN_IF_ERROR(static_cast<VIcebergParquetWriter*>(_file_format_transformer.get())
                                 ->collect_file_statistics_after_close(&column_stats));
         commit_data->__set_column_stats(column_stats);
     } else if (_file_format_type == TFileFormatType::FORMAT_ORC) {

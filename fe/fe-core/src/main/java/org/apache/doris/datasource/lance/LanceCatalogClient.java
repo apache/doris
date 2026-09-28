@@ -36,6 +36,7 @@ import org.apache.doris.datasource.lance.profile.LanceMetadataMetrics.Stage;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -90,7 +91,8 @@ final class LanceCatalogClient implements AutoCloseable {
             session = Session.builder().metadataCacheSizeBytes(METADATA_CACHE_SIZE_BYTES)
                     .indexCacheSizeBytes(INDEX_CACHE_SIZE_BYTES).build();
             return new LanceCatalogClient(namespace, allocator, session, properties.getLanceCatalogType(),
-                    properties.getRootDatabase(), parent, storageProperties, namespaceOptions, catalogSecrets);
+                    properties.getRootDatabase(), parent, storageProperties, namespaceOptions, catalogSecrets,
+                    properties.getTableAccessCacheTtlSeconds());
         } catch (RuntimeException | Error e) {
             closeResource(namespace);
             closeResource(session);
@@ -103,12 +105,22 @@ final class LanceCatalogClient implements AutoCloseable {
             String catalogType, String rootDatabase, List<String> parentNamespace,
             List<StorageProperties> storageProperties, Map<String, String> namespaceStorageOptions,
             List<String> catalogSecrets) {
+        this(namespace, allocator, session, catalogType, rootDatabase, parentNamespace,
+                storageProperties, namespaceStorageOptions, catalogSecrets,
+                AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS);
+    }
+
+    LanceCatalogClient(LanceNamespace namespace, BufferAllocator allocator, Session session,
+            String catalogType, String rootDatabase, List<String> parentNamespace,
+            List<StorageProperties> storageProperties, Map<String, String> namespaceStorageOptions,
+            List<String> catalogSecrets, int tableAccessCacheTtlSeconds) {
         this.catalogSecrets = Collections.unmodifiableList(new ArrayList<>(catalogSecrets));
         this.namespace = namespace;
         this.namespaceAllocator = allocator;
         this.session = session;
         this.namespaceClient = new LanceNamespaceClient(
-                namespace, catalogType, rootDatabase, parentNamespace, storageProperties);
+                namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
+                tableAccessCacheTtlSeconds, Ticker.systemTicker());
         this.namespaceStorageOptions = Collections.unmodifiableMap(new HashMap<>(namespaceStorageOptions));
     }
 
@@ -189,6 +201,10 @@ final class LanceCatalogClient implements AutoCloseable {
         }
     }
 
+    void invalidateTableAccessCache() {
+        namespaceClient.invalidateTableAccessCache();
+    }
+
     List<String> listDatabaseNames() {
         return namespaceClient.listDatabaseNames();
     }
@@ -234,7 +250,7 @@ final class LanceCatalogClient implements AutoCloseable {
                 (dataset, access, metrics) -> LanceMetadataLoader.read(dataset, access, mode, metrics));
     }
 
-    /** Pins one resource generation, fresh table access, and the Dataset version for the whole read. */
+    /** Pins one resource generation, resolved table access, and the Dataset version for the whole read. */
     private <T> T readTableSnapshot(String dbName, String tableName, Optional<TableSnapshot> tableSnapshot,
             SnapshotReader<T> reader) {
         LanceTableAccess tableAccess = null;
@@ -302,7 +318,7 @@ final class LanceCatalogClient implements AutoCloseable {
 
     String resolveCurrentIndexJobLocator(String dbName, String tableName) {
         return LanceIndexDatasetLocator.normalize(
-                namespaceClient.resolveTableAccess(dbName, tableName).getDatasetUri());
+                namespaceClient.resolveTableAccessUncached(dbName, tableName).getDatasetUri());
     }
 
     public LanceIndexAdmissionSnapshot loadTableIndexAdmissionSnapshot(String dbName, String tableName) {
@@ -313,7 +329,8 @@ final class LanceCatalogClient implements AutoCloseable {
         LanceTableAccess tableAccess = null;
         try {
             // The worker owns its Dataset and Session even if the caller releases its lease on timeout.
-            tableAccess = namespaceClient.resolveTableAccess(dbName, tableName);
+            // Index admission must verify the current target even while query access is cached.
+            tableAccess = namespaceClient.resolveTableAccessUncached(dbName, tableName);
             LanceTableAccess access = tableAccess;
             return LanceIndexInspectionExecutor.execute(() -> {
                 // The caller can time out while JNI is running; the worker must own resource cleanup.

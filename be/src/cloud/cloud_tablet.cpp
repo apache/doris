@@ -1908,11 +1908,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                     continue;
                 }
 
-                int64_t expiration_time = _tablet_meta->ttl_seconds() == 0 ||
-                                                          rowset_meta->newest_write_timestamp() <= 0
-                                                  ? 0
-                                                  : rowset_meta->newest_write_timestamp() +
-                                                            _tablet_meta->ttl_seconds();
+                int64_t expiration_time = _tablet_meta->file_cache_ttl_expiration_time();
                 g_file_cache_cloud_tablet_submitted_segment_num << 1;
                 if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
                     g_file_cache_cloud_tablet_submitted_segment_size

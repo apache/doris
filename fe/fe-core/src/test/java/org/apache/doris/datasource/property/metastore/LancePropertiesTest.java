@@ -25,6 +25,22 @@ import java.util.Map;
 
 public class LancePropertiesTest {
     @Test
+    public void testTableAccessCacheTtl() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceFileSystemMetastoreProperties.WAREHOUSE, "/tmp/lance");
+        Assertions.assertEquals(60, ((AbstractLanceProperties) MetastoreProperties.create(properties))
+                .getTableAccessCacheTtlSeconds());
+        for (String ttl : new String[] {"0", "120"}) {
+            properties.put(AbstractLanceProperties.TABLE_ACCESS_CACHE_TTL_SECONDS, ttl);
+            Assertions.assertEquals(Integer.parseInt(ttl),
+                    ((AbstractLanceProperties) MetastoreProperties.create(properties)).getTableAccessCacheTtlSeconds());
+        }
+        properties.put(AbstractLanceProperties.TABLE_ACCESS_CACHE_TTL_SECONDS, "-1");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> MetastoreProperties.create(properties));
+    }
+
+    @Test
     public void testDefaultFilesystemProperties() throws Exception {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");

@@ -129,30 +129,29 @@ public final class IcebergWriteSchemaContext {
         Objects.requireNonNull(dorisTable, "dorisTable should not be null");
         Objects.requireNonNull(branchName, "branchName should not be null");
         try {
-            return dorisTable.getCatalog().getExecutionAuthenticator().execute(() -> {
-                Table table = dorisTable.getIcebergTable();
-                if (branchName.isPresent()) {
-                    validateTargetBranch(table, branchName.get(), dorisTable.getName());
-                }
-                // A branch selects only the snapshot parent/ref. Iceberg validates branch writes
-                // with the table-current schema and stamps that schema on the new snapshot.
-                Schema schema = branchName.isPresent()
-                        ? table.schema()
-                        : resolveStatementSchema(table, dorisTable);
-                int formatVersion = IcebergUtils.getFormatVersion(table);
-                TableIdentity tableIdentity = pinTableIdentity(table, formatVersion);
-                Map<String, String> properties = ImmutableMap.copyOf(table.properties());
-                return new IcebergWriteSchemaContext(
-                        dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
-                        tableIdentity.uuid, tableIdentity.v1MetadataFileLocation,
-                        tableIdentity.v1MetadataTimestampMillis,
-                        bindPartitionSpec(table.spec(), schema, dorisTable.getName()),
-                        bindSortOrder(table.sortOrder(), schema, dorisTable.getName()),
-                        IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
-                        IcebergUtils.getFileCompress(table), IcebergUtils.dataLocation(table), properties,
-                        dorisTable.getCatalog().getEnableMappingVarbinary(),
-                        dorisTable.getCatalog().getEnableMappingTimestampTz());
-            });
+            return IcebergUtils.withIcebergTableGeneration(dorisTable,
+                    (table, enableMappingVarbinary, enableMappingTimestampTz) -> {
+                        if (branchName.isPresent()) {
+                            validateTargetBranch(table, branchName.get(), dorisTable.getName());
+                        }
+                        // A branch selects only the snapshot parent/ref. Iceberg validates branch writes
+                        // with the table-current schema and stamps that schema on the new snapshot.
+                        Schema schema = branchName.isPresent()
+                                ? table.schema()
+                                : resolveStatementSchema(table, dorisTable);
+                        int formatVersion = IcebergUtils.getFormatVersion(table);
+                        TableIdentity tableIdentity = pinTableIdentity(table, formatVersion);
+                        Map<String, String> properties = ImmutableMap.copyOf(table.properties());
+                        return new IcebergWriteSchemaContext(
+                                dorisTable.getId(), dorisTable.getName(), schema, formatVersion, branchName,
+                                tableIdentity.uuid, tableIdentity.v1MetadataFileLocation,
+                                tableIdentity.v1MetadataTimestampMillis,
+                                bindPartitionSpec(table.spec(), schema, dorisTable.getName()),
+                                bindSortOrder(table.sortOrder(), schema, dorisTable.getName()),
+                                IcebergUtils.getFileFormat(table), MetricsConfig.forTable(table),
+                                IcebergUtils.getFileCompress(table), IcebergUtils.dataLocation(table), properties,
+                                enableMappingVarbinary, enableMappingTimestampTz);
+                    });
         } catch (Exception e) {
             throw new AnalysisException("Failed to pin Iceberg write schema for table "
                     + dorisTable.getName() + ": " + e.getMessage(), e);

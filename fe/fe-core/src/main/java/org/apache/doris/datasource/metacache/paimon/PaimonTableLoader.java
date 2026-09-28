@@ -19,6 +19,7 @@ package org.apache.doris.datasource.metacache.paimon;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 
@@ -31,6 +32,34 @@ import java.util.concurrent.Callable;
  * Loads the base Paimon table handle used by cache entries and runtime projections.
  */
 public final class PaimonTableLoader {
+
+    public void invalidate(NameMapping nameMapping) {
+        try {
+            catalog(nameMapping).invalidatePaimonTable(nameMapping);
+        } catch (Exception e) {
+            throw new CacheException("failed to invalidate paimon table %s.%s.%s: %s",
+                    e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),
+                    e.getMessage());
+        }
+    }
+
+    public void invalidateDatabase(ExternalDatabase<?> database) {
+        try {
+            catalog(database.getCatalog().getId()).invalidatePaimonDatabase(database.getRemoteName());
+        } catch (Exception e) {
+            throw new CacheException("failed to invalidate paimon database %s.%s: %s",
+                    e, database.getCatalog().getId(), database.getFullName(), e.getMessage());
+        }
+    }
+
+    public void invalidateCatalog(long catalogId) {
+        try {
+            catalog(catalogId).invalidatePaimonCatalog();
+        } catch (Exception e) {
+            throw new CacheException("failed to invalidate paimon catalog %s: %s",
+                    e, catalogId, e.getMessage());
+        }
+    }
 
     public Table load(NameMapping nameMapping) {
         try {
@@ -48,8 +77,12 @@ public final class PaimonTableLoader {
     }
 
     public PaimonExternalCatalog catalog(NameMapping nameMapping) throws IOException {
+        return catalog(nameMapping.getCtlId());
+    }
+
+    private PaimonExternalCatalog catalog(long catalogId) throws IOException {
         return (PaimonExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(nameMapping.getCtlId(), id -> new IOException("Catalog not found: " + id));
+                .getCatalogOrException(catalogId, id -> new IOException("Catalog not found: " + id));
     }
 
     public <T> T executeAuthenticated(NameMapping nameMapping, Callable<T> task) {

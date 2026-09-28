@@ -410,7 +410,7 @@ struct FromUnixTimeImpl {
 
     [[nodiscard]] static bool check_valid(const ArgType& val) {
         if constexpr (NewVersion) {
-            if (val < 0) [[unlikely]] {
+            if (val < 0 || val > MAX_UNIX_TIMESTAMP_WITH_TIMEZONE) [[unlikely]] {
                 return false;
             }
         } else {

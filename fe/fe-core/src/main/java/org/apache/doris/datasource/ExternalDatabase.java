@@ -120,6 +120,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void resetMetaToUninitialized() {
+        resetMetaToUninitialized(true);
+    }
+
+    public void resetMetaToUninitialized(boolean invalidateEngineCache) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
@@ -142,7 +146,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 objectInvalidation.run();
             }
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
+        if (invalidateEngineCache) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(this);
+        }
     }
 
     public boolean isInitialized() {
@@ -379,6 +385,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return metaCache.tryGetMetaObj(localName);
     }
 
+    /**
+     * @return whether {@code tableName} resolves to a canonical local table name in this database.
+     *         A {@code false} result means the name mapping is missing (for example a
+     *         case-insensitive mapping was lost); a {@code true} result only means the name is
+     *         known and the object itself may still be uncached. Replay uses this to tell an
+     *         unresolved legacy identity apart from an ordinary cold cache miss.
+     */
+    public boolean hasLocalTableName(String tableName) {
+        return getLocalTableName(tableName, true) != null;
+    }
+
     @Override
     public void readLock() {
         this.rwLock.readLock().lock();
@@ -586,14 +603,23 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void unregisterTable(String tableName) {
         makeSureInitialized();
+        unregisterTableForReplay(tableName);
+    }
+
+    /**
+     * Unregister a cached table without loading metadata from the remote catalog during replay.
+     *
+     * @return whether a cached table was found and invalidated
+     */
+    public boolean unregisterTableForReplay(String tableName) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister table {}.{}", this.name, tableName);
         }
         setLastUpdateTime(System.currentTimeMillis());
-        // check if the table exists in cache, it not, does return
+        // Check whether the table still exists in the local replay cache.
         ExternalTable dorisTable = getTableForReplay(tableName).orElse(null);
         if (dorisTable == null) {
-            return;
+            return false;
         }
         // clear the cache related to this table.
         if (isInitialized()) {
@@ -602,6 +628,19 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
 
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        return true;
+    }
+
+    /**
+     * Conservatively retire every cached table object of this database without invoking a removal
+     * listener. Used when replay cannot resolve the canonical local table name (for example a
+     * case-insensitive name mapping disappeared) and the caller invalidates the engine cache
+     * separately, so a same-name recreation cannot reuse the prior incarnation.
+     */
+    public void retireAllTableObjectsWithoutEngineInvalidation() {
+        if (metaCache != null) {
+            metaCache.invalidateObjects();
+        }
     }
 
     @Override

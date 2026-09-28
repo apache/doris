@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <string>
 
 #include "core/data_type/data_type_date.h"
@@ -234,6 +235,42 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
     }
 }
 
+TEST(VTimestampFunctionsTest, from_unixtime_rejects_year_wrap) {
+    TimezoneUtils::load_timezones_to_cache();
+    // The first two values produce civil years 67506 and 133042 in UTC. Narrowing
+    // either year to uint16_t produces 1970, which used to pass date validation.
+    const int64_t timestamps[] = {2068116364800LL, 4136232816000LL, 1789000000000000000LL,
+                                  std::numeric_limits<int64_t>::max()};
+    for (const int64_t seconds : timestamps) {
+        SCOPED_TRACE(seconds);
+        const DataSet data_set = {{{seconds}, std::string("unused")}};
+        EXPECT_FALSE(
+                (check_function<DataTypeString, true>(
+                         "from_unixtime_new", {PrimitiveType::TYPE_BIGINT}, data_set, -1, -1, true)
+                         .ok()));
+        EXPECT_FALSE((check_function<DataTypeString>("from_unixtime_new",
+                                                     {ConstedNotnull {PrimitiveType::TYPE_BIGINT}},
+                                                     data_set, -1, -1, true)
+                              .ok()));
+    }
+}
+
+TEST(VTimestampFunctionsTest, timestamp_units_reject_year_wrap) {
+    TimezoneUtils::load_timezones_to_cache();
+    for (const int64_t seconds : {2068116364800LL, 4136232816000LL}) {
+        SCOPED_TRACE(seconds);
+        for (const auto& [name, ratio] : {std::pair {"from_second", int64_t {1}},
+                                          std::pair {"from_millisecond", int64_t {1000}},
+                                          std::pair {"from_microsecond", int64_t {1000000}}}) {
+            SCOPED_TRACE(name);
+            const DataSet data_set = {{{seconds * ratio}, std::string("unused")}};
+            EXPECT_FALSE((check_function<DataTypeDateTimeV2, true>(
+                                  name, {PrimitiveType::TYPE_BIGINT}, data_set, -1, -1, true)
+                                  .ok()));
+        }
+    }
+}
+
 TEST(VTimestampFunctionsTest, unix_timestamp_test) {
     std::string func_name = "unix_timestamp_new";
     TimezoneUtils::load_timezones_to_cache();
@@ -422,6 +459,21 @@ TEST(VTimestampFunctionsTest, date_test) {
     };
 
     static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+}
+
+TEST(VTimestampFunctionsTest, date_floor_null_period_validation_test) {
+    const InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_DATEV2},
+                                      Consted {PrimitiveType::TYPE_INT}};
+
+    // NULL input rows must be returned as NULL before validating a constant period.
+    const DataSet null_date_data_set = {{{Null(), int32_t {0}}, Null()}};
+    static_cast<void>(
+            check_function<DataTypeDateV2, true>("month_floor", input_types, null_date_data_set));
+
+    // A non-NULL input row must still reject an invalid constant period.
+    const DataSet non_null_date_data_set = {{{std::string("2023-01-01"), int32_t {0}}, Null()}};
+    static_cast<void>(check_function<DataTypeDateV2, true>("month_floor", input_types,
+                                                           non_null_date_data_set, -1, -1, true));
 }
 
 TEST(VTimestampFunctionsTest, week_test) {

@@ -61,6 +61,9 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
+        SENSITIVE_KEY.add("ai.api_key");
+        SENSITIVE_KEY.add("ai.embed.api_key");
+        SENSITIVE_KEY.add("ai.embed.mm.api_key");
         SENSITIVE_KEY.add("lance.rest.bearer-token");
         SENSITIVE_KEY.add("lance.rest.api-key");
         SENSITIVE_KEY.addAll(Arrays.asList(

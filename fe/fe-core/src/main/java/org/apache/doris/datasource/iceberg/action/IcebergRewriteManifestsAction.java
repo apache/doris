@@ -66,8 +66,7 @@ public class IcebergRewriteManifestsAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = getWritableIcebergTable(table);
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         try {
             Snapshot current = icebergTable.currentSnapshot();
             if (current == null) {

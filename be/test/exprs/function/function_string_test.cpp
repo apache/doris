@@ -81,6 +81,30 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 
 } // namespace
 
+TEST(function_string_test, parse_data_size_nullable) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_STRING};
+    const DataSet data_set = {{{Null()}, Null()},
+                              {{std::string("1MB")}, LARGEINT(1048576)},
+                              {{Null()}, Null()},
+                              {{std::string("2.5MB")}, LARGEINT(2621440)},
+                              {{std::string("0B")}, LARGEINT(0)},
+                              {{Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types, data_set);
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types,
+                                                      {{{Null()}, Null()}, {{Null()}, Null()}});
+
+    const InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_STRING}};
+    const DataSet not_null_data = {{{std::string("1MB")}, LARGEINT(1048576)},
+                                   {{std::string("0B")}, LARGEINT(0)}};
+    ASSERT_TRUE(
+            check_function<DataTypeInt128>("parse_data_size", not_null_types, not_null_data).ok());
+    const InputTypeSet const_not_null_types = {ConstedNotnull {PrimitiveType::TYPE_STRING}};
+    for (const auto& row : not_null_data) {
+        ASSERT_TRUE(check_function<DataTypeInt128>("parse_data_size", const_not_null_types, {row})
+                            .ok());
+    }
+}
+
 TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     const InputTypeSet list_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
                                            Consted {PrimitiveType::TYPE_VARCHAR}};
@@ -105,6 +129,33 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     for (const auto& data : range_data_set) {
         ASSERT_TRUE(check_function<DataTypeString>("auto_partition_name", range_input_types, {data})
                             .ok());
+    }
+}
+
+TEST(function_string_test, function_make_set_const_null_string_test) {
+    const InputTypeSet not_null_bits_types = {Notnull {PrimitiveType::TYPE_BIGINT},
+                                              Consted {PrimitiveType::TYPE_STRING},
+                                              PrimitiveType::TYPE_STRING};
+    const DataSet not_null_bits_data = {
+            {{BIGINT(2), Null(), std::string("B")}, std::string("B")},
+            {{BIGINT(3), Null(), std::string("C")}, std::string("C")},
+            {{BIGINT(0), Null(), std::string("D")}, std::string("")},
+    };
+    for (const auto& data : not_null_bits_data) {
+        ASSERT_TRUE(check_function<DataTypeString>("make_set", not_null_bits_types, {data}).ok());
+    }
+
+    const InputTypeSet nullable_bits_types = {Nullable {PrimitiveType::TYPE_BIGINT},
+                                              Consted {PrimitiveType::TYPE_STRING},
+                                              PrimitiveType::TYPE_STRING};
+    const DataSet nullable_bits_data = {
+            {{BIGINT(2), Null(), std::string("B")}, std::string("B")},
+            {{Null(), Null(), std::string("C")}, Null()},
+            {{BIGINT(0), Null(), std::string("D")}, std::string("")},
+    };
+    for (const auto& data : nullable_bits_data) {
+        ASSERT_TRUE((check_function<DataTypeString, true>("make_set", nullable_bits_types, {data})
+                             .ok()));
     }
 }
 

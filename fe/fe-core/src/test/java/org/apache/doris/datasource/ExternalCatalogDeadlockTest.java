@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -29,6 +30,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -52,6 +54,12 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ExternalCatalogDeadlockTest {
+
+    @BeforeAll
+    public static void initializeEnvBeforeDeadlockChecks() {
+        // Keep global Env cold-start work outside the bounded thread joins used to detect lock cycles.
+        Env.getCurrentEnv();
+    }
 
     @Test
     public void testCatalogEventUpdateShouldNotDeadlockWithSameKeyObjectLoad() throws Exception {

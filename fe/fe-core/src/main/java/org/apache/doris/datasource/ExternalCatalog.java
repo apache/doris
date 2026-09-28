@@ -185,6 +185,8 @@ public abstract class ExternalCatalog
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
+    private ThreadLocal<Boolean> invalidateEngineCacheOnDatabaseRemoval =
+            ThreadLocal.withInitial(() -> true);
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
     // Map lowercase database names to actual remote database names for case-insensitive lookup
@@ -430,7 +432,8 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(v -> v.resetMetaToUninitialized()),
+                    (key, value, cause) -> value.ifPresent(
+                            v -> v.resetMetaToUninitialized(invalidateEngineCacheOnDatabaseRemoval.get())),
                     this::acquireMetadataLoadEpoch,
                     this::isMetadataLoadEpochCurrent);
         }
@@ -711,7 +714,7 @@ public abstract class ExternalCatalog
      */
     public void onRefreshCache(boolean invalidCache) {
         setLastUpdateTime(System.currentTimeMillis());
-        refreshMetaCacheOnly();
+        refreshMetaCacheOnly(invalidCache);
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
@@ -720,9 +723,18 @@ public abstract class ExternalCatalog
     /**
      * Refresh meta cache only (database level cache), without invalidating catalog level cache.
      */
-    private void refreshMetaCacheOnly() {
+    private void refreshMetaCacheOnly(boolean invalidCache) {
         if (metaCache != null) {
-            metaCache.invalidateAll();
+            // A catalog-wide engine invalidation below supersedes every database invalidation.
+            // The legacy cache uses a synchronous removal listener, so this thread-local scope
+            // prevents one full SDK-cache scan per cached database without affecting concurrent
+            // expiry callbacks on other threads.
+            invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
+            try {
+                metaCache.invalidateAll();
+            } finally {
+                invalidateEngineCacheOnDatabaseRemoval.remove();
+            }
         }
     }
 
@@ -1046,6 +1058,7 @@ public abstract class ExternalCatalog
     public void gsonPostProcess() throws IOException {
         objectCreated = false;
         metadataLoadEpoch = new AtomicLong();
+        invalidateEngineCacheOnDatabaseRemoval = ThreadLocal.withInitial(() -> true);
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -1118,7 +1131,13 @@ public abstract class ExternalCatalog
             throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
-            metadataOps.dropDb(dbName, ifExists, force);
+            if (!metadataOps.dropDb(dbName, ifExists, force)) {
+                // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
+                // database). Do not journal the no-op, otherwise every follower would replay a
+                // post-drop hook that retires caches for a database that was never touched.
+                LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
+                return;
+            }
             DropDbInfo info = new DropDbInfo(getName(), dbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
@@ -1232,6 +1251,24 @@ public abstract class ExternalCatalog
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+    }
+
+    /**
+     * Conservatively retire every cached database object of this catalog without triggering
+     * per-database engine invalidation. Used when a replayed drop cannot resolve the canonical
+     * local name (for example a case-insensitive name mapping disappeared before replay) and the
+     * caller invalidates the whole engine cache separately.
+     */
+    public void retireAllDatabaseObjectsWithoutEngineInvalidation() {
+        if (metaCache == null) {
+            return;
+        }
+        invalidateEngineCacheOnDatabaseRemoval.set(false);
+        try {
+            metaCache.invalidateObjects();
+        } finally {
+            invalidateEngineCacheOnDatabaseRemoval.remove();
+        }
     }
 
     public void registerDatabase(long dbId, String dbName) {

@@ -22,10 +22,15 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.iceberg.IcebergSchemaCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +48,8 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 
 
 /**
@@ -186,6 +193,35 @@ public class HMSExternalTableTest {
                     .getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList());
             Mockito.verify(hiveCache).getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(false),
                     Mockito.eq(true), Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull());
+        }
+    }
+
+    @Test
+    public void testIcebergSchemaAndColumnWithoutConnectContextUseScopedSnapshotProjection() {
+        ConnectContext.remove();
+        Deencapsulation.setField(table, "dlaType", HMSExternalTable.DLAType.ICEBERG);
+        Column column = new Column("id", PrimitiveType.INT);
+        IcebergSchemaCacheValue schemaValue = new IcebergSchemaCacheValue(
+                Lists.newArrayList(column), Lists.newArrayList());
+        IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
+        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(snapshotValue.getIcebergTable()).thenReturn(Optional.of(icebergTable));
+
+        try (MockedStatic<IcebergUtils> icebergUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            icebergUtils.when(() -> IcebergUtils.getSchemaCacheValue(table, snapshotValue))
+                    .thenReturn(schemaValue);
+            icebergUtils.when(() -> IcebergUtils.withSnapshotCacheValue(
+                            Mockito.eq(Optional.empty()), Mockito.eq(table),
+                            Mockito.<Function<IcebergSnapshotCacheValue, IcebergSchemaCacheValue>>any()))
+                    .thenAnswer(invocation -> {
+                        Function<IcebergSnapshotCacheValue, IcebergSchemaCacheValue> action =
+                                invocation.getArgument(2);
+                        return action.apply(snapshotValue);
+                    });
+
+            Assertions.assertEquals(Lists.newArrayList(column), table.getFullSchema());
+            Assertions.assertSame(column, table.getColumn("ID"));
         }
     }
 

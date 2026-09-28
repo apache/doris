@@ -68,6 +68,19 @@ public class StreamingInsertTaskAuditTest {
             + "\"enclose\" = \"\\\"\")";
 
     @Test
+    public void testCdcTaskDisablesInPlaceRetry() {
+        StreamingInsertTask cdcTask = new StreamingInsertTask(
+                1L, 2L, "", new JdbcTvfSourceOffsetProvider(), "test_db", null,
+                Collections.emptyMap(), UserIdentity.ROOT, null);
+        StreamingInsertTask s3Task = new StreamingInsertTask(
+                1L, 3L, "", new S3SourceOffsetProvider(), "test_db", null,
+                Collections.emptyMap(), UserIdentity.ROOT, null);
+
+        Assertions.assertTrue(cdcTask.isNoRetry());
+        Assertions.assertFalse(s3Task.isNoRetry());
+    }
+
+    @Test
     public void testS3RunSubmitsAuditEvent() throws Exception {
         AuditEvent auditEvent = runS3Task(null);
 

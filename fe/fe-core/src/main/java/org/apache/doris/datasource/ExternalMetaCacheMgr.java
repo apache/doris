@@ -24,6 +24,7 @@ import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
@@ -379,6 +380,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
+        invalidateLanceTableAccess(catalogId);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
                 () -> cache.invalidateCatalogEntries(catalogId)));
@@ -425,10 +427,10 @@ public class ExternalMetaCacheMgr {
      */
     /**
      * A committed catalog property ALTER (fresh or replayed) resets the catalog's execution
-     * context and closes its SDK resources without retiring the engine cache groups. Cached base
-     * generations and their projections are bound to the replaced context: served as-is they
-     * would fail the planning fences until expiry, so retire the entries (groups and policies
-     * stay) and let the next statement load a generation bound to the new context.
+     * context and closes its SDK resources. Cached base generations and their projections are
+     * bound to the replaced context: served as-is they would fail the planning fences until expiry,
+     * so each engine retires its operational entries (and, when entry identity is part of the
+     * retained runtime, its group) and lets the next statement load a coherent generation.
      */
     public void onCatalogOperationalContextChanged(long catalogId) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
@@ -488,7 +490,14 @@ public class ExternalMetaCacheMgr {
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
     }
 
+    public void invalidateDb(ExternalDatabase<?> database) {
+        long catalogId = database.getCatalog().getId();
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(database)));
+    }
+
     public void invalidateTable(long catalogId, String dbName, String tableName) {
+        invalidateLanceTableAccess(catalogId);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
@@ -498,6 +507,15 @@ public class ExternalMetaCacheMgr {
         routeSpecifiedEngine(engine, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTableByEngine",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
+    }
+
+    private void invalidateLanceTableAccess(long catalogId) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog instanceof LanceExternalCatalog) {
+            // Access keys use remote namespace names, whereas refresh can use mapped Doris names.
+            // Retire this small catalog-wide cache to also fence concurrent loads and name remaps.
+            ((LanceExternalCatalog) catalog).invalidateTableAccessCache();
+        }
     }
 
     public void invalidatePartitions(long catalogId,
@@ -608,7 +626,8 @@ public class ExternalMetaCacheMgr {
     }
 
     private void safeInvalidate(ExternalMetaCache cache, long catalogId, String operation, Runnable action) {
-        if (!cache.isCatalogInitialized(catalogId)) {
+        if (!cache.isCatalogInitialized(catalogId)
+                && !cache.supportsInvalidationWithoutCatalogEntries()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("skip {} for catalog {} on engine '{}' because cache entry is absent",
                         operation, catalogId, cache.engine());
@@ -669,9 +688,12 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
-        invalidateTable(dorisTable.getCatalog().getId(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
+        long catalogId = dorisTable.getCatalog().getId();
+        // Typed table invalidation bypasses the name-based invalidateTable() entry point, so the
+        // Lance access-cache retirement that used to happen there has to be repeated here.
+        invalidateLanceTableAccess(catalogId);
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "invalidateTable", () -> cache.invalidateTable(dorisTable)));
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
                     dorisTable.getRemoteName(), dorisTable.getCatalog().getName());

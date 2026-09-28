@@ -35,12 +35,14 @@
 #include "core/column/column_varbinary.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/string_view.h"
 #include "core/types.h"
+#include "storage/olap_common.h"
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
@@ -257,9 +259,9 @@ TEST_F(DataTypeVarbinaryTest, SerDeWriteColumnToMysql) {
     EXPECT_GT(rb_bin.length(), 0);
 }
 
-TEST_F(DataTypeVarbinaryTest, GetStorageFieldTypeThrows) {
+TEST_F(DataTypeVarbinaryTest, GetStorageFieldType) {
     DataTypeVarbinary dt;
-    EXPECT_THROW({ (void)dt.get_storage_field_type(); }, doris::Exception);
+    EXPECT_THROW(dt.get_storage_field_type(), doris::Exception);
 }
 
 TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNodeWithEmbeddedNull) {
@@ -283,6 +285,16 @@ TEST_F(DataTypeVarbinaryTest, ToProtobufDefaultLen) {
     PScalarType scalar;
     dt.to_protobuf(&ptype, &pnode, &scalar);
     EXPECT_EQ(scalar.len(), -1);
+}
+
+TEST_F(DataTypeVarbinaryTest, ProtobufPreservesDeclaredLength) {
+    PTypeDesc type;
+    auto* node = type.add_types();
+    node->set_type(TTypeNodeType::SCALAR);
+    node->mutable_scalar_type()->set_type(TPrimitiveType::VARBINARY);
+    node->mutable_scalar_type()->set_len(2);
+    auto restored = DataTypeFactory::instance().create_data_type(type, false);
+    EXPECT_EQ(assert_cast<const DataTypeVarbinary&>(*restored).len(), 2);
 }
 
 TEST_F(DataTypeVarbinaryTest, GetFieldWithDataTypeNonInline) {

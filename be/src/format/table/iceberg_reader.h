@@ -100,6 +100,10 @@ public:
     enum { DATA, POSITION_DELETE, EQUALITY_DELETE, DELETION_VECTOR };
     enum Fileformat { NONE, PARQUET, ORC, AVRO };
 
+    Status TEST_position_delete_base(const std::string& data_file_path,
+                                     const std::vector<TIcebergDeleteFileDesc>& delete_files);
+    Status TEST_read_equality_delete_file(const TIcebergDeleteFileDesc& delete_file);
+
     virtual void set_delete_rows() = 0;
 
     Status read_deletion_vector(const std::string& data_file_path,

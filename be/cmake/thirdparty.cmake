@@ -161,6 +161,7 @@ endif()
 
 add_thirdparty(minizip LIB64)
 add_thirdparty(simdjson LIB64)
+add_thirdparty(simdutf LIB64)
 add_thirdparty(idn LIB64)
 add_thirdparty(xml2 LIB64)
 add_thirdparty(lzma LIB64)

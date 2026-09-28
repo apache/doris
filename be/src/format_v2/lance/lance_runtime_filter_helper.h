@@ -40,6 +40,10 @@ struct LanceRuntimeFilterSql {
     std::vector<int> skipped_filter_ids;
 };
 
+// Return whether the conjunct list contains at least one Doris runtime filter. This lets callers
+// avoid importing Lance's physical Arrow schema when no runtime-filter SQL can be produced.
+bool has_lance_runtime_filters(const VExprContextSPtrs& conjuncts);
+
 // Build one immutable SQL snapshot for all supported Doris runtime filters. When cache is non-null,
 // equivalent RF snapshots from parallel Lance readers in the same FileScanLocalState share the
 // conversion result. The returned snapshot also identifies RFs that cannot be represented exactly

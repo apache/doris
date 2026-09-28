@@ -18,6 +18,7 @@
 #include "cloud/cloud_cumulative_compaction_policy.h"
 
 #include <algorithm>
+#include <iterator>
 #include <list>
 #include <ostream>
 #include <string>
@@ -173,10 +174,6 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         input_rowsets->push_back(rowset);
     }
 
-    if (total_size >= promotion_size) {
-        return transient_size;
-    }
-
     // if there is delete version, do compaction directly
     if (last_delete_version->first != -1) {
         if (input_rowsets->size() == 1) {
@@ -213,6 +210,9 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     auto rs_begin = input_rowsets->begin();
     size_t new_compaction_score = *compaction_score;
+    const bool can_handle_exhausted_input =
+            (config::prioritize_query_perf_in_compaction && tablet->keys_type() != DUP_KEYS) ||
+            *compaction_score >= static_cast<size_t>(max_compaction_score);
     while (rs_begin != input_rowsets->end()) {
         auto& rs_meta = (*rs_begin)->rowset_meta();
         int64_t current_level = _level_size(rs_meta->total_disk_size());
@@ -222,9 +222,16 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (current_level <= remain_level) {
             break;
         }
+
+        auto next = std::next(rs_begin);
+        // Keep the last suffix rowset for the singleton checks unless the exhausted-input
+        // fallback below can select a useful input.
+        if (next == input_rowsets->end() && !can_handle_exhausted_input) {
+            break;
+        }
         total_size -= rs_meta->total_disk_size();
         new_compaction_score -= rs_meta->get_compaction_score();
-        ++rs_begin;
+        rs_begin = next;
     }
     if (rs_begin == input_rowsets->end()) { // No suitable level size found in `input_rowsets`
         if (config::prioritize_query_perf_in_compaction && tablet->keys_type() != DUP_KEYS) {

@@ -66,8 +66,7 @@ public class IcebergPublishChangesAction extends BaseIcebergAction {
     }
 
     @Override
-    protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = getWritableIcebergTable(table);
+    protected List<String> executeIcebergAction(TableIf table, Table icebergTable) throws UserException {
         String targetWapId = namedArguments.getString(WAP_ID);
 
         // Find the target WAP snapshot

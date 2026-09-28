@@ -34,6 +34,7 @@ struct LanceScanner;
 
 namespace arrow {
 class Array;
+class DataType;
 class Field;
 class MemoryPool;
 class Schema;
@@ -60,17 +61,37 @@ struct LanceBatchDeleter {
 
 size_t lance_vector_element_width(TVectorElementType::type type);
 
+// Import the physical Arrow schema owned by a Lance dataset. The caller owns the resulting
+// shared schema and may cache it for operations that need physical Arrow types.
+Status import_lance_dataset_schema(LanceDataset* dataset, std::shared_ptr<arrow::Schema>* schema);
+
 // Validate and convert the fragment and index-segment identifiers carried by the FE into the
 // unsigned and packed representations expected by lance-c.
 Status parse_fragment_ids(const TLanceFileDesc& lance_params, std::vector<uint64_t>* fragment_ids);
 Status parse_index_segment_uuids(const TLanceFileDesc& lance_params,
                                  std::vector<uint8_t>* segment_uuids, size_t* segment_count);
 
-// Normalize Lance extension arrays into Arrow arrays supported by Doris.
-Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
-                                   const std::shared_ptr<arrow::Array>& array,
-                                   arrow::MemoryPool* memory_pool,
-                                   std::shared_ptr<arrow::Array>* normalized);
+// Resolves one Arrow field once when a stream schema is bound. Runtime conversion then reuses this
+// plan instead of rescanning extension metadata and nested fields for every array.
+class LanceArrowArrayNormalizer {
+public:
+    static Status create(const std::shared_ptr<arrow::Field>& field,
+                         LanceArrowArrayNormalizer* normalizer);
+
+    // Return an Arrow array whose physical layout and type can be consumed by Doris SerDes. The
+    // input is returned unchanged when no compaction or type adaptation is required.
+    Status normalize_for_doris(const std::shared_ptr<arrow::Array>& array,
+                               arrow::MemoryPool* memory_pool,
+                               std::shared_ptr<arrow::Array>* normalized) const;
+
+private:
+    std::string _field_name;
+    std::shared_ptr<arrow::DataType> _storage_type;
+    std::vector<LanceArrowArrayNormalizer> _child_normalizers;
+    bool _unwrap_registered_extension = false;
+    bool _convert_bfloat16 = false;
+    bool _requires_special_handling = false;
+};
 
 #ifdef BE_TEST
 // Expose Lance Arrow normalization for allocation-sensitive unit tests.

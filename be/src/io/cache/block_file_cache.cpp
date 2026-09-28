@@ -1107,7 +1107,7 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
                     cell->update_atime();
                 }
             }
-            if (_ttl_mgr && context.tablet_id != 0) {
+            if (_ttl_mgr && context.tablet_id > 0) {
                 _ttl_mgr->register_tablet_id(context.tablet_id);
             }
         }

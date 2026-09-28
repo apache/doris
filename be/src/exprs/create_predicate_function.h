@@ -106,6 +106,9 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type, bool null
     using Creator = PredicateFunctionCreator<Traits>;
 
     switch (type) {
+    case TYPE_VARBINARY:
+        // Binary read/write support does not provide storage or runtime predicate kernels.
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY predicates are not supported");
     case TYPE_BOOLEAN: {
         return Creator::template create<TYPE_BOOLEAN, N>(null_aware);
     }

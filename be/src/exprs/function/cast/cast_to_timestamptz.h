@@ -151,7 +151,6 @@ public:
 
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
         auto& col_to_data = col_to->get_data();
-        const auto& local_time_zone = context->state()->timezone_obj();
 
         const auto from_scale = block.get_by_position(arguments[0]).type->get_scale();
         const auto to_scale = block.get_by_position(result).type->get_scale();
@@ -165,10 +164,11 @@ public:
             auto& to_tz = col_to_data[i];
 
             if (!transform_date_scale(to_scale, from_scale, to_tz, from_tz)) {
+                // Error reporting must not format an overflowing timestamp in a session
+                // timezone whose local year may itself be outside the supported range.
                 return Status::InvalidArgument(
-                        "can not cast from  timestamptz : {} to timestamptz in timezone : {}",
-                        TimestampTzValue {from_tz}.to_string(local_time_zone, from_scale),
-                        context->state()->timezone());
+                        "can not cast from  timestamptz : {} UTC to timestamptz in timezone : {}",
+                        from_tz.utc_dt().to_string(from_scale), context->state()->timezone());
             }
         }
         block.get_by_position(result).column = std::move(col_to);
