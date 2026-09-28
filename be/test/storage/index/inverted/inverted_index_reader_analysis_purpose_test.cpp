@@ -429,6 +429,31 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPubl
     EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
 }
 
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, ClassicReaderConvertsAnalyzerFailureToStatus) {
+    auto file_reader = std::make_shared<IndexFileReader>(
+            io::global_local_filesystem(), "./ut_dir/missing_classic_analysis_failure",
+            InvertedIndexStorageFormatPB::V2);
+    auto reader = FullTextIndexReader::create_shared(&_meta, file_reader);
+    auto emitted_tokens = std::make_shared<std::atomic<uint32_t>>(0);
+
+    QueryExecutionContext execution(/*scoring=*/false);
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx.analyzer = std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
+    const Field query_value = Field::create_field<TYPE_STRING>("the history");
+    auto original_bitmap = std::make_shared<roaring::Roaring>();
+    original_bitmap->add(999);
+    std::shared_ptr<roaring::Roaring> bitmap = original_bitmap;
+
+    Status status;
+    EXPECT_NO_THROW(status = reader->query(execution.context, "content", query_value,
+                                           InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap,
+                                           &analyzer_ctx));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+    EXPECT_EQ(emitted_tokens->load(std::memory_order_relaxed), 1U);
+    EXPECT_EQ(bitmap, original_bitmap);
+}
+
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, RegexpAndWildcardBypassAnalyzer) {
     for (const auto query_type :
          {InvertedIndexQueryType::MATCH_REGEXP_QUERY, InvertedIndexQueryType::WILDCARD_QUERY}) {

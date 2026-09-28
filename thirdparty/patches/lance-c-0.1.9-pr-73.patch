@@ -1,10 +1,10 @@
-From a4c71309ddb76ad79808e3e8f7797bcd9bfc174a Mon Sep 17 00:00:00 2001
+From cc373477a6485cb24ed7ea88ef506e93caacedd0 Mon Sep 17 00:00:00 2001
 From: zhangstar333 <zhangsida@selectdb.com>
 Date: Thu, 3 Sep 2026 13:00:43 +0800
 Subject: [PATCH] foyer
 
 ---
- Cargo.lock                 |  205 ++++++
+ Cargo.lock                 |  207 +++++-
  Cargo.toml                 |    4 +
  README.md                  |   22 +
  include/lance/lance.h      |   63 ++
@@ -19,32 +19,28 @@ Subject: [PATCH] foyer
  tests/c_api_test.rs        |  221 +++++++
  tests/cpp/test_c_api.c     |   32 +
  tests/cpp/test_cpp_api.cpp |   23 +
- 15 files changed, 1918 insertions(+), 1 deletion(-)
+ 15 files changed, 1917 insertions(+), 4 deletions(-)
  create mode 100644 src/data_cache.rs
  create mode 100644 src/foyer_data_cache.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 60c1caf..85536f5 100644
+index bc37cb9..199f997 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -434,6 +434,16 @@ dependencies = [
-  "loom",
+@@ -444,6 +444,12 @@ dependencies = [
+  "slab",
  ]
  
 +[[package]]
 +name = "asyncband"
-+version = "0.6.7"
++version = "0.7.1"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "94a214ba60d6231afd0e805e3c27c45a1626d9debaa5a5061c45a1ea1b2f1ed0"
-+dependencies = [
-+ "hashbrown 0.17.1",
-+ "slab",
-+]
++checksum = "2e52766975a4f080528a898235c51e82e65df9db713419067b5368040eeb5659"
 +
  [[package]]
  name = "atoi"
  version = "2.0.0"
-@@ -1267,6 +1277,17 @@ version = "0.8.7"
+@@ -1293,6 +1299,17 @@ version = "0.8.7"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
  
@@ -62,7 +58,7 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "countio"
  version = "0.3.0"
-@@ -2112,6 +2133,12 @@ dependencies = [
+@@ -2148,6 +2165,12 @@ dependencies = [
   "url",
  ]
  
@@ -73,9 +69,9 @@ index 60c1caf..85536f5 100644
 +checksum = "46c4cf71a36b46dcfc00e5014c0c20ccad2b1b6a008304d7d57d2749b2d41b3d"
 +
  [[package]]
- name = "der"
- version = "0.7.10"
-@@ -2298,6 +2325,16 @@ version = "0.2.3"
+ name = "defmt"
+ version = "1.1.1"
+@@ -2366,6 +2389,16 @@ version = "0.2.3"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "f8eb564c5c7423d25c886fb561d1e4ee69f72354d16918afa32c08811f6b6a55"
  
@@ -92,18 +88,18 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "fastrand"
  version = "2.3.0"
-@@ -2369,6 +2406,127 @@ dependencies = [
+@@ -2437,12 +2470,133 @@ dependencies = [
   "percent-encoding",
  ]
  
 +[[package]]
 +name = "foyer"
-+version = "0.22.4"
++version = "0.22.5"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "cab5c4bac30455a0dbc4c858436fb440d51bc6543daafbdf35c5e6ca94c0afd7"
++checksum = "f911e6f0b4909f23d65a95c5d27bcf2f92855b8a0f629b47b743d53d14f2828b"
 +dependencies = [
 + "anyhow",
-+ "asyncband",
++ "asyncband 0.7.1",
 + "equivalent",
 + "foyer-common",
 + "foyer-memory",
@@ -118,9 +114,9 @@ index 60c1caf..85536f5 100644
 +
 +[[package]]
 +name = "foyer-common"
-+version = "0.22.4"
++version = "0.22.5"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "e3634c6f3da978b6cae98d54367a2342041d3a4786b20c0384164cc7fce94787"
++checksum = "05cdcae6cedec72c28e97ada0b453e33b1df57fbc209708091107be2a283d577"
 +dependencies = [
 + "anyhow",
 + "bytes",
@@ -143,13 +139,13 @@ index 60c1caf..85536f5 100644
 +
 +[[package]]
 +name = "foyer-memory"
-+version = "0.22.4"
++version = "0.22.5"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "5349a61af676b3275bfef7a5fceceeadf6b0a7dd9ec14ba0edd78e1ff771d101"
++checksum = "8a51c8ce8e1e323a1e087ac45bf629d953676fc5e0037d14a799fadd272b42db"
 +dependencies = [
 + "anyhow",
-+ "asyncband",
-+ "bitflags",
++ "asyncband 0.7.1",
++ "bitflags 2.11.0",
 + "datasketches",
 + "equivalent",
 + "foyer-common",
@@ -168,13 +164,13 @@ index 60c1caf..85536f5 100644
 +
 +[[package]]
 +name = "foyer-storage"
-+version = "0.22.4"
++version = "0.22.5"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "49cfcce3c10a1f2ac65bfcf0bd85501462d454c594c8a16a4a27cce773599381"
++checksum = "127a64057f63e361123cf62b3fd50a36147783687d4cd36e7087c27f9909265b"
 +dependencies = [
 + "allocator-api2",
 + "anyhow",
-+ "asyncband",
++ "asyncband 0.7.1",
 + "bytes",
 + "core_affinity",
 + "equivalent",
@@ -200,13 +196,19 @@ index 60c1caf..85536f5 100644
 +
 +[[package]]
 +name = "foyer-tokio"
-+version = "0.22.4"
++version = "0.22.5"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
-+checksum = "6b7315103199f3415a010befd6dd5a1c8e7082fbc49c0194931e65629995d9d1"
++checksum = "cbdbb9f39443cb348a069baa1a0ec73bcea848a4a383eb2da1a5ea7a0ca05941"
 +dependencies = [
 + "tokio",
 +]
 +
+ [[package]]
+ name = "frostem"
+ version = "1.20260821.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "36a80a7406da302e04bfd2ca987907590d3a1f3c69958947c43890abd7426b2f"
+ 
 +[[package]]
 +name = "fs4"
 +version = "0.13.1"
@@ -220,7 +222,7 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "fs_extra"
  version = "1.3.0"
-@@ -3392,6 +3550,15 @@ dependencies = [
+@@ -3485,6 +3639,15 @@ dependencies = [
   "either",
  ]
  
@@ -236,7 +238,7 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "itoa"
  version = "1.0.18"
-@@ -3703,8 +3870,11 @@ dependencies = [
+@@ -3788,8 +3951,11 @@ dependencies = [
   "arrow",
   "arrow-array",
   "arrow-schema",
@@ -248,7 +250,7 @@ index 60c1caf..85536f5 100644
   "futures",
   "half",
   "lance",
-@@ -3718,6 +3888,7 @@ dependencies = [
+@@ -3803,6 +3969,7 @@ dependencies = [
   "lance-table",
   "libc",
   "log",
@@ -256,9 +258,9 @@ index 60c1caf..85536f5 100644
   "pin-project",
   "prost",
   "snafu",
-@@ -4399,6 +4570,15 @@ version = "2.8.0"
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
+@@ -4492,6 +4659,15 @@ dependencies = [
+  "libc",
+ ]
  
 +[[package]]
 +name = "memoffset"
@@ -272,7 +274,7 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "mime"
  version = "0.3.17"
-@@ -4436,6 +4616,16 @@ dependencies = [
+@@ -4529,6 +4705,16 @@ dependencies = [
   "windows-sys 0.61.2",
  ]
  
@@ -289,7 +291,34 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "moka"
  version = "0.12.15"
-@@ -6547,6 +6737,12 @@ version = "0.4.12"
+@@ -4840,7 +5026,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "48dbcef97d3eb7591db2c18d5cae95c836bcce07359b98d98dd6f4e861eb77b7"
+ dependencies = [
+  "anyhow",
+- "asyncband",
++ "asyncband 0.6.7",
+  "base64 0.23.1",
+  "bytes",
+  "futures",
+@@ -4879,7 +5065,7 @@ version = "0.58.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "03f9e144b5228d741c3763ade8711d9b72e5fb6d998e779f2d7a09da0b5a3eba"
+ dependencies = [
+- "asyncband",
++ "asyncband 0.6.7",
+  "futures",
+  "http 1.4.0",
+  "opendal-core",
+@@ -4943,7 +5129,7 @@ version = "0.58.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "2d564484a8f7d091827e825cfc91ed45bd48e64d262451ee041fe843db81bd8a"
+ dependencies = [
+- "asyncband",
++ "asyncband 0.6.7",
+  "base64 0.23.1",
+  "bytes",
+  "http 1.4.0",
+@@ -6668,6 +6854,12 @@ version = "0.4.12"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
  
@@ -302,7 +331,7 @@ index 60c1caf..85536f5 100644
  [[package]]
  name = "smallvec"
  version = "1.15.1"
-@@ -7831,6 +8027,15 @@ dependencies = [
+@@ -7930,6 +8122,15 @@ dependencies = [
   "windows-targets 0.52.6",
  ]
  
@@ -319,7 +348,7 @@ index 60c1caf..85536f5 100644
  name = "windows-sys"
  version = "0.60.2"
 diff --git a/Cargo.toml b/Cargo.toml
-index d072a5d..342928c 100644
+index 3920a65..356c9dd 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -30,6 +30,8 @@ datafusion = { version = "54.0.0", default-features = false }
@@ -335,7 +364,7 @@ index d072a5d..342928c 100644
  half = "2"
  tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
  futures = "0.3"
-+foyer = "=0.22.4"
++foyer = "=0.22.5"
  log = "0.4"
  libc = "0.2"
 +object_store = "0.13.2"
@@ -383,7 +412,7 @@ index 2056671..d9a5f2b 100644
  
  `lance_dataset_open` takes a `version` argument — `0` means the latest, any
 diff --git a/include/lance/lance.h b/include/lance/lance.h
-index 3bf291f..e4c593e 100644
+index 31213da..152351b 100644
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
 @@ -206,6 +206,36 @@ typedef struct LanceSessionCacheStats {
@@ -471,10 +500,10 @@ index 3bf291f..e4c593e 100644
  void lance_dataset_close(LanceDataset* dataset);
  
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
-index 6cf245f..c1102e4 100644
+index 404d2df..3fe9dbc 100644
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
-@@ -171,6 +171,13 @@ struct SqlColumn {
+@@ -176,6 +176,13 @@ struct SqlColumn {
  
  // ─── Shared Session ──────────────────────────────────────────────────────────
  
@@ -488,7 +517,7 @@ index 6cf245f..c1102e4 100644
  class Session {
      Handle<LanceSession, lance_session_close> handle_;
  
-@@ -180,6 +187,21 @@ class Session {
+@@ -185,6 +192,21 @@ class Session {
          if (!handle_) check_error();
      }
  
@@ -510,7 +539,7 @@ index 6cf245f..c1102e4 100644
      LanceSessionCacheStats cache_stats() const {
          LanceSessionCacheStats stats{};
          if (lance_session_get_cache_stats(handle_.get(), &stats) != 0)
-@@ -260,6 +282,13 @@ class Dataset {
+@@ -265,6 +287,13 @@ class Dataset {
          return Dataset(ds);
      }
  
@@ -1975,7 +2004,7 @@ index 1971510..ba51c87 100644
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index 8805764..b4313f4 100644
+index bde742d..a4ea8f8 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -96,10 +96,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
@@ -2183,7 +2212,7 @@ index 8805764..b4313f4 100644
  #[test]
  fn test_open_nonexistent() {
      let c_uri = c_str("memory://nonexistent_dataset_xyz");
-@@ -2787,6 +2974,40 @@ fn test_dataset_restore_to_prior_version() {
+@@ -2977,6 +3164,40 @@ fn test_dataset_restore_to_prior_version() {
      unsafe { lance_dataset_close(ds) };
  }
  
@@ -2275,7 +2304,7 @@ index c49ecfa..dd674eb 100644
      test_scan_with_limit(uri);
      test_versions(uri);
 diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
-index 17b1ab6..e1aadbd 100644
+index 28762b8..5f34bde 100644
 --- a/tests/cpp/test_cpp_api.cpp
 +++ b/tests/cpp/test_cpp_api.cpp
 @@ -99,6 +99,28 @@ static void test_shared_session(const std::string& uri) {
@@ -2307,7 +2336,7 @@ index 17b1ab6..e1aadbd 100644
  static void test_dataset_schema(const std::string& uri) {
      TEST(test_dataset_schema);
  
-@@ -922,6 +944,7 @@ int main(int argc, char** argv) {
+@@ -929,6 +951,7 @@ int main(int argc, char** argv) {
  
      test_dataset_open(uri);
      test_shared_session(uri);

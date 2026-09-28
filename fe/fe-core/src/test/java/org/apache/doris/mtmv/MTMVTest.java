@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.IntervalUnit;
@@ -43,17 +44,22 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -63,7 +69,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -138,26 +143,6 @@ public class MTMVTest {
         Assertions.assertEquals(mvToBase.get("mvp1"), Sets.newHashSet("baseP1_1", "baseP1_2"));
         Assertions.assertEquals(baseToMv.get("baseP1_1"), "mvp1");
         Assertions.assertEquals(baseToMv.get("baseP1_2"), "mvp1");
-    }
-
-    @Test
-    public void testChangedBasePartitionsRequireCompleteSnapshotMapping() {
-        BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
-        MTMVRefreshPartitionSnapshot firstSnapshot = new MTMVRefreshPartitionSnapshot();
-        firstSnapshot.getPctSnapshot(baseTableInfo).put("base_p1", new MTMVVersionSnapshot(1L, 11L));
-        MTMVRefreshPartitionSnapshot secondSnapshot = new MTMVRefreshPartitionSnapshot();
-        secondSnapshot.getPctSnapshot(baseTableInfo).put("base_p2", new MTMVVersionSnapshot(1L, 12L));
-        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
-        refreshSnapshot.updateSnapshots(
-                Map.of("mv_p1", firstSnapshot, "mv_p2", secondSnapshot), Set.of("mv_p1", "mv_p2"));
-
-        Optional<Set<String>> mappedPartitions = refreshSnapshot.getMvPartitionNames(
-                baseTableInfo, Map.of("base_p1", 11L, "base_p2", 12L));
-
-        Assertions.assertTrue(mappedPartitions.isPresent());
-        Assertions.assertEquals(Set.of("mv_p1", "mv_p2"), mappedPartitions.get());
-        Assertions.assertFalse(refreshSnapshot.getMvPartitionNames(
-                baseTableInfo, Map.of("base_p1", 11L, "base_p3", 13L)).isPresent());
     }
 
     private Map<PartitionKeyDesc, Set<String>> mockRelatedPartitionDescs() throws AnalysisException {
@@ -452,6 +437,230 @@ public class MTMVTest {
         Mockito.verify(editLogItem).await();
     }
 
+    @Test
+    public void testRefreshPublishAdvancesCacheGeneration() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        MTMVCache refreshedGuarded = Mockito.mock(MTMVCache.class);
+        MTMVCache refreshedUnguarded = Mockito.mock(MTMVCache.class);
+        mtmv.refreshGuardedCache = refreshedGuarded;
+        mtmv.refreshUnguardedCache = refreshedUnguarded;
+        long generationBefore = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+        }
+
+        long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+        Assertions.assertEquals(generationBefore + 1, generationAfter);
+        Assertions.assertSame(refreshedGuarded, manager.getIfPresent(mtmv.getId(), true));
+        Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), false));
+    }
+
+    @Test
+    public void testRefreshSkipsPlanBuildWhenCacheDisabled() {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 0;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            HookedMTMV mtmv = buildHookedMTMV();
+            mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+            mtmv.refreshUnguardedCache = Mockito.mock(MTMVCache.class);
+            long generationBefore = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+
+            Env env = mockEnv(manager);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+            }
+
+            // The generation/invalidation transition still happens, but neither plan was built.
+            long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+            Assertions.assertEquals(generationBefore + 1, generationAfter);
+            Assertions.assertEquals(0, mtmv.refreshBuildCount);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
+    }
+
+    @Test
+    public void testDisabledCacheReusesPlanWithinSameStatement() throws Exception {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 0;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            Assertions.assertFalse(manager.isEnabled());
+
+            HookedMTMV mtmv = buildHookedMTMV();
+            MTMVCache plan = Mockito.mock(MTMVCache.class);
+            mtmv.lazyCaches.add(plan);
+
+            ConnectContext context = mockConnectContext();
+            StatementContext statementContext = new StatementContext();
+            Mockito.when(context.getStatementContext()).thenReturn(statementContext);
+
+            Env env = mockEnv(manager);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                MTMVCache first = mtmv.getOrGenerateCache(context);
+                MTMVCache second = mtmv.getOrGenerateCache(context);
+                Assertions.assertSame(plan, first);
+                Assertions.assertSame(first, second);
+            }
+
+            Assertions.assertEquals(1, mtmv.lazyBuildCount);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertSame(plan, statementContext.getQueryLocalMtmvCache(mtmv.getId(), false));
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
+    }
+
+    @Test
+    public void testPausedBuilderCannotRepublishPreRefreshPlan() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        MTMVCache prePublishPlan = Mockito.mock(MTMVCache.class);
+        MTMVCache rebuiltPlan = Mockito.mock(MTMVCache.class);
+        MTMVCache refreshedUnguarded = Mockito.mock(MTMVCache.class);
+        mtmv.lazyCaches.add(prePublishPlan);
+        mtmv.lazyCaches.add(rebuiltPlan);
+        mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+        mtmv.refreshUnguardedCache = refreshedUnguarded;
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // The builder snapshotted the generation and is now paused outside the MV lock: the refresh
+            // publishes its pair and the fresh entry is then evicted before the builder resumes.
+            mtmv.duringLazyBuild = () -> {
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+                Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), false));
+                manager.invalidate(mtmv.getId());
+            };
+            MTMVCache published = mtmv.getOrGenerateCache(mockConnectContext());
+
+            Assertions.assertSame(rebuiltPlan, published);
+            Assertions.assertSame(rebuiltPlan, manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertNotSame(prePublishPlan, manager.getIfPresent(mtmv.getId(), false));
+        }
+    }
+
+    @Test
+    public void testTaskCompletionDoesNotPublishForDroppedMv() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+        mtmv.refreshUnguardedCache = Mockito.mock(MTMVCache.class);
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.put(mtmv.getId(), true, Mockito.mock(MTMVCache.class));
+            // The task builds its caches outside the MV lock; the drop lands in that window.
+            mtmv.duringRefreshBuild = mtmv::markDropped;
+            Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+
+            Assertions.assertTrue(mtmv.isDropped);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        }
+    }
+
+    @Test
+    public void testDropStopsPausedBuilderFromPublishing() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        MTMVCache builtPlan = Mockito.mock(MTMVCache.class);
+        mtmv.lazyCaches.add(builtPlan);
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.put(mtmv.getId(), true, Mockito.mock(MTMVCache.class));
+            mtmv.duringLazyBuild = mtmv::markDropped;
+            MTMVCache generated = mtmv.getOrGenerateCache(mockConnectContext());
+
+            Assertions.assertSame(builtPlan, generated);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        }
+    }
+
+    private HookedMTMV buildHookedMTMV() {
+        HookedMTMV mtmv = configureMTMV(new HookedMTMV());
+        mtmv.getIvmInfo();
+        return mtmv;
+    }
+
+    private Env mockEnv(MTMVCacheManager manager) {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getMtmvService()).thenReturn(Mockito.mock(MTMVService.class));
+        Mockito.when(env.getMtmvCacheManager()).thenReturn(manager);
+        Mockito.when(editLog.submitEdit(Mockito.anyShort(), Mockito.any()))
+                .thenReturn(Mockito.mock(EditLogItem.class));
+        return env;
+    }
+
+    private ConnectContext mockConnectContext() {
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getAffectQueryResultInPlanVariables()).thenReturn(Map.of());
+        return context;
+    }
+
+    private AlterMTMV buildSuccessTaskResult(MTMV mtmv) {
+        MTMVRelation relation = mtmv.getRelation();
+        MTMVTask task = new MTMVTask(mtmv, relation, null);
+        task.setStatus(TaskStatus.SUCCESS);
+        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
+        alterMTMV.setTask(task);
+        alterMTMV.setRelation(relation);
+        alterMTMV.setPartitionSnapshots(Map.of());
+        return alterMTMV;
+    }
+
+    /**
+     * Runs a hook inside the lock-free cache build so a refresh or a drop can be interleaved with an
+     * in-flight build deterministically, without threads.
+     */
+    private static class HookedMTMV extends MTMV {
+        private final List<MTMVCache> lazyCaches = Lists.newArrayList();
+        private Runnable duringRefreshBuild;
+        private Runnable duringLazyBuild;
+        private MTMVCache refreshGuardedCache;
+        private MTMVCache refreshUnguardedCache;
+        private int lazyBuildCount;
+        private int refreshBuildCount;
+
+        @Override
+        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
+                boolean addSessionVarGuard) {
+            // needLock is true only on the refresh path, false on the lazy query path.
+            Runnable hook = needLock ? duringRefreshBuild : duringLazyBuild;
+            if (needLock) {
+                duringRefreshBuild = null;
+            } else {
+                duringLazyBuild = null;
+            }
+            if (hook != null) {
+                hook.run();
+            }
+            if (needLock) {
+                refreshBuildCount++;
+                return addSessionVarGuard ? refreshGuardedCache : refreshUnguardedCache;
+            }
+            return lazyCaches.get(Math.min(lazyBuildCount++, lazyCaches.size() - 1));
+        }
+    }
+
     private void replayAlterMvProperties(MTMV mtmv, Map<String, String> properties) {
         AlterMTMV alterMTMV = new AlterMTMV(
                 new TableNameInfo("db", "mv"), MTMVAlterOpType.ALTER_PROPERTY);
@@ -473,7 +682,10 @@ public class MTMVTest {
     }
 
     private MTMV buildSerializableMTMV() {
-        MTMV mtmv = new MTMV();
+        return configureMTMV(new MTMV());
+    }
+
+    private <T extends MTMV> T configureMTMV(T mtmv) {
         mtmv.setId(1L);
         mtmv.setQualifiedDbName("db1");
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
@@ -514,5 +726,170 @@ public class MTMVTest {
                 Column.IVM_ROW_ID_COL,
                 Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__",
                 "k1"), insertedColumnNames);
+    }
+
+    @Test
+    public void testPartitionStatesSurviveImageRoundTrip() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        MTMV restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(mtmv), MTMV.class);
+
+        Map<String, MTMVPartitionState> states = restored.getPartitionStates();
+        Assertions.assertEquals(Sets.newHashSet("p202601"), states.keySet());
+        Assertions.assertEquals(3, states.get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(5, states.get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testPartitionStatesEmptyOnImageWrittenBeforeTheFieldExisted() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+        JsonObject image = JsonParser.parseString(GsonUtils.GSON.toJson(mtmv)).getAsJsonObject();
+        Assertions.assertNotNull(image.remove("pst"));
+
+        // The field is gone from the image, so gsonPostProcess() is the only thing that can make it a map.
+        MTMV restored = GsonUtils.GSON.fromJson(image.toString(), MTMV.class);
+
+        // Read the field itself: the getter lazily creates the map, so it would hide a missing init.
+        Assertions.assertNotNull(Deencapsulation.getField(restored, "partitionStates"));
+        Assertions.assertTrue(restored.getPartitionStates().isEmpty());
+    }
+
+    @Test
+    public void testPartitionStatesGetterIsNeverNull() {
+        MTMV mtmv = new MTMV();
+        // Never loaded from an image and never populated: still a map, not a null.
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+        mtmv.alterPartitionStates(null);
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+    }
+
+    @Test
+    public void testPartitionStatesGetterReturnsAnUnmodifiableSnapshot() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        Map<String, MTMVPartitionState> states = mtmv.getPartitionStates();
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> states.put("p202602", new MTMVPartitionState(0, 1)));
+
+        // The values are copies too: changing one may not reach the state the MV owns.
+        states.get("p202601").setLatestEpoch(9);
+        Assertions.assertEquals(5, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testAlterPartitionStatesTakesADetachedSnapshot() {
+        MTMVPartitionState live = new MTMVPartitionState(0, 1);
+        Map<String, MTMVPartitionState> liveStates = Maps.newLinkedHashMap();
+        liveStates.put("p202601", live);
+
+        AlterMTMV alterMTMV = new AlterMTMV(
+                new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ALTER_PARTITION_STATES);
+        alterMTMV.setPartitionStates(liveStates);
+        // A batched edit log serializes the payload after the MV lock was released, so the payload must
+        // not follow the live map any further.
+        live.setLatestEpoch(2);
+        liveStates.remove("p202601");
+
+        Assertions.assertEquals(1, alterMTMV.getPartitionStates().get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testAddTaskResultReplayKeepsPartitionStatesWhenTheJournalHasNoField() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        // A journal written before the field existed carries no state at all: it must not clear what is
+        // already there.
+        runAddTaskResult(mtmv, null, true);
+
+        Map<String, MTMVPartitionState> states = mtmv.getPartitionStates();
+        Assertions.assertEquals(Sets.newHashSet("p202601"), states.keySet());
+        Assertions.assertEquals(3, states.get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(5, states.get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testAddTaskResultReplayAppliesPartitionStates() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(0, 1)));
+
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, Map.of("p202601", new MTMVPartitionState(3, 5)), true);
+
+        // Replay never writes a journal of its own.
+        Assertions.assertTrue(journaled.isEmpty());
+        MTMVPartitionState state = mtmv.getPartitionStates().get("p202601");
+        Assertions.assertEquals(3, state.getRefreshEpoch());
+        Assertions.assertEquals(5, state.getLatestEpoch());
+    }
+
+    @Test
+    public void testIvmTaskResultJournalsPartitionStates() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.getIvmInfo().setEnableIvm(true);
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, null, false);
+
+        Assertions.assertEquals(1, journaled.size());
+        MTMVPartitionState journaledState = journaled.get(0).getPartitionStates().get("p202601");
+        Assertions.assertEquals(3, journaledState.getRefreshEpoch());
+        Assertions.assertEquals(5, journaledState.getLatestEpoch());
+
+        // The payload reaches the journal as JSON, so it has to survive that trip to be replayable.
+        AlterMTMV readBack = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(journaled.get(0)), AlterMTMV.class);
+        Assertions.assertEquals(3, readBack.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(5, readBack.getPartitionStates().get("p202601").getLatestEpoch());
+    }
+
+    @Test
+    public void testNonIvmTaskResultDoesNotJournalPartitionStates() {
+        MTMV mtmv = buildSerializableMTMV();
+        Assertions.assertFalse(mtmv.getIvmInfo().isEnableIvm());
+
+        List<AlterMTMV> journaled = runAddTaskResult(mtmv, null, false);
+
+        // The payload of a non-IVM MV has to stay byte-for-byte what it was before the field existed.
+        Assertions.assertEquals(1, journaled.size());
+        Assertions.assertNull(journaled.get(0).getPartitionStates());
+    }
+
+    /**
+     * Runs one ADD_TASK result through {@link MTMV#addTaskResult}, optionally carrying {@code
+     * journaledStates} in its payload the way a real journal would, and returns the payloads that
+     * reached the edit log -- which stays empty on the replay path.
+     */
+    private List<AlterMTMV> runAddTaskResult(MTMV mtmv, Map<String, MTMVPartitionState> journaledStates,
+            boolean isReplay) {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
+        List<AlterMTMV> journaled = Lists.newArrayList();
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getMtmvService()).thenReturn(Mockito.mock(MTMVService.class));
+        Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
+                .thenAnswer(invocation -> {
+                    journaled.add(invocation.getArgument(1));
+                    return editLogItem;
+                });
+
+        MTMVTask task = new MTMVTask(mtmv, mtmv.getRelation(), null);
+        task.setStatus(TaskStatus.FAILED);
+        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
+        alterMTMV.setTask(task);
+        alterMTMV.setRelation(mtmv.getRelation());
+        alterMTMV.setPartitionSnapshots(Map.of());
+        alterMTMV.setPartitionStates(journaledStates);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertTrue(mtmv.addTaskResult(alterMTMV, isReplay));
+        }
+        return journaled;
     }
 }

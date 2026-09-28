@@ -66,6 +66,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format {
 namespace {
@@ -2095,11 +2096,8 @@ TEST(TableReaderTest, PendingRuntimeFilterDisablesTableLevelCount) {
 }
 
 TEST(TableReaderTest, CountStarFallbackKeepsLateRuntimeFilterCarrierValues) {
-    const auto test_dir =
-            std::filesystem::temp_directory_path() / "doris_table_reader_count_star_late_rf_test";
-    std::filesystem::remove_all(test_dir);
-    std::filesystem::create_directories(test_dir);
-    const auto file_path = (test_dir / "split.parquet").string();
+    const doris::test::ScopedTempDirectory test_dir("doris_table_reader_count_star_late_rf_test");
+    const auto file_path = (test_dir.path() / "split.parquet").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5, 6}, {10, 20, 30, 40, 50, 60},
                                 {"one", "two", "three", "four", "five", "six"}, 2);
 
@@ -2716,10 +2714,8 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
     ASSERT_TRUE(reader.close().ok());
 
     const std::vector<FileFormat> formats {FileFormat::ORC,  FileFormat::CSV, FileFormat::JSON,
-                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::NATIVE,
-                                           FileFormat::ARROW};
-    const std::vector<std::string> format_names {"ORC", "CSV",    "JSON", "TEXT",
-                                                 "JNI", "NATIVE", "ARROW"};
+                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::ARROW};
+    const std::vector<std::string> format_names {"ORC", "CSV", "JSON", "TEXT", "JNI", "ARROW"};
     for (size_t idx = 0; idx < formats.size(); ++idx) {
         TableReader enum_reader;
         ASSERT_TRUE(enum_reader

@@ -20,7 +20,7 @@ suite("test_variant_sub_path_order", "p0") {
     sql """
         CREATE TABLE variant_sub_path_order (
             id INT NOT NULL,
-            v VARIANT NULL
+            v VARIANT<PROPERTIES ("variant_max_subcolumns_count" = "0")> NULL
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -28,7 +28,7 @@ suite("test_variant_sub_path_order", "p0") {
     """
     sql """
         INSERT INTO variant_sub_path_order VALUES
-            (1, '{"a":{"b":1},"b":{"a":2}}')
+            (1, parse_to_variant('{"a":{"b":1},"b":{"a":2}}'))
     """
 
     sql "SET experimental_enable_prune_nested_column = false"
@@ -39,7 +39,7 @@ suite("test_variant_sub_path_order", "p0") {
             FROM variant_sub_path_order
             UNION ALL
             SELECT 2 AS id, 'constant' AS branch_name,
-                    CAST('{"a":{"b":1},"b":{"a":2}}' AS VARIANT) AS c
+                    parse_to_variant('{"a":{"b":1},"b":{"a":2}}') AS c
         )
         SELECT id, branch_name, CAST(c['a']['b'] AS INT) AS value
         FROM u
@@ -49,7 +49,7 @@ suite("test_variant_sub_path_order", "p0") {
     order_qt_project_sub_path """
         SELECT id, CAST(c['a']['b'] AS INT) AS value
         FROM (
-            SELECT id, IF(id > 0, v, CAST('{}' AS VARIANT)) AS c
+            SELECT id, IF(id > 0, v, parse_to_variant('{}')) AS c
             FROM variant_sub_path_order
         ) projected
         ORDER BY id
@@ -63,7 +63,7 @@ suite("test_variant_sub_path_order", "p0") {
             FROM variant_sub_path_order
             UNION ALL
             SELECT 2 AS id, 'constant' AS branch_name,
-                    CAST('{"a":{"b":1},"b":{"a":2}}' AS VARIANT) AS c
+                    parse_to_variant('{"a":{"b":1},"b":{"a":2}}') AS c
         )
         SELECT id, branch_name, CAST(c['a']['b'] AS INT) AS value
         FROM u

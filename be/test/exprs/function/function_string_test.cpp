@@ -79,7 +79,53 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
     return data_set;
 }
 
+void check_encryption_function_all_arg_comb(const std::string& func_name,
+                                            const InputTypeSet& base_types,
+                                            const DataSet& data_set) {
+    const auto argument_count = base_types.size();
+    const auto mode_index = argument_count - 1;
+    for (const auto& row : data_set) {
+        for (size_t const_mask = 0; const_mask < (1UL << mode_index); ++const_mask) {
+            InputTypeSet input_types;
+            input_types.reserve(argument_count);
+            for (size_t index = 0; index < argument_count; ++index) {
+                const auto primitive_type = any_cast<PrimitiveType>(base_types[index]);
+                if (index == mode_index || (const_mask & (1UL << index))) {
+                    input_types.emplace_back(Consted {primitive_type});
+                } else {
+                    input_types.emplace_back(primitive_type);
+                }
+            }
+            static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, {row}));
+        }
+    }
+}
+
 } // namespace
+
+TEST(function_string_test, parse_data_size_nullable) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_STRING};
+    const DataSet data_set = {{{Null()}, Null()},
+                              {{std::string("1MB")}, LARGEINT(1048576)},
+                              {{Null()}, Null()},
+                              {{std::string("2.5MB")}, LARGEINT(2621440)},
+                              {{std::string("0B")}, LARGEINT(0)},
+                              {{Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types, data_set);
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types,
+                                                      {{{Null()}, Null()}, {{Null()}, Null()}});
+
+    const InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_STRING}};
+    const DataSet not_null_data = {{{std::string("1MB")}, LARGEINT(1048576)},
+                                   {{std::string("0B")}, LARGEINT(0)}};
+    ASSERT_TRUE(
+            check_function<DataTypeInt128>("parse_data_size", not_null_types, not_null_data).ok());
+    const InputTypeSet const_not_null_types = {ConstedNotnull {PrimitiveType::TYPE_STRING}};
+    for (const auto& row : not_null_data) {
+        ASSERT_TRUE(check_function<DataTypeInt128>("parse_data_size", const_not_null_types, {row})
+                            .ok());
+    }
+}
 
 TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     const InputTypeSet list_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
@@ -105,6 +151,33 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     for (const auto& data : range_data_set) {
         ASSERT_TRUE(check_function<DataTypeString>("auto_partition_name", range_input_types, {data})
                             .ok());
+    }
+}
+
+TEST(function_string_test, function_make_set_const_null_string_test) {
+    const InputTypeSet not_null_bits_types = {Notnull {PrimitiveType::TYPE_BIGINT},
+                                              Consted {PrimitiveType::TYPE_STRING},
+                                              PrimitiveType::TYPE_STRING};
+    const DataSet not_null_bits_data = {
+            {{BIGINT(2), Null(), std::string("B")}, std::string("B")},
+            {{BIGINT(3), Null(), std::string("C")}, std::string("C")},
+            {{BIGINT(0), Null(), std::string("D")}, std::string("")},
+    };
+    for (const auto& data : not_null_bits_data) {
+        ASSERT_TRUE(check_function<DataTypeString>("make_set", not_null_bits_types, {data}).ok());
+    }
+
+    const InputTypeSet nullable_bits_types = {Nullable {PrimitiveType::TYPE_BIGINT},
+                                              Consted {PrimitiveType::TYPE_STRING},
+                                              PrimitiveType::TYPE_STRING};
+    const DataSet nullable_bits_data = {
+            {{BIGINT(2), Null(), std::string("B")}, std::string("B")},
+            {{Null(), Null(), std::string("C")}, Null()},
+            {{BIGINT(0), Null(), std::string("D")}, std::string("")},
+    };
+    for (const auto& data : nullable_bits_data) {
+        ASSERT_TRUE((check_function<DataTypeString, true>("make_set", nullable_bits_types, {data})
+                             .ok()));
     }
 }
 
@@ -2372,7 +2445,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
                             {{std::string(src[5]), std::string(key), std::string(mode)}, r[5]},
                             {{Null(), std::string(key), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
@@ -2407,7 +2480,7 @@ TEST(function_string_test, function_aes_encrypt_test) {
                 {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 }
 
@@ -2439,7 +2512,7 @@ TEST(function_string_test, function_aes_decrypt_test) {
                             {{r[4], std::string(key), std::string(mode)}, std::string(src[4])},
                             {{Null(), std::string(key), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
@@ -2472,7 +2545,52 @@ TEST(function_string_test, function_aes_decrypt_test) {
                 {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
+    }
+}
+
+TEST(function_string_test, function_encryption_mode_must_be_constant_test) {
+    const auto check_non_const_mode = [](const std::string& func_name,
+                                         const InputTypeSet& input_types, const InputCell& input,
+                                         size_t mode_index) {
+        const auto status = check_function<DataTypeString, true>(func_name, input_types,
+                                                                 {{input, Null()}}, -1, -1, true);
+        const auto expected_message = "Argument at index " + std::to_string(mode_index) +
+                                      " for function " + func_name + " must be constant";
+        EXPECT_NE(std::string::npos, status.to_string().find(expected_message));
+    };
+
+    const InputTypeSet three_argument_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    const InputTypeSet four_argument_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR};
+    const InputTypeSet five_argument_types = {
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+    for (const auto& func_name : {"aes_encrypt", "aes_decrypt"}) {
+        check_non_const_mode(func_name, three_argument_types,
+                             {std::string("text"), std::string("key"), std::string("AES_128_ECB")},
+                             2);
+        check_non_const_mode(func_name, four_argument_types,
+                             {std::string("text"), std::string("key"), std::string("iv"),
+                              std::string("AES_128_CBC")},
+                             3);
+        check_non_const_mode(func_name, five_argument_types,
+                             {std::string("text"), std::string("key"), std::string("iv"),
+                              std::string("AES_128_GCM"), std::string("aad")},
+                             3);
+    }
+
+    for (const auto& func_name : {"sm4_encrypt", "sm4_decrypt"}) {
+        check_non_const_mode(func_name, three_argument_types,
+                             {std::string("text"), std::string("key"), std::string("SM4_128_ECB")},
+                             2);
+        check_non_const_mode(func_name, four_argument_types,
+                             {std::string("text"), std::string("key"), std::string("iv"),
+                              std::string("SM4_128_CBC")},
+                             3);
     }
 }
 
@@ -2512,7 +2630,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
                 {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 
     {
@@ -2549,7 +2667,7 @@ TEST(function_string_test, function_sm4_encrypt_test) {
                 {{std::string(src[5]), std::string(key), std::string(iv), std::string(mode)}, r[5]},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 }
 
@@ -2588,7 +2706,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
                 {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
                 {{Null(), std::string(key), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 
     {
@@ -2624,7 +2742,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
                 {{r[4], std::string(key), std::string(iv), std::string(mode)}, std::string(src[4])},
                 {{Null(), Null(), std::string(iv), std::string(mode)}, Null()}};
 
-        check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+        check_encryption_function_all_arg_comb(func_name, input_types, data_set);
     }
 }
 
@@ -2648,7 +2766,14 @@ TEST(function_string_test, function_extract_url_parameter_test) {
             {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("k3")},
              {VARCHAR("")}},
             {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("test")},
-             {VARCHAR("dd")}}};
+             {VARCHAR("dd")}},
+            // The first '#' comes before the first '?', so the '?' belongs to the fragment and
+            // the url has no parameters.
+            {{VARCHAR("http://doris.apache.org#f?k1=aa"), VARCHAR("k1")}, {VARCHAR("")}},
+            {{VARCHAR("http://doris.apache.org#f?k1=aa"), VARCHAR("aa")}, {VARCHAR("")}},
+            // The parameters end before the fragment.
+            {{VARCHAR("http://doris.apache.org?k1=aa#f?k2=bb"), VARCHAR("k1")}, {VARCHAR("aa")}},
+            {{VARCHAR("http://doris.apache.org?k1=aa#f?k2=bb"), VARCHAR("k2")}, {VARCHAR("")}}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -2698,7 +2823,14 @@ TEST(function_string_test, function_parse_url_test) {
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
                  std::string("www.facebook.com")},
-                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}},
+                // The first '#' comes before the first '?', so the '?' belongs to the fragment
+                // and the url has no query component.
+                {{std::string("http://h/p#f?k=v"), std::string("QUERY")}, {Null()}},
+                {{std::string("http://h/p#f/?#k=v"), std::string("QUERY")}, {Null()}},
+                // The query component ends before the fragment.
+                {{std::string("http://h/p?k=1#f&k=2"), std::string("QUERY")}, {std::string("k=1")}},
+                {{std::string("http://h/p?"), std::string("QUERY")}, {std::string("")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2717,7 +2849,15 @@ TEST(function_string_test, function_parse_url_test) {
                  {Null()}},
                 {{std::string("http://fb.com/path/p1.p?q=1#f"), std::string("HOST"),
                   std::string("q")},
-                 {Null()}}};
+                 {Null()}},
+                // The only '?' is inside the fragment, so the url has no query component.
+                {{std::string("http://h/p#f?k=v"), std::string("QUERY"), std::string("k")},
+                 {Null()}},
+                // A duplicated key returns the first value.
+                {{std::string("http://h/p?k=1&k=2#f"), std::string("QUERY"), std::string("k")},
+                 {std::string("1")}},
+                {{std::string("http://h/p?k=1&k=2&k=3"), std::string("QUERY"), std::string("k")},
+                 {std::string("1")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -4109,6 +4249,10 @@ TEST(function_string_test, function_regexp_count_mixed_const_test) {
             {{std::string("a1b2346c3d"), std::string("\\d+")}, std::int32_t(3)},
             {{std::string("abcd"), std::string("")}, std::int32_t(0)},
             {{std::string("book keeper"), std::string("oo|ee")}, std::int32_t(2)},
+            {{std::string("aaa"), std::string("^a")}, std::int32_t(1)},
+            {{std::string(10000, 'a'), std::string("\\b")}, std::int32_t(0)},
+            {{std::string("é"), std::string("^|\\C")}, std::int32_t(0)},
+            {{std::string {static_cast<char>(0xC3), 'A'}, std::string("^|\\C")}, std::int32_t(1)},
             {{Null(), std::string("\\d+")}, Null()},
             {{std::string("abcd"), Null()}, Null()},
     };

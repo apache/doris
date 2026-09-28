@@ -42,6 +42,7 @@ static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
 static const char* TXN_KEY_INFIX_INFO                   = "txn_info";
 static const char* TXN_KEY_INFIX_INDEX                  = "txn_index";
 static const char* TXN_KEY_INFIX_RUNNING                = "txn_running";
+static const char* TXN_KEY_INFIX_TSO_FENCE              = "tso_fence";
 
 static const char* PARTITION_VERSION_KEY_INFIX          = "partition";
 static const char* TABLE_VERSION_KEY_INFIX              = "table";
@@ -145,7 +146,7 @@ static void encode_prefix(const T& t, std::string* key) {
     // Input type T must be one of the following, add if needed
     static_assert(check_types_v<T,
         InstanceKeyInfo,
-        TxnLabelKeyInfo, TxnInfoKeyInfo, TxnIndexKeyInfo, TxnRunningKeyInfo,
+        TxnLabelKeyInfo, TxnInfoKeyInfo, TxnIndexKeyInfo, TxnRunningKeyInfo, TxnTsoFenceKeyInfo,
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
         TableStreamOffsetKeyInfo,
         MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
@@ -163,7 +164,8 @@ static void encode_prefix(const T& t, std::string* key) {
     } else if constexpr (std::is_same_v<T, TxnLabelKeyInfo>
                       || std::is_same_v<T, TxnInfoKeyInfo>
                       || std::is_same_v<T, TxnIndexKeyInfo>
-                      || std::is_same_v<T, TxnRunningKeyInfo>) {
+                      || std::is_same_v<T, TxnRunningKeyInfo>
+                      || std::is_same_v<T, TxnTsoFenceKeyInfo>) {
         encode_bytes(TXN_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, MetaRowsetKeyInfo>
                       || std::is_same_v<T, MetaRowsetTmpKeyInfo>
@@ -257,6 +259,11 @@ void txn_running_key(const TxnRunningKeyInfo& in, std::string* out) {
     encode_bytes(TXN_KEY_INFIX_RUNNING, out); // "txn_running"
     encode_int64(std::get<1>(in), out);       // db_id
     encode_int64(std::get<2>(in), out);       // txn_id
+}
+
+void txn_tso_fence_key(const TxnTsoFenceKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                     // 0x01 "txn" ${instance_id}
+    encode_bytes(TXN_KEY_INFIX_TSO_FENCE, out); // "tso_fence"
 }
 
 //==============================================================================

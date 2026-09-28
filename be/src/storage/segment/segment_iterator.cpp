@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -50,7 +51,6 @@
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -66,6 +66,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
@@ -145,6 +146,14 @@ private:
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
+    // Delete bitmaps vary by read version, but the condition cache key does not.
+    auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr &&
+        !delete_bitmap_it->second->isEmpty()) {
+        _opts.condition_cache_digest = 0;
+        return;
+    }
+
     // Only dispose need column predicate and expr cal in condition cache
     if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty()) {
         if (_opts.condition_cache_digest) {
@@ -438,7 +447,9 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     _storage_name_and_type.resize(_schema->num_read_columns());
-    auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
+    // The field names built below must match the ones this segment's index files were written
+    // with, so take the format from the schema IndexFileReader was opened with.
+    auto storage_format = _segment->_tablet_schema->get_inverted_index_storage_format();
     for (size_t i = 0; i < _schema->num_read_columns(); ++i) {
         const TabletColumn* col = _schema->column(i);
         auto storage_type = _segment->get_data_type_of(*col, _schema->data_type(i), _opts);
@@ -499,12 +510,13 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
     }
 }
 
-void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
+void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
         const auto ordinal =
                 cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
         DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
         _column_states[ordinal].has_common_expr = true;
+        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
         _is_need_expr_eval = true;
         return;
     }
@@ -512,11 +524,11 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
         const auto& virtual_expr =
                 assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
-        _mark_common_expr_states(virtual_expr);
+        _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
     }
     for (const auto& child : expr->children()) {
-        _mark_common_expr_states(child);
+        _mark_common_expr_states(child, runtime_generated);
     }
 }
 
@@ -552,20 +564,6 @@ Status SegmentIterator::_lazy_init(Block* block) {
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
-    // Remove rows that have been marked deleted
-    if (_opts.delete_bitmap.count(segment_id()) > 0 &&
-        _opts.delete_bitmap.at(segment_id()) != nullptr) {
-        size_t pre_size = _row_bitmap.cardinality();
-        _row_bitmap -= *(_opts.delete_bitmap.at(segment_id()));
-        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
-        VLOG_DEBUG << "read on segment: " << segment_id() << ", delete bitmap cardinality: "
-                   << _opts.delete_bitmap.at(segment_id())->cardinality() << ", "
-                   << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
-    }
-
-    if (!_opts.row_ranges.is_empty()) {
-        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
-    }
 
     _prepare_score_column_materialization();
 
@@ -710,12 +708,12 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
         return Status::OK();
     }
 
-    // Read & seek key columns is a waste of time when no key column in _schema
-    if (std::none_of(_schema->columns().begin(), _schema->columns().end(),
-                     [&](const TabletColumnPtr& col) {
-                         return col &&
-                                _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
-                     })) {
+    // Read & seek key columns is a waste of time when no key column in _schema.
+    // However, parallel base compaction uses key ranges to split tasks, so value-only vertical
+    // groups must still apply the key range to read the same physical rows as the key group.
+    if (_opts.io_ctx.reader_type != ReaderType::READER_BASE_COMPACTION &&
+        std::none_of(_schema->columns().begin(), _schema->columns().end(),
+                     [](const TabletColumnPtr& col) { return col && col->is_key(); })) {
         return Status::OK();
     }
 
@@ -812,10 +810,77 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     return Status::OK();
 }
 
+static bool can_consume_candidate_rows(const VExprContextSPtr& expr_ctx) {
+    const auto& root = expr_ctx->root();
+    DORIS_CHECK(root != nullptr);
+    const VExpr* effective_root = root.get();
+    if (root->is_virtual_slot_ref()) {
+        const auto& virtual_expr =
+                assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
+        DORIS_CHECK(virtual_expr != nullptr);
+        effective_root = virtual_expr.get();
+    }
+    if (effective_root->node_type() != TExprNodeType::MATCH_PRED) {
+        return false;
+    }
+    const auto* match = dynamic_cast<const VMatchPredicate*>(effective_root);
+    return match == nullptr || match->function_name() == "match_phrase" ||
+           match->function_name() == "match_phrase_prefix";
+}
+
+Status SegmentIterator::_apply_scan_restrictions() {
+    if (_row_bitmap.isEmpty()) {
+        return Status::OK();
+    }
+    auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr) {
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap -= *delete_bitmap_it->second;
+        _opts.stats->rows_del_by_bitmap += (pre_size - _row_bitmap.cardinality());
+        VLOG_DEBUG << "read on segment: " << segment_id()
+                   << ", delete bitmap cardinality: " << delete_bitmap_it->second->cardinality()
+                   << ", " << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
+    }
+
+    if (!_opts.row_ranges.is_empty()) {
+        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
+    }
+
+    if (!_row_bitmap.isEmpty() &&
+        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
+         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
+         !_common_expr_ctxs_push_down.empty())) {
+        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
+        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
+        size_t pre_size = _row_bitmap.cardinality();
+        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
+        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_column_conditions_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
+    }
+
+    const double candidate_ratio = config::get_inverted_index_candidate_pushdown_ratio();
+    const bool prune_before_index =
+            _index_query_context != nullptr && _opts.runtime_state != nullptr &&
+            _opts.runtime_state->query_options().enable_inverted_index_query &&
+            std::isfinite(candidate_ratio) && candidate_ratio > 0 && candidate_ratio <= 1 &&
+            (std::ranges::any_of(_common_expr_ctxs_push_down, can_consume_candidate_rows) ||
+             std::ranges::any_of(_virtual_column_exprs, [](const auto& entry) {
+                 return can_consume_candidate_rows(entry.second);
+             }));
+
+    // Prune early only when an index expression can use the candidate bitmap.
+    if (prune_before_index) {
+        RETURN_IF_ERROR(_apply_scan_restrictions());
+        if (_row_bitmap.isEmpty()) {
+            return Status::OK();
+        }
     }
 
     {
@@ -834,12 +899,28 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             if (_index_query_context != nullptr) {
                 _index_query_context->count_on_index_fastpath = _count_on_index_fastpath_safe();
                 _index_query_context->count_on_index_fastpath_hit = false;
+                // Candidate-pushdown handshake: while index conditions are
+                // evaluated, expose the current candidate bitmap so index
+                // queries can restrict themselves to it (two-phase
+                // evaluation). _row_bitmap only shrinks during the applies
+                // below, so restricting to its current state stays correct
+                // for every later conjunct.
+                _refresh_candidate_pushdown();
             }
-            DEFER({ _capture_count_fastpath_hit(); });
+            DEFER({
+                _capture_count_fastpath_hit();
+                if (_index_query_context != nullptr) {
+                    _index_query_context->candidate_rows = nullptr;
+                }
+            });
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
             }
+            // The column predicates above may have shrunk the bitmap across
+            // the engage threshold; refresh the handshake at this conjunct
+            // boundary so the expression conjuncts below still benefit.
+            _refresh_candidate_pushdown();
             // Always apply expr-level index (e.g., search expressions) if we have common_expr_pushdown
             // This allows search expressions with variant subcolumns to be evaluated even when
             // the segment doesn't have all subcolumns
@@ -871,6 +952,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         }
     }
 
+    if (!prune_before_index) {
+        RETURN_IF_ERROR(_apply_scan_restrictions());
+    }
+
     DBUG_EXECUTE_IF("segment_iterator.inverted_index.filtered_rows", {
         LOG(INFO) << "Debug Point: segment_iterator.inverted_index.filtered_rows: "
                   << _opts.stats->rows_inverted_index_filtered;
@@ -892,17 +977,6 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                     _common_expr_ctxs_push_down.size(), _col_predicates.size());
         }
     })
-
-    if (!_row_bitmap.isEmpty() &&
-        (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
-         _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
-         !_common_expr_ctxs_push_down.empty())) {
-        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
-        RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
-        size_t pre_size = _row_bitmap.cardinality();
-        _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
-        _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
-    }
 
     DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
         if (_opts.stats->rows_bf_filtered == 0) {
@@ -1239,12 +1313,72 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
     return true;
 }
 
+// Compound predicates and SEARCH combine their children's index results into
+// whole-segment three-valued answers, so they need unrestricted leaf results.
+static bool combines_index_results(const VExpr& expr) {
+    if (expr.node_type() == TExprNodeType::COMPOUND_PRED ||
+        expr.node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
+    }
+    return std::ranges::any_of(
+            expr.children(), [](const VExprSPtr& child) { return combines_index_results(*child); });
+}
+
 // TODO: optimization when all expr can not evaluate by inverted/ann index,
+void SegmentIterator::_refresh_candidate_pushdown() {
+    if (_index_query_context == nullptr || _index_query_context->candidate_rows != nullptr) {
+        return;
+    }
+    // Validate the snapshot before converting the row threshold to an integer.
+    double candidate_ratio = config::get_inverted_index_candidate_pushdown_ratio();
+    if (!std::isfinite(candidate_ratio) || candidate_ratio <= 0 || candidate_ratio > 1) {
+        return;
+    }
+    if (_row_bitmap.cardinality() <
+        static_cast<uint64_t>(static_cast<double>(num_rows()) * candidate_ratio)) {
+        _index_query_context->candidate_rows = &_row_bitmap;
+    }
+}
+
 Status SegmentIterator::_apply_index_expr() {
     bool enable_ann_index_result_cache =
             !_opts.runtime_state ||
             !_opts.runtime_state->query_options().__isset.enable_ann_index_result_cache ||
             _opts.runtime_state->query_options().enable_ann_index_result_cache;
+
+    // Three-valued compound shortcuts (VCompoundPred) treat an empty TRUE
+    // bitmap as a whole-segment fact; a candidate-restricted TRUE bitmap can
+    // spuriously trigger them and mis-type candidate rows (NOT(A AND B) with
+    // nullable A: FALSE becomes NULL and the row is dropped). Roots containing
+    // a compound predicate or a SEARCH, which combines its own leaf bitmaps the
+    // same way, are therefore evaluated without the candidate; the top-level
+    // single-predicate consumption stays exact within the candidate.
+    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx) {
+        // Earlier expression conjuncts may have crossed the engage threshold.
+        // Refresh for both subsequent conjuncts and virtual-column projections.
+        _refresh_candidate_pushdown();
+        const auto& root = expr_ctx->root();
+        DORIS_CHECK(root != nullptr);
+        const VExpr* effective_root = root.get();
+        if (root->is_virtual_slot_ref()) {
+            const auto& virtual_expr =
+                    assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
+            DORIS_CHECK(virtual_expr != nullptr);
+            effective_root = virtual_expr.get();
+        }
+        const bool suppress = _index_query_context != nullptr &&
+                              _index_query_context->candidate_rows != nullptr &&
+                              combines_index_results(*effective_root);
+        const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
+        if (suppress) {
+            _index_query_context->candidate_rows = nullptr;
+        }
+        Status st = expr_ctx->evaluate_inverted_index(num_rows());
+        if (suppress) {
+            _index_query_context->candidate_rows = saved;
+        }
+        return st;
+    };
 
     // Intersect each consumed index result into _row_bitmap right away so a
     // selective conjunct short-circuits the remaining (potentially expensive,
@@ -1263,7 +1397,7 @@ Status SegmentIterator::_apply_index_expr() {
             break;
         }
         ++considered_conjuncts;
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1296,7 +1430,7 @@ Status SegmentIterator::_apply_index_expr() {
         if (expr_ctx->get_index_context() == nullptr) {
             continue;
         }
-        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1378,8 +1512,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
-    // Mirror of the _lazy_init delete-bitmap subtraction: the fast path is only
-    // sound when there is nothing to subtract for THIS segment.
+    // A count answer cannot skip versioned deletes for this segment.
     const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
                                         delete_bitmap_it->second == nullptr ||
@@ -1399,9 +1532,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.no_need_read_data_opt_enabled =
             _opts.runtime_state == nullptr ||
             _opts.runtime_state->query_options().enable_no_need_read_data_opt;
-    facts.keys_type_supported = _opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-                                (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-                                 _opts.enable_unique_key_merge_on_write);
+    facts.keys_type_supported = _keys_type_allows_skipping_data();
     return count_on_index_fastpath_safe(facts);
 }
 
@@ -1593,6 +1724,12 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     return Status::OK();
 }
 
+bool SegmentIterator::_keys_type_allows_skipping_data() const {
+    const KeysType keys_type = _segment->_tablet_schema->keys_type();
+    return keys_type == KeysType::DUP_KEYS ||
+           (keys_type == KeysType::UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+}
+
 bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
         return true;
@@ -1600,10 +1737,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_can_skip_reading_extra_column(cid)) {
         return false;
     }
-    // only support DUP_KEYS and UNIQUE_KEYS with MOW
-    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-            _opts.enable_unique_key_merge_on_write)))) {
+    if (!_keys_type_allows_skipping_data()) {
         return true;
     }
     // this is a virtual column, we always need to read data
@@ -2118,12 +2252,20 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     if (!_common_expr_ctxs_push_down.empty()) {
         for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-            _mark_common_expr_states(expr_ctx->root());
+            const auto& root = expr_ctx->root();
+            // TopN filters and runtime filters are attached to the scan on BE after the FE
+            // planner computed nested predicate access paths.
+            _mark_common_expr_states(root, root->is_topn_filter() || root->is_rf_wrapper());
         }
         if (_is_need_expr_eval) {
             for (uint32_t cid = 0; cid < _schema->num_block_columns(); ++cid) {
                 const auto field_type = _schema->column(cid)->type();
-                if (_column_states[cid].has_common_expr && _enable_prune_nested_column &&
+                // A runtime-generated common expression may read nested fields outside the
+                // FE predicate access paths, e.g. ORDER BY s.a with WHERE on s.b. Keep such
+                // a column in the NORMAL read phase so every access path is materialized
+                // before the expression is evaluated.
+                if (_column_states[cid].has_common_expr &&
+                    !_column_states[cid].has_runtime_common_expr && _enable_prune_nested_column &&
                     (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
                      field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                      field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
@@ -3536,9 +3678,7 @@ bool SegmentIterator::_no_need_read_key_data_eligible(ColumnId cid) {
         return false;
     }
 
-    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-            _opts.enable_unique_key_merge_on_write)))) {
+    if (!_keys_type_allows_skipping_data()) {
         return false;
     }
 

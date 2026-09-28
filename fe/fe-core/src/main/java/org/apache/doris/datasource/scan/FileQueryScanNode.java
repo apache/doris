@@ -241,12 +241,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
     }
 
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        return classifyColumn(slot.getColumn().getName(), partitionKeys);
+    }
+
     /**
-     * Classify a column's category for the BE reader.
+     * Classify projected and lazy columns with the same connector-specific rules.
      * Subclasses override this for format-specific classification.
      */
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (partitionKeys.contains(slot.getColumn().getName())) {
+    protected TColumnCategory classifyColumn(String columnName, List<String> partitionKeys) {
+        if (partitionKeys.contains(columnName)) {
             return TColumnCategory.PARTITION_KEY;
         }
         return TColumnCategory.REGULAR;
@@ -300,8 +304,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Pre-index columns into a Map for O(1) lookup
         List<Column> columns = getPinnedFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
+        boolean needsRowIdFetch = desc.getSlots().stream()
+                .anyMatch(slot -> slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL));
+        List<String> partitionKeys = needsRowIdFetch ? getPathPartitionKeys() : Collections.emptyList();
+        Map<String, TColumnCategory> columnCategories = new HashMap<>();
         for (int i = 0; i < columns.size(); i++) {
-            columnNameMap.putIfAbsent(columns.get(i).getName(), i);
+            String columnName = columns.get(i).getName();
+            columnNameMap.putIfAbsent(columnName, i);
+            if (needsRowIdFetch) {
+                TColumnCategory category = classifyColumn(columnName, partitionKeys);
+                if (category != TColumnCategory.REGULAR) {
+                    columnCategories.put(columnName, category);
+                }
+            }
+        }
+        if (needsRowIdFetch) {
+            // Lazy slots are already absent from the scan tuple. Preserve their categories from
+            // the pinned full schema so phase two cannot mistake metadata for physical columns.
+            params.setColumnNameToCategory(columnCategories);
         }
 
         for (TFileScanSlotInfo slot : params.getRequiredSlots()) {

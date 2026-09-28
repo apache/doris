@@ -17,9 +17,8 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
@@ -153,15 +152,16 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         markScannerOpenedForMetrics();
         long startTime = System.nanoTime();
         try {
-            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
-            //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
-            //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
-            // so we need to provide a classloader, otherwise it will cause NPE.
-            Thread.currentThread().setContextClassLoader(classLoader);
+            // Paimon reads hive-site.xml off the context classloader when the user does not name
+            // one (org.apache.paimon.hive.HiveCatalog.createHiveConf), and would NPE without it.
+            // JniScanner.open() has already installed this plugin's loader as the context
+            // classloader and restores the caller's on the way out, so there is nothing to pin
+            // here - the previous pin never restored anything, which is what left BE's own
+            // threads carrying a plugin loader after a scan.
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTableAndReader();
@@ -340,7 +340,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         IOException exception = null;
         try {
             try {
@@ -459,13 +459,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        // do nothing
-        return null;
-    }
-
-    @Override
-    public Map<String, String> getStatistics() {
+    protected Map<String, String> collectStatistics() {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("gauge:PaimonJniIOManagerEnabled", ioManager != null ? "1" : "0");
         statistics.put("gauge:PaimonJniActiveScannerCount", String.valueOf(ACTIVE_SCANNERS.get()));

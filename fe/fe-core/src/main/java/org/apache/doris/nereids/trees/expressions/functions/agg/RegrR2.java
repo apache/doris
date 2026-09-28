@@ -32,7 +32,8 @@ import java.util.List;
 
 /** regr_r2 agg function. */
 public class RegrR2 extends AggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE));

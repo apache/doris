@@ -1344,6 +1344,10 @@ public class Alter {
                     // Live IVM changes are journaled inside MTMV; this branch applies the journal snapshot.
                     mtmv.alterIvmInfo(alterMTMV.getIvmInfo());
                     break;
+                case ALTER_PARTITION_STATES:
+                    // Replay only, like ALTER_IVM_INFO: a live change journals itself from inside MTMV.
+                    mtmv.alterPartitionStates(alterMTMV.getPartitionStates());
+                    break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }

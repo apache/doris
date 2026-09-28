@@ -18,7 +18,6 @@
 package org.apache.doris.cdcclient.sink;
 
 import org.apache.doris.cdcclient.common.Constants;
-import org.apache.doris.cdcclient.utils.HttpUtil;
 
 import org.apache.commons.codec.binary.Base64;
 import org.apache.commons.collections.MapUtils;
@@ -70,7 +69,6 @@ public class HttpPutBuilder {
     }
 
     public HttpPutBuilder addTokenAuth(String token) {
-        header.put(HttpHeaders.AUTHORIZATION, HttpUtil.getAuthHeader());
         header.put("token", token);
         return this;
     }

@@ -486,12 +486,20 @@ public class AppendVariantEqualityDelete {
         if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
             return lastProfile
         }
-        return profileAction.waitProfile({
-            lastProfile = profileAction.getProfileBySql(token, positiveCounters)
-            return positiveCounters.every {
-                String counter -> counterSum(lastProfile, counter) > 0
-            } ? lastProfile : ""
-        }, [], "Completed profile with positive counters ${positiveCounters} for ${token}")
+        try {
+            return profileAction.waitProfile({
+                lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+                return positiveCounters.every {
+                    String counter -> counterSum(lastProfile, counter) > 0
+                } ? lastProfile : ""
+            }, [], "Completed profile with positive counters ${positiveCounters} for ${token}")
+        } catch (IllegalStateException e) {
+            // The wait only reports an empty profile, so name the counters that stayed at zero.
+            Map<String, Long> sums = positiveCounters.collectEntries { String counter ->
+                [(counter): counterSum(lastProfile, counter)]
+            }
+            throw new IllegalStateException("${e.getMessage()}counter sums: ${sums}", e)
+        }
     }
 
     String evolutionInitial = latestSnapshotId("variant_evolution")
@@ -651,8 +659,8 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
-    // The stable snapshot contributes a genuinely shredded file, while the appended file uses
-    // the unshredded fallback. More than four rows qualify, forcing local TopN overshoot to be
+    // The stable snapshot contributes a genuinely shredded file, while the appended file is read by
+    // seeking its unshredded value. More than four rows qualify, forcing local TopN overshoot to be
     // truncated after the merge exchange while the mapper-eligible projected path crosses the wire.
     explain {
         sql """
@@ -685,11 +693,11 @@ public class AppendVariantEqualityDelete {
     """
     assertEquals(4, projectedGatherRows.size())
     String projectedGatherProfile = getProfileByToken(projectedGatherToken,
-            ["VariantLeafProjections", "VariantDirectLeafPathMisses"]).toString()
+            ["VariantLeafProjections", "VariantUnshreddedDirectSeekRows"]).toString()
     assertTrue(counterSum(projectedGatherProfile, "VariantLeafProjections") > 0,
             "The projected TopN did not read a physical shredded Variant leaf")
-    assertTrue(counterSum(projectedGatherProfile, "VariantDirectLeafPathMisses") > 0,
-            "The projected TopN did not combine the unshredded fallback file")
+    assertTrue(counterSum(projectedGatherProfile, "VariantUnshreddedDirectSeekRows") > 0,
+            "The projected TopN did not combine the unshredded Variant file")
     order_qt_variant_projected_remote_gather """
         SELECT id,
                CAST(projected['n'] AS INT)
@@ -728,14 +736,12 @@ public class AppendVariantEqualityDelete {
         WHERE CAST(v['n'] AS INT) >= 8000
     """
     String multiRowGroupColdProfile = getProfileByToken(multiRowGroupColdToken,
-            ["RowGroupsTotalNum", "VariantDirectLeafPathMisses", "VariantReconstructedRows",
+            ["RowGroupsTotalNum", "VariantUnshreddedDirectSeekRows",
              "FilteredRowsByLazyRead"]).toString()
     assertTrue(counterSum(multiRowGroupColdProfile, "RowGroupsTotalNum") > 1,
                "The generated Variant file did not contain multiple Parquet row groups")
-    assertTrue(counterSum(multiRowGroupColdProfile, "VariantDirectLeafPathMisses") > 0,
-               "The unshredded scan did not record its direct-leaf fallback")
-    assertTrue(counterSum(multiRowGroupColdProfile, "VariantReconstructedRows") > 0,
-               "The unshredded scan did not reconstruct Variant rows")
+    assertTrue(counterSum(multiRowGroupColdProfile, "VariantUnshreddedDirectSeekRows") > 0,
+               "The unshredded scan did not seek its predicate leaf")
     assertTrue(counterSum(multiRowGroupColdProfile, "FilteredRowsByLazyRead") > 0,
                "The unshredded Variant predicate did not defer non-predicate columns")
     String multiRowGroupWarmToken =
@@ -746,9 +752,9 @@ public class AppendVariantEqualityDelete {
         WHERE CAST(v['n'] AS INT) >= 8000
     """
     String multiRowGroupWarmProfile = getProfileByToken(multiRowGroupWarmToken,
-            ["VariantDirectLeafPathMisses"]).toString()
-    assertTrue(counterSum(multiRowGroupWarmProfile, "VariantDirectLeafPathMisses") > 0,
-               "The warm unshredded scan did not preserve its direct-leaf fallback")
+            ["VariantUnshreddedDirectSeekRows"]).toString()
+    assertTrue(counterSum(multiRowGroupWarmProfile, "VariantUnshreddedDirectSeekRows") > 0,
+               "The warm unshredded scan did not seek its predicate leaf")
     qt_variant_multi_row_group_result """
         SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
         FROM variant_multi_row_group
@@ -822,7 +828,8 @@ public class AppendVariantEqualityDelete {
             "The shredded predicate did not defer complete Variant output")
 
     // The query projects the complete Variant while its predicate reads the shredded typed leaf.
-    // The appended unshredded file must fall back independently in the same scan.
+    // The appended unshredded file must be read independently in the same scan. CAST is not safe
+    // to pre-execute, so the metadata-pruning fence keeps this predicate out of page pruning.
     String pagePruningToken = "iceberg_variant_page_pruning_" + UUID.randomUUID().toString()
     sql """
         SELECT '${pagePruningToken}', id, CAST(v AS STRING)
@@ -831,16 +838,14 @@ public class AppendVariantEqualityDelete {
         ORDER BY id
     """
     String pagePruningProfile = getProfileByToken(pagePruningToken,
-            ["FilteredRowsByPage", "VariantLeafProjections", "VariantDirectLeafPathMisses",
+            ["VariantLeafProjections", "VariantUnshreddedDirectSeekRows",
              "VariantDirectLeafRows", "VariantReconstructedRows"]).toString()
-    assertTrue(counterSum(pagePruningProfile, "FilteredRowsByPage") > 0,
-               "Shredded Variant typed_value did not filter any Parquet page")
     // The predicate_access_paths contract keeps the typed leaf eager while the complete Variant
     // root is read through the independent deferred-output projection.
     assertTrue(counterSum(pagePruningProfile, "VariantLeafProjections") > 0,
                "A root Variant output query did not retain its typed predicate leaf projection")
-    assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafPathMisses") > 0,
-               "The mixed scan did not fall back for its unshredded Variant file")
+    assertTrue(counterSum(pagePruningProfile, "VariantUnshreddedDirectSeekRows") > 0,
+               "The mixed scan did not read its unshredded Variant file")
     assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafRows") > 0,
                "The mixed scan did not evaluate rows from the shredded typed leaf")
     assertTrue(counterSum(pagePruningProfile, "VariantReconstructedRows") > 0,
@@ -1042,11 +1047,9 @@ public class AppendVariantEqualityDelete {
         WHERE v['n'] >= 40
     """
     String positionDeleteProfile = getProfileByToken(positionDeleteToken,
-            ["VariantDirectLeafPathMisses", "VariantReconstructedRows"]).toString()
-    assertTrue(counterSum(positionDeleteProfile, "VariantDirectLeafPathMisses") > 0,
-               "Position-delete filtering did not preserve the unshredded Variant fallback")
-    assertTrue(counterSum(positionDeleteProfile, "VariantReconstructedRows") > 0,
-               "Position-delete filtering did not reconstruct its Variant rows")
+            ["VariantUnshreddedDirectSeekRows"]).toString()
+    assertTrue(counterSum(positionDeleteProfile, "VariantUnshreddedDirectSeekRows") > 0,
+               "Position-delete filtering did not seek the unshredded Variant leaf")
 
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.

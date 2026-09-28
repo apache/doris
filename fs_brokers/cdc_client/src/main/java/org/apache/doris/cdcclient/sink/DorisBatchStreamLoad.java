@@ -100,6 +100,7 @@ public class DorisBatchStreamLoad implements Serializable {
     private String targetDb;
     private String jobId;
     @Setter private String token;
+    @Setter private String dorisUser;
     // stream load headers
     @Setter private Map<String, String> loadProps = new HashMap<>();
     @Getter private LoadStatistic loadStatistic;
@@ -404,6 +405,7 @@ public class DorisBatchStreamLoad implements Serializable {
                     .setUrl(loadUrl)
                     .addProperties(loadProps)
                     .addTokenAuth(token)
+                    .baseAuth(dorisUser, "")
                     .setLabel(finalLabel)
                     .formatJson()
                     .addCommonHeader()

@@ -144,4 +144,35 @@ TEST(KeywordTokenizerTest, LongInput) {
     EXPECT_EQ(tokens1[0].size(), 8192);
 }
 
+TEST(KeywordTokenizerTest, LongInputStopsBeforeMultibyteRune) {
+    KeywordTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    tokenizer->set_source_byte_offsets_enabled(true);
+
+    const std::string text = std::string(8191, 'a') + "\xE5\x88\x98";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+
+    Token token;
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()),
+              std::string(8191, 'a'));
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 8191);
+    ASSERT_FALSE(tokenizer->get_source_byte_offsets().empty());
+    EXPECT_EQ(tokenizer->get_source_byte_offsets().back(), 8191);
+
+    const std::string reset_text = "\xE5\x88\x98";
+    reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), reset_text);
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 3);
+}
+
 } // namespace doris::segment_v2

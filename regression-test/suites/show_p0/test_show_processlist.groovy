@@ -32,29 +32,39 @@ suite("test_show_processlist") {
         sql "GRANT USAGE_PRIV ON COMPUTE GROUP '%' TO '${attackerUser}'"
     }
 
+    // The 16 columns end with Protocol (MySQL / ArrowFlightSQL); the row marked CurrentConnected
+    // is this connection's own.
     sql """set fetch_all_fe_for_system_table = false;"""
     def result = sql """show processlist;"""
     logger.info("result:${result}")
-    assertTrue(result[0].size() == 15)
+    assertTrue(result[0].size() == 16)
+    assertEquals("MySQL", result.find { it[0] == "Yes" }[15])
     sql """set fetch_all_fe_for_system_table = true;"""
     result = sql """show processlist;"""
     logger.info("result:${result}")
-    assertTrue(result[0].size() == 15)
+    assertTrue(result[0].size() == 16)
     sql """set fetch_all_fe_for_system_table = false;"""
 
     def url1 = "http://${context.config.feHttpAddress}/rest/v1/session"
     result =  Http.GET(url1, true)
     logger.info("result:${result}")
-    assertTrue(result["data"]["column_names"].size() == 15);
+    assertTrue(result["data"]["column_names"].size() == 16);
+    assertEquals("Protocol", result["data"]["column_names"][15])
 
     def url2 = "http://${context.config.feHttpAddress}/rest/v1/session/all"
     result = Http.GET(url2, true)
     logger.info("result:${result}")
-    assertTrue(result["data"]["column_names"].size() == 15);
+    assertTrue(result["data"]["column_names"].size() == 16);
 
     result = sql """select * from information_schema.processlist"""
     logger.info("result:${result}")
-    assertTrue(result[0].size() == 15)
+    assertTrue(result[0].size() == 16)
+    // The scanner asks every frontend for its rows over RPC, so none is marked CurrentConnected
+    // here; find this connection by its id (an FE registered under two addresses answers twice).
+    def connectionId = (sql "select connection_id()")[0][0]
+    def ownRows = result.findAll { "${it[1]}" == "${connectionId}" }
+    assertFalse(ownRows.isEmpty(), "connection ${connectionId} is missing from information_schema.processlist")
+    assertTrue(ownRows.every { it[15] == "MySQL" }, "Protocol of connection ${connectionId}: ${ownRows}")
 
     connect(victimUser, userPassword, context.config.jdbcUrl) {
         sql "select 1"

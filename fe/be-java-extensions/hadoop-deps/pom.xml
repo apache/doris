@@ -28,6 +28,28 @@ under the License.
     </parent>
 
     <artifactId>hadoop-deps</artifactId>
+    <name>Doris BE libhdfs Runtime</name>
+    <description>
+        The Java side of BE's NATIVE filesystem reader - read it as "libhdfs-runtime", not as a
+        be-java-extension. The C++ libhdfs in be/src/io reaches these classes through the system
+        classpath, so this module is the one thing here that is deliberately NOT a plugin: it has no
+        plugin name, no DorisPlugin, and no directory under plugins/jni. build.sh deploys it
+        whole into lib/hadoop_hdfs/ instead.
+
+        Consequences worth knowing before editing:
+        - The DEPLOYMENT is invisible to every plugin. A plugin that reads through hadoop carries
+          its own copy of hadoop-common and its own filesystem implementations; nothing in
+          lib/hadoop_hdfs reaches it. The module JAR is a different matter: it holds nothing but
+          the Doris-patched org.apache.hadoop.fs.FileSystem (the credential-aware cache key, see
+          the class header), and every plugin that bundles hadoop-common declares this artifact
+          so that copy lands in its plugin directory too - ahead of hadoop-common's, which is
+          what the Doris-Shadows-Classes manifest attribute below arranges.
+        - Which schemes actually arrive here is decided in FE. StorageRegistry maps s3a/s3n/cosn/
+          oss/obs/cos/gs/abfs*/wasb* to the native C++ reader, so only hdfs/viewfs/jfs/local, the
+          empty scheme, oss-dls (JindoFS) and OneLake's abfs (hadoop-azure) come through libhdfs.
+          Check that mapping before concluding a jar here is dead.
+        - It lives under be-java-extensions for historical reasons only.
+    </description>
 
     <dependencies>
         <dependency>
@@ -152,6 +174,22 @@ under the License.
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
                     <finalName>${project.artifactId}</finalName>
+                    <archive>
+                        <manifestEntries>
+                            <!--
+                              This jar exists to be found AHEAD of hadoop-common's copy of the class it
+                              patches. On the system classpath that is a matter of order in start_be.sh /
+                              start_fe.sh / cloud's start.sh. Inside a plugin directory there is no such
+                              script: PluginRuntime sorts the jars by name (hadoop-common-*.jar would win),
+                              and this attribute is what tells it to search this jar first. The value names
+                              what is shadowed; the layout check (tools/be-java-plugins/
+                              check_plugin_layout.py) verifies the jar carries exactly those classes and
+                              lets only them duplicate another jar's. Merged with the parent's
+                              Doris-Jni-Plugin-Api-Version entry, not replacing it.
+                            -->
+                            <Doris-Shadows-Classes>org.apache.hadoop.fs.FileSystem</Doris-Shadows-Classes>
+                        </manifestEntries>
+                    </archive>
                 </configuration>
             </plugin>
             <plugin>

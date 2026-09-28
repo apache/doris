@@ -82,7 +82,6 @@ import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -516,9 +515,6 @@ public class InsertIntoTableCommand extends Command
         try {
             stmtExecutor.setPlanner(planner);
             stmtExecutor.checkBlockRules();
-            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
-                ctx.getMysqlChannel().reset();
-            }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
                     .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();

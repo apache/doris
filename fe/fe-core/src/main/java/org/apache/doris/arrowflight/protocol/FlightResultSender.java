@@ -49,10 +49,6 @@ public class FlightResultSender implements ResultSender {
     @Override
     public void sendResultSet(ResultSet resultSet, List<FieldInfo> fieldInfos, boolean binaryRows) {
         adapter.getChannel().addResult(DebugUtil.printId(ctx.queryId()), adapter.getRunningQuery(), resultSet);
-        // The statement's result is on this frontend, whatever the query path decided earlier: an
-        // EXPLAIN goes through the query path, which marks the result as coming from the backend
-        // before it knows the statement will not run there.
-        adapter.setReturnResultFromLocal(true);
     }
 
     @Override
@@ -70,6 +66,6 @@ public class FlightResultSender implements ResultSender {
     @Override
     public void reset() {
         // Results are cached per query id and the cache is cleared when the next request of the
-        // session starts (DorisFlightSqlProducer.executeQueryStatement); nothing is pending here.
+        // session starts (FlightProtocolAdapter.beginRequest); nothing is pending here.
     }
 }

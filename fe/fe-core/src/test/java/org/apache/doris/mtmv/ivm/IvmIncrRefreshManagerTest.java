@@ -91,6 +91,33 @@ public class IvmIncrRefreshManagerTest {
     }
 
     @Test
+    public void testIncrementalRefreshParsesSetVarWithItsStatementContext() throws Exception {
+        MTMV mtmv = mockMtmv();
+        Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT /*+ SET_VAR(query_timeout=10) */ 1 AS k1");
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(List.of("k1"));
+        ConnectContext connectContext = new ConnectContext();
+        IvmIncrRefreshContext context = new IvmIncrRefreshContext(mtmv, connectContext, "audit",
+                queryId -> { }, null);
+        connectContext.setThreadLocalInfo();
+        try (MockedStatic<MTMVPlanUtil> mockedUtil = Mockito.mockStatic(MTMVPlanUtil.class)) {
+            mockedUtil.when(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.<ConnectContext>any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenAnswer(inv -> {
+                        StatementContext stmtCtx = inv.getArgument(2);
+                        Assertions.assertSame(stmtCtx, connectContext.getStatementContext());
+                        Assertions.assertEquals(mtmv.getQuerySql(), stmtCtx.getOriginStatement().originStmt);
+                        Assertions.assertEquals(10, connectContext.getSessionVariable().getQueryTimeoutS());
+                        return null;
+                    });
+            new IvmIncrRefreshManager().executeInternalRefresh(context);
+            mockedUtil.verify(() -> MTMVPlanUtil.executeCommand(
+                    Mockito.eq(connectContext), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any()));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     public void testManagerReturnsSuccessForEmptyBundles() throws Exception {
         MTMV mtmv = mockMtmv();
         TestIvmIncrRefreshManager manager = new TestIvmIncrRefreshManager(newContext(mtmv), Collections.emptyList());

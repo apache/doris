@@ -556,7 +556,28 @@ Status build_native_row_group_read_plans(
         row_group_plan.row_group_id = row_group_idx;
         row_group_plan.first_file_row = row_group_first_rows[row_group_idx];
         row_group_plan.row_group_rows = row_group.num_rows;
-        row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
+        if (request.row_ids.has_value()) {
+            const auto& row_ids = *request.row_ids;
+            const int64_t row_group_end = row_group_plan.first_file_row + row_group.num_rows;
+            auto row_id = std::ranges::lower_bound(row_ids, row_group_plan.first_file_row);
+            const auto row_id_end = std::ranges::lower_bound(row_id, row_ids.end(), row_group_end);
+            for (; row_id != row_id_end; ++row_id) {
+                const int64_t local_row = *row_id - row_group_plan.first_file_row;
+                if (!row_group_plan.selected_ranges.empty() &&
+                    row_group_plan.selected_ranges.back().start +
+                                    row_group_plan.selected_ranges.back().length ==
+                            local_row) {
+                    ++row_group_plan.selected_ranges.back().length;
+                } else {
+                    row_group_plan.selected_ranges.push_back({.start = local_row, .length = 1});
+                }
+            }
+            if (row_group_plan.selected_ranges.empty()) {
+                continue;
+            }
+        } else {
+            row_group_plan.selected_ranges = {{.start = 0, .length = row_group.num_rows}};
+        }
         row_group_plan.expensive_pruning_pending = true;
         plan->row_groups.push_back(std::move(row_group_plan));
     }
@@ -1214,14 +1235,14 @@ Status ParquetScanScheduler::open_next_row_group(
     RETURN_IF_ERROR(detail::build_native_prefetch_ranges(
             thrift_metadata, file_schema, request_scan_columns(request), row_group_idx,
             file_context.native_file->size(), compat.parquet_816_padding, &native_ranges));
-    if (request.non_predicate_positions.empty()) {
+    if (!request.row_ids.has_value() && request.non_predicate_positions.empty()) {
         _current_merge_range_active = file_context.set_native_random_access_ranges(
                 native_ranges, detail::average_prefetch_range_size(native_ranges), _profile,
                 _merge_read_slice_size);
     } else {
-        // Independent predicate/output readers may revisit the same physical leaf at different
-        // cursors. MergeRangeFileReader has one consumptive cache per range, so use the random
-        // access reader for this layout instead of sharing one sequential range cache.
+        // Row-ID reads must not merge whole chunks containing unselected rows. Independent
+        // predicate/output readers also need random access: they can revisit one physical leaf
+        // at different cursors, while MergeRangeFileReader has one consumptive cache per range.
         _current_merge_range_active = file_context.set_native_random_access_ranges(
                 {}, 0, _profile, _merge_read_slice_size);
     }
@@ -1263,8 +1284,9 @@ Status ParquetScanScheduler::open_next_row_group(
     // changes row/column materialization order.
     if (!_current_merge_range_active) {
         const auto prefetch_columns = adaptive_predicate_prefetch_columns(request);
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(
-                file_context, file_schema, prefetch_columns, &_current_predicate_prefetched));
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema, request,
+                                                           prefetch_columns,
+                                                           &_current_predicate_prefetched));
     }
     for (const auto& col : request.non_predicate_columns) {
         const auto local_id = col.column_id();
@@ -1302,7 +1324,7 @@ Status ParquetScanScheduler::open_next_row_group(
         // With no row-level filters there is no lazy-read decision to wait for, so start warming
         // output chunks immediately after their readers are created. Filtered scans still defer
         // this until at least one row survives the predicate phase.
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema,
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema, request,
                                                            physical_non_predicate_columns(request),
                                                            &_current_non_predicate_prefetched));
     }
@@ -2519,10 +2541,14 @@ Status ParquetScanScheduler::read_filter_columns(int64_t batch_rows,
 Status ParquetScanScheduler::prefetch_current_row_group_columns(
         ParquetFileContext& file_context,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request,
         const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched) {
     DORIS_CHECK(prefetched != nullptr);
-    if (_current_merge_range_active || *prefetched || scan_columns.empty() ||
-        _current_row_group_id < 0 || file_context.native_metadata == nullptr) {
+    // Row-ID requests remain selective even without conjuncts. Whole-chunk dry-run prefetch
+    // would download unselected bytes without query accounting; demand reads retain IOContext stats.
+    if (request.row_ids.has_value() || _current_merge_range_active || *prefetched ||
+        scan_columns.empty() || _current_row_group_id < 0 ||
+        file_context.native_metadata == nullptr) {
         return Status::OK();
     }
     *prefetched = true;
@@ -2640,7 +2666,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
         // Do not prefetch lazy output columns until at least one row survives filtering. This is
         // the same decision point where the v2 reader switches from predicate-only reads to
         // materializing non-predicate columns, so fully filtered batches avoid unnecessary IO.
-        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema,
+        RETURN_IF_ERROR(prefetch_current_row_group_columns(file_context, file_schema, request,
                                                            physical_non_predicate_columns(request),
                                                            &_current_non_predicate_prefetched));
     }

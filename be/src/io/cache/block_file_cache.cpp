@@ -226,6 +226,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _evict_not_downloaded_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_not_downloaded_size");
+    _evict_not_downloaded_num_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_not_downloaded_num");
     _total_read_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_total_read_size");
     _total_hit_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -1100,7 +1104,7 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
                     cell->update_atime();
                 }
             }
-            if (_ttl_mgr && context.tablet_id != 0) {
+            if (_ttl_mgr && context.tablet_id > 0) {
                 _ttl_mgr->register_tablet_id(context.tablet_id);
             }
         }
@@ -1836,15 +1840,15 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), cell->size());
     }
-    *_queue_evict_size_metrics[file_cache_type_index(file_block->cache_type())]
-            << file_block->range().size();
-    *_total_evict_size_metrics << file_block->range().size();
-
     VLOG_DEBUG << "Removing file block from cache. hash: " << hash.to_string()
                << ", offset: " << offset << ", size: " << file_block->range().size()
                << ", type: " << cache_type_to_string(type);
 
-    if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
+    const auto state = file_block->state_unlock(block_lock);
+    if (state == FileBlock::State::DOWNLOADED) {
+        *_queue_evict_size_metrics[file_cache_type_index(file_block->cache_type())]
+                << file_block->range().size();
+        *_total_evict_size_metrics << file_block->range().size();
         FileCacheKey key;
         key.hash = hash;
         key.offset = offset;
@@ -1883,9 +1887,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 }
             }
         }
-    } else if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADING) {
+    } else if (state == FileBlock::State::DOWNLOADING) {
         file_block->set_deleting();
         return;
+    } else {
+        *_evict_not_downloaded_size_metrics << file_block->range().size();
+        *_evict_not_downloaded_num_metrics << 1;
     }
     _cur_cache_size -= file_block->range().size();
     if (FileCacheType::TTL == type) {
@@ -2194,8 +2201,6 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
             queue_released = remove_blocks(_ttl_queue);
             ss << " ttl_queue released " << queue_released;
 
-            _disk_resource_limit_mode = true;
-            _disk_limit_mode_metrics->set_value(1);
             ss << " total_space_released=" << space_released;
         }
         old_capacity = _capacity;
@@ -2215,11 +2220,6 @@ void BlockFileCache::check_disk_resource_limit() {
         return;
     }
 
-    bool previous_mode = _disk_resource_limit_mode;
-    if (_capacity > _cur_cache_size) {
-        _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
-    }
     std::pair<int, int> percent;
     int ret = disk_used_percentage(_cache_base_path, &percent);
     if (ret != 0) {
@@ -2244,18 +2244,21 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 88;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
+    bool previous_mode = _disk_resource_limit_mode.load();
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
+    // Enter when either resource reaches the enter threshold, but exit only after both
+    // resources fall below the exit threshold. Values in [exit, enter) preserve the previous
+    // mode through _disk_resource_limit_mode.
     if (is_space_insufficient || is_inode_insufficient) {
         _disk_resource_limit_mode = true;
-        _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
                (space_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
         _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
     }
-    if (previous_mode != _disk_resource_limit_mode) {
+    _disk_limit_mode_metrics->set_value(_disk_resource_limit_mode.load());
+    if (previous_mode != _disk_resource_limit_mode.load()) {
         // add log for disk resource limit mode switching
         if (_disk_resource_limit_mode) {
             LOG(WARNING) << "Entering disk resource limit mode: file_cache=" << get_base_path()
@@ -2312,7 +2315,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_enter_need_evict_cache_in_advance_percent = 78;
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
-    bool previous_mode = _need_evict_cache_in_advance;
+    bool previous_mode = _need_evict_cache_in_advance.load();
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
     bool is_size_insufficient = is_insufficient(size_percentage);
@@ -2326,7 +2329,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         _need_evict_cache_in_advance = false;
         _need_evict_cache_in_advance_metrics->set_value(0);
     }
-    if (previous_mode != _need_evict_cache_in_advance) {
+    if (previous_mode != _need_evict_cache_in_advance.load()) {
         // add log for evict cache in advance mode switching
         if (_need_evict_cache_in_advance) {
             LOG(WARNING) << "Entering evict cache in advance mode: "
@@ -2763,8 +2766,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance.load();
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode.load();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
@@ -2773,6 +2776,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
     stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
     stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["evict_not_downloaded_size"] = (double)_evict_not_downloaded_size_metrics->get_value();
+    stats["evict_not_downloaded_num"] = (double)_evict_not_downloaded_num_metrics->get_value();
 
     return stats;
 }
@@ -2816,8 +2821,8 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance.load();
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode.load();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
@@ -2826,6 +2831,8 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
     stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
     stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["evict_not_downloaded_size"] = (double)_evict_not_downloaded_size_metrics->get_value();
+    stats["evict_not_downloaded_num"] = (double)_evict_not_downloaded_num_metrics->get_value();
 
     return stats;
 }

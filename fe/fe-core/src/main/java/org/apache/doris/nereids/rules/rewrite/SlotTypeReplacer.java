@@ -624,7 +624,15 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
             newType = prunedTree.pruneCastType(originTree, castTree);
         }
 
-        return new Cast(newChild, newType);
+        // Rebuild through withChildren/withTargetType so the concrete cast kind survives. A
+        // TRY_CAST that reaches here has kept its whole immediate child value (see
+        // AccessPathExpressionCollector.visitTryCast, which never translates an access path
+        // through the cast), but that child can still be rebuilt: for
+        // element_at(try_cast(element_at(wrapper, 'f') as struct<...>), 'g') the collector
+        // records [wrapper, f], so pruning may drop a sibling of wrapper and replace the
+        // inner element_at. Constructing a Cast here would silently downgrade the whole-value
+        // TRY_CAST into a strict CAST, turning its NULL result into a cast error.
+        return cast.withChildren(ImmutableList.of(newChild)).withTargetType(newType);
     }
 
     private List<ColumnAccessPath> replaceAccessPathToFieldId(

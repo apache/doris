@@ -53,6 +53,34 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testInternalQueryStateDoesNotExemptUserTable() {
+        boolean originalAllowStateTypes = Config.enable_non_aggregate_table_state_types;
+        boolean originalInternal = connectContext.getState().isInternal();
+        boolean originalEnableAggState = connectContext.getSessionVariable().enableAggState;
+        Config.enable_non_aggregate_table_state_types = false;
+        connectContext.getSessionVariable().enableAggState = true;
+        // An ordinary SHOW can leave the internal-query flag set on a user connection.
+        connectContext.getState().setInternal(true);
+        try {
+            for (String keysType : new String[] {"DUPLICATE", "UNIQUE"}) {
+                for (String type : new String[] {"HLL NOT NULL", "QUANTILE_STATE NOT NULL",
+                        "AGG_STATE<sum(INT NOT NULL)>"}) {
+                    AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                            () -> createTable("CREATE TABLE test.user_state_type (k INT, v " + type + ") "
+                                    + keysType + " KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                                    + "PROPERTIES('replication_num'='1')"));
+                    Assertions.assertTrue(exception.getMessage().contains(
+                            "type is only supported in aggregate key tables"));
+                }
+            }
+        } finally {
+            Config.enable_non_aggregate_table_state_types = originalAllowStateTypes;
+            connectContext.getState().setInternal(originalInternal);
+            connectContext.getSessionVariable().enableAggState = originalEnableAggState;
+        }
+    }
+
+    @Test
     public void testDuplicateCreateTable() throws Exception {
         // test
         Env env = Env.getCurrentEnv();

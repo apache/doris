@@ -20,6 +20,8 @@
 #include <cctz/time_zone.h>
 
 #include <chrono>
+#include <cstring>
+#include <string>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -30,15 +32,58 @@
 
 namespace doris::parquet {
 
-static FieldSchema make_timestamp_field_schema(bool is_adjusted_to_utc) {
+enum class TestTimestampUnit { MILLIS, MICROS, NANOS };
+
+static FieldSchema make_timestamp_field_schema(bool is_adjusted_to_utc,
+                                               TestTimestampUnit unit = TestTimestampUnit::MICROS) {
     FieldSchema field_schema;
     field_schema.parquet_schema.__set_name("ts");
     field_schema.parquet_schema.__set_logicalType(tparquet::LogicalType());
     field_schema.parquet_schema.logicalType.__set_TIMESTAMP(tparquet::TimestampType());
     field_schema.parquet_schema.logicalType.TIMESTAMP.__set_isAdjustedToUTC(is_adjusted_to_utc);
     field_schema.parquet_schema.logicalType.TIMESTAMP.__set_unit(tparquet::TimeUnit());
-    field_schema.parquet_schema.logicalType.TIMESTAMP.unit.__set_MICROS(tparquet::MicroSeconds());
+    auto& parquet_unit = field_schema.parquet_schema.logicalType.TIMESTAMP.unit;
+    switch (unit) {
+    case TestTimestampUnit::MILLIS:
+        parquet_unit.__set_MILLIS(tparquet::MilliSeconds());
+        break;
+    case TestTimestampUnit::MICROS:
+        parquet_unit.__set_MICROS(tparquet::MicroSeconds());
+        break;
+    case TestTimestampUnit::NANOS:
+        parquet_unit.__set_NANOS(tparquet::NanoSeconds());
+        break;
+    }
     return field_schema;
+}
+
+static void expect_int64_timestamp(int64_t timestamp, TestTimestampUnit unit,
+                                   const std::string& expected, bool is_adjusted_to_utc = false,
+                                   const cctz::time_zone* timezone = nullptr) {
+    auto field_schema = make_timestamp_field_schema(is_adjusted_to_utc, unit);
+    field_schema.parquet_schema.__set_type(tparquet::Type::INT64);
+    field_schema.data_type =
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, field_schema.data_type, timezone);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_column = ColumnInt64::create();
+    src_column->insert_value(timestamp);
+    ColumnPtr src = std::move(src_column);
+    ColumnPtr dst = field_schema.data_type->create_column();
+    ASSERT_TRUE(converter->physical_convert(src, dst).ok());
+    ASSERT_EQ(dst->size(), 1);
+    EXPECT_EQ(field_schema.data_type->to_string(*dst, 0), expected);
+}
+
+static ColumnPtr make_int96_column(const ParquetInt96& timestamp) {
+    auto column = ColumnInt8::create();
+    auto& data = column->get_data();
+    data.resize(sizeof(timestamp));
+    std::memcpy(data.data(), &timestamp, sizeof(timestamp));
+    return column;
 }
 
 TEST(ParquetColumnConvertTest, InitFixedOffsetDetection) {
@@ -123,6 +168,86 @@ TEST(ParquetColumnConvertTest, LookupPathMatchesOriginal) {
         original_value.from_unixtime(timestamp, new_york_tz);
         EXPECT_EQ(original_value.to_date_int_val(), lookup_value.to_date_int_val());
     }
+}
+
+TEST(ParquetColumnConvertTest, ConvertsInt64TimestampsAcrossEpoch) {
+    struct TestCase {
+        int64_t timestamp;
+        TestTimestampUnit unit;
+        const char* expected;
+    };
+    const std::vector<TestCase> test_cases {
+            {-1, TestTimestampUnit::MILLIS, "1969-12-31 23:59:59.999000"},
+            {-500, TestTimestampUnit::MILLIS, "1969-12-31 23:59:59.500000"},
+            {-1000, TestTimestampUnit::MILLIS, "1969-12-31 23:59:59.000000"},
+            {-1500, TestTimestampUnit::MILLIS, "1969-12-31 23:59:58.500000"},
+            {-1, TestTimestampUnit::MICROS, "1969-12-31 23:59:59.999999"},
+            {-500000, TestTimestampUnit::MICROS, "1969-12-31 23:59:59.500000"},
+            {-500000000, TestTimestampUnit::NANOS, "1969-12-31 23:59:59.500000"},
+            {0, TestTimestampUnit::MICROS, "1970-01-01 00:00:00.000000"},
+            {500000123, TestTimestampUnit::NANOS, "1970-01-01 00:00:00.500000"},
+    };
+
+    for (const auto& test_case : test_cases) {
+        SCOPED_TRACE(testing::Message()
+                     << "timestamp=" << test_case.timestamp << ", expected=" << test_case.expected);
+        expect_int64_timestamp(test_case.timestamp, test_case.unit, test_case.expected);
+    }
+}
+
+TEST(ParquetColumnConvertTest, ConvertsNegativeInt64TimestampWithTimezone) {
+    const auto plus_eight = cctz::fixed_time_zone(std::chrono::hours(8));
+    expect_int64_timestamp(-500000, TestTimestampUnit::MICROS, "1970-01-01 07:59:59.500000", true,
+                           &plus_eight);
+}
+
+TEST(ParquetColumnConvertTest, ConvertsNegativeInt96TimestampsBeforeEpoch) {
+    auto field_schema = make_timestamp_field_schema(false);
+    field_schema.parquet_schema.__set_type(tparquet::Type::INT96);
+    const ParquetInt96 timestamp {
+            .lo = 86399500000000,
+            .hi = ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS - 1,
+    };
+
+    for (const auto primitive_type : {TYPE_DATETIMEV2, TYPE_TIMESTAMPTZ}) {
+        field_schema.data_type =
+                DataTypeFactory::instance().create_data_type(primitive_type, false, 0, 6);
+        auto converter = PhysicalToLogicalConverter::get_converter(
+                &field_schema, field_schema.data_type, field_schema.data_type, nullptr);
+        ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+        ColumnPtr src = make_int96_column(timestamp);
+        ColumnPtr dst = field_schema.data_type->create_column();
+        ASSERT_TRUE(converter->physical_convert(src, dst).ok());
+        ASSERT_EQ(dst->size(), 1);
+
+        if (primitive_type == TYPE_DATETIMEV2) {
+            EXPECT_EQ(field_schema.data_type->to_string(*dst, 0), "1969-12-31 23:59:59.500000");
+        } else {
+            const auto& column = assert_cast<const ColumnTimeStampTz&>(*dst);
+            EXPECT_EQ(column.get_data()[0].utc_dt().to_string(6), "1969-12-31 23:59:59.500000");
+        }
+    }
+}
+
+TEST(ParquetColumnConvertTest, ConvertsNegativeInt64TimestampTzBeforeEpoch) {
+    auto field_schema = make_timestamp_field_schema(true);
+    field_schema.parquet_schema.__set_type(tparquet::Type::INT64);
+    field_schema.data_type =
+            DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6);
+    auto converter = PhysicalToLogicalConverter::get_converter(
+            &field_schema, field_schema.data_type, field_schema.data_type, nullptr);
+    ASSERT_TRUE(converter->support()) << converter->get_error_msg();
+
+    auto src_column = ColumnInt64::create();
+    src_column->insert_value(-500000);
+    ColumnPtr src = std::move(src_column);
+    ColumnPtr dst = field_schema.data_type->create_column();
+    ASSERT_TRUE(converter->physical_convert(src, dst).ok());
+    ASSERT_EQ(dst->size(), 1);
+
+    const auto& column = assert_cast<const ColumnTimeStampTz&>(*dst);
+    EXPECT_EQ(column.get_data()[0].utc_dt().to_string(6), "1969-12-31 23:59:59.500000");
 }
 
 TEST(ParquetColumnConvertTest, AlignNullMapUsesAppendedSourceSlice) {

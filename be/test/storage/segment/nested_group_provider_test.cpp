@@ -28,7 +28,7 @@
 
 #include <roaring/roaring.hh>
 
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -59,7 +59,7 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderRejectsNestedGroupWritePath) {
         GTEST_SKIP() << "EE build: write provider has real implementation";
     }
 
-    auto column_variant = ColumnVariant::create(0, false);
+    auto column_variant = ColumnVariantV2::create();
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 

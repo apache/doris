@@ -281,7 +281,7 @@ Status OlapScanner::_prepare_impl() {
         _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
 
         auto io_ctx = build_score_runtime_collection_io_context(
-                _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
+                _state, _tablet_reader_params.reader_type, tablet->file_cache_ttl_expiration_time(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
@@ -552,7 +552,7 @@ Status OlapScanner::_init_variant_columns() {
             continue;
         }
         // Materialized paths are absent from the persisted frontend schema. Build their transient
-        // read-schema entries from the slot type so V1 and V2 share the same path/type mapping.
+        // read-schema entries from the slot type.
         const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                               slot->column_paths());
         // Keep transient paths nullable so an absent path preserves the existing NULL result.
@@ -563,13 +563,6 @@ Status OlapScanner::_init_variant_columns() {
         const int32_t column_index = tablet_schema->field_index(path);
         if (column_index < 0) {
             tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
-            continue;
-        }
-        if (subcol.variant_is_v2()) {
-            // TODO: Remove this promotion after legacy ColumnVariant read destinations are
-            // deleted. Persisted metadata describes the shared storage layout; this transient
-            // marker only makes the current scan construct a ColumnVariantV2 destination.
-            tablet_schema->mutable_column(column_index).set_variant_is_v2(true);
         }
     }
     variant_util::inherit_column_attributes(tablet_schema);

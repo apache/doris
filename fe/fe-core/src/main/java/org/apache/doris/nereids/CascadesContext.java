@@ -271,7 +271,7 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        this.memo = new Memo(getConnectContext(), plan);
+        this.memo = new Memo(getConnectContext(), plan, statementContext.getCostWeight());
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
         if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly

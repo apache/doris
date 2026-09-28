@@ -49,6 +49,19 @@ public:
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
 
+    Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
+
+    Status deserialize_column_from_hive_text_vector(
+            IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
+            const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
+
+    Status serialize_one_cell_to_hive_text(
+            const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
+
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
@@ -95,6 +108,9 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
+
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
 };
 
 } // namespace doris

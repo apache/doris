@@ -703,10 +703,10 @@ private:
                 const auto scale = temporal_type->get_scale();
                 if (!temporal.to_datetime(local_datetime, context->state()->timezone_obj(), scale,
                                           scale)) [[unlikely]] {
+                    // Preserve the comparison error instead of re-entering the failing formatter.
                     return Status::InvalidArgument(
                             "can not compare timestamptz {} with TIMESTAMP_NS in timezone {}",
-                            temporal.to_string(context->state()->timezone_obj(), scale),
-                            context->state()->timezone());
+                            temporal.utc_dt().to_string(scale), context->state()->timezone());
                 }
                 comparison = compare_timestamp_ns_with_temporal(timestamp, local_datetime);
             } else {
