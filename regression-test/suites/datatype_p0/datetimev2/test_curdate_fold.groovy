@@ -18,6 +18,14 @@
 
 suite("test_curdate_fold") {
     def tbName = "test_curdate_fold"
+    def originalTimeZone = sql("SELECT @@session.time_zone")[0][0].toString()
+    onFinish {
+        try_sql "SET time_zone = '${originalTimeZone}'"
+    }
+
+    def utcHour = sql("SELECT HOUR(UTC_TIMESTAMP())")[0][0].toString().toInteger()
+    def safeTimeZone = String.format("%+03d:00", 12 - utcHour)
+    sql "SET time_zone = '${safeTimeZone}'"
 
     sql "DROP TABLE IF EXISTS test_curdate_fold"
     sql """
