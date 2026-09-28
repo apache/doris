@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -80,7 +79,7 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
                 throw new AnalysisException("array_union requires ARRAY arguments, but got " + argType.toSql());
             }
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (!ArrayFunctionTypeChecker.isSupportedByArraySetFunctions(itemType)) {
+            if (!ArrayFunctionUtils.isSupportedByArraySetFunctions(itemType)) {
                 throw new AnalysisException("array_union does not support element type " + itemType.toSql());
             }
         }

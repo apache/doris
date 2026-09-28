@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -65,7 +64,7 @@ public class ArraySort extends ScalarFunction
         DataType argType = argument.getDataType();
         if (argType instanceof ArrayType) {
             DataType itemType = ((ArrayType) argType).getItemType();
-            if (!ArrayFunctionTypeChecker.isSupportedByArrayComparisonFunctions(itemType)) {
+            if (!ArrayFunctionUtils.isSupportedByArrayComparisonFunctions(itemType)) {
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
             }
         }
@@ -77,7 +76,7 @@ public class ArraySort extends ScalarFunction
             }
             ArrayType sourceType = (ArrayType) lambda.getLambdaArgument(0)
                     .getArrayExpression().getDataType();
-            if (!ArrayFunctionTypeChecker.isSupportedByArraySortLambdaFunction(sourceType.getItemType())) {
+            if (!ArrayFunctionUtils.isSupportedByArraySortLambdaFunction(sourceType.getItemType())) {
                 throw new AnalysisException("array_sort does not support types: " + sourceType.toSql());
             }
         }

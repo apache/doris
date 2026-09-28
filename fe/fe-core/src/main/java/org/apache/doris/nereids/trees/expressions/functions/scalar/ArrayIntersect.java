@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -75,7 +74,7 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
                 throw new AnalysisException("array_intersect requires ARRAY arguments, but got " + argType.toSql());
             }
             DataType currentItemType = ((ArrayType) argType).getItemType();
-            if (!ArrayFunctionTypeChecker.isSupportedByArraySetFunctions(currentItemType)) {
+            if (!ArrayFunctionUtils.isSupportedByArraySetFunctions(currentItemType)) {
                 throw new AnalysisException("array_intersect does not support element type "
                         + currentItemType.toSql());
             }
