@@ -21,12 +21,14 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.pattern.GeneratedPlanPatterns;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayHourAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourSecondSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MicroSecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearMonthAdd;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -48,25 +50,53 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
     }
 
     @Test
-    void testOrdinalIsNotNarrowedTo32Bits() {
-        // getIntValue() is getNumber().intValue(), so a BIGINT or LARGEINT ordinal
-        // was truncated to its low 32 bits before the `>= 1 && <= selectItems` test.
-        // 4294967297 is 2^32 + 1, which truncated to 1 and silently bound to the
-        // first select item, while the plainly out-of-range 3 did not. Both are out
-        // of range for a two-item select list and must be treated the same way.
+    void testGroupByOrdinalIsNotNarrowed() {
+        // getIntValue() is getNumber().intValue(), so a BIGINT or LARGEINT ordinal was truncated
+        // to its low 32 bits before the `>= 1 && <= selectItems` test. 4294967297 is 2^32 + 1 and
+        // 18446744073709551617 is 2^64 + 1: both truncated to 1 and silently bound to the first
+        // select item, while the plainly out-of-range 3 did not. The LARGEINT narrows to 1 through
+        // getLongValue() as well, so it pins the width-independent accessor, not merely a wider one.
         String outOfRange = "select col1, count(*) from t1 group by 3";
-        String wrapsToOne = "select col1, count(*) from t1 group by 4294967297";
 
-        // Both must fail the same way: as a constant, the literal leaves col1
-        // ungrouped. checkPlannerResult surfaces that as NereidsException.
+        // As a constant, the literal leaves col1 ungrouped. checkPlannerResult surfaces that as
+        // NereidsException, and every out-of-range ordinal must fail for that same reason.
         NereidsException expected = Assertions.assertThrows(NereidsException.class,
                 () -> PlanChecker.from(connectContext).checkPlannerResult(outOfRange),
                 "an ordinal past the end of the select list must not bind");
-        NereidsException actual = Assertions.assertThrows(NereidsException.class,
-                () -> PlanChecker.from(connectContext).checkPlannerResult(wrapsToOne),
-                "a 64-bit ordinal must not be narrowed into range");
-        Assertions.assertEquals(expected.getMessage(), actual.getMessage(),
-                "the wrapping ordinal must be rejected for the same reason as the out-of-range one");
+        for (String ordinal : new String[] {"4294967297", "18446744073709551617"}) {
+            String wrapsToOne = "select col1, count(*) from t1 group by " + ordinal;
+            NereidsException actual = Assertions.assertThrows(NereidsException.class,
+                    () -> PlanChecker.from(connectContext).checkPlannerResult(wrapsToOne),
+                    ordinal + " must not be narrowed into range");
+            Assertions.assertEquals(expected.getMessage(), actual.getMessage(),
+                    ordinal + " must be rejected for the same reason as the out-of-range ordinal");
+        }
+    }
+
+    @Test
+    void testOrderByOrdinalIsNotNarrowed() {
+        // bindWithOrdinal also serves ORDER BY, on a plain select and on a set operation. There an
+        // out-of-range ordinal does not throw -- it stays a constant sort key -- so the check is on
+        // the analyzed plan: a wide ordinal must never turn into a sort on a column.
+        String[] queries = {
+                "select col1, col2 from t1 order by %s",
+                "select col1, col2 from t1 union all select col1, col2 from t2 order by %s",
+        };
+        for (String query : queries) {
+            // The check can tell the two apart: a real ordinal does sort on a column.
+            PlanChecker.from(connectContext)
+                    .analyze(String.format(query, "1"))
+                    .matches(logicalSort().when(BindExpressionTest::sortsOnASlot));
+            for (String ordinal : new String[] {"4294967297", "18446744073709551617"}) {
+                PlanChecker.from(connectContext)
+                        .analyze(String.format(query, ordinal))
+                        .nonMatch(logicalSort().when(BindExpressionTest::sortsOnASlot));
+            }
+        }
+    }
+
+    private static boolean sortsOnASlot(LogicalSort<?> sort) {
+        return sort.getOrderKeys().stream().anyMatch(key -> key.getExpr() instanceof Slot);
     }
 
     @Test
