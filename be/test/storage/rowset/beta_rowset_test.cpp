@@ -536,10 +536,18 @@ TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
     ASSERT_TRUE(writer.build_tmp(tmp_rowset).ok());
     ASSERT_NE(tmp_rowset, nullptr);
     EXPECT_EQ(tmp_rowset->num_segments(), 2);
-    EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(2), 0);
-    EXPECT_EQ(tmp_rowset->rowset_meta()->position_of(6), 1);
+    EXPECT_EQ(TEST_TRY(tmp_rowset->rowset_meta()->position_of(2)), 0);
+    EXPECT_EQ(TEST_TRY(tmp_rowset->rowset_meta()->position_of(6)), 1);
     EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(0), 2);
     EXPECT_EQ(tmp_rowset->rowset_meta()->segment_id(1), 6);
+
+    auto* beta_rowset = static_cast<BetaRowset*>(tmp_rowset.get());
+    segment_v2::SegmentSharedPtr segment;
+    for (int64_t seg_id : {3, 7}) {
+        auto status = beta_rowset->load_segment(seg_id, nullptr, &segment);
+        EXPECT_TRUE(status.is<NOT_FOUND>()) << status;
+        EXPECT_EQ(segment, nullptr);
+    }
 }
 
 TEST_F(BetaRowsetTest, GetSegmentNumRowsFromMeta) {
