@@ -79,8 +79,10 @@ class AbstractJobProcessorTest {
         }
 
         @Override
-        protected void doProcessReportExecStatus(
-                TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {}
+        protected void doProcessReportExecStatus(TReportExecStatusParams params,
+                SingleFragmentPipelineTask fragmentTask, Runnable updateStatus) {
+            updateStatus.run();
+        }
 
         @Override
         public void cancel(Status cancelReason) {}

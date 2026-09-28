@@ -228,6 +228,7 @@ public class LoadLoadingTask extends LoadTask {
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
             if (status.ok() || status.getErrorCode() == TStatusCode.DATA_QUALITY_ERROR) {
+                // Read snapshots: other fragments can still report while cancellation finishes.
                 attachment = new BrokerLoadingTaskAttachment(signature,
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
@@ -236,7 +237,6 @@ public class LoadLoadingTask extends LoadTask {
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
                                 .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())),
                         status);
-                curCoordinator.getErrorTabletInfos().clear();
             } else {
                 throw new LoadException(status.getErrorMsg());
             }

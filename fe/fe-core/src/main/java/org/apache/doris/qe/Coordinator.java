@@ -468,12 +468,25 @@ public class Coordinator implements CoordInterface {
         return queryStatus;
     }
 
+    // Cancellation can wake readers while other fragments are still reporting.
+    // Return snapshots under the same lock used to aggregate report results.
     public List<String> getDeltaUrls() {
-        return deltaUrls;
+        lock.lock();
+        try {
+            // Result-producing queries do not initialize load result containers.
+            return deltaUrls == null ? null : ImmutableList.copyOf(deltaUrls);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Map<String, String> getLoadCounters() {
-        return loadCounters;
+        lock.lock();
+        try {
+            return loadCounters == null ? null : ImmutableMap.copyOf(loadCounters);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public String getTrackingUrl() {
@@ -517,11 +530,21 @@ public class Coordinator implements CoordInterface {
     }
 
     public List<TTabletCommitInfo> getCommitInfos() {
-        return commitInfos;
+        lock.lock();
+        try {
+            return ImmutableList.copyOf(commitInfos);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
-        return errorTabletInfos;
+        lock.lock();
+        try {
+            return ImmutableList.copyOf(errorTabletInfos);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Map<String, Integer> getBeToInstancesNum() {
@@ -2788,7 +2811,8 @@ public class Coordinator implements CoordInterface {
         boolean accepted = false;
         try {
             Status status = new Status(params.status);
-            // Publish load diagnostics before an error status can release the completion latch.
+            // Aggregate this accepted report before failure cancellation releases load waiters.
+            // Keep accumulation behind updatePipelineStatus so duplicate reports are not counted twice.
             if (params.isSetTrackingUrl()) {
                 LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
                 trackingUrl = params.getTrackingUrl();
@@ -2796,6 +2820,18 @@ public class Coordinator implements CoordInterface {
             if (params.isSetFirstErrorMsg()) {
                 LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
                 firstErrorMsg = params.getFirstErrorMsg();
+            }
+            if (params.isSetDeltaUrls() && deltaUrls != null) {
+                updateDeltas(params.getDeltaUrls());
+            }
+            if (params.isSetLoadCounters() && loadCounters != null) {
+                updateLoadCounters(params.getLoadCounters());
+            }
+            if (params.isSetCommitInfos()) {
+                updateCommitInfos(params.getCommitInfos());
+            }
+            if (params.isSetErrorTabletInfos()) {
+                updateErrorTabletInfos(params.getErrorTabletInfos());
             }
             // for now, abort the query if we see any error except if the error is cancelled
             // and returned_all_results_ is true.
@@ -2817,12 +2853,6 @@ public class Coordinator implements CoordInterface {
                     updateStatus(status);
                 }
             }
-            if (params.isSetDeltaUrls() && deltaUrls != null) {
-                updateDeltas(params.getDeltaUrls());
-            }
-            if (params.isSetLoadCounters() && loadCounters != null) {
-                updateLoadCounters(params.getLoadCounters());
-            }
             // Keep this report's identity local so another report cannot redirect its commit data.
             long reportTxnId = params.isSetTxnId() ? params.getTxnId() : txnId;
             if (params.isSetTxnId()) {
@@ -2833,12 +2863,6 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetExportFiles()) {
                 updateExportFiles(params.getExportFiles());
-            }
-            if (params.isSetCommitInfos()) {
-                updateCommitInfos(params.getCommitInfos());
-            }
-            if (params.isSetErrorTabletInfos()) {
-                updateErrorTabletInfos(params.getErrorTabletInfos());
             }
             if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
                     || params.isSetMcCommitDatas()) {
