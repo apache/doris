@@ -739,6 +739,12 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
 
+// Dedicated load cancellation workers, default 32. Must be positive; requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+// Queue capacity for the dedicated load cancellation pool.
+// -1 selects max(1024, CPU cores * 32) queued requests. Requires a restart.
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
+
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
