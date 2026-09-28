@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -36,6 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 import java.util.Objects;
 
 /**
@@ -82,7 +85,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             return new TimestampTzLiteral(dateType, s);
         }
 
-        return fromSessionTimeZone(dateType, new DateTimeV2Literal(s));
+        return fromTimeZone(dateType, s, getSessionTimeZone());
     }
 
     /**
@@ -102,7 +105,24 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (DateTimeChecker.hasTimeZone(s)) {
             return new TimestampTzLiteral(dateType, s);
         }
-        return fromTimeZone(dateType, new DateTimeV2Literal(s), timeZone);
+        // Keep the seventh fractional digit until rounding to the target scale.
+        TemporalAccessor parsed = DateLiteral.parseDateTime(s).get();
+        int scale = dateType.getScale();
+        long divisor = (long) Math.pow(10, 9 - scale);
+        long nanos = DateUtils.getOrDefault(parsed, ChronoField.NANO_OF_SECOND);
+        long roundedNanos = (nanos + divisor / 2) / divisor * divisor;
+        LocalDateTime roundedLocal = LocalDateTime.of(
+                DateUtils.getOrDefault(parsed, ChronoField.YEAR),
+                DateUtils.getOrDefault(parsed, ChronoField.MONTH_OF_YEAR),
+                DateUtils.getOrDefault(parsed, ChronoField.DAY_OF_MONTH),
+                DateUtils.getOrDefault(parsed, ChronoField.HOUR_OF_DAY),
+                DateUtils.getOrDefault(parsed, ChronoField.MINUTE_OF_HOUR),
+                DateUtils.getOrDefault(parsed, ChronoField.SECOND_OF_MINUTE)).plusNanos(roundedNanos);
+        DateTimeV2Literal literal = new DateTimeV2Literal(DateTimeV2Type.of(scale),
+                roundedLocal.getYear(), roundedLocal.getMonthValue(), roundedLocal.getDayOfMonth(),
+                roundedLocal.getHour(), roundedLocal.getMinute(), roundedLocal.getSecond(),
+                roundedLocal.getNano() / 1000);
+        return fromTimeZone(dateType, literal, timeZone);
     }
 
     /**

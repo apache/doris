@@ -145,9 +145,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (DateTimeChecker.hasTimeZone(value)) {
                 return new TimestampTzLiteral(timeStampTzType, value);
             }
-            DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(
-                    DateTimeV2Type.MAX, strictCast);
-            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
+            return castToDateTime(timeStampTzType, strictCast);
         } else if (targetType.isTimeStampNsType() || targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
@@ -384,6 +382,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         } else if (targetType instanceof TimeStampNsType) {
             try {
                 return new TimeStampNsLiteral(format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        } else if (targetType instanceof TimeStampTzType) {
+            try {
+                return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) targetType, format);
             } catch (AnalysisException e) {
                 throw new CastException(e.getMessage(), e);
             }

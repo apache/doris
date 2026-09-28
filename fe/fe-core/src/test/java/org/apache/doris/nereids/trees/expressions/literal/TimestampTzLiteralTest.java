@@ -63,6 +63,40 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testZoneLessStringRoundsOnceAtTargetScale() {
+        Assertions.assertEquals("2024-11-03 05:59:59.999+00:00",
+                TimestampTzLiteral.fromTimeZone(TimeStampTzType.of(3),
+                        "2024-11-03 01:59:59.9994999", "America/New_York").getStringValue());
+        Assertions.assertEquals("2024-11-03 07:00:00.000+00:00",
+                TimestampTzLiteral.fromTimeZone(TimeStampTzType.of(3),
+                        "2024-11-03 01:59:59.9995000", "America/New_York").getStringValue());
+        Assertions.assertEquals("2024-11-03 07:00:00.000000+00:00",
+                TimestampTzLiteral.fromTimeZone(TimeStampTzType.of(6),
+                        "2024-11-03 01:59:59.9999999", "America/New_York").getStringValue());
+
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            TimestampTzLiteral cast = (TimestampTzLiteral) new StringLiteral(
+                    "2024-11-03 01:59:59.9994999").uncheckedCastTo(TimeStampTzType.of(3));
+            Assertions.assertEquals("2024-11-03 05:59:59.999+00:00", cast.getStringValue());
+            TimestampTzLiteral roundedUp = (TimestampTzLiteral) new StringLiteral(
+                    "2024-11-03 01:59:59.9995000").uncheckedCastTo(TimeStampTzType.of(3));
+            Assertions.assertEquals("2024-11-03 07:00:00.000+00:00", roundedUp.getStringValue());
+            Assertions.assertEquals("2024-11-03 05:59:59.999+00:00",
+                    TimestampTzLiteral.fromSessionTimeZone(TimeStampTzType.of(3),
+                            "2024-11-03 01:59:59.9994999").getStringValue());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     void testConstructorsAndParsing() {
         TimestampTzLiteral literal;
 
