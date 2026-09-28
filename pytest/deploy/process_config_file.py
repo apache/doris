@@ -81,20 +81,11 @@ def process_be_conf():
         pass
 
 
-def process_auditload_conf():
-    """"""
-    os.system('cp plugin_auditload.conf plugin_auditload.conf.out')
-    os.system('sed -i "s/password=.*/password=%s/g" plugin_auditload.conf.out' % env_config.fe_password)
-    os.system('sed -i "s/frontend_host_port=.*/frontend_host_port=%s:%s/g" plugin_auditload.conf.out' \
-              % (env_config.master, env_config.fe_query_port - 1000))
-
-
 def process_palo_conf():
     """process palo conf
     """
     process_fe_conf()
     process_be_conf()
-    process_auditload_conf()
 
 
 if __name__ == '__main__':
