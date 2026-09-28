@@ -26,7 +26,8 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
     def catalog = "test_paimon_rust_compatibility"
     def database = "test_paimon_rust_compatibility_db"
     def settings = ["enable_paimon_rust_reader", "force_jni_scanner",
-                    "enable_file_scanner_v2", "enable_profile", "enable_prune_nested_column"]
+                    "enable_file_scanner_v2", "enable_profile", "enable_prune_nested_column",
+                    "enable_push_down_no_group_agg"]
     def saved = settings.collectEntries { [(it): sql("select @@${it}")[0][0]] }
     sql "DROP CATALOG IF EXISTS ${catalog}"
     sql """CREATE CATALOG ${catalog} PROPERTIES (
@@ -61,6 +62,48 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 PROPERTIES ('primary-key'='id', 'bucket'='1', 'write-only'='true',
                     'deletion-vectors.enabled'='false' ${extra})"""
         }
+
+        sql """CREATE TABLE footer_aggregates (v INT NULL) ENGINE=paimon
+            PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+        sql "INSERT INTO footer_aggregates VALUES (NULL), (-3), (7), (NULL), (2), (5)"
+        def aggregateQueries = [
+            ["select count(v) from footer_aggregates", [[4]], "COUNT"],
+            ["select min(v), max(v) from footer_aggregates", [[-3,7]], "MINMAX"]]
+        def rawRows = { String profile ->
+            def values = (profile =~ /RawRowsRead: ([0-9]+)/).collect { it[1] as long }
+            assertFalse(values.isEmpty(), "missing Parquet RawRowsRead counter")
+            values
+        }
+        // Rust only replaces logical JNI splits. Native raw-file splits must retain footer
+        // aggregation with Rust enabled; result equality alone would hide a full-scan regression.
+        sql "set force_jni_scanner=false"
+        aggregateQueries.each { entry ->
+            [false, true].each { rustEnabled ->
+                sql "set enable_paimon_rust_reader=${rustEnabled}"
+                [false, true].each { pushdown ->
+                    sql "set enable_push_down_no_group_agg=${pushdown}"
+                    explain {
+                        sql(entry[0])
+                        contains "pushdown agg=${pushdown ? entry[2] : 'NONE'}"
+                        contains "paimonNativeReadSplits="
+                    }
+                    assertEquals(entry[1].toString(), sql(entry[0]).toString())
+                    def queryId = sql("select last_query_id()")[0][0].toString()
+                    def profile = profiles.getProfile(queryId, ["FileScannerV2", "ParquetReader"])
+                    assertFalse(profile.contains("PaimonRustReader"))
+                    def rows = rawRows(profile)
+                    if (pushdown) {
+                        assertTrue(rows.every { it == 0 }, "footer aggregate must not read data rows")
+                    } else {
+                        assertTrue(rows.any { it > 0 }, "full-scan control must read data rows")
+                    }
+                }
+            }
+        }
+        sql "set enable_push_down_no_group_agg=true"
+        sql "set force_jni_scanner=true"
+        // Forced logical splits still return real rows to the upper aggregate in both readers.
+        aggregateQueries.each { entry -> check(entry[0], entry[1], true) }
 
         createPk("nested_values", "v STRUCT<a:INT,b:INT>, arr ARRAY<STRUCT<a:INT,b:INT>>, "
                 + "m MAP<INT,STRUCT<a:INT,b:INT>>", "")

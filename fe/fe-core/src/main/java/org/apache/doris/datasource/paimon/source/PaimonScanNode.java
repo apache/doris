@@ -1216,6 +1216,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                 pushDownCountSplits.add(split);
                 pushDownCountSum += count;
             } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
+                // Keep raw-file reads ahead of logical JNI/Rust dispatch: only the native file
+                // reader can use footer aggregates for COUNT(col) and MIN/MAX. Logical DataSplits
+                // may require merge/delete semantics and cannot reuse independent file statistics.
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }

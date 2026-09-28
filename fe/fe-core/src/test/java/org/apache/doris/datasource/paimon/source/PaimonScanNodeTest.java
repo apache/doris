@@ -482,6 +482,34 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustEnabledKeepsNativeAggregateSplits() throws Exception {
+        SessionVariable session = new SessionVariable();
+        session.setEnablePaimonRustReader(true);
+        session.enableFileScannerV2 = true;
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), session));
+        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        setField(FileQueryScanNode.class, node, "fileSplitter",
+                new FileSplitter(64L * 1024 * 1024, 64L * 1024 * 1024, 0));
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+        DataSplit dataSplit = Mockito.spy(createDataSplit(Arrays.asList("first.parquet", "second.orc")));
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+
+        // File aggregates need native file readers; enabling Rust must not replace raw-file splits
+        // with logical DataSplits, which require row reads for COUNT(col) and MIN/MAX.
+        for (TPushAggOp aggregate : Arrays.asList(TPushAggOp.COUNT, TPushAggOp.MINMAX)) {
+            node.setPushDownAggNoGrouping(aggregate);
+            node.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
+            List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+            Assert.assertEquals(2, splits.size());
+            for (org.apache.doris.spi.Split split : splits) {
+                Assert.assertNull(((PaimonSplit) split).getSplit());
+                Assert.assertFalse(((PaimonSplit) split).getRowCount().isPresent());
+            }
+        }
+        Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
+    }
+
+    @Test
     public void testCountColumnKeepsAllSplitsWhileCountStarUsesMergedRowCount() throws UserException {
         PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), sv));
         node.setSource(mockPaimonSourceWithPartitionKeys(Collections.<String>emptyList()));
