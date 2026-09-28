@@ -45,7 +45,7 @@ suite("test_outfile_agg_state") {
     sql "insert into a_table values(1,max_by_state(2,2),group_concat_state('bb'));"
     sql "insert into a_table values(2,max_by_state(1,3),group_concat_state('ccc'));"
 
-    qt_test "select k1,max_by_merge(k2),group_concat_merge(k3) from a_table group by k1 order by k1;"
+    qt_test "select k1,max_by_merge(k2),array_join(array_sort(split_by_string(group_concat_merge(k3), ',')), ',') from a_table group by k1 order by k1;"
 
     sql """select * from a_table into outfile "file://${testHelper.remoteDir}/e_" FORMAT AS PARQUET;"""
     testHelper.collect()
@@ -67,7 +67,7 @@ suite("test_outfile_agg_state") {
     curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} -XPUT http://${context.config.feHttpAddress}/api/regression_test_query_p0_outfile_agg_state/a_table2/_stream_load
     """
     Thread.sleep(10000)
-    qt_test "select k1,max_by_merge(k2),group_concat_merge(k3) from a_table2 group by k1 order by k1;"
+    qt_test "select k1,max_by_merge(k2),array_join(array_sort(split_by_string(group_concat_merge(k3), ',')), ',') from a_table2 group by k1 order by k1;"
 
     testHelper.close()
 }
