@@ -1693,15 +1693,19 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(FoldConstantRule.INSTANCE)
         ));
-        assertRewriteAfterTypeCoercion("human_readable_seconds(0)", "'0s'");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(5)", "'5s'");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(60)", "'1m'");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(3661)", "'1h 1m 1s'");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(86400)", "'1d'");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(90061)", "'1d 1h 1m 1s'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(0)", "'0 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(1)", "'1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(60)", "'1 minute'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(-60)", "'1 minute'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(61)", "'1 minute, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(-61)", "'1 minute, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(3601)", "'1 hour, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(3660)", "'1 hour, 1 minute'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(8003)", "'2 hours, 13 minutes, 23 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(56363463)", "'93 weeks, 1 day, 8 hours, 31 minutes, 3 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(535333.9513888889)", "'6 days, 4 hours, 42 minutes, 14 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(535333.2513888889)", "'6 days, 4 hours, 42 minutes, 13 seconds'");
         assertRewriteAfterTypeCoercion("human_readable_seconds(null)", "null");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(-1)", "null");
-        assertRewriteAfterTypeCoercion("human_readable_seconds(9223372036854775807)", "'106751991167300d 15h 30m 7s'");
     }
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {

@@ -2708,39 +2708,40 @@ TEST(VTimestampFunctionsTest, add_union_functions_cover_all) {
     }
 }
 
-TEST(VTimestampFunctionsTest, test_human_readable_seconds_bigint) {
+TEST(VTimestampFunctionsTest, test_human_readable_seconds_double) {
     std::string func_name = "human_readable_seconds";
-    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
     DataSet data_set = {
-            {{int64_t(0)}, std::string("0s")},
-            {{int64_t(1)}, std::string("1s")},
-            {{int64_t(60)}, std::string("1m")},
-            {{int64_t(3661)}, std::string("1h 1m 1s")},
-            {{int64_t(86400)}, std::string("1d")},
-            {{int64_t(90061)}, std::string("1d 1h 1m 1s")},
-            {{int64_t(999999)}, std::string("11d 13h 46m 39s")},
+            {{double(0.0)}, std::string("0 seconds")},
+            {{double(1.0)}, std::string("1 second")},
+            {{double(60.0)}, std::string("1 minute")},
+            {{double(-60.0)}, std::string("1 minute")},
+            {{double(61.0)}, std::string("1 minute, 1 second")},
+            {{double(-61.0)}, std::string("1 minute, 1 second")},
+            {{double(3601.0)}, std::string("1 hour, 1 second")},
+            {{double(3660.0)}, std::string("1 hour, 1 minute")},
+            {{double(8003.0)}, std::string("2 hours, 13 minutes, 23 seconds")},
+            {{double(56363463.0)}, std::string("93 weeks, 1 day, 8 hours, 31 minutes, 3 seconds")},
+            {{double(535333.9513888889)}, std::string("6 days, 4 hours, 42 minutes, 14 seconds")},
+            {{double(535333.2513888889)}, std::string("6 days, 4 hours, 42 minutes, 13 seconds")},
             {{Null()}, Null()},
-            {{std::numeric_limits<int64_t>::max()}, std::string("106751991167300d 15h 30m 7s")},
-            {{std::numeric_limits<int64_t>::min()}, Null()},
-            {{int64_t(-1)}, Null()}};
+            {{std::numeric_limits<double>::quiet_NaN()}, Null()},
+            {{std::numeric_limits<double>::infinity()}, Null()},
+            {{-std::numeric_limits<double>::infinity()}, Null()}};
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
-TEST(VTimestampFunctionsTest, test_human_readable_seconds_int) {
+TEST(VTimestampFunctionsTest, test_human_readable_seconds_float) {
     std::string func_name = "human_readable_seconds";
-    InputTypeSet input_types = {PrimitiveType::TYPE_INT};
-    DataSet data_set = {{{int32_t(0)}, std::string("0s")},
-                        {{int32_t(1)}, std::string("1s")},
-                        {{int32_t(5)}, std::string("5s")},
-                        {{int32_t(60)}, std::string("1m")},
-                        {{int32_t(3661)}, std::string("1h 1m 1s")},
-                        {{int32_t(86400)}, std::string("1d")},
-                        {{int32_t(90061)}, std::string("1d 1h 1m 1s")},
-                        {{int32_t(999999)}, std::string("11d 13h 46m 39s")},
+    InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+    DataSet data_set = {{{float(0.0f)}, std::string("0 seconds")},
+                        {{float(1.0f)}, std::string("1 second")},
+                        {{float(60.0f)}, std::string("1 minute")},
+                        {{float(-60.0f)}, std::string("1 minute")},
+                        {{float(3601.0f)}, std::string("1 hour, 1 second")},
                         {{Null()}, Null()},
-                        {{std::numeric_limits<int32_t>::max()}, std::string("24855d 3h 14m 7s")},
-                        {{std::numeric_limits<int32_t>::min()}, Null()},
-                        {{int32_t(-1)}, Null()}};
+                        {{std::numeric_limits<float>::quiet_NaN()}, Null()},
+                        {{std::numeric_limits<float>::infinity()}, Null()}};
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
 
