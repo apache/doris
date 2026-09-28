@@ -26,6 +26,7 @@
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/pipeline/dependency.h"
@@ -182,6 +183,23 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_lo
     EXPECT_TRUE(pipeline.add_operator(child, 0).ok());
     pipeline.set_data_distribution(DataDistribution(ExchangeType::HASH_SHUFFLE));
     EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
+}
+
+TEST(AggOperatorRequiredDistributionTest, bucketed_agg_sink_passthrough_after_serial_child) {
+    OperatorContext ctx;
+    DescriptorTbl descs;
+    auto sink_op = std::make_shared<BucketedAggSinkOperatorX>(&ctx.pool, 0, 0, TPlanNode {}, descs);
+
+    // Each instance aggregates independently, so a non-serial child needs no local exchange.
+    auto child = std::make_shared<MockDistributionOperator>(ExchangeType::NOOP);
+    sink_op->_child = child;
+    EXPECT_EQ(ExchangeType::NOOP,
+              sink_op->required_data_distribution(&ctx.state).distribution_type);
+
+    // A serial child must be fanned out, otherwise the sink pipeline runs with one task.
+    child->set_serial_operator();
+    EXPECT_EQ(ExchangeType::PASSTHROUGH,
+              sink_op->required_data_distribution(&ctx.state).distribution_type);
 }
 
 std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, bool without_key,

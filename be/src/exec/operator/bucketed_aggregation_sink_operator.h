@@ -110,11 +110,13 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
-    // No local exchange needed — each instance builds its own hash tables independently.
+    // Each instance builds its own hash tables independently, so no hash shuffle is needed.
+    // A serial child still needs the default passthrough local exchange, otherwise the whole
+    // sink pipeline would run with a single task.
     DataDistribution required_data_distribution(RuntimeState* state) const override {
-        return DataDistribution(ExchangeType::NOOP);
+        return DataSinkOperatorX<BucketedAggSinkLocalState>::required_data_distribution(state);
     }
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
