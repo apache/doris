@@ -251,7 +251,6 @@ public class ExecuteCommand extends Command {
             }
             reparsedStatementContext.setPlaceholders(refreshedPlaceholders);
 
-            reparsedAdapter.setOrigStmt(currentCommand.getOriginalStmt());
             executor.setStatementContext(reparsedStatementContext);
             executor.setParsedStmt(reparsedAdapter);
             PrepareCommand refreshedCommand = new PrepareCommand(currentCommand.getName(),
