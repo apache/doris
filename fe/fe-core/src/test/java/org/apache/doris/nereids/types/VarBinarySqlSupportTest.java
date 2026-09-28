@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -74,6 +75,71 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
         // Byte-agnostic array construction and element access remain supported.
         PlanChecker.from(connectContext).analyze("select " + values + "[1] from source_bytes");
         PlanChecker.from(connectContext).analyze("select collect_list(cast(encoded as varbinary)) from source_bytes");
+    }
+
+    @Test
+    public void testBinaryInPredicatesFailDuringAnalysis() {
+        assertBinaryExpressionsRejected(new String[] {
+                "cast(encoded as varbinary) in (X'01', X'02')",
+                "cast(encoded as varbinary) not in (X'01', X'02')",
+                "cast(encoded as varbinary(2)) in (cast(encoded as varbinary(2)), cast(encoded as varbinary(2)))",
+                "cast(encoded as varbinary) in ('first', 'second')",
+                "encoded in (X'01', X'02')",
+                "array(cast(encoded as varbinary)) in (array(X'01'), array(X'02'))",
+                "struct(cast(encoded as varbinary)) in (struct(X'01'), struct(X'02'))"
+        });
+    }
+
+    @Test
+    public void testBinaryComparisonFunctionsFailDuringAnalysis() {
+        assertBinaryExpressionsRejected(new String[] {
+                "least(cast(encoded as varbinary), X'01')",
+                "greatest(cast(encoded as varbinary), X'01')",
+                "nullif(cast(encoded as varbinary), X'01')",
+                "least(encoded, X'01')",
+                "greatest('first', cast(encoded as varbinary(2)))",
+                "nullif(encoded, cast(encoded as varbinary(2)))",
+                "nullif(array(cast(encoded as varbinary)), array(X'01'))"
+        });
+    }
+
+    @Test
+    public void testBinaryValueSelectionRemainsSupported() {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newBehavior : new boolean[] {false, true}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                for (String expression : new String[] {
+                        "case when id = 1 then cast(encoded as varbinary) else X'01' end",
+                        "case when id = 1 then cast(encoded as varbinary) else 'text' end",
+                        "if(id = 1, cast(encoded as varbinary), X'01')",
+                        "coalesce(cast(encoded as varbinary), X'01')",
+                        "least(encoded, 'text')", "greatest(id, 1)", "nullif(encoded, 'text')",
+                        "id in (1, 2)", "encoded not in ('first', 'second')"}) {
+                    PlanChecker.from(connectContext).analyze("select " + expression + " from source_bytes");
+                }
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
+    }
+
+    private void assertBinaryExpressionsRejected(String[] expressions) {
+        boolean oldBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            for (boolean newBehavior : new boolean[] {false, true}) {
+                GlobalVariable.enableNewTypeCoercionBehavior = newBehavior;
+                Assertions.assertAll(java.util.Arrays.stream(expressions).map(expression -> () -> {
+                    org.apache.doris.nereids.exceptions.AnalysisException error = Assertions.assertThrows(
+                            org.apache.doris.nereids.exceptions.AnalysisException.class,
+                            () -> PlanChecker.from(connectContext).analyze("select " + expression + " from source_bytes"),
+                            expression);
+                    Assertions.assertTrue(error.getMessage().contains("does not support VARBINARY"), error.getMessage());
+                }));
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = oldBehavior;
+        }
     }
 
     @Test

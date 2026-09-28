@@ -78,6 +78,21 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     @Test
+    public void testBinaryColumnsMatchCdcJsonCarrier() throws Exception {
+        List<Column> sourceColumns = new ArrayList<>();
+        sourceColumns.add(new Column("payload", ScalarType.createVarbinaryType(16)));
+        sourceColumns.add(new Column("payloads", new ArrayType(ScalarType.createVarbinaryType(16))));
+        sourceColumns.add(new Column("nested", new ArrayType(new ArrayType(ScalarType.createVarbinaryType(16)))));
+        List<Column> columns = getTableColumns(baseProperties(), sourceColumns);
+
+        // JSON transports bytes as Base64 text; the TVF must not label that text as raw binary.
+        Assert.assertEquals("\"AQI=\"", OBJECT_MAPPER.writeValueAsString(new byte[] {1, 2}));
+        Assert.assertEquals(ScalarType.createStringType(), columns.get(0).getType());
+        Assert.assertEquals(new ArrayType(ScalarType.createStringType()), columns.get(1).getType());
+        Assert.assertEquals(new ArrayType(new ArrayType(ScalarType.createStringType())), columns.get(2).getType());
+    }
+
+    @Test
     public void testInvalidIncludeDeleteSignIsRejected() {
         Map<String, String> properties = baseProperties();
         properties.put(CdcStreamTableValuedFunction.INCLUDE_DELETE_SIGN, "invalid");

@@ -49,6 +49,8 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GreatestLeast;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -778,6 +780,9 @@ public class TypeCoercionUtils {
      * process BoundFunction type coercion
      */
     public static Expression processBoundFunction(BoundFunction boundFunction) {
+        if (boundFunction instanceof GreatestLeast || boundFunction instanceof NullIf) {
+            checkNoVarbinaryComparison(boundFunction.getName(), boundFunction.children());
+        }
         if (UNSUPPORTED_VARBINARY_COLLECTIONS.contains(boundFunction.getName())) {
             for (Expression argument : boundFunction.children()) {
                 DataType type = argument.getDataType();
@@ -1470,6 +1475,7 @@ public class TypeCoercionUtils {
     public static Expression processInPredicate(InPredicate inPredicate) {
         // check
         inPredicate.checkLegalityBeforeTypeCoercion();
+        checkNoVarbinaryComparison("IN/NOT IN", inPredicate.children());
 
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
@@ -2280,6 +2286,31 @@ public class TypeCoercionUtils {
         }
 
         return Optional.empty();
+    }
+
+    private static void checkNoVarbinaryComparison(String operation, List<Expression> arguments) {
+        // Common binary types support value selection, but BE comparison kernels do not.
+        // Check before equal-type shortcuts or casts can hide an unsupported binary argument.
+        for (Expression argument : arguments) {
+            if (containsVarbinary(argument.getDataType())) {
+                throw new AnalysisException(operation + " does not support VARBINARY arguments");
+            }
+        }
+    }
+
+    private static boolean containsVarbinary(DataType type) {
+        if (type instanceof ArrayType) {
+            return containsVarbinary(((ArrayType) type).getItemType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsVarbinary(field.getDataType()));
+        }
+        if (type instanceof MapType) {
+            return containsVarbinary(((MapType) type).getKeyType())
+                    || containsVarbinary(((MapType) type).getValueType());
+        }
+        return type.isVarBinaryType();
     }
 
     private static Optional<DataType> findCommonBinaryType(DataType left, DataType right) {

@@ -73,6 +73,20 @@ public class StreamingJobUtilsTest {
     }
 
     @Test
+    public void testNestedBinaryColumnsMatchCdcJsonCarrier() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payloads", new ArrayType(ScalarType.createVarbinaryType(16))));
+        columns.add(new Column("nested", new ArrayType(new ArrayType(ScalarType.createVarbinaryType(16)))));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", new ArrayList<>());
+
+        Assert.assertEquals(new ArrayType(ScalarType.createStringType()), result.get(0).getType());
+        Assert.assertEquals(new ArrayType(new ArrayType(ScalarType.createStringType())), result.get(1).getType());
+    }
+
+    @Test
     public void testCdcRetainsTimestampCarrierIndependentlyOfJdbcCatalogMapping() {
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("event_time", ScalarType.createTimeStampTzType(6)));

@@ -490,14 +490,18 @@ public class StreamingJobUtils {
         return createtblCmds;
     }
 
-    public static Type getCdcTimestampType(Type sourceType) {
+    public static Type getCdcTransportType(Type sourceType) {
+        // CDC JSON carries Base64 text, which the VARBINARY JSON reader would treat as raw bytes.
+        if (sourceType.isVarbinaryType()) {
+            return ScalarType.createStringType();
+        }
         // CDC emits unzoned JSON text, unlike JDBC's instant-aware Arrow/JNI carrier.
         // Keep both the JSON reader and OLAP target on the existing wall-clock contract.
         if (sourceType.isTimeStampTz()) {
             return ScalarType.createDatetimeV2Type(((ScalarType) sourceType).getScalarScale());
         }
         if (sourceType.isArrayType()) {
-            return new ArrayType(getCdcTimestampType(((ArrayType) sourceType).getItemType()));
+            return new ArrayType(getCdcTransportType(((ArrayType) sourceType).getItemType()));
         }
         return sourceType;
     }
@@ -508,13 +512,10 @@ public class StreamingJobUtils {
             List<String> primaryKeys) {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
-            col.setType(getCdcTimestampType(col.getType()));
+            col.setType(getCdcTransportType(col.getType()));
             Preconditions.checkArgument(!col.getType().isUnsupported(),
                     "Unsupported column type, table:[%s], column:[%s]", table, col.getName());
-            if (col.getDataType() == PrimitiveType.VARBINARY) {
-                // JDBC catalogs retain binary identity, but CDC targets must use OLAP storage types.
-                col.setType(ScalarType.createStringType());
-            } else if (col.getType().isVarchar()) {
+            if (col.getType().isVarchar()) {
                 // The length of varchar needs to be multiplied by 3.
                 int len = col.getType().getLength() * 3;
                 if (len > ScalarType.MAX_VARCHAR_LENGTH) {
