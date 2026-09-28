@@ -110,8 +110,12 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
             String timeZone) {
+        // A rounding carry can leave a DST overlap. Resolve the rounded civil time as BE does.
+        DateTimeV2Literal roundedLocal = new DateTimeV2Literal(DateTimeV2Type.of(dateType.getScale()),
+                literal.year, literal.month, literal.day, literal.hour, literal.minute, literal.second,
+                literal.microSecond);
         DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                literal,
+                roundedLocal,
                 new StringLiteral(timeZone),
                 new StringLiteral("UTC"));
         return new TimestampTzLiteral(dateType,

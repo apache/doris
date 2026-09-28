@@ -27,6 +27,42 @@ import org.junit.jupiter.api.Test;
 class TimestampTzLiteralTest {
 
     @Test
+    void testRoundLocalDatetimeBeforeResolvingDstOverlap() {
+        TimestampTzLiteral literal = TimestampTzLiteral.fromTimeZone(TimeStampTzType.of(3),
+                new DateTimeV2Literal("2024-11-03 01:59:59.999500"), "America/New_York");
+        Assertions.assertEquals("2024-11-03 07:00:00.000+00:00", literal.getStringValue());
+        Assertions.assertEquals("2024-11-03 05:59:59.999+00:00",
+                TimestampTzLiteral.fromTimeZone(TimeStampTzType.of(3),
+                        new DateTimeV2Literal("2024-11-03 01:59:59.999499"), "America/New_York")
+                        .getStringValue());
+        Assertions.assertEquals("2024-03-10 07:00:00.000+00:00",
+                TimestampTzLiteral.fromTimeZone(TimeStampTzType.of(3),
+                        new DateTimeV2Literal("2024-03-10 01:59:59.999500"), "America/New_York")
+                        .getStringValue());
+    }
+
+    @Test
+    void testDatetimeCastRoundsBeforeResolvingSessionZone() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            TimestampTzLiteral cast = (TimestampTzLiteral) new DateTimeV2Literal(
+                    "2024-11-03 01:59:59.999500").uncheckedCastTo(TimeStampTzType.of(3));
+            Assertions.assertEquals("2024-11-03 07:00:00.000+00:00", cast.getStringValue());
+            TimestampTzLiteral reportedCase = (TimestampTzLiteral) new DateTimeV2Literal(
+                    "2024-11-03 01:59:59.999999").uncheckedCastTo(TimeStampTzType.of(3));
+            Assertions.assertEquals("2024-11-03 07:00:00.000+00:00", reportedCase.getStringValue());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     void testConstructorsAndParsing() {
         TimestampTzLiteral literal;
 
