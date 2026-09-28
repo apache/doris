@@ -118,6 +118,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
+    private volatile PaimonRustReaderCapabilities rustReaderCapabilities;
     private long maxRetainedSerializedTaskBytes = MAX_RETAINED_SERIALIZED_TASK_BYTES;
     // The keys of incremental read params for Paimon SDK
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
@@ -1020,6 +1021,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
                     && schemeCapabilityVerified && hdfsBackendVerified
                     && paimonFileStoreTable != null;
+            if (canUseRust) {
+                if (rustReaderCapabilities == null) {
+                    rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
+                }
+                canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
+            }
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
