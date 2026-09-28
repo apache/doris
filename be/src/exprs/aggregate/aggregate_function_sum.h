@@ -26,6 +26,8 @@
 #include <vector>
 
 #include "common/compiler_util.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
@@ -34,6 +36,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
+#include "exec/common/arithmetic_overflow.h"
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
@@ -81,6 +84,7 @@ class AggregateFunctionSum<T, TResult, Data> final
           UnaryExpression,
           NullableAggregateFunction {
 public:
+    using ResultCppType = typename PrimitiveTypeTraits<TResult>::CppType;
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
@@ -102,19 +106,20 @@ public:
 
     bool is_trivial() const override { return true; }
 
+    void set_check_overflow_for_decimal(bool v) override { _check_overflow_for_decimal = v; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        this->data(place).add(
-                typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+        add_value(this->data(place), ResultCppType(column.get_data()[row_num]));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        this->data(place).merge(this->data(rhs));
+        add_value(this->data(place), this->data(rhs).sum);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -155,7 +160,7 @@ public:
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            state.sum = typename PrimitiveTypeTraits<TResult>::CppType(src_data[i]);
+            state.sum = ResultCppType(src_data[i]);
         }
     }
 
@@ -167,7 +172,7 @@ public:
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
-            this->data(place).sum += data[i].sum;
+            add_value(this->data(place), data[i].sum);
         }
     }
 
@@ -227,12 +232,10 @@ public:
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
                 outcoming_pos < partition_end) {
-                this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::CppType(-data[outcoming_pos]));
+                sub_value(this->data(place), ResultCppType(data[outcoming_pos]));
             }
             if (!end_is_nul && incoming_pos >= partition_start && incoming_pos < partition_end) {
-                this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::CppType(data[incoming_pos]));
+                add_value(this->data(place), ResultCppType(data[incoming_pos]));
             }
         } else {
             this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
@@ -256,8 +259,7 @@ public:
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
             for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
-                this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+                add_value(this->data(place), ResultCppType(column.get_data()[row_num]));
             }
             *use_null_result = false;
             *could_use_previous_result = true;
@@ -265,7 +267,45 @@ public:
     }
 
 private:
+    void throw_overflow() const {
+        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+    }
+
+    void add_value(Data& state, ResultCppType value) const {
+        if constexpr (is_decimalv3(TResult)) {
+            if (_check_overflow_for_decimal) [[unlikely]] {
+                using NativeType = typename ResultCppType::NativeType;
+                NativeType res;
+                if (common::add_overflow(static_cast<NativeType>(state.sum),
+                                         static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                state.sum = ResultCppType(res);
+                return;
+            }
+        }
+        state.add(value);
+    }
+
+    void sub_value(Data& state, ResultCppType value) const {
+        if constexpr (is_decimalv3(TResult)) {
+            if (_check_overflow_for_decimal) [[unlikely]] {
+                using NativeType = typename ResultCppType::NativeType;
+                NativeType res;
+                if (common::sub_overflow(static_cast<NativeType>(state.sum),
+                                         static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                state.sum = ResultCppType(res);
+                return;
+            }
+        }
+        // Keep historical wraparound path for non-decimal / check-off.
+        state.add(ResultCppType(-value));
+    }
+
     UInt32 scale;
+    bool _check_overflow_for_decimal = false;
 };
 
 constexpr PrimitiveType result_type(PrimitiveType T) {

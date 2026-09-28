@@ -30,6 +30,8 @@
 #include <vector>
 
 #include "common/compiler_util.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_fixed_length_object.h"
@@ -39,6 +41,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "exec/common/arithmetic_overflow.h"
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
@@ -165,6 +168,8 @@ public:
 
     bool is_trivial() const override { return true; }
 
+    void set_check_overflow_for_decimal(bool v) override { _check_overflow_for_decimal = v; }
+
     template <bool is_add>
     NO_SANITIZE_UNDEFINED void update_value(AggregateDataPtr __restrict place,
                                             const IColumn** columns, ssize_t row_num) const {
@@ -174,8 +179,10 @@ public:
         if constexpr (is_add) {
             if constexpr (T == TYPE_DECIMALV2) {
                 this->data(place).sum += column.get_data()[row_num];
-            } else if constexpr (is_decimal(T)) {
-                this->data(place).sum += column.get_data()[row_num].value;
+            } else if constexpr (is_decimalv3(T)) {
+                add_sum(this->data(place),
+                        ResultType(static_cast<typename ResultType::NativeType>(
+                                column.get_data()[row_num].value)));
             } else {
                 this->data(place).sum += (DataType)column.get_data()[row_num];
             }
@@ -183,8 +190,10 @@ public:
         } else {
             if constexpr (T == TYPE_DECIMALV2) {
                 this->data(place).sum += -column.get_data()[row_num];
-            } else if constexpr (is_decimal(T)) {
-                this->data(place).sum -= column.get_data()[row_num].value;
+            } else if constexpr (is_decimalv3(T)) {
+                sub_sum(this->data(place),
+                        ResultType(static_cast<typename ResultType::NativeType>(
+                                column.get_data()[row_num].value)));
             } else {
                 this->data(place).sum -= (DataType)column.get_data()[row_num];
             }
@@ -206,8 +215,8 @@ public:
                                      Arena&) const override {
         if constexpr (T == TYPE_DECIMALV2) {
             this->data(place).sum += this->data(rhs).sum;
-        } else if constexpr (is_decimal(T)) {
-            this->data(place).sum += this->data(rhs).sum.value;
+        } else if constexpr (is_decimalv3(T)) {
+            add_sum(this->data(place), this->data(rhs).sum);
         } else {
             this->data(place).sum += this->data(rhs).sum;
         }
@@ -225,7 +234,9 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&, TypeCheckOnRelease::DISABLE>(to);
-        if constexpr (is_decimal(T)) {
+        if constexpr (is_decimalv3(T)) {
+            column.get_data().push_back(finalize_decimal(this->data(place)));
+        } else if constexpr (is_decimal(T)) {
             column.get_data().push_back(this->data(place).template result<ResultType>(multiplier));
         } else {
             column.get_data().push_back(this->data(place).template result<ResultType>());
@@ -267,7 +278,11 @@ public:
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = begin; i <= end; ++i) {
-            this->data(place).sum += data[i].sum;
+            if constexpr (is_decimalv3(T)) {
+                add_sum(this->data(place), data[i].sum);
+            } else {
+                this->data(place).sum += data[i].sum;
+            }
             this->data(place).count += data[i].count;
         }
     }
@@ -356,8 +371,69 @@ public:
     }
 
 private:
+    void throw_overflow() const {
+        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+    }
+
+    void add_sum(Data& state, ResultType value) const {
+        if constexpr (is_decimalv3(TResult)) {
+            if (_check_overflow_for_decimal) [[unlikely]] {
+                using NativeType = typename ResultType::NativeType;
+                NativeType res;
+                if (common::add_overflow(static_cast<NativeType>(state.sum),
+                                         static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                state.sum = ResultType(res);
+                return;
+            }
+            state.sum += static_cast<typename ResultType::NativeType>(value);
+        }
+    }
+
+    void sub_sum(Data& state, ResultType value) const {
+        if constexpr (is_decimalv3(TResult)) {
+            if (_check_overflow_for_decimal) [[unlikely]] {
+                using NativeType = typename ResultType::NativeType;
+                NativeType res;
+                if (common::sub_overflow(static_cast<NativeType>(state.sum),
+                                         static_cast<NativeType>(value), res)) {
+                    throw_overflow();
+                }
+                state.sum = ResultType(res);
+                return;
+            }
+            state.sum -= static_cast<typename ResultType::NativeType>(value);
+        }
+    }
+
+    ResultType finalize_decimal(const Data& state) const {
+        if constexpr (is_decimalv3(TResult)) {
+            if (!state.count) {
+                return static_cast<ResultType>(state.sum);
+            }
+            if (_check_overflow_for_decimal) [[unlikely]] {
+                using NativeType = typename ResultType::NativeType;
+                NativeType scaled;
+                if (common::mul_overflow(static_cast<NativeType>(state.sum),
+                                         static_cast<NativeType>(multiplier), scaled)) {
+                    throw_overflow();
+                }
+                if constexpr (TResult == TYPE_DECIMAL256) {
+                    return ResultType(scaled) / ResultType(state.count);
+                } else {
+                    return ResultType(scaled) / static_cast<ResultType>(state.count);
+                }
+            }
+            return state.template result<ResultType>(multiplier);
+        } else {
+            return ResultType {};
+        }
+    }
+
     uint32_t output_scale;
     ResultType multiplier;
+    bool _check_overflow_for_decimal = false;
 };
 
 } // namespace doris

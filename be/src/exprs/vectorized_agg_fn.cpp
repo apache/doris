@@ -296,6 +296,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         _function->set_query_context(state->get_query_ctx());
     }
 
+    // Query-side only: storage-created aggregate functions never go through AggFnEvaluator.
+    _function->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
+
     // Foreachv2, like foreachv1, does not check the return type,
     // because its return type is related to the internal agg.
     if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) &&
