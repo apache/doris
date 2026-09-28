@@ -674,9 +674,6 @@ public class VariableMgr {
         }
         VarContext ctx = getVarContext(name);
         if (ctx == null) {
-            if (SessionVariable.AUTO_INCREMENT_INCREMENT.equalsIgnoreCase(name)) {
-                return org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral.of(1);
-            }
             return null;
         }
 

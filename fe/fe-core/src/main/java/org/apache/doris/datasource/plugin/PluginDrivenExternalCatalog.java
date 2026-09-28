@@ -69,6 +69,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorPartitionFieldCo
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -267,7 +268,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         try {
             FileSystemFactory.bindAllStorageProperties(property.getProperties());
-        } catch (RuntimeException e) {
+        } catch (IllegalArgumentException | StoragePropertiesException e) {
             throw new DdlException(e.getMessage(), e);
         }
     }
