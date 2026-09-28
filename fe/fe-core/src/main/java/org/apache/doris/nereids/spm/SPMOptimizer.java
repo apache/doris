@@ -115,6 +115,22 @@ public class SPMOptimizer {
             // comparator family (whole RuleTypeClass excluded); this rule was the only
             // unexcluded one.
             "PUSH_DOWN_AGG_THROUGH_JOIN_ON_PKFK",
+            // uniqueness-dependent rewrites: each fires only when DataTrait proves the
+            // relevant slots UNIQUE (and NOT NULL), and that proof may come from a
+            // DECLARED UNIQUE constraint - which schemaFingerprint does not capture (it
+            // hashes only the table id + base columns), so dropping the declaration
+            // after freezing would leave the rewrite in place:
+            // - SIMPLIFY_WINDOW_EXPRESSION / AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION:
+            //   Window(SUM(v) PARTITION BY k) -> Project(v) -> Scan(t) once t declares
+            //   UNIQUE(k); after dropping the declaration and adding (k,10),(k,20) the
+            //   original window returns 30,30 while the frozen replay returns 10,20;
+            // - PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN / _PROJECT_JOIN: a hard TopN
+            //   pushed through the join / project retains rows justified by the
+            //   declared uniqueness.
+            "SIMPLIFY_WINDOW_EXPRESSION",
+            "AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION",
+            "PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN",
+            "PUSH_DOWN_TOP_N_DISTINCT_THROUGH_PROJECT_JOIN",
 
             // ===== category 4: equivalence derivation =====
             "INFER_PREDICATES",                  // predicate derivation

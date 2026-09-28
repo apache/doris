@@ -146,6 +146,16 @@ public class PlanCaptureFilter {
         return matchesTablePattern(tables);
     }
 
+    /** Result of one namespace-aware table existence check (see {@link #checkAllTablesExist}). */
+    public enum TableLookup {
+        /** every requested table resolved */
+        EXISTS,
+        /** the catalog answered: at least one table is definitively absent */
+        MISSING,
+        /** metadata could not be consulted (catalog still initializing / metadata outage) */
+        UNAVAILABLE
+    }
+
     /**
      * Level 4: whether all the given tables still exist in the CAPTURED namespace.
      *
@@ -156,56 +166,95 @@ public class PlanCaptureFilter {
      * captured namespace, so resolving db.table internally would either filter out valid
      * external joins or accidentally validate them against an unrelated internal table).
      *
+     * A transient catalog initialization / metadata failure is reported as UNAVAILABLE
+     * instead of MISSING: the caller must keep the audit row eligible for a retry, while
+     * `!allTablesExist` used to make it terminal and advance the keyset cursor past it.
+     *
      * @param tables          distinct table full names (catalog.db.table / db.table / table)
      * @param capturedCatalog the audited query's catalog (may be empty -> internal)
      * @param capturedDb      the audited query's database (may be empty -> unknown)
-     * @return true when every table resolves, false otherwise
+     * @return EXISTS / MISSING (definitive) / UNAVAILABLE (retryable metadata failure)
      */
-    public boolean allTablesExist(List<String> tables, String capturedCatalog, String capturedDb) {
+    public TableLookup checkAllTablesExist(List<String> tables, String capturedCatalog,
+            String capturedDb) {
+        boolean unavailable = false;
         for (String fullName : tables) {
-            if (!tableExists(fullName, capturedCatalog, capturedDb)) {
-                return false;
+            TableLookup result = tableExists(fullName, capturedCatalog, capturedDb);
+            if (result == TableLookup.MISSING) {
+                return TableLookup.MISSING; // definitive: this table does not resolve
+            }
+            if (result == TableLookup.UNAVAILABLE) {
+                unavailable = true;
             }
         }
-        return true;
+        return unavailable ? TableLookup.UNAVAILABLE : TableLookup.EXISTS;
     }
 
-    private boolean tableExists(String fullName, String capturedCatalog, String capturedDb) {
+    /**
+     * Boolean variant of {@link #checkAllTablesExist} (callers / tests that treat every
+     * non-EXISTS outcome as "not capturable").
+     *
+     * @param tables          distinct table full names
+     * @param capturedCatalog the audited query's catalog (may be empty -> internal)
+     * @param capturedDb      the audited query's database (may be empty -> unknown)
+     * @return whether every table resolves
+     */
+    public boolean allTablesExist(List<String> tables, String capturedCatalog, String capturedDb) {
+        return checkAllTablesExist(tables, capturedCatalog, capturedDb) == TableLookup.EXISTS;
+    }
+
+    private TableLookup tableExists(String fullName, String capturedCatalog, String capturedDb) {
+        // Quote-aware split (inverse of joinNameParts): a table COMPONENT may itself
+        // contain dots (`t.a` under enable_unicode_name_support), so a plain split(".")
+        // would mistake it for a db.table pair and reject a valid join.
+        List<String> parts = splitQualifiedName(fullName);
+        String catalogName = capturedCatalog;
+        String dbName = capturedDb;
+        String tableName;
+        if (parts.size() >= 3) {
+            catalogName = parts.get(parts.size() - 3);
+            dbName = parts.get(parts.size() - 2);
+            tableName = parts.get(parts.size() - 1);
+        } else if (parts.size() == 2) {
+            // db.table is relative to the current catalog
+            dbName = parts.get(parts.size() - 2);
+            tableName = parts.get(parts.size() - 1);
+        } else {
+            // plain table name without a db qualifier: treat as existing (cannot
+            // verify unambiguously)
+            return TableLookup.EXISTS;
+        }
+        CatalogIf catalog;
         try {
-            // Quote-aware split (inverse of joinNameParts): a table COMPONENT may itself
-            // contain dots (`t.a` under enable_unicode_name_support), so a plain
-            // split(".") would mistake it for a db.table pair and reject a valid join.
-            List<String> parts = splitQualifiedName(fullName);
-            String catalogName = capturedCatalog;
-            String dbName = capturedDb;
-            String tableName;
-            if (parts.size() >= 3) {
-                catalogName = parts.get(parts.size() - 3);
-                dbName = parts.get(parts.size() - 2);
-                tableName = parts.get(parts.size() - 1);
-            } else if (parts.size() == 2) {
-                // db.table is relative to the current catalog
-                dbName = parts.get(parts.size() - 2);
-                tableName = parts.get(parts.size() - 1);
-            } else {
-                // plain table name without a db qualifier: treat as existing (cannot
-                // verify unambiguously)
-                return true;
-            }
-            CatalogIf catalog = (catalogName == null || catalogName.isEmpty())
+            catalog = (catalogName == null || catalogName.isEmpty())
                     ? Env.getCurrentInternalCatalog()
                     : Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
-            if (catalog == null || dbName == null || dbName.isEmpty()) {
-                return false;
-            }
+        } catch (Throwable t) {
+            // a lookup failure is retryable; a NULL result (no such catalog) is
+            // definitive and handled below
+            return TableLookup.UNAVAILABLE;
+        }
+        if (catalog == null || dbName == null || dbName.isEmpty()) {
+            return TableLookup.MISSING;
+        }
+        try {
             DatabaseIf db = catalog.getDbNullable(dbName);
             if (db == null) {
-                return false;
+                // An EXTERNAL catalog that has not finished (or failed) initializing
+                // answers null although the database may well exist; a transient outage
+                // on the capturing FE must not become a permanent terminal decision.
+                if (catalog instanceof org.apache.doris.datasource.ExternalCatalog
+                        && !((org.apache.doris.datasource.ExternalCatalog) catalog)
+                                .isInitialized()) {
+                    return TableLookup.UNAVAILABLE;
+                }
+                return TableLookup.MISSING; // the catalog answered: db absent
             }
-            return db.getTableNullable(tableName) != null;
-        } catch (Exception e) {
-            // missing catalog (DdlException) or any resolution failure: not capturable
-            return false;
+            return db.getTableNullable(tableName) != null
+                    ? TableLookup.EXISTS : TableLookup.MISSING;
+        } catch (Throwable t) {
+            // metadata fetch failure (external metastore outage, ...): retryable
+            return TableLookup.UNAVAILABLE;
         }
     }
 

@@ -154,6 +154,40 @@ public class SPMPlaceholderEngineTest {
     }
 
     @Test
+    public void testMixedInOptionsGetIndependentPositions() {
+        // a IN (1, b, 1): the two repeated literal options are DIFFERENT positions under
+        // the InPredicate. Visiting both with the same (stale outer) child index merged
+        // them into ONE placeholder id, so a structurally matching a IN (2, b, 3) was
+        // rejected by the one-id-one-value rule and the baseline could never hit.
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        InPredicate bind = new InPredicate(a,
+                List.of(new IntegerLiteral(1), b, new IntegerLiteral(1)));
+
+        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
+
+        Assertions.assertEquals(2, builder.getPlaceholderExprs().size(),
+                "the two repeated 1 positions must get independent placeholder ids");
+        InPredicate parameterizedIn = (InPredicate) parameterized;
+        SpmConstVar first = (SpmConstVar) parameterizedIn.getOptions().get(0);
+        SpmConstVar second = (SpmConstVar) parameterizedIn.getOptions().get(2);
+        Assertions.assertNotEquals(first.getId(), second.getId());
+
+        // the structure-identical list with DISTINCT values extracts per position
+        InPredicate user = new InPredicate(a,
+                List.of(new IntegerLiteral(2), b, new IntegerLiteral(3)));
+        Map<Long, Expression> extraction = new HashMap<>();
+        Assertions.assertTrue(
+                new SPMAstCheckVisitor().checkExpression(parameterized, user, extraction),
+                "a IN (2, b, 3) must match the a IN (1, b, 1) baseline structurally");
+        Assertions.assertEquals(2, extraction.size(),
+                "each repeated position extracts its OWN value: " + extraction);
+        Assertions.assertEquals(new IntegerLiteral(2), extraction.get(first.getId()));
+        Assertions.assertEquals(new IntegerLiteral(3), extraction.get(second.getId()));
+    }
+
+    @Test
     public void testParameterizeInList() {
         // WHERE b IN (2, 3) -> WHERE b IN (_spm_const_list(1, 2, 3))
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);

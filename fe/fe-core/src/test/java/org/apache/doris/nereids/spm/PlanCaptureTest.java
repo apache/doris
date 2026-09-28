@@ -630,4 +630,109 @@ public class PlanCaptureTest {
                         + statements.get(0));
         manager.resetForTest();
     }
-}
+    // ==================== unavailable external metadata stays retryable (round-13) ====================
+
+    /**
+     * An EXTERNAL catalog that has not finished (or failed) initializing answers null
+     * from getDbNullable although the database may well exist. The old code could not
+     * distinguish that from a confirmed missing table, made the audit row TERMINAL and
+     * advanced the keyset cursor past it - an otherwise eligible external query was lost
+     * permanently during a transient outage on the capturing FE.
+     */
+    @Test
+    public void testUnavailableExternalMetadataIsRetryable() throws Exception {
+        PlanCaptureFilter captureFilter = new PlanCaptureFilter("", "");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            org.apache.doris.datasource.ExternalCatalog external =
+                    Mockito.mock(org.apache.doris.datasource.ExternalCatalog.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            Mockito.when(external.isInitialized()).thenReturn(false);
+            Mockito.when(external.getDbNullable("ext_db")).thenReturn(null);
+
+            Assertions.assertEquals(PlanCaptureFilter.TableLookup.UNAVAILABLE,
+                    captureFilter.checkAllTablesExist(
+                            List.of("ext_cat.ext_db.t1", "ext_cat.ext_db.t2"),
+                            "ext_cat", "ext_db"),
+                    "an uninitialized external catalog answers null for a db that may"
+                            + " well exist: the row must stay eligible");
+
+            // once initialized, an absent db is definitive
+            Mockito.when(external.isInitialized()).thenReturn(true);
+            Assertions.assertEquals(PlanCaptureFilter.TableLookup.MISSING,
+                    captureFilter.checkAllTablesExist(
+                            List.of("ext_cat.ext_db.t1"), "ext_cat", "ext_db"),
+                    "an initialized catalog that reports no db is a definitive miss");
+        }
+    }
+
+    @Test
+    public void testMetadataFetchFailureIsRetryable() throws Exception {
+        PlanCaptureFilter captureFilter = new PlanCaptureFilter("", "");
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            org.apache.doris.datasource.ExternalCatalog external =
+                    Mockito.mock(org.apache.doris.datasource.ExternalCatalog.class);
+            org.apache.doris.datasource.ExternalDatabase<?> db =
+                    Mockito.mock(org.apache.doris.datasource.ExternalDatabase.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            Mockito.when(external.isInitialized()).thenReturn(true);
+            // doReturn (Object-typed) sidesteps the covariantly narrowed return type of
+            // ExternalCatalog#getDbNullable (a DatabaseIf mock would fail its runtime
+            // return-type check)
+            Mockito.doReturn(db).when(external).getDbNullable("ext_db");
+            // the metastore is briefly unreachable
+            Mockito.when(db.getTableNullable("t1"))
+                    .thenThrow(new RuntimeException("metastore unavailable"));
+
+            Assertions.assertEquals(PlanCaptureFilter.TableLookup.UNAVAILABLE,
+                    captureFilter.checkAllTablesExist(
+                            List.of("ext_cat.ext_db.t1"), "ext_cat", "ext_db"),
+                    "a metadata fetch failure must be a retryable outcome, not a"
+                            + " confirmed missing table");
+        }
+    }
+
+    /**
+     * End to end at the manager level: a candidate whose table metadata is unavailable
+     * must report a NON-terminal failure (kept retryable) instead of being marked
+     * processed and stepped over by the keyset cursor.
+     */
+    @Test
+    public void testUnavailableMetadataKeepsCandidateRetryable() throws Exception {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            org.apache.doris.datasource.ExternalCatalog external =
+                    Mockito.mock(org.apache.doris.datasource.ExternalCatalog.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            Mockito.when(external.isInitialized()).thenReturn(false);
+            Mockito.when(external.getDbNullable("ext_db")).thenReturn(null);
+
+            CapturedQuery candidate = new CapturedQuery(
+                    "SELECT t1.a FROM ext_cat.ext_db.t1 t1 JOIN ext_cat.ext_db.t2 t2"
+                            + " ON t1.a = t2.a",
+                    5000, 100000, 0, "digest-lookup", "hash", "ext_db", "ext_cat",
+                    "qid-lookup");
+            Assertions.assertFalse(manager.processCandidateForTest(candidate),
+                    "unavailable metadata must be a RETRYABLE failure, not a permanent"
+                            + " terminal decision that makes the row unreachable");
+            manager.handleCandidateForTest(candidate);
+            Assertions.assertTrue(manager.isQueuedForTest("qid-lookup"),
+                    "the candidate must be queued for a later retry");
+            Assertions.assertFalse(manager.isQueryIdTrackedForTest("qid-lookup"),
+                    "a deferred candidate must not be consumed");
+        } finally {
+            manager.resetForTest();
+        }
+    }}

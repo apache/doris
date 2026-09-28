@@ -209,10 +209,27 @@ public class SQLRelation {
                 newAlias();
                 return "(" + toSQL() + ") " + relationName;
             }
+            if (hasOwnBlock()) {
+                // This relation already carries its OWN semantic query block (e.g. the
+                // ORDER BY / LIMIT folded in by visitPhysicalTopN / visitPhysicalLimit):
+                // the clauses belong to the embedded fragment, and returning the bare
+                // FROM would silently DROP them. Fixture: Filter -> TopN -> Scan with
+                // rows id=0,1, "ORDER BY id LIMIT 1" under an outer id=1 filter must
+                // return NO row, while the flat "... FROM t WHERE id=1" returned id 1.
+                newAlias();
+                return "(" + toSQL() + ") " + relationName;
+            }
             return from;
         }
         if (fromCarriesAlias) {
-            return from;
+            if (!hasOwnBlock()) {
+                return from;
+            }
+            // Clauses attached ABOVE a completed set relation (its FROM text already
+            // carries its own alias) must be wrapped, not dropped. The wrapper gets a
+            // FRESH alias: the old one still names the derived table inside FROM.
+            newAlias();
+            return "(" + toSQL() + ") " + relationName;
         }
         return "(" + toSQL() + ") " + relationName;
     }

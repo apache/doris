@@ -31,6 +31,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
@@ -348,5 +350,98 @@ public class BaselineManagerConcurrencyTest {
         // the snapshot rows are already parsed (transient trees would be rebuilt by the
         // real reader); the generation-discard test only needs the id set
         return plan;
+    }
+
+    // ==================== confirmed post-forward DDL refresh (round-13) ====================
+
+    /**
+     * loaded == true and the post-DDL read fails transiently: the old best-effort refresh
+     * swallowed the error and kept the (possibly PRE-DDL) rows - a successful DROP /
+     * disable kept replaying locally. The confirmed path must fence the stale rows out
+     * and surface a retryable failure instead of pretending success.
+     */
+    @Test
+    public void testForwardedDdlConfirmationFailsClosedOnReadError() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, baseline("d1", "p1"));
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+            Assertions.assertTrue(manager.hasBaselines(), "fixture row must be loaded");
+
+            BaselineManager.snapshotReaderForTest = () -> {
+                throw new RuntimeException("tablet unavailable");
+            };
+            Assertions.assertThrows(IllegalStateException.class,
+                    manager::refreshAfterForwardedDdl,
+                    "an unconfirmable post-DDL read must surface as a retryable failure");
+            Assertions.assertFalse(manager.hasBaselines(),
+                    "the possibly pre-DDL rows must be fenced out instead of replaying a"
+                            + " dropped / disabled baseline");
+        } finally {
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * loaded == false and an OLDER load (started before the DDL) holds the load slot: the
+     * old initial-load branch returned without fencing it, so its pre-DDL snapshot could
+     * publish afterwards (a CREATE stayed invisible). The confirmed path must fence that
+     * snapshot (store generation) and publish a fresh POST-DDL read.
+     */
+    @Test
+    public void testForwardedDdlFencesInFlightPreDdlLoad() throws Exception {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            CountDownLatch readStarted = new CountDownLatch(1);
+            CountDownLatch releaseRead = new CountDownLatch(1);
+            AtomicInteger reads = new AtomicInteger();
+            BaselineManager.snapshotReaderForTest = () -> {
+                if (reads.incrementAndGet() == 1) {
+                    readStarted.countDown();
+                    try {
+                        releaseRead.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return Map.of(1L, baseline("d-pre", "p-pre")); // PRE-DDL snapshot
+                }
+                return Map.of(); // POST-DDL: the row is gone
+            };
+            manager.prepareLoadForTest();
+            Thread loader = new Thread(manager::loadFromInternalTable, "spm-pre-ddl-load");
+            loader.start();
+            Assertions.assertTrue(readStarted.await(5, TimeUnit.SECONDS),
+                    "the in-flight load must reach its snapshot read");
+
+            AtomicReference<Throwable> confirmationFailure = new AtomicReference<>();
+            Thread confirmer = new Thread(() -> {
+                try {
+                    manager.refreshAfterForwardedDdl();
+                } catch (Throwable t) {
+                    confirmationFailure.set(t);
+                }
+            }, "spm-ddl-confirm");
+            confirmer.start();
+            // give the confirmer time to fence the generation and start waiting for the
+            // load slot the loader still holds
+            Thread.sleep(200);
+            releaseRead.countDown();
+            loader.join(10_000);
+            confirmer.join(10_000);
+
+            Assertions.assertFalse(loader.isAlive(), "the pre-DDL load must finish");
+            Assertions.assertFalse(confirmer.isAlive(), "the confirmed refresh must finish");
+            Assertions.assertNull(confirmationFailure.get(),
+                    "the confirmed refresh must succeed: " + confirmationFailure.get());
+            Assertions.assertEquals(2, reads.get(),
+                    "the fence must discard the PRE-DDL snapshot and read again");
+            Assertions.assertFalse(manager.hasBaselines(),
+                    "the post-DDL (empty) snapshot must be the published state");
+        } finally {
+            manager.clearForTest();
+        }
     }
 }
