@@ -38,13 +38,6 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * <p>All dates are literals: no current_date(), so the expectation does not depend on the run date.
  */
 suite("test_ivm_overwrite_failure_between_the_halves", "nonConcurrent") {
-    // Cloud mode: the refresh's offsets are the local table stream's here, and this recovery is not verified
-    // against the cloud read state that replaces them.
-    if (isCloudMode()) {
-        logger.info("skip test_ivm_overwrite_failure_between_the_halves on cloud mode: " +
-                "the recovery is verified against the local table stream only")
-        return
-    }
     def mvName = "ivm_overwrite_halves_mv"
     def failPoint = "InsertOverwriteTableCommand.failBetweenTheTwoHalvesOfAnOverwrite"
 

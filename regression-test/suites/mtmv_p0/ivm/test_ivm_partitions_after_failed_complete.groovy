@@ -45,13 +45,6 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * <p>All dates are literals: no current_date(), so the expectation does not depend on the run date.
  */
 suite("test_ivm_partitions_after_failed_complete", "nonConcurrent") {
-    // Cloud mode: the injection targets the local insert path, which the cloud transaction manager never
-    // takes, so the refresh would succeed and there would be nothing to recover from.
-    if (isCloudMode()) {
-        logger.info("skip test_ivm_partitions_after_failed_complete on cloud mode: " +
-                "the insert failure injection only fires on the local txn path")
-        return
-    }
     def mvName = "ivm_failed_complete_mv"
     def rpcFailureDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure"
     def rpcFailureFilterDebugPoint = "AbstractInsertExecutor.executeSingleInsert.ivm_rpc_failure.filter"
